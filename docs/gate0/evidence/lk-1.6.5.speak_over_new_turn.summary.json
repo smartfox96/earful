@@ -1,0 +1,22 @@
+{
+  "versions": {
+    "livekit-agents": "1.6.5",
+    "livekit": "1.1.13",
+    "python": "3.13.12",
+    "platform": "Darwin-arm64"
+  },
+  "sink_can_pause": true,
+  "playouts_started_while_user_speaking": [],
+  "verdict_no_playout_starts_over_user": "pass",
+  "agent_states": [
+    "0.00 initializing->listening",
+    "3.00 listening->thinking",
+    "3.70 thinking->listening",
+    "5.10 listening->thinking",
+    "5.60 thinking->speaking",
+    "8.01 speaking->listening"
+  ],
+  "repeat_runs": 20,
+  "distinct_hashes": 1,
+  "framework_warnings": []
+}
