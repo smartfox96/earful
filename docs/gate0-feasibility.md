@@ -1,6 +1,6 @@
 # Gate 0: can a real LiveKit AgentSession be run deterministically?
 
-Status: **passed on macOS, Linux run pending.** 14 November 2026.
+Status: **passed.** 14 November 2026.
 
 ## Result
 
@@ -18,6 +18,9 @@ byte-identical normalized event ledger on every run.
 
 Each subprocess run used a different `PYTHONHASHSEED`. One hundred runs of an 11-second
 conversation take about 2.2 seconds of wall time.
+
+The hash for each release is the same on macOS arm64 and Linux x86_64, and on Python
+3.10, 3.12 and 3.13: 12 CI jobs, each matching the hash first recorded locally.
 
 Negative control: the same case on the real clock, with nothing patched, gave 3 distinct
 hashes in 3 runs, with the same 43 events in the same order. The hash is sensitive to
@@ -39,8 +42,8 @@ framework method is patched or wrapped to reach either failure.
 - macOS 27.2 on arm64, Python 3.13.12, uv 0.11.2.
 - `livekit-agents` 1.5.6, 1.5.7, 1.6.5, 1.6.6, 1.8.12 from PyPI. Exact dependency sets
   are in `compat/lk-<version>.lock.txt`.
-- Linux has not been run yet. `.github/workflows/ci.yml` runs the same checks on
-  `ubuntu-latest` and `macos-latest` once the repository is pushed.
+- CI (`.github/workflows/ci.yml`) repeats the tests and the 100 + 20 runs on
+  `ubuntu-latest` (x86_64; Python 3.10, 3.12, 3.13) and `macos-latest` (arm64).
 
 Old releases do not install cleanly against today's package index: 1.6.5 imports `httpx`
 without declaring it, and a fresh resolve no longer pulls it in. `scripts/make_env.sh`
@@ -137,8 +140,7 @@ deterministic.
 
 ## Limits of this result
 
-- **One platform so far.** macOS arm64, Python 3.13. Hashes across operating systems and
-  Python versions have not been compared.
+- **Two platforms.** macOS arm64 and Linux x86_64. Windows has not been run.
 - **Three short cases.** Determinism of longer or more concurrent conversations is not
   established.
 - **The sink is a model.** Its playout semantics follow LiveKit's test sink, not the real

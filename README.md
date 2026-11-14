@@ -3,7 +3,7 @@
 Deterministic regression tests for real-time voice agents. First target: LiveKit Agents
 (Python, cascaded STT-LLM-TTS).
 
-Status: design stage. Gate 0 (feasibility) has passed on macOS; see
+Status: design stage. Gate 0 (feasibility) has passed; see
 [`docs/gate0-feasibility.md`](docs/gate0-feasibility.md).
 
 ```bash
