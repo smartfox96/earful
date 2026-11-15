@@ -4,7 +4,8 @@ Deterministic regression tests for real-time voice agents. First target: LiveKit
 (Python, cascaded STT-LLM-TTS).
 
 Status: design stage. Gate 0 (feasibility) has passed; see
-[`docs/gate0-feasibility.md`](docs/gate0-feasibility.md).
+[`docs/gate0-feasibility.md`](docs/gate0-feasibility.md). The contracts Earful will check
+are specified in [`docs/contracts.md`](docs/contracts.md) (draft).
 
 ```bash
 scripts/gate0_all.sh    # builds five pinned environments and reproduces every Gate 0 result
