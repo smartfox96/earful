@@ -1,0 +1,23 @@
+{
+  "case": "book_then_interrupt",
+  "versions": {
+    "livekit-agents": "1.8.12",
+    "livekit": "1.2.1",
+    "python": "3.13.12",
+    "platform": "Darwin-arm64"
+  },
+  "reference_hash": "dc566feda9b838c84f52a6deab39a9856b7635519e43005bf5350593bd52e0da",
+  "events_per_run": 45,
+  "in_process_runs": 100,
+  "subprocess_runs": 20,
+  "distinct_hashes": 1,
+  "hash_counts": {
+    "dc566feda9b838c84f52a6deab39a9856b7635519e43005bf5350593bd52e0da": 120
+  },
+  "identical": true,
+  "problems": [],
+  "framework_warnings": [],
+  "clock_model_fields_patched": 24,
+  "clock_modules_skipped": [],
+  "virtual_seconds_per_run": 20.200002
+}

@@ -1,0 +1,23 @@
+{
+  "case": "barge_in_mid_word",
+  "versions": {
+    "livekit-agents": "1.5.6",
+    "livekit": "1.1.5",
+    "python": "3.13.12",
+    "platform": "Darwin-arm64"
+  },
+  "reference_hash": "59ae679d4efbdf404b1717cd877c099255960c784a38ef48df7032f55376d9ea",
+  "events_per_run": 43,
+  "in_process_runs": 100,
+  "subprocess_runs": 20,
+  "distinct_hashes": 1,
+  "hash_counts": {
+    "59ae679d4efbdf404b1717cd877c099255960c784a38ef48df7032f55376d9ea": 120
+  },
+  "identical": true,
+  "problems": [],
+  "framework_warnings": [],
+  "clock_model_fields_patched": 19,
+  "clock_modules_skipped": [],
+  "virtual_seconds_per_run": 13.2
+}

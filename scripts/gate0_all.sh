@@ -12,7 +12,10 @@ for entry in "${RELEASES[@]}"; do
   [ -x "$py" ] || scripts/make_env.sh "$version" "$as_of"
   echo "=== livekit-agents $version"
   "$py" -m pytest -q -p no:cacheprovider | tail -1
-  "$py" scripts/gate0_repeat.py --out "$OUT" | grep -E '"(distinct_hashes|identical)"'
+  "$py" scripts/gate0_repeat.py --check "$OUT" --out "$OUT" | grep -E '"(case|distinct_hashes|identical|matches_committed)"'
   "$py" scripts/gate0_3702_spike.py "$OUT" | grep -E '"(durable_reservations_for_one_intent|verdict_[a-z_]+)"'
   "$py" scripts/gate0_5509_spike.py "$OUT" | grep -E '"verdict_[a-z_]+"'
 done
+
+echo "=== negative control: real clock, nothing patched (must give different hashes)"
+"$py" scripts/gate0_realtime_control.py 2 | grep -E '"(distinct_hashes|kinds_identical)"'

@@ -1,6 +1,18 @@
 # Gate 0: can a real LiveKit AgentSession be run deterministically?
 
-Status: **passed.** 14 November 2026.
+Status: **passed.** 14 November 2026. Re-verified 15 November 2026 with every case under
+the full repeat and with CI asserting the recorded hashes.
+
+## Exit criteria
+
+Gate 0 is complete only when each of these is demonstrated.
+
+| Criterion | Where it is shown |
+| --- | --- |
+| The same scenario and seed give identical normalized ledgers on repeated runs | Result; `scripts/gate0_repeat.py` |
+| A full playout and memory event path is observable | Sample trace; `sink` and `llm` events in every ledger |
+| A public technical note states the exact versions, commands, sample trace, repeatability result, raw output and limits | This document and `docs/gate0/evidence/` |
+| If threads, timers or room requirements escape control, the supported boundary is stated | Supported boundary |
 
 ## Result
 
@@ -8,26 +20,33 @@ Yes, within a stated boundary. A real, unmodified `AgentSession` from five LiveK
 releases runs in-process against scripted providers on a virtual clock, and produces a
 byte-identical normalized event ledger on every run.
 
-| livekit-agents | Runs (in-process + subprocess) | Distinct ledger hashes | Version-specific code needed |
-| --- | --- | --- | --- |
-| 1.5.6 | 100 + 20 | 1 | none |
-| 1.5.7 | 100 + 20 | 1 | none |
-| 1.6.5 | 100 + 20 | 1 | none |
-| 1.6.6 | 100 + 20 | 1 | none |
-| 1.8.12 | 100 + 20 | 1 | none |
+| livekit-agents | Cases | Runs per case (in-process + subprocess) | Distinct ledger hashes per case | Version-specific code needed |
+| --- | --- | --- | --- | --- |
+| 1.5.6 | 3 | 100 + 20 | 1 | none |
+| 1.5.7 | 3 | 100 + 20 | 1 | none |
+| 1.6.5 | 3 | 100 + 20 | 1 | none |
+| 1.6.6 | 3 | 100 + 20 | 1 | none |
+| 1.8.12 | 3 | 100 + 20 | 1 | none |
 
-Each subprocess run used a different `PYTHONHASHSEED`. One hundred runs of an 11-second
-conversation take about 2.2 seconds of wall time.
+The three cases are `barge_in_mid_word`, `book_then_interrupt` (a tool call with a durable
+effect) and `speak_over_new_turn` (overlapping turns). Each subprocess run used a
+different `PYTHONHASHSEED`. One hundred runs of an 11-second conversation take about 2.2
+seconds of wall time.
 
-The hash for each release is the same on macOS arm64 and Linux x86_64, and on Python
-3.10, 3.12 and 3.13: 12 CI jobs, each matching the hash first recorded locally.
+For `barge_in_mid_word`, the hash for each release is the same on macOS arm64 and Linux
+x86_64, and on Python 3.10, 3.12 and 3.13: 12 CI jobs, each matching the hash first
+recorded locally (14 November, compared by reading the CI output). From 15 November CI
+asserts it for all three cases: a job fails unless each case's hash equals the SHA-256 of
+the ledger committed in `docs/gate0/evidence/`. The other two cases have been recorded on
+macOS arm64 only until that check first runs.
 
 Negative control: the same case on the real clock, with nothing patched, gave 3 distinct
 hashes in 3 runs, with the same 43 events in the same order. The hash is sensitive to
-timing; the virtual clock is what makes it stable.
+timing; the virtual clock is what makes it stable. CI runs this control on one job and
+fails if the real clock does not change the hash.
 
-Two things went beyond the gate's requirement. Both historical defects the project brief
-names already reproduce, using scripted timing alone:
+One thing went beyond the gate's requirement. Two historical LiveKit defects already
+reproduce, using scripted timing alone:
 
 | Case | Affected release | Repaired release | Evidence |
 | --- | --- | --- | --- |
@@ -42,8 +61,9 @@ framework method is patched or wrapped to reach either failure.
 - macOS 27.2 on arm64, Python 3.13.12, uv 0.11.2.
 - `livekit-agents` 1.5.6, 1.5.7, 1.6.5, 1.6.6, 1.8.12 from PyPI. Exact dependency sets
   are in `compat/lk-<version>.lock.txt`.
-- CI (`.github/workflows/ci.yml`) repeats the tests and the 100 + 20 runs on
-  `ubuntu-latest` (x86_64; Python 3.10, 3.12, 3.13) and `macos-latest` (arm64).
+- CI (`.github/workflows/ci.yml`) repeats the tests, the 100 + 20 runs of every case and
+  the two historical cases on `ubuntu-latest` (x86_64; Python 3.10, 3.12, 3.13) and
+  `macos-latest` (arm64).
 
 Old releases do not install cleanly against today's package index: 1.6.5 imports `httpx`
 without declaring it, and a fresh resolve no longer pulls it in. `scripts/make_env.sh`
@@ -56,7 +76,9 @@ scripts/gate0_all.sh                                      # everything below, al
 
 scripts/make_env.sh 1.6.5 2026-07-20                      # one pinned environment
 .venvs/lk-1.6.5/bin/python -m pytest -q                   # 8 tests
-.venvs/lk-1.6.5/bin/python scripts/gate0_repeat.py        # 100 + 20 runs, compare hashes
+.venvs/lk-1.6.5/bin/python scripts/gate0_repeat.py --check docs/gate0/evidence
+                                                          # 100 + 20 runs of every case; hashes must
+                                                          # agree with each other and with the record
 .venvs/lk-1.6.5/bin/python scripts/gate0_realtime_control.py 3   # negative control (~35 s)
 .venvs/lk-1.6.5/bin/python scripts/gate0_3702_spike.py    # run on 1.6.5, then on 1.6.6
 .venvs/lk-1.5.6/bin/python scripts/gate0_5509_spike.py    # run on 1.5.6, then on 1.5.7
@@ -65,7 +87,8 @@ scripts/make_env.sh 1.6.5 2026-07-20                      # one pinned environme
 
 Raw output is in `docs/gate0/evidence/`. A normalized ledger's hash can be checked with
 standard tools: `shasum -a 256 <file>.ledger.normalized.jsonl` equals `reference_hash` in
-the matching summary.
+the matching `.repeat.json`. Reproducing a result rewrites these files byte for byte, so
+`git status` stays clean after `scripts/gate0_all.sh`.
 
 ## Sample trace
 

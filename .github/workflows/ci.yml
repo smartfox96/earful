@@ -35,10 +35,17 @@ jobs:
         run: EARFUL_PYTHON=${{ matrix.python }} scripts/make_env.sh ${{ matrix.lk.version }} ${{ matrix.lk.as_of }}
       - name: Tests
         run: .venvs/lk-${{ matrix.lk.version }}/bin/python -m pytest -q
-      - name: Repeatability (100 in-process, 20 subprocess)
-        run: .venvs/lk-${{ matrix.lk.version }}/bin/python scripts/gate0_repeat.py --out evidence
-      - name: Cross-platform hash
-        run: cat evidence/*.summary.json | grep reference_hash
+      - name: Repeatability (every case, 100 in-process + 20 subprocess) and committed-hash check
+        run: >-
+          .venvs/lk-${{ matrix.lk.version }}/bin/python scripts/gate0_repeat.py
+          --check docs/gate0/evidence --out evidence
+      - name: Historical cases (#3702, #5509)
+        run: |
+          .venvs/lk-${{ matrix.lk.version }}/bin/python scripts/gate0_3702_spike.py evidence
+          .venvs/lk-${{ matrix.lk.version }}/bin/python scripts/gate0_5509_spike.py evidence
+      - name: Negative control (real clock must change the hash)
+        if: matrix.os == 'ubuntu-latest' && matrix.python == '3.13' && matrix.lk.version == '1.8.12'
+        run: .venvs/lk-${{ matrix.lk.version }}/bin/python scripts/gate0_realtime_control.py 2
       - uses: actions/upload-artifact@v4
         with:
           name: evidence-${{ matrix.lk.version }}-${{ matrix.os }}-py${{ matrix.python }}

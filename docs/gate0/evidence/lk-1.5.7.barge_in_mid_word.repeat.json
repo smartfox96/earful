@@ -1,24 +1,23 @@
 {
   "case": "barge_in_mid_word",
   "versions": {
-    "livekit-agents": "1.6.5",
-    "livekit": "1.1.13",
+    "livekit-agents": "1.5.7",
+    "livekit": "1.1.7",
     "python": "3.13.12",
     "platform": "Darwin-arm64"
   },
-  "reference_hash": "b1c81b800890063bad2e63666ab7fdc58dbf916f9b80f8a477b6fbadf1e8556e",
+  "reference_hash": "fbaf5f611d0f7e14f0560a32601a3819c027e06fc00cb267ac644a52b6e17e4d",
   "events_per_run": 43,
   "in_process_runs": 100,
   "subprocess_runs": 20,
   "distinct_hashes": 1,
   "hash_counts": {
-    "b1c81b800890063bad2e63666ab7fdc58dbf916f9b80f8a477b6fbadf1e8556e": 120
+    "fbaf5f611d0f7e14f0560a32601a3819c027e06fc00cb267ac644a52b6e17e4d": 120
   },
   "identical": true,
   "problems": [],
   "framework_warnings": [],
-  "clock_model_fields_patched": 23,
+  "clock_model_fields_patched": 19,
   "clock_modules_skipped": [],
-  "in_process_wall_seconds": 2.21,
-  "virtual_seconds_per_run": 11.2
+  "virtual_seconds_per_run": 13.2
 }
