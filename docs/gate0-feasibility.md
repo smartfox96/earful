@@ -33,12 +33,10 @@ effect) and `speak_over_new_turn` (overlapping turns). Each subprocess run used 
 different `PYTHONHASHSEED`. One hundred runs of an 11-second conversation take about 2.2
 seconds of wall time.
 
-For `barge_in_mid_word`, the hash for each release is the same on macOS arm64 and Linux
-x86_64, and on Python 3.10, 3.12 and 3.13: 12 CI jobs, each matching the hash first
-recorded locally (14 November, compared by reading the CI output). From 15 November CI
-asserts it for all three cases: a job fails unless each case's hash equals the SHA-256 of
-the ledger committed in `docs/gate0/evidence/`. The other two cases have been recorded on
-macOS arm64 only until that check first runs.
+For every case, the hash for each release is the same on macOS arm64 and Linux x86_64,
+and on Python 3.10, 3.12 and 3.13. CI asserts it: each of the 12 jobs fails unless every
+case's hash equals the SHA-256 of the ledger committed in `docs/gate0/evidence/`, which
+was recorded on macOS arm64. All 12 jobs pass.
 
 Negative control: the same case on the real clock, with nothing patched, gave 3 distinct
 hashes in 3 runs, with the same 43 events in the same order. The hash is sensitive to
