@@ -1,5 +1,13 @@
 # Gate 0: can a real LiveKit AgentSession be run deterministically?
 
+> **Historical record.** Everything below was produced with ledger schema
+> `earful.ledger/0` and is reproduced exactly by commit `70bbc4c`
+> (`git checkout 70bbc4c && scripts/gate0_all.sh`). Later commits record schema 1
+> (`docs/ledger.md`), rename the scripts and keep current golden ledgers in `tests/golden/`,
+> so hashes and evidence here no longer match current output. Two limits listed below are
+> addressed since: time is integer microseconds throughout, with same-instant timers fired
+> in scheduling order, and `compare_view` makes ledgers comparable across releases.
+
 Status: **passed.** 14 November 2026. Re-verified 15 November 2026 with every case under
 the full repeat and with CI asserting the recorded hashes.
 

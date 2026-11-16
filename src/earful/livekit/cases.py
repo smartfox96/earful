@@ -1,4 +1,4 @@
-"""Reference cases used by the Gate 0 feasibility runs."""
+"""Reference cases: one per behaviour the recorded ledgers and historical checks rest on."""
 
 from __future__ import annotations
 
@@ -7,8 +7,8 @@ from typing import Any
 import livekit.agents as lk
 
 from ..core.backend import EffectBackend
-from .harness import Case
-from .providers import Reply, ToolCall, UserSpeech
+from .harness import Case, Intent
+from .providers import Claim, Reply, ToolCall, UserSpeech
 
 LONG_REPLY = (
     "Tonight we have a roasted squash soup to start then grilled sea bass with lemon "
@@ -84,7 +84,7 @@ def _booking_policy(items: list[dict[str, Any]]) -> Reply:
     """
     booked = any(i["type"] == "function_call_output" for i in items)
     if booked:
-        return Reply(text="Your table is booked.")
+        return Reply(text="Your table is booked.", claims=(Claim(BOOKING_INTENT),))
     wants_booking = any(
         i["type"] == "message" and i.get("role") == "user" and "table" in (i.get("text") or "").lower()
         for i in items
@@ -119,6 +119,7 @@ def book_then_interrupt() -> Case:
             UserSpeech(start=5.0, end=6.0, transcript="Is the table by the window?"),
         ],
         policy=_booking_policy,
+        intents=[Intent(BOOKING_INTENT, tools=("create_reservation",))],
         drain_delay=12.0,
     )
 

@@ -16,9 +16,9 @@ env_dir="$root/.venvs/lk-$version"
 
 rm -rf "$env_dir"
 uv venv -q --python "${EARFUL_PYTHON:-3.13}" "$env_dir"
+# Earful's own dependencies are resolved together with the release, as of the same date.
 VIRTUAL_ENV="$env_dir" uv pip install -q --exclude-newer "$as_of" \
-  "livekit-agents==$version" pytest pytest-asyncio
-VIRTUAL_ENV="$env_dir" uv pip install -q --no-deps -e "$root"
+  -e "$root" "livekit-agents==$version" pytest pytest-asyncio
 VIRTUAL_ENV="$env_dir" uv pip freeze --exclude-editable > "$root/compat/lk-$version.lock.txt"
 
 "$env_dir/bin/python" -c 'import livekit.agents as a, livekit.rtc as r; print("livekit-agents", a.__version__, "| livekit", r.__version__)'

@@ -1,4 +1,4 @@
-"""Gate 0 repeatability check.
+"""Repeatability check.
 
 Runs each case many times and compares normalized ledger hashes:
 
@@ -6,14 +6,23 @@ Runs each case many times and compares normalized ledger hashes:
   * M runs in fresh subprocesses, each with a different PYTHONHASHSEED, so set and dict
     iteration order, object addresses and import order all vary between them.
 
+Every run must also be valid: its ledger validates against the schema and its validity
+counters are zero (earful.core.schema.validity).
+
 With --check DIR, the hash must also equal the SHA-256 of the ledger committed in DIR for
 the same release and case. That is the cross-platform and cross-Python assertion: the
-committed ledgers were recorded on one machine and every other machine must reproduce them.
+committed ledgers (tests/golden/) were recorded on one machine and every other machine
+must reproduce them. Checking never writes to DIR.
+
+With --update DIR, the ledger is written to DIR instead, and only if every run agreed.
+This is the one way the committed ledgers change; review the diff before committing it.
+
+With --out DIR, a summary and the ledger are written as evidence of this machine's result.
 
 Exit code 0 only if every hash is identical, for every case.
 
-    python scripts/gate0_repeat.py [case ...] [--in-process N] [--subprocess M]
-                                   [--out DIR] [--check DIR]
+    python scripts/repeat.py [case ...] [--in-process N] [--subprocess M]
+                             [--check DIR | --update DIR] [--out DIR]
 
 With no case named, all cases run.
 """
@@ -37,12 +46,11 @@ from earful.livekit.harness import run_case, versions
 
 
 def _one(case_name: str) -> dict:
-    result = run_case(CASES[case_name](), seed=0)
+    result = run_case(CASES[case_name](), seed=0, require_valid=False)
     return {
         "hash": result.hash,
         "events": len(result.ledger.events),
-        "stamp_errors": result.stamp_errors,
-        "executor_calls": result.executor_calls,
+        "invalid": result.invalid,
         "warnings": result.framework_warnings,
         "normalized": normalize(result.ledger.events),
     }
@@ -53,10 +61,14 @@ def main() -> int:
     parser.add_argument("cases", nargs="*", metavar="case", help="default: every case")
     parser.add_argument("--in-process", type=int, default=100)
     parser.add_argument("--subprocess", type=int, default=20)
-    parser.add_argument("--out", type=Path, default=None)
-    parser.add_argument("--check", type=Path, default=None, help="directory of committed ledgers")
+    parser.add_argument("--out", type=Path, default=None, help="write evidence here")
+    golden = parser.add_mutually_exclusive_group()
+    golden.add_argument("--check", type=Path, default=None, help="directory of committed ledgers")
+    golden.add_argument("--update", type=Path, default=None, help="rewrite committed ledgers")
     parser.add_argument("--one", action="store_true", help="internal: one run, JSON on stdout")
     args = parser.parse_args()
+    if args.out and args.check and args.out.resolve() == args.check.resolve():
+        parser.error("--out would overwrite the ledgers --check compares against; use --update")
 
     unknown = [c for c in args.cases if c not in CASES]
     if unknown:
@@ -74,20 +86,17 @@ def main() -> int:
 
 def _repeat(case: str, args: argparse.Namespace) -> bool:
     started = time.perf_counter()
-    reference = run_case(CASES[case](), seed=0)
+    reference = run_case(CASES[case](), seed=0, require_valid=False)
     ref_lines = normalize(reference.ledger.events)
     hashes: Counter[str] = Counter()
-    problems: list[str] = []
+    problems: list[str] = [f"reference run invalid: {r}" for r in reference.invalid[:10]]
 
     def record(label: str, run: dict) -> None:
         hashes[run["hash"]] += 1
         if run["hash"] != reference.hash:
             diff = first_difference(ref_lines, run["normalized"])
             problems.append(f"{label}: hash differs; first difference {diff}")
-        if run["stamp_errors"]:
-            problems.append(f"{label}: {run['stamp_errors']} audio stamp errors")
-        if run["executor_calls"]:
-            problems.append(f"{label}: {run['executor_calls']} executor calls left the virtual clock")
+        problems.extend(f"{label}: invalid: {reason}" for reason in run["invalid"][:3])
 
     for i in range(args.in_process):
         record(f"in-process #{i}", _one(case))
@@ -101,6 +110,7 @@ def _repeat(case: str, args: argparse.Namespace) -> bool:
             text=True,
             env=env,
             timeout=300,
+            check=False,  # a failed run is reported below, with its stderr
         )
 
     # Separate processes share nothing, so running them side by side changes only the wait.
@@ -153,14 +163,16 @@ def _repeat(case: str, args: argparse.Namespace) -> bool:
     }
     print(json.dumps(printed, indent=2))
 
+    ledger_name = f"{tag}.{case}.ledger.normalized.jsonl"
     if args.out:
         args.out.mkdir(parents=True, exist_ok=True)
         (args.out / f"{tag}.{case}.repeat.json").write_text(json.dumps(summary, indent=2) + "\n")
-        write_jsonl(
-            reference.ledger.events,
-            args.out / f"{tag}.{case}.ledger.normalized.jsonl",
-            normalized=True,
-        )
+        write_jsonl(reference.ledger.events, args.out / ledger_name, normalized=True)
+    if args.update:
+        if summary["identical"]:
+            write_jsonl(reference.ledger.events, args.update / ledger_name, normalized=True)
+        else:
+            print(f"not updating {args.update / ledger_name}: the runs did not agree", file=sys.stderr)
     return bool(summary["identical"])
 
 

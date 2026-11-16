@@ -10,6 +10,7 @@ jobs:
   determinism:
     name: lk ${{ matrix.lk.version }} / ${{ matrix.os }} / py${{ matrix.python }}
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
@@ -37,15 +38,15 @@ jobs:
         run: .venvs/lk-${{ matrix.lk.version }}/bin/python -m pytest -q
       - name: Repeatability (every case, 100 in-process + 20 subprocess) and committed-hash check
         run: >-
-          .venvs/lk-${{ matrix.lk.version }}/bin/python scripts/gate0_repeat.py
-          --check docs/gate0/evidence --out evidence
+          .venvs/lk-${{ matrix.lk.version }}/bin/python scripts/repeat.py
+          --check tests/golden --out evidence
       - name: Historical cases (#3702, #5509)
         run: |
-          .venvs/lk-${{ matrix.lk.version }}/bin/python scripts/gate0_3702_spike.py evidence
-          .venvs/lk-${{ matrix.lk.version }}/bin/python scripts/gate0_5509_spike.py evidence
+          .venvs/lk-${{ matrix.lk.version }}/bin/python scripts/spike_3702.py evidence
+          .venvs/lk-${{ matrix.lk.version }}/bin/python scripts/spike_5509.py evidence
       - name: Negative control (real clock must change the hash)
         if: matrix.os == 'ubuntu-latest' && matrix.python == '3.13' && matrix.lk.version == '1.8.12'
-        run: .venvs/lk-${{ matrix.lk.version }}/bin/python scripts/gate0_realtime_control.py 2
+        run: .venvs/lk-${{ matrix.lk.version }}/bin/python scripts/realtime_control.py 2
       - uses: actions/upload-artifact@v4
         with:
           name: evidence-${{ matrix.lk.version }}-${{ matrix.os }}-py${{ matrix.python }}

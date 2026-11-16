@@ -1,0 +1,313 @@
+# Ledger
+
+Schema: **`earful.ledger/1`**, 16 November 2026.
+
+A ledger is the complete record of one run. It is the only input to the checker
+(`docs/contracts.md`), so anything a contract needs must be in it. One JSON object per
+line, append-only, in the order events happened.
+
+The shape of every event is defined by a JSON Schema (draft 2020-12) shipped with the
+package: [`src/earful/core/schemas/earful.ledger-1.schema.json`](../src/earful/core/schemas/earful.ledger-1.schema.json).
+That file is normative. Any JSON Schema validator, in any language, can check a ledger
+line against it. This document explains the events and lists the rules that span lines,
+which a per-line schema cannot express; `earful.core.schema.validate` applies both. A test
+keeps this document and the schema in step.
+
+## Envelope
+
+```json
+{"schema": "earful.ledger/1", "run": "run-5f0c2a9be41d7c03", "seq": 17, "t_us": 3300000, "source": "sink", "kind": "playout.started", "data": {...}}
+```
+
+| Field | Meaning |
+| --- | --- |
+| `schema` | Always `earful.ledger/1` |
+| `run` | Identifies the run. A digest of the data of `run.start`, so two runs share it exactly when they declare the same case, seed, framework release, clock, scenario and contract policy. What then happened is identified by the ledger hash |
+| `seq` | Position in the ledger, from 0. The total order of the run: "before" means lower `seq` |
+| `t_us` | Virtual time in integer microseconds. Never decreases |
+| `source` | The witness that observed the event: `world`, `llm`, `sink`, `backend`, `framework` or `harness`. `docs/contracts.md` section 2 says which may decide a verdict |
+| `kind` | What happened. Earful-owned kinds are listed below; `fw.*` kinds are the framework's own events |
+| `data` | The event's fields. For Earful-owned kinds, exactly the fields listed: none missing, none extra |
+
+Each event is a snapshot taken when it is recorded. Nothing a tool or provider does to its
+own objects afterwards changes the ledger, and data that JSON cannot hold is refused at
+the point it is recorded.
+
+## Time
+
+Time in Earful is an integer count of microseconds. Scenario authors write seconds;
+Earful converts once and does all of its own arithmetic in integers: the clock, the
+scripted providers, the sink and the ledger. A float appears only where a framework API
+requires one, as a single division of an exact integer. A scripted speech that has lasted
+500 000 µs is therefore reported to the framework as exactly 0.5 s, and a framework
+threshold is decided by the scripted times, never by accumulated rounding.
+
+The virtual clock moves in 1 µs ticks. Timers due within the same microsecond fire in the
+order they were scheduled. Time starts at 0 when the run's event loop starts.
+
+Scenario times (speech start and end) are offsets from the **origin**: the first audio
+frame the scripted user's providers receive, recorded as `user.origin`. The absolute time
+of a speech boundary is `t_us` of `user.origin` plus its offset.
+
+Fields inside `data` that end in `_us` are microseconds too: absolute virtual time when
+they name an instant (`words_completed_us`), a duration otherwise (`ttft_us`,
+`played_us`).
+
+Audio is counted in whole samples. A sample is consumed once it has played in full, so a
+playout position between two samples rounds down, and a word's completion time is the
+first microsecond at which its last sample has played.
+
+## Identifiers
+
+All are deterministic: the same run gives the same identifiers.
+
+| Identifier | Assigned by | Scope |
+| --- | --- | --- |
+| `run` | Digest of `run.start` | One run |
+| `speech` | Scenario order, from 0 | One scripted user utterance |
+| `call` | Scripted model, from 1 | One model call; its request, its response and the reply it produced |
+| `utterance` | Scripted TTS, from 1 | One synthesized text |
+| stamp | Scripted TTS, from 1 | One synthesized word. Written into every audio sample of that word |
+| `segment` | Sink, from 1, at a segment's first frame | One playout segment, audible or not |
+| `tool` | Tool witness, from 1 | One invocation of a witnessed tool |
+| `call_id` | The model | Links a tool invocation to the model's tool call and to the framework's chat items |
+| `request` | Backend, from 1 | One write request |
+| `receipt` | Backend | One committed effect |
+| `intent` | Scenario | One logical action |
+
+Framework identifiers (chat item and speech ids) are random. Normalization replaces them
+with ordinals; see Hashing.
+
+## Event kinds
+
+### harness
+
+| Kind | Fields |
+| --- | --- |
+| `run.start` | `case`, `seed`, `framework` (`name`, `version`), `clock` (`virtual`, or `real` for a control run), `scenario` (below), `contracts` (contract id to policy values; a contract that is absent uses its defaults). Always the first event |
+| `history.final` | `read_from`, `items` (context items, below): the framework's chat history, read back at the end of the run. Framework state, usable only as a judged record |
+| `run.end` | `stamp_errors`, `executor_calls`, `underruns`, `harness_errors`, `framework_warnings`. Always the last event. See Validity |
+
+`scenario` holds what the test author declared:
+
+| Field | Contents |
+| --- | --- |
+| `speeches` | Per speech: `speech`, `start_us`, `end_us` (offsets from the origin), `transcript` (empty for noise), `stt_delay_us`, `expects_reply`, `backchannel`, `retires` (intents it corrects or cancels) |
+| `intents` | Per intent: `intent`, `tools`, `authorized` (durable effects allowed) |
+| `session` | The framework options the contracts depend on: `min_interruption_duration_us`, `false_interruption_timeout_us`, `min_endpointing_delay_us`, `max_endpointing_delay_us`, `turn_detection`, and `extra_options` (any further options, by name, with their values) |
+| `providers` | `vad` (`min_speech_us`, `min_silence_us`), `tts` (`seconds_per_word_us`, `ttfb_us`), `sink` (`can_pause`), `backend` (`mode`: `plain` or `keyed`) |
+
+The four `session` times are declared by the scenario and cannot be set any other way.
+After constructing the session, the harness reads the same options back from it; a
+difference is a harness error and the run is invalid. The header therefore states what
+the framework was actually configured with.
+
+The ledger names the framework release because verdicts are interpreted against it. It
+does not name the Python version or the platform: those do not change what a run means,
+and a ledger must hash the same on every machine. They belong to a run's manifest.
+
+### world: the scripted user
+
+| Kind | Fields | When |
+| --- | --- | --- |
+| `user.origin` | `by` (`vad` or `stt`) | The scripted user's clock starts. Once per run |
+| `user.vad_start` | `speech` | The scripted VAD reports speech to the framework: true start plus `min_speech_us` |
+| `user.vad_end` | `speech` | The scripted VAD reports silence: true end plus `min_silence_us` |
+| `user.transcript_final` | `speech`, `text` | The scripted STT delivers the final transcript: true end plus `stt_delay_us` |
+
+### world: synthesis and tools
+
+| Kind | Fields | When |
+| --- | --- | --- |
+| `tts.synthesized` | `utterance`, `call`, `attribution`, `text`, `stamps` (one per word), `samples_per_word`, `sample_rate`, `ttfb_us` | The TTS receives a complete text |
+| `tool.called` | `tool`, `name`, `call_id`, `arguments` (by parameter name) | A witnessed tool starts |
+| `tool.returned` | `tool`, `name`, `output`, `text` | It returns |
+| `tool.raised` | `tool`, `name`, `error` (exception type), `message` | It raises |
+| `tool.cancelled` | `tool`, `name` | It is cancelled |
+
+`attribution` says which model reply a synthesized text belongs to. Only replies not yet
+synthesized are candidates. `unique`: exactly one reply has this text. `prefix`: none
+matches in full and exactly one starts with it. `ambiguous`: more than one fits. `none`:
+nothing fits. `call` is set exactly when attribution is `unique` or `prefix`. Earful never
+guesses between candidates; contracts that need attribution treat the other two as
+unobservable.
+
+Tools are witnessed without changing the agent. The harness replaces each function tool
+of the agent it is given with a recording copy, through the agent's public `tools` and
+`update_tools`. A tool the harness cannot reach (one belonging to an agent created during
+the run) is witnessed only if it is wrapped with `earful.livekit.tools.witnessed`. Each
+`tool.called` is followed by at most one of the other three.
+
+A tool's result is recorded twice. `output` is the returned value itself, as JSON. `text`
+is that value as the framework documents presenting it to the model (for livekit-agents,
+`str(value)`), computed by Earful from the value the tool returned and not read from the
+framework. A contract compares what the model was shown with `text`. A value JSON cannot
+hold, such as an object or an agent handoff, is recorded as
+`{"unrepresentable": "<type name>"}` and its `text` is null: its default text form would
+put a memory address in the ledger.
+
+### llm: the scripted model
+
+| Kind | Fields | When |
+| --- | --- | --- |
+| `llm.request` | `call`, `items` | The framework asks for a completion. `items` is the context exactly as presented, in order |
+| `llm.response` | `call`, `text`, `tool_calls`, `claims`, `ttft_us`, `duration_us` | The model decides its answer, before streaming it |
+
+Each entry of `tool_calls` has `name`, `arguments` (the argument text exactly as the model
+produced it) and `call_id`.
+
+`claims` lists spans of the reply that tell the user an intent succeeded: `intent`,
+`first_word`, `last_word` (0-based, inclusive).
+
+**Context items.** `llm.request` and `history.final` carry the same item shape, reduced to
+the fields contracts use. Every item has `type` and `id`.
+
+| `type` | Further fields |
+| --- | --- |
+| `message` | `role`, `text`, `interrupted` |
+| `function_call` | `name`, `arguments`, `call_id` |
+| `function_call_output` | `name`, `output`, `call_id`, `is_error` |
+| anything else | none. Framework bookkeeping, such as a handoff marker |
+
+### sink: commands received
+
+| Kind | Fields | When |
+| --- | --- | --- |
+| `sink.pause` | `segment` | The framework asks the output to pause, and the output was not already asked to |
+| `sink.resume` | `segment` | The framework asks it to resume, and it had last been asked to pause |
+| `sink.clear` | `segment` | The framework asks it to discard buffered audio |
+| `sink.flush` | `segment` | The framework marks the end of a segment's audio |
+
+`segment` is null when no segment has audio.
+
+Pause belongs to the output, not to a segment, as in livekit-agents' room output. Once
+paused, the output plays nothing, including a segment that arrives later, until it is
+resumed; clearing a segment does not resume it. The framework repeats pause on every VAD
+update. Because pausing a paused output changes nothing, only changes of the requested
+state are recorded, and no information is lost.
+
+### sink: what playout did
+
+| Kind | Fields | When |
+| --- | --- | --- |
+| `playout.started` | `segment`, `utterance` | A segment becomes audible |
+| `playout.paused` | `segment`, `played_us` | An audible segment stops being audible on a pause |
+| `playout.resumed` | `segment`, `played_us` | It becomes audible again |
+| `playout.finished` | `segment`, `interrupted`, `audible`, `utterances`, `position_us`, `pushed_us`, `words_played`, `words_completed_us`, `word_cut`, `word_cut_samples`, `text_played` | A segment ends, played out or cleared |
+
+`words_played` are the stamps whose every sample was consumed, and `words_completed_us`
+the instant each one's last sample was consumed. `word_cut` is the stamp the playout
+position stopped inside, if any, and `word_cut_samples` how many of its samples played.
+`audible` is false for a segment cleared before it ever started; such a segment has no
+`playout.started`.
+
+### backend
+
+| Kind | Fields | When |
+| --- | --- | --- |
+| `effect.requested` | `request`, `intent`, `key`, `payload`, `tool`, `latency_us` | A tool asks for a write. `tool` is the witnessed invocation that asked, if any |
+| `effect.committed` | `request`, `intent`, `key`, `receipt`, `count_for_intent` | The write becomes durable |
+| `effect.deduplicated` | `request`, `intent`, `key`, `receipt` | In `keyed` mode, the key already committed; the original receipt is returned |
+
+A keyed backend decides whether a key is a repeat at the moment the write would become
+durable, not when it was requested, so two overlapping writes with one key commit once.
+
+A write that fails is not recorded yet. It arrives with backend faults.
+
+### framework
+
+`fw.*` events are the framework's public events, recorded as explanation. Their fields are
+adapter-defined. Each carries `created_us`, the framework's own timestamp for the event.
+They never decide a verdict.
+
+## Rules that span events
+
+`validate` applies the JSON Schema to every line and then checks:
+
+- the ledger begins with its only `run.start` and ends with its only `run.end`;
+- `seq` counts from 0 without gaps, and `t_us` never decreases;
+- every event carries the same `run`, and it is the digest of `run.start`. Editing the
+  header of a recorded ledger is detected;
+- speeches are numbered in order, end no earlier than they start, and scripted-user
+  events name a declared speech and come after the origin;
+- every intent named by a write, a claim or a speech's `retires` is declared, once. A
+  misspelt intent is an error; it cannot quietly leave a contract with nothing to check;
+- each model call is requested once and answered once; a claim fits inside its reply;
+- an attributed synthesis names a call that has answered, and no call is attributed
+  twice; there is one stamp per word;
+- each tool invocation and each backend request has at most one outcome, a commit or
+  deduplication carries its request's intent, and a deduplication names a receipt that was
+  committed;
+- segments start at most once and finish at most once, `audible` matches whether the
+  segment started, and every played word has a completion time, in order and no later
+  than the event.
+
+## Validity
+
+A run produces verdicts only if it is valid. `earful.core.schema.validity` is the single
+definition; it reads only the ledger and returns every reason a run is not valid:
+
+- the ledger does not validate;
+- `clock` is not `virtual`;
+- `stamp_errors` is not zero: audio reached the sink altered;
+- `executor_calls` is not zero: work left the virtual clock for a thread;
+- `underruns` is not zero: playout ran ahead of the audio it had been given, so word
+  times are unreliable;
+- `harness_errors` is not empty: Earful's own simulation or recording failed. Examples: a
+  recording handler raised, the scripted providers disagreed about the origin, a declared
+  session option differs from the one the session holds, a scripted claim does not fit
+  its reply.
+
+`framework_warnings` is recorded but does not invalidate a run.
+
+The harness refuses to return an invalid run unless asked to: `run_case` raises
+`InvalidRun`, which carries the result so the ledger can still be inspected.
+
+## Hashing
+
+A ledger is normalized before hashing: keys are sorted, separators are fixed, and random
+framework identifiers (`item_3f2a…`) are replaced by first-appearance ordinals
+(`item_#1`). The hash is SHA-256 over the normalized lines, each followed by a newline,
+so `shasum -a 256` of a normalized ledger file equals its hash.
+
+## Reference ledgers
+
+`tests/golden/` holds one normalized ledger per case and supported release. Every
+platform must reproduce them byte for byte: the test suite compares a fresh run with the
+committed file, and `scripts/repeat.py --check` does the same over 120 runs.
+
+Checking never writes. `scripts/check_all.sh --update` is the one way the reference
+ledgers change; the diff it produces is reviewed like any other change.
+
+## Comparing releases
+
+`compare_view` in `src/earful/core/ledger.py` drops what differs between releases for
+reasons unrelated to behaviour: the release itself (`framework` in `run.start`, and the
+run id derived from it) and the framework's `created_us`, which drifts by microseconds
+because each release reads the wall clock a different number of times per step.
+Everything else is kept. On `barge_in_mid_word`, the comparison views of 1.6.6 and 1.8.12
+differ only in when the session closes.
+
+## Versioning
+
+Adding a kind, or a field to a kind, is a new schema version, because the schema rejects
+unknown kinds and fields. Each version has its own schema file. Every version change
+regenerates the reference ledgers.
+
+## Changes from `earful.ledger/0`
+
+Schema 0 was used for Gate 0 (`docs/gate0-feasibility.md`); commit `70bbc4c` reproduces it.
+
+- Added: a published JSON Schema; the run id; the framework release and clock in the
+  header; the scenario header; `user.origin`; tool events; `effect.requested` and
+  `effect.deduplicated`; sink commands; claims; provider delays; TTS attribution; word
+  completion times; validity counters and harness errors.
+- Changed: segments are numbered at their first frame, so a segment cleared before it
+  became audible has its own number. Pause and resume are recorded as commands
+  (`sink.*`) separately from their effect (`playout.*`), and a pause outlives the segment
+  it was issued during.
+- Time: same-instant timers were ordered by nudging their due times apart by a
+  nanosecond each, which moved events by up to a few microseconds, and the scripted
+  providers computed durations in floating point; either could move a threshold decision
+  by one VAD tick. Time is now integer microseconds throughout, and same-instant timers
+  fire in scheduling order.

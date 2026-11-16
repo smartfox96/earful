@@ -1,0 +1,1878 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:earful:ledger:1",
+  "title": "Earful ledger event",
+  "description": "One line of an earful.ledger/1 file. A ledger is one JSON object per line, in the order events happened. Rules that span lines (order, references between events) are listed in docs/ledger.md.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "run",
+    "seq",
+    "t_us",
+    "source",
+    "kind",
+    "data"
+  ],
+  "properties": {
+    "schema": {
+      "const": "earful.ledger/1"
+    },
+    "run": {
+      "description": "Identifies the run: a digest of the data of its run.start event.",
+      "type": "string",
+      "pattern": "^run-[0-9a-f]{16}$"
+    },
+    "seq": {
+      "description": "Position in the ledger, from 0. The total order of the run.",
+      "type": "integer",
+      "minimum": 0
+    },
+    "t_us": {
+      "description": "Time of the event in microseconds since the run's event loop started. Never decreases.",
+      "type": "integer",
+      "minimum": 0
+    },
+    "source": {
+      "description": "The witness that observed the event.",
+      "enum": [
+        "world",
+        "llm",
+        "sink",
+        "backend",
+        "framework",
+        "harness"
+      ]
+    },
+    "kind": {
+      "description": "What happened.",
+      "anyOf": [
+        {
+          "enum": [
+            "run.start",
+            "history.final",
+            "run.end",
+            "user.origin",
+            "user.vad_start",
+            "user.vad_end",
+            "user.transcript_final",
+            "tts.synthesized",
+            "tool.called",
+            "tool.returned",
+            "tool.raised",
+            "tool.cancelled",
+            "llm.request",
+            "llm.response",
+            "sink.pause",
+            "sink.resume",
+            "sink.clear",
+            "sink.flush",
+            "playout.started",
+            "playout.paused",
+            "playout.resumed",
+            "playout.finished",
+            "effect.requested",
+            "effect.committed",
+            "effect.deduplicated"
+          ]
+        },
+        {
+          "pattern": "^fw\\."
+        }
+      ]
+    },
+    "data": {
+      "type": "object"
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "kind": {
+            "const": "run.start"
+          }
+        },
+        "required": [
+          "kind"
+        ]
+      },
+      "then": {
+        "properties": {
+          "source": {
+            "const": "harness"
+          },
+          "data": {
+            "$ref": "#/$defs/run.start"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "kind": {
+            "const": "history.final"
+          }
+        },
+        "required": [
+          "kind"
+        ]
+      },
+      "then": {
+        "properties": {
+          "source": {
+            "const": "harness"
+          },
+          "data": {
+            "$ref": "#/$defs/history.final"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "kind": {
+            "const": "run.end"
+          }
+        },
+        "required": [
+          "kind"
+        ]
+      },
+      "then": {
+        "properties": {
+          "source": {
+            "const": "harness"
+          },
+          "data": {
+            "$ref": "#/$defs/run.end"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "kind": {
+            "const": "user.origin"
+          }
+        },
+        "required": [
+          "kind"
+        ]
+      },
+      "then": {
+        "properties": {
+          "source": {
+            "const": "world"
+          },
+          "data": {
+            "$ref": "#/$defs/user.origin"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "kind": {
+            "const": "user.vad_start"
+          }
+        },
+        "required": [
+          "kind"
+        ]
+      },
+      "then": {
+        "properties": {
+          "source": {
+            "const": "world"
+          },
+          "data": {
+            "$ref": "#/$defs/user.vad_start"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "kind": {
+            "const": "user.vad_end"
+          }
+        },
+        "required": [
+          "kind"
+        ]
+      },
+      "then": {
+        "properties": {
+          "source": {
+            "const": "world"
+          },
+          "data": {
+            "$ref": "#/$defs/user.vad_end"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "kind": {
+            "const": "user.transcript_final"
+          }
+        },
+        "required": [
+          "kind"
+        ]
+      },
+      "then": {
+        "properties": {
+          "source": {
+            "const": "world"
+          },
+          "data": {
+            "$ref": "#/$defs/user.transcript_final"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "kind": {
+            "const": "tts.synthesized"
+          }
+        },
+        "required": [
+          "kind"
+        ]
+      },
+      "then": {
+        "properties": {
+          "source": {
+            "const": "world"
+          },
+          "data": {
+            "$ref": "#/$defs/tts.synthesized"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "kind": {
+            "const": "tool.called"
+          }
+        },
+        "required": [
+          "kind"
+        ]
+      },
+      "then": {
+        "properties": {
+          "source": {
+            "const": "world"
+          },
+          "data": {
+            "$ref": "#/$defs/tool.called"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "kind": {
+            "const": "tool.returned"
+          }
+        },
+        "required": [
+          "kind"
+        ]
+      },
+      "then": {
+        "properties": {
+          "source": {
+            "const": "world"
+          },
+          "data": {
+            "$ref": "#/$defs/tool.returned"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "kind": {
+            "const": "tool.raised"
+          }
+        },
+        "required": [
+          "kind"
+        ]
+      },
+      "then": {
+        "properties": {
+          "source": {
+            "const": "world"
+          },
+          "data": {
+            "$ref": "#/$defs/tool.raised"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "kind": {
+            "const": "tool.cancelled"
+          }
+        },
+        "required": [
+          "kind"
+        ]
+      },
+      "then": {
+        "properties": {
+          "source": {
+            "const": "world"
+          },
+          "data": {
+            "$ref": "#/$defs/tool.cancelled"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "kind": {
+            "const": "llm.request"
+          }
+        },
+        "required": [
+          "kind"
+        ]
+      },
+      "then": {
+        "properties": {
+          "source": {
+            "const": "llm"
+          },
+          "data": {
+            "$ref": "#/$defs/llm.request"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "kind": {
+            "const": "llm.response"
+          }
+        },
+        "required": [
+          "kind"
+        ]
+      },
+      "then": {
+        "properties": {
+          "source": {
+            "const": "llm"
+          },
+          "data": {
+            "$ref": "#/$defs/llm.response"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "kind": {
+            "const": "sink.pause"
+          }
+        },
+        "required": [
+          "kind"
+        ]
+      },
+      "then": {
+        "properties": {
+          "source": {
+            "const": "sink"
+          },
+          "data": {
+            "$ref": "#/$defs/sink.pause"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "kind": {
+            "const": "sink.resume"
+          }
+        },
+        "required": [
+          "kind"
+        ]
+      },
+      "then": {
+        "properties": {
+          "source": {
+            "const": "sink"
+          },
+          "data": {
+            "$ref": "#/$defs/sink.resume"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "kind": {
+            "const": "sink.clear"
+          }
+        },
+        "required": [
+          "kind"
+        ]
+      },
+      "then": {
+        "properties": {
+          "source": {
+            "const": "sink"
+          },
+          "data": {
+            "$ref": "#/$defs/sink.clear"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "kind": {
+            "const": "sink.flush"
+          }
+        },
+        "required": [
+          "kind"
+        ]
+      },
+      "then": {
+        "properties": {
+          "source": {
+            "const": "sink"
+          },
+          "data": {
+            "$ref": "#/$defs/sink.flush"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "kind": {
+            "const": "playout.started"
+          }
+        },
+        "required": [
+          "kind"
+        ]
+      },
+      "then": {
+        "properties": {
+          "source": {
+            "const": "sink"
+          },
+          "data": {
+            "$ref": "#/$defs/playout.started"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "kind": {
+            "const": "playout.paused"
+          }
+        },
+        "required": [
+          "kind"
+        ]
+      },
+      "then": {
+        "properties": {
+          "source": {
+            "const": "sink"
+          },
+          "data": {
+            "$ref": "#/$defs/playout.paused"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "kind": {
+            "const": "playout.resumed"
+          }
+        },
+        "required": [
+          "kind"
+        ]
+      },
+      "then": {
+        "properties": {
+          "source": {
+            "const": "sink"
+          },
+          "data": {
+            "$ref": "#/$defs/playout.resumed"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "kind": {
+            "const": "playout.finished"
+          }
+        },
+        "required": [
+          "kind"
+        ]
+      },
+      "then": {
+        "properties": {
+          "source": {
+            "const": "sink"
+          },
+          "data": {
+            "$ref": "#/$defs/playout.finished"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "kind": {
+            "const": "effect.requested"
+          }
+        },
+        "required": [
+          "kind"
+        ]
+      },
+      "then": {
+        "properties": {
+          "source": {
+            "const": "backend"
+          },
+          "data": {
+            "$ref": "#/$defs/effect.requested"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "kind": {
+            "const": "effect.committed"
+          }
+        },
+        "required": [
+          "kind"
+        ]
+      },
+      "then": {
+        "properties": {
+          "source": {
+            "const": "backend"
+          },
+          "data": {
+            "$ref": "#/$defs/effect.committed"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "kind": {
+            "const": "effect.deduplicated"
+          }
+        },
+        "required": [
+          "kind"
+        ]
+      },
+      "then": {
+        "properties": {
+          "source": {
+            "const": "backend"
+          },
+          "data": {
+            "$ref": "#/$defs/effect.deduplicated"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "kind": {
+            "pattern": "^fw\\."
+          }
+        },
+        "required": [
+          "kind"
+        ]
+      },
+      "then": {
+        "properties": {
+          "source": {
+            "const": "framework"
+          },
+          "data": {
+            "$ref": "#/$defs/fw.*"
+          }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "microseconds": {
+      "description": "A time or duration in microseconds.",
+      "type": "integer",
+      "minimum": 0
+    },
+    "count": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "ordinal": {
+      "description": "An identifier assigned in order of first appearance, from 1.",
+      "type": "integer",
+      "minimum": 1
+    },
+    "stamp": {
+      "description": "Identifies one synthesized word. Written into every audio sample of that word.",
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 32767
+    },
+    "speech_index": {
+      "description": "Position of a scripted user speech in the scenario, from 0.",
+      "type": "integer",
+      "minimum": 0
+    },
+    "intent_id": {
+      "description": "Names a logical action declared in the scenario.",
+      "type": "string",
+      "minLength": 1
+    },
+    "scenario": {
+      "description": "What the test author declared.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "speeches",
+        "intents",
+        "session",
+        "providers"
+      ],
+      "properties": {
+        "speeches": {
+          "type": "array",
+          "items": {
+            "description": "One scripted user utterance.",
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "speech",
+              "start_us",
+              "end_us",
+              "transcript",
+              "stt_delay_us",
+              "expects_reply",
+              "backchannel",
+              "retires"
+            ],
+            "properties": {
+              "speech": {
+                "$ref": "#/$defs/speech_index"
+              },
+              "start_us": {
+                "$ref": "#/$defs/microseconds",
+                "description": "True start, as an offset from user.origin."
+              },
+              "end_us": {
+                "$ref": "#/$defs/microseconds",
+                "description": "True end, as an offset from user.origin."
+              },
+              "transcript": {
+                "type": "string",
+                "description": "What the user says. Empty for noise."
+              },
+              "stt_delay_us": {
+                "$ref": "#/$defs/microseconds",
+                "description": "Delay from the true end to the final transcript."
+              },
+              "expects_reply": {
+                "type": "boolean",
+                "description": "The agent owes this turn a response."
+              },
+              "backchannel": {
+                "type": "boolean",
+                "description": "The user is acknowledging, not taking the floor."
+              },
+              "retires": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/intent_id"
+                },
+                "description": "Intents this turn corrects or cancels."
+              }
+            }
+          }
+        },
+        "intents": {
+          "type": "array",
+          "items": {
+            "description": "A logical action the user wants done.",
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "intent",
+              "tools",
+              "authorized"
+            ],
+            "properties": {
+              "intent": {
+                "$ref": "#/$defs/intent_id"
+              },
+              "tools": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "Names of the tools that carry it out."
+              },
+              "authorized": {
+                "$ref": "#/$defs/count",
+                "description": "Durable effects the scenario allows for it."
+              }
+            }
+          }
+        },
+        "session": {
+          "description": "The framework options the contracts depend on, as passed to the framework and read back from it.",
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "min_interruption_duration_us",
+            "false_interruption_timeout_us",
+            "min_endpointing_delay_us",
+            "max_endpointing_delay_us",
+            "turn_detection",
+            "extra_options"
+          ],
+          "properties": {
+            "min_interruption_duration_us": {
+              "$ref": "#/$defs/microseconds"
+            },
+            "false_interruption_timeout_us": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/microseconds"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "min_endpointing_delay_us": {
+              "$ref": "#/$defs/microseconds"
+            },
+            "max_endpointing_delay_us": {
+              "$ref": "#/$defs/microseconds"
+            },
+            "turn_detection": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "description": "Null: the framework's default for these providers."
+            },
+            "extra_options": {
+              "type": "object",
+              "description": "Any further options passed to the framework, by name. A value JSON cannot hold is recorded as {\"unrepresentable\": <type name>}."
+            }
+          }
+        },
+        "providers": {
+          "description": "How the scripted providers were configured.",
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "vad",
+            "tts",
+            "sink",
+            "backend"
+          ],
+          "properties": {
+            "vad": {
+              "description": "Scripted voice activity detector.",
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "min_speech_us",
+                "min_silence_us"
+              ],
+              "properties": {
+                "min_speech_us": {
+                  "$ref": "#/$defs/microseconds"
+                },
+                "min_silence_us": {
+                  "$ref": "#/$defs/microseconds"
+                }
+              }
+            },
+            "tts": {
+              "description": "Scripted speech synthesizer.",
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "seconds_per_word_us",
+                "ttfb_us"
+              ],
+              "properties": {
+                "seconds_per_word_us": {
+                  "$ref": "#/$defs/microseconds"
+                },
+                "ttfb_us": {
+                  "$ref": "#/$defs/microseconds"
+                }
+              }
+            },
+            "sink": {
+              "description": "Audio output.",
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "can_pause"
+              ],
+              "properties": {
+                "can_pause": {
+                  "type": "boolean"
+                }
+              }
+            },
+            "backend": {
+              "description": "Effect backend.",
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "mode"
+              ],
+              "properties": {
+                "mode": {
+                  "enum": [
+                    "plain",
+                    "keyed"
+                  ],
+                  "description": "plain: every write commits. keyed: a repeated idempotency key is deduplicated."
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "context_item": {
+      "description": "One item of a model context or chat history, reduced to the fields contracts use.",
+      "type": "object",
+      "required": [
+        "type",
+        "id"
+      ],
+      "properties": {
+        "type": {
+          "type": "string"
+        },
+        "id": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "The framework's identifier for the item."
+        }
+      },
+      "if": {
+        "properties": {
+          "type": {
+            "const": "message"
+          }
+        }
+      },
+      "then": {
+        "$ref": "#/$defs/context_message"
+      },
+      "else": {
+        "if": {
+          "properties": {
+            "type": {
+              "const": "function_call"
+            }
+          }
+        },
+        "then": {
+          "$ref": "#/$defs/context_function_call"
+        },
+        "else": {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "function_call_output"
+              }
+            }
+          },
+          "then": {
+            "$ref": "#/$defs/context_function_call_output"
+          },
+          "else": {
+            "description": "Any other item type carries no further fields.",
+            "additionalProperties": false,
+            "properties": {
+              "type": true,
+              "id": true
+            }
+          }
+        }
+      }
+    },
+    "context_message": {
+      "description": "A message.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "type",
+        "id",
+        "role",
+        "text",
+        "interrupted"
+      ],
+      "properties": {
+        "type": {
+          "const": "message"
+        },
+        "id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "role": {
+          "type": "string",
+          "description": "system, user or assistant."
+        },
+        "text": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "interrupted": {
+          "type": "boolean",
+          "description": "The framework marked the message as cut short."
+        }
+      }
+    },
+    "context_function_call": {
+      "description": "A tool call the model made.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "type",
+        "id",
+        "name",
+        "arguments",
+        "call_id"
+      ],
+      "properties": {
+        "type": {
+          "const": "function_call"
+        },
+        "id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "name": {
+          "type": "string"
+        },
+        "arguments": {
+          "type": "string",
+          "description": "Argument text as the model produced it."
+        },
+        "call_id": {
+          "type": "string"
+        }
+      }
+    },
+    "context_function_call_output": {
+      "description": "The result of a tool call, as shown to the model.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "type",
+        "id",
+        "name",
+        "output",
+        "call_id",
+        "is_error"
+      ],
+      "properties": {
+        "type": {
+          "const": "function_call_output"
+        },
+        "id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "name": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "output": {
+          "type": "string"
+        },
+        "call_id": {
+          "type": "string"
+        },
+        "is_error": {
+          "type": "boolean"
+        }
+      }
+    },
+    "run.start": {
+      "description": "Always the first event. Declares what was run; the run id is a digest of this object.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "case",
+        "seed",
+        "framework",
+        "clock",
+        "scenario",
+        "contracts"
+      ],
+      "properties": {
+        "case": {
+          "type": "string",
+          "description": "Name of the case."
+        },
+        "seed": {
+          "type": "integer",
+          "description": "Seed for every random choice in the run."
+        },
+        "framework": {
+          "description": "The framework under test.",
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "name",
+            "version"
+          ],
+          "properties": {
+            "name": {
+              "type": "string"
+            },
+            "version": {
+              "type": "string"
+            }
+          }
+        },
+        "clock": {
+          "enum": [
+            "virtual",
+            "real"
+          ],
+          "description": "virtual: the deterministic clock. real: a control run; never valid evidence."
+        },
+        "scenario": {
+          "$ref": "#/$defs/scenario"
+        },
+        "contracts": {
+          "type": "object",
+          "propertyNames": {
+            "pattern": "^(A[1-3]|M[12]|L[12])$"
+          },
+          "additionalProperties": {
+            "type": "object"
+          },
+          "description": "Contract id to the policy values declared for it. A contract that is absent uses its defaults."
+        }
+      }
+    },
+    "history.final": {
+      "description": "The framework's chat history, read back at the end of the run. Framework state: usable only as a judged record.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "read_from",
+        "items"
+      ],
+      "properties": {
+        "read_from": {
+          "type": "string",
+          "description": "Where the history was read from."
+        },
+        "items": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/context_item"
+          }
+        }
+      }
+    },
+    "run.end": {
+      "description": "Always the last event. Carries the counters that decide whether the run is valid.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "stamp_errors",
+        "executor_calls",
+        "underruns",
+        "harness_errors",
+        "framework_warnings"
+      ],
+      "properties": {
+        "stamp_errors": {
+          "$ref": "#/$defs/count",
+          "description": "Audio samples that reached the sink altered."
+        },
+        "executor_calls": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/count"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Pieces of work that left the virtual clock for a thread. Null on the real clock."
+        },
+        "underruns": {
+          "$ref": "#/$defs/count",
+          "description": "Times playout ran ahead of the audio it had been given, which makes word times unreliable."
+        },
+        "harness_errors": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Errors in Earful's own simulation or recording."
+        },
+        "framework_warnings": {
+          "$ref": "#/$defs/count",
+          "description": "Warnings the framework logged. Recorded; does not invalidate a run."
+        }
+      }
+    },
+    "user.origin": {
+      "description": "The scripted user's clock starts: the first audio frame a scripted provider receives. Once per run.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "by"
+      ],
+      "properties": {
+        "by": {
+          "enum": [
+            "vad",
+            "stt"
+          ],
+          "description": "The provider that received the frame first."
+        }
+      }
+    },
+    "user.vad_start": {
+      "description": "The scripted VAD reports speech to the framework: true start plus min_speech_us.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "speech"
+      ],
+      "properties": {
+        "speech": {
+          "$ref": "#/$defs/speech_index"
+        }
+      }
+    },
+    "user.vad_end": {
+      "description": "The scripted VAD reports silence: true end plus min_silence_us.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "speech"
+      ],
+      "properties": {
+        "speech": {
+          "$ref": "#/$defs/speech_index"
+        }
+      }
+    },
+    "user.transcript_final": {
+      "description": "The scripted STT delivers the final transcript: true end plus stt_delay_us.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "speech",
+        "text"
+      ],
+      "properties": {
+        "speech": {
+          "$ref": "#/$defs/speech_index"
+        },
+        "text": {
+          "type": "string"
+        }
+      }
+    },
+    "tts.synthesized": {
+      "description": "The scripted TTS receives a complete text.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "utterance",
+        "call",
+        "attribution",
+        "text",
+        "stamps",
+        "samples_per_word",
+        "sample_rate",
+        "ttfb_us"
+      ],
+      "properties": {
+        "utterance": {
+          "$ref": "#/$defs/ordinal"
+        },
+        "call": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ordinal"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The model call whose reply this text belongs to. Set exactly when attribution is unique or prefix."
+        },
+        "attribution": {
+          "enum": [
+            "unique",
+            "prefix",
+            "ambiguous",
+            "none"
+          ],
+          "description": "How the text was matched to a reply not yet synthesized. unique: exactly one reply has this text. prefix: none matches in full and exactly one starts with it. ambiguous: more than one fits. none: nothing fits."
+        },
+        "text": {
+          "type": "string"
+        },
+        "stamps": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/stamp"
+          },
+          "description": "One stamp per word, in order."
+        },
+        "samples_per_word": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Audio samples carrying each word's stamp."
+        },
+        "sample_rate": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Samples per second."
+        },
+        "ttfb_us": {
+          "$ref": "#/$defs/microseconds",
+          "description": "Delay before the first audio, as scripted."
+        }
+      }
+    },
+    "tool.called": {
+      "description": "A witnessed tool starts.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "tool",
+        "name",
+        "call_id",
+        "arguments"
+      ],
+      "properties": {
+        "tool": {
+          "$ref": "#/$defs/ordinal"
+        },
+        "name": {
+          "type": "string"
+        },
+        "call_id": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "The id the model gave the call. Null if the tool was not called by the framework."
+        },
+        "arguments": {
+          "type": "object",
+          "description": "The arguments the tool received, by parameter name."
+        }
+      }
+    },
+    "tool.returned": {
+      "description": "A witnessed tool returns.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "tool",
+        "name",
+        "output",
+        "text"
+      ],
+      "properties": {
+        "tool": {
+          "$ref": "#/$defs/ordinal"
+        },
+        "name": {
+          "type": "string"
+        },
+        "output": {
+          "description": "The returned value. A value JSON cannot hold is recorded as {\"unrepresentable\": <type name>}."
+        },
+        "text": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "The returned value as the framework documents presenting it to the model. Null when the value has no stable text form."
+        }
+      }
+    },
+    "tool.raised": {
+      "description": "A witnessed tool raises.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "tool",
+        "name",
+        "error",
+        "message"
+      ],
+      "properties": {
+        "tool": {
+          "$ref": "#/$defs/ordinal"
+        },
+        "name": {
+          "type": "string"
+        },
+        "error": {
+          "type": "string",
+          "description": "Exception type."
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    },
+    "tool.cancelled": {
+      "description": "A witnessed tool is cancelled before it finishes.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "tool",
+        "name"
+      ],
+      "properties": {
+        "tool": {
+          "$ref": "#/$defs/ordinal"
+        },
+        "name": {
+          "type": "string"
+        }
+      }
+    },
+    "llm.request": {
+      "description": "The framework asks the scripted model for a completion.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "call",
+        "items"
+      ],
+      "properties": {
+        "call": {
+          "$ref": "#/$defs/ordinal"
+        },
+        "items": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/context_item"
+          },
+          "description": "The context exactly as presented, in order."
+        }
+      }
+    },
+    "llm.response": {
+      "description": "The scripted model decides its answer, before streaming it.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "call",
+        "text",
+        "tool_calls",
+        "claims",
+        "ttft_us",
+        "duration_us"
+      ],
+      "properties": {
+        "call": {
+          "$ref": "#/$defs/ordinal"
+        },
+        "text": {
+          "type": "string"
+        },
+        "tool_calls": {
+          "type": "array",
+          "items": {
+            "description": "A tool call the model makes.",
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "name",
+              "arguments",
+              "call_id"
+            ],
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "arguments": {
+                "type": "string",
+                "description": "Argument text exactly as the model produced it."
+              },
+              "call_id": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "claims": {
+          "type": "array",
+          "items": {
+            "description": "A span of the reply that tells the user an intent succeeded. Word indices are 0-based and inclusive.",
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "intent",
+              "first_word",
+              "last_word"
+            ],
+            "properties": {
+              "intent": {
+                "$ref": "#/$defs/intent_id"
+              },
+              "first_word": {
+                "$ref": "#/$defs/count"
+              },
+              "last_word": {
+                "$ref": "#/$defs/count"
+              }
+            }
+          }
+        },
+        "ttft_us": {
+          "$ref": "#/$defs/microseconds",
+          "description": "Time to the first token, as scripted."
+        },
+        "duration_us": {
+          "$ref": "#/$defs/microseconds",
+          "description": "Total generation time, as scripted."
+        }
+      }
+    },
+    "sink.pause": {
+      "description": "The framework asks the output to pause, and the output was not already asked to.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "segment"
+      ],
+      "properties": {
+        "segment": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ordinal"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The segment holding audio at that moment, if any."
+        }
+      }
+    },
+    "sink.resume": {
+      "description": "The framework asks the output to resume, and it had last been asked to pause.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "segment"
+      ],
+      "properties": {
+        "segment": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ordinal"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The segment holding audio at that moment, if any."
+        }
+      }
+    },
+    "sink.clear": {
+      "description": "The framework asks the output to discard buffered audio.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "segment"
+      ],
+      "properties": {
+        "segment": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ordinal"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The segment holding audio at that moment, if any."
+        }
+      }
+    },
+    "sink.flush": {
+      "description": "The framework marks the end of a segment's audio.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "segment"
+      ],
+      "properties": {
+        "segment": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ordinal"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The segment holding audio at that moment, if any."
+        }
+      }
+    },
+    "playout.started": {
+      "description": "A segment becomes audible.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "segment",
+        "utterance"
+      ],
+      "properties": {
+        "segment": {
+          "$ref": "#/$defs/ordinal"
+        },
+        "utterance": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ordinal"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The first utterance in the segment."
+        }
+      }
+    },
+    "playout.paused": {
+      "description": "An audible segment stops being audible on a pause.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "segment",
+        "played_us"
+      ],
+      "properties": {
+        "segment": {
+          "$ref": "#/$defs/ordinal"
+        },
+        "played_us": {
+          "$ref": "#/$defs/microseconds",
+          "description": "Audio played so far."
+        }
+      }
+    },
+    "playout.resumed": {
+      "description": "A paused segment becomes audible again.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "segment",
+        "played_us"
+      ],
+      "properties": {
+        "segment": {
+          "$ref": "#/$defs/ordinal"
+        },
+        "played_us": {
+          "$ref": "#/$defs/microseconds",
+          "description": "Audio played so far."
+        }
+      }
+    },
+    "playout.finished": {
+      "description": "A segment ends: played out, or cleared.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "segment",
+        "interrupted",
+        "audible",
+        "utterances",
+        "position_us",
+        "pushed_us",
+        "words_played",
+        "words_completed_us",
+        "word_cut",
+        "word_cut_samples",
+        "text_played"
+      ],
+      "properties": {
+        "segment": {
+          "$ref": "#/$defs/ordinal"
+        },
+        "interrupted": {
+          "type": "boolean",
+          "description": "True if the segment was cleared before all its audio played."
+        },
+        "audible": {
+          "type": "boolean",
+          "description": "False for a segment cleared before it ever started; such a segment has no playout.started."
+        },
+        "utterances": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ordinal"
+          },
+          "description": "Utterances with audio in the segment, in order."
+        },
+        "position_us": {
+          "$ref": "#/$defs/microseconds",
+          "description": "Audio played when the segment ended."
+        },
+        "pushed_us": {
+          "$ref": "#/$defs/microseconds",
+          "description": "Audio the segment was given."
+        },
+        "words_played": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/stamp"
+          },
+          "description": "Words whose every sample was consumed."
+        },
+        "words_completed_us": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/microseconds"
+          },
+          "description": "For each played word, the absolute time its last sample was consumed."
+        },
+        "word_cut": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/stamp"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The word the playout position stopped inside, if any."
+        },
+        "word_cut_samples": {
+          "$ref": "#/$defs/count",
+          "description": "How many samples of the cut word were consumed."
+        },
+        "text_played": {
+          "type": "string",
+          "description": "The played words, joined by spaces."
+        }
+      }
+    },
+    "effect.requested": {
+      "description": "A tool asks the backend for a write.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "request",
+        "intent",
+        "key",
+        "payload",
+        "tool",
+        "latency_us"
+      ],
+      "properties": {
+        "request": {
+          "$ref": "#/$defs/ordinal"
+        },
+        "intent": {
+          "$ref": "#/$defs/intent_id"
+        },
+        "key": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Idempotency key, if the tool supplied one."
+        },
+        "payload": {
+          "type": "object"
+        },
+        "tool": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ordinal"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The witnessed tool invocation that asked, if any."
+        },
+        "latency_us": {
+          "$ref": "#/$defs/microseconds",
+          "description": "Time the backend takes before the write is durable, as scripted."
+        }
+      }
+    },
+    "effect.committed": {
+      "description": "The write becomes durable.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "request",
+        "intent",
+        "key",
+        "receipt",
+        "count_for_intent"
+      ],
+      "properties": {
+        "request": {
+          "$ref": "#/$defs/ordinal"
+        },
+        "intent": {
+          "$ref": "#/$defs/intent_id"
+        },
+        "key": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "receipt": {
+          "type": "string"
+        },
+        "count_for_intent": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Durable effects for the intent, including this one."
+        }
+      }
+    },
+    "effect.deduplicated": {
+      "description": "On a keyed backend, the key had already committed; the original receipt is returned and nothing new is written.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "request",
+        "intent",
+        "key",
+        "receipt"
+      ],
+      "properties": {
+        "request": {
+          "$ref": "#/$defs/ordinal"
+        },
+        "intent": {
+          "$ref": "#/$defs/intent_id"
+        },
+        "key": {
+          "type": "string"
+        },
+        "receipt": {
+          "type": "string"
+        }
+      }
+    },
+    "fw.*": {
+      "description": "A public event of the framework under test, recorded as explanation. Fields are adapter-defined. Never decides a verdict.",
+      "type": "object",
+      "required": [
+        "created_us"
+      ],
+      "properties": {
+        "created_us": {
+          "description": "The framework's own timestamp for the event, if it has one.",
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      }
+    }
+  }
+}

@@ -26,7 +26,7 @@ Every ledger event names the witness that observed it.
 
 | Witness | What it knows | How it knows |
 | --- | --- | --- |
-| `world` | What the scripted user said and when; what text was synthesized; when each tool was called and what it returned | Earful's own scripted providers and tool wrapper did these things |
+| `world` | What the scripted user said and when; what text was synthesized; when each tool was called and what it returned | Earful's own scripted providers and tool witness did these things |
 | `sink` | Which audio samples were consumed and when; every pause, resume and clear it was told to perform | It is the audio output, and reads word stamps out of the samples |
 | `backend` | Every write requested, committed, deduplicated or failed | It is the store the tools write to |
 | `llm` | The exact context shown to the model on each call, and what the model answered | It is the scripted model |
@@ -63,9 +63,13 @@ A run produces verdicts only if all of these hold. Otherwise it is **invalid** a
 no verdict for any contract.
 
 1. The ledger validates against its schema and ends with `run.end`.
-2. No audio frame reached the sink altered.
-3. No work left the virtual clock for a thread.
-4. The harness recorded no error of its own.
+2. The run was on the virtual clock, and no work left it for a thread.
+3. No audio sample reached the sink altered.
+4. Playout never ran ahead of the audio it had been given.
+5. The harness recorded no error of its own.
+
+All five are decided from the ledger alone, by one function
+(`earful.core.schema.validity`); `docs/ledger.md` lists what each reads.
 
 ## 3. Played audio
 
@@ -223,11 +227,11 @@ and every completed tool call, once each, in order.
 | Rule a, user turns | The user text in the context, read in order, is a prefix of the delivered transcripts read in order. Nothing invented, duplicated or reordered |
 | Rule b, no loss | A delivered transcript is present in every context requested more than `user_commit_lag` after its delivery, and never disappears once it has appeared |
 | Rule c, replies | The assistant messages, read in order, match scripted replies one to one in the order the model gave them, each message a prefix of its reply. No reply is matched twice. Order decides the match, so two replies with the same text stay distinct |
-| Rule d, tool calls | For each tool call that returned before the context was requested, the context holds exactly one call item and exactly one result item, the result after the call and carrying the returned value. A result with no witnessed return fails |
+| Rule d, tool calls | For each tool call that returned before the context was requested, the context holds exactly one call item and exactly one result item, the result after the call and carrying the returned value: its text equals the `text` the tool witness recorded. A result with no witnessed return fails |
 | Rule e, causal order | Each reply comes after the user turns that were in the context it was generated from |
 | Discard policies | `noise`: speech with no transcript leaves no turn. `backchannel`: its transcript may be present or absent. `cancelled_tool`: a call cancelled before it returned needs no result |
 | Policy | `user_commit_lag` (default 1.0 s, *provisional*; in every recorded ledger the lag is zero) |
-| Unobservable | Rule d for a tool that is not wrapped, so its return was not witnessed |
+| Unobservable | Rule d for a tool that was not witnessed. The value comparison in rule d, for a result with no stable text form (`text` is null); presence and order are still checked |
 | Not judged | How much of an interrupted reply is kept. That is M1 |
 | Deliberate break | A public agent hook that removes tool results from the context before the model call; a second variant that repeats a user turn |
 | Clean control | The unmodified agent |
@@ -302,22 +306,24 @@ documentation it was compared against.
 
 ## 8. What the ledger must record
 
-These are requirements on ledger v1. The right-hand column is the gap against
-`earful.ledger/0`.
+These are requirements on the ledger. `docs/ledger.md` defines each event named here.
 
-| Requirement | Needed by | Today |
+| Requirement | Needed by | Recorded in `earful.ledger/1` |
 | --- | --- | --- |
-| Scenario declarations and policy values in the run header | all | Absent. The checker would have to import the scenario |
-| True start and end of each user speech | L1, L2 | Only VAD events, offset by detection delay |
-| Completion time of each played word | A3, M1 | Derivable from segment events; not recorded |
-| Which scripted reply each synthesized utterance belongs to | A3, M1, M2, L1 | Matched by text only |
-| Tool wrapper events: called, returned, raised, cancelled | M2, L1 | Absent |
-| Backend events: requested, committed, deduplicated, failed, with idempotency key | A1, A2, A3 | Only committed |
-| Claims on a scripted reply | A3 | Absent |
-| Delays each scripted provider applied | L1 | In the scenario, not the ledger |
-| Pause, resume and clear commands as the sink received them | L2 | Pause and resume; a clear appears only as an interrupted finish |
-| Final chat history, labelled as framework state | M1, M2 | Present, unlabelled |
-| Identifiers: run, speech, model call, reply, utterance, segment, tool call, intent | all | Partial |
+| Scenario declarations and policy values in the run header | all | `run.start`: `scenario`, `contracts` |
+| The framework release and the clock the run used | all | `run.start`: `framework`, `clock` |
+| Session options the references are computed from, confirmed against the session | L1, L2 | `run.start`: `scenario.session`; a mismatch is a harness error |
+| Everything that decides validity | all | `run.start`: `clock`; `run.end`: `stamp_errors`, `executor_calls`, `underruns`, `harness_errors` |
+| True start and end of each user speech | L1, L2 | Speech offsets in `run.start`, plus `user.origin` |
+| Completion time of each played word | A3, M1 | `playout.finished`: `words_completed_us` |
+| Which scripted reply each synthesized utterance belongs to | A3, M1, M2, L1 | `tts.synthesized`: `call`, `attribution` |
+| Tool witness events: called, returned, raised, cancelled, with the returned value as the model should be shown it | M2, L1 | `tool.called`, `tool.returned` (`output`, `text`), `tool.raised`, `tool.cancelled` |
+| Backend events: requested, committed, deduplicated, failed, with idempotency key | A1, A2, A3 | `effect.requested`, `effect.committed`, `effect.deduplicated`. **Failed is not yet recorded**: it arrives with backend faults |
+| Claims on a scripted reply | A3 | `llm.response`: `claims` |
+| Delays each scripted provider applied | L1 | `llm.response`: `ttft_us`, `duration_us`; `tts.synthesized`: `ttfb_us`; `effect.requested`: `latency_us`; VAD and STT delays in `run.start` |
+| Pause, resume and clear commands as the sink received them | L2 | `sink.pause`, `sink.resume`, `sink.clear`, `sink.flush` |
+| Model contexts and the final chat history, item by item, the latter labelled as framework state | M1, M2 | `llm.request`: `items`; `history.final`: `read_from`, `items`. One item shape, defined in the schema |
+| Identifiers: run, speech, model call, reply, utterance, segment, tool call, intent | all | `docs/ledger.md`, Identifiers. A reply is identified by its model `call`. Every intent an event names must be declared |
 
 ## 9. Decisions taken
 

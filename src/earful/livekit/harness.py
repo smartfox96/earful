@@ -16,8 +16,11 @@ from livekit.agents import utils
 from livekit.agents.voice import io
 from livekit.agents.voice.transcription.synchronizer import TranscriptSynchronizer
 
-from ..core.backend import EffectBackend
+from ..core.backend import BackendMode, EffectBackend
 from ..core.ledger import Ledger, ledger_hash
+from ..core.schema import validity
+from ..core.timebase import to_us
+from . import tools
 from .clock import WALL_CLOCK_EPOCH, ClockPatchReport, VirtualTimeLoop, now_us, run_virtual
 from .providers import (
     Policy,
@@ -26,9 +29,51 @@ from .providers import (
     ScriptedVAD,
     StampedTTS,
     UserSpeech,
+    WorldOrigin,
     summarize_item,
 )
 from .sink import ClockedSink
+
+# A real-clock control run that has not finished after this many seconds has hung.
+REAL_CLOCK_TIMEOUT = 120.0
+# On the real clock, VAD and STT see the first frame microseconds apart.
+REAL_CLOCK_ORIGIN_TOLERANCE_US = 5_000
+
+# Session options a Case declares through its own fields. The ledger header states them
+# and contract L2 computes its reference from them, so nothing else may set them.
+_DECLARED_OPTIONS = frozenset(
+    {
+        "vad",
+        "stt",
+        "llm",
+        "tts",
+        "turn_handling",
+        "turn_detection",
+        "min_endpointing_delay",
+        "max_endpointing_delay",
+        "min_interruption_duration",
+        "false_interruption_timeout",
+    }
+)
+_CONTRACTS = frozenset({"A1", "A2", "A3", "M1", "M2", "L1", "L2"})
+
+
+class InvalidRun(RuntimeError):
+    """The run finished but may not be used as evidence. ``result`` holds its ledger."""
+
+    def __init__(self, reasons: list[str], result: RunResult) -> None:
+        super().__init__("run is invalid: " + "; ".join(reasons))
+        self.reasons = reasons
+        self.result = result
+
+
+@dataclass(frozen=True)
+class Intent:
+    """A logical action the user wants done, carried out by the named tools."""
+
+    intent: str
+    tools: tuple[str, ...] = ()
+    authorized: int = 1  # durable effects the scenario allows for this intent
 
 
 @dataclass
@@ -39,15 +84,38 @@ class Case:
     agent: Callable[[EffectBackend], lk.Agent]
     speeches: list[UserSpeech]
     policy: Policy
+    intents: list[Intent] = field(default_factory=list)
+    contracts: dict[str, dict[str, Any]] = field(default_factory=dict)  # id -> policy values
+    backend_mode: BackendMode = "plain"
     seconds_per_word: float = 0.3
     tts_ttfb: float = 0.2
+    vad_min_speech: float = 0.05
+    vad_min_silence: float = 0.5
     sink_can_pause: bool = True
     min_interruption_duration: float = 0.5
     false_interruption_timeout: float = 2.0
     min_endpointing_delay: float = 0.5
     max_endpointing_delay: float = 6.0
     drain_delay: float = 5.0
+    # Further AgentSession options. The options a Case declares through its own fields
+    # cannot be set here.
     session_kwargs: dict[str, Any] = field(default_factory=dict)
+
+    def check(self) -> None:
+        """Refuse a scenario that contradicts itself, before anything runs."""
+        clash = sorted(_DECLARED_OPTIONS & self.session_kwargs.keys())
+        if clash:
+            raise ValueError(f"session_kwargs may not set {clash}: use the Case fields")
+        unknown = sorted(self.contracts.keys() - _CONTRACTS)
+        if unknown:
+            raise ValueError(f"unknown contracts {unknown}; choose from {sorted(_CONTRACTS)}")
+        names = [it.intent for it in self.intents]
+        if len(set(names)) != len(names):
+            raise ValueError("an intent is declared more than once")
+        for speech in self.speeches:
+            undeclared = sorted(set(speech.retires) - set(names))
+            if undeclared:
+                raise ValueError(f"speech at {speech.start} s retires undeclared intents {undeclared}")
 
 
 @dataclass
@@ -59,8 +127,11 @@ class RunResult:
     versions: dict[str, str]
     clock: ClockPatchReport
     stamp_errors: int
-    executor_calls: int
+    executor_calls: int | None
+    underruns: int
+    harness_errors: list[str]
     framework_warnings: list[str]
+    invalid: list[str]  # reasons the run may not be used as evidence; empty when valid
 
 
 class _ScriptedAudioInput(io.AudioInput):
@@ -119,6 +190,75 @@ def _session_kwargs(case: Case) -> dict[str, Any]:
     return kwargs
 
 
+def _declared_session(case: Case) -> dict[str, int | None]:
+    return {
+        "min_interruption_duration_us": to_us(case.min_interruption_duration),
+        "false_interruption_timeout_us": to_us(case.false_interruption_timeout),
+        "min_endpointing_delay_us": to_us(case.min_endpointing_delay),
+        "max_endpointing_delay_us": to_us(case.max_endpointing_delay),
+    }
+
+
+def _effective_session(session: lk.AgentSession) -> dict[str, int | None]:
+    """The same options as the constructed session holds them, read through its public
+    ``options``. The header states what was declared; this is how Earful knows the
+    framework took it."""
+    interruption, endpointing = session.options.interruption, session.options.endpointing
+
+    def us(value: float | None) -> int | None:
+        return None if value is None else to_us(value)
+
+    return {
+        "min_interruption_duration_us": us(interruption["min_duration"]),
+        "false_interruption_timeout_us": us(interruption["false_interruption_timeout"]),
+        "min_endpointing_delay_us": us(endpointing["min_delay"]),
+        "max_endpointing_delay_us": us(endpointing["max_delay"]),
+    }
+
+
+def _header(case: Case) -> dict[str, Any]:
+    """The scenario as declared, so the checker never has to import it."""
+    return {
+        "speeches": [
+            {
+                "speech": i,
+                "start_us": sp.start_us,
+                "end_us": sp.end_us,
+                "transcript": sp.transcript,
+                "stt_delay_us": sp.stt_delay_us,
+                "expects_reply": sp.owes_reply,
+                "backchannel": sp.backchannel,
+                "retires": list(sp.retires),
+            }
+            for i, sp in enumerate(sorted(case.speeches, key=lambda sp: sp.start))
+        ],
+        "intents": [
+            {"intent": it.intent, "tools": list(it.tools), "authorized": it.authorized}
+            for it in case.intents
+        ],
+        "session": {
+            **_declared_session(case),
+            "turn_detection": None,
+            "extra_options": {
+                name: tools.json_value(case.session_kwargs[name])
+                for name in sorted(case.session_kwargs)
+            },
+        },
+        "providers": {
+            "vad": {
+                "min_speech_us": to_us(case.vad_min_speech),
+                "min_silence_us": to_us(case.vad_min_silence),
+            },
+            "tts": {
+                "seconds_per_word_us": to_us(case.seconds_per_word),
+                "ttfb_us": to_us(case.tts_ttfb),
+            },
+            "sink": {"can_pause": case.sink_can_pause},
+            "backend": {"mode": case.backend_mode},
+        },
+    }
+
+
 def _created_us(ev: Any) -> int | None:
     created = getattr(ev, "created_at", None)
     return round((created - WALL_CLOCK_EPOCH) * 1_000_000) if created is not None else None
@@ -174,25 +314,41 @@ class _WarningCollector(logging.Handler):
 
 
 async def _run(case: Case, seed: int) -> RunResult:
+    case.check()
     random.seed(seed)
     loop = asyncio.get_running_loop()
-    if isinstance(loop, VirtualTimeLoop):
+    virtual = isinstance(loop, VirtualTimeLoop)
+    if virtual:
         ledger = Ledger(now_us)
     else:  # real-clock control run: times are relative to the start of the run
-        origin = loop.time()
-        ledger = Ledger(lambda: round((loop.time() - origin) * 1_000_000))
-    ledger.append("harness", "run.start", case=case.name, seed=seed)
+        started_us = now_us()
+        ledger = Ledger(lambda: now_us() - started_us)
 
+    # Errors in Earful's own simulation or recording. Any of them makes the run invalid.
+    harness_errors: list[str] = []
     warnings = _WarningCollector()
     lk_logger = logging.getLogger("livekit.agents")
     lk_logger.addHandler(warnings)
+    witness_token = tools.install(tools.ToolWitness(ledger))
 
-    stt = ScriptedSTT(ledger, case.speeches)
-    tts = StampedTTS(ledger, seconds_per_word=case.seconds_per_word, ttfb=case.tts_ttfb)
+    world_origin = WorldOrigin(
+        ledger, harness_errors, tolerance_us=0 if virtual else REAL_CLOCK_ORIGIN_TOLERANCE_US
+    )
+    stt = ScriptedSTT(ledger, case.speeches, world_origin)
+    model = ScriptedLLM(ledger, case.policy, harness_errors)
+    tts = StampedTTS(
+        ledger, model.register, seconds_per_word=case.seconds_per_word, ttfb=case.tts_ttfb
+    )
     session = lk.AgentSession(
-        vad=ScriptedVAD(ledger, case.speeches),
+        vad=ScriptedVAD(
+            ledger,
+            case.speeches,
+            world_origin,
+            min_speech_duration=case.vad_min_speech,
+            min_silence_duration=case.vad_min_silence,
+        ),
         stt=stt,
-        llm=ScriptedLLM(ledger, case.policy),
+        llm=model,
         tts=tts,
         **_session_kwargs(case),
     )
@@ -203,30 +359,57 @@ async def _run(case: Case, seed: int) -> RunResult:
     session.input.audio = audio_in
     session.output.audio = sync.audio_output
     session.output.transcription = sync.text_output
-    harness_errors: list[str] = []
+
+    declared, effective = _declared_session(case), _effective_session(session)
+    for name in declared:
+        if declared[name] != effective[name]:
+            harness_errors.append(
+                f"declared {name} = {declared[name]}, but the session holds {effective[name]}"
+            )
+    ledger.append(
+        "harness",
+        "run.start",
+        case=case.name,
+        seed=seed,
+        framework={"name": "livekit-agents", "version": lk.__version__},
+        clock="virtual" if virtual else "real",
+        scenario=_header(case),
+        contracts=case.contracts,
+    )
     _tap(session, ledger, harness_errors)
 
     try:
-        agent = case.agent(EffectBackend(ledger))
+        agent = case.agent(EffectBackend(ledger, mode=case.backend_mode))
+        await tools.witness_agent_tools(agent)
         await session.start(agent)
         audio_in.push_silence(0.1)  # first frame starts the scripted user's clock
         await stt.done
         await asyncio.sleep(case.drain_delay)
         with contextlib.suppress(RuntimeError):
             await session.drain()
+        # Framework state read back by the harness: a judged record, never a reference.
         ledger.append(
             "harness",
             "history.final",
+            read_from="AgentSession.history",
             items=[summarize_item(i) for i in session.history.items],
         )
         await session.aclose()
         await sync.aclose()
     finally:
         lk_logger.removeHandler(warnings)
+        tools.uninstall(witness_token)
 
-    if harness_errors:
-        raise RuntimeError(f"harness errors, run is invalid: {harness_errors}")
-    ledger.append("harness", "run.end", stamp_errors=sink.stamp_errors)
+    executor_calls = loop.executor_calls if virtual else None
+    ledger.append(
+        "harness",
+        "run.end",
+        stamp_errors=sink.stamp_errors,
+        executor_calls=executor_calls,
+        underruns=sink.underruns,
+        harness_errors=harness_errors,
+        framework_warnings=len(warnings.messages),
+    )
     from .clock import _REPORT
 
     return RunResult(
@@ -237,8 +420,11 @@ async def _run(case: Case, seed: int) -> RunResult:
         versions=versions(),
         clock=_REPORT,
         stamp_errors=sink.stamp_errors,
-        executor_calls=getattr(loop, "executor_calls", -1),
+        executor_calls=executor_calls,
+        underruns=sink.underruns,
+        harness_errors=list(harness_errors),
         framework_warnings=warnings.messages,
+        invalid=validity(ledger.events),
     )
 
 
@@ -253,12 +439,23 @@ def versions() -> dict[str, str]:
     }
 
 
-def run_case(case: Case, seed: int = 0, *, virtual: bool = True) -> RunResult:
+def run_case(
+    case: Case, seed: int = 0, *, virtual: bool = True, require_valid: bool = True
+) -> RunResult:
     """Run ``case`` once on a fresh loop.
 
-    ``virtual=False`` runs on the real clock with nothing patched. It exists only as a
-    negative control: it shows what the ledger hash does when timing is not controlled.
+    Raises ``InvalidRun`` if the run may not be used as evidence (``RunResult.invalid``
+    lists why), unless ``require_valid`` is false. The exception carries the result, so
+    the ledger of an invalid run can still be inspected.
+
+    ``virtual=False`` runs on the real clock with nothing patched. Such a run is never
+    valid. It exists only as a negative control: it shows what the ledger hash does when
+    timing is not controlled.
     """
     if virtual:
-        return run_virtual(lambda: _run(case, seed))
-    return asyncio.run(_run(case, seed))
+        result = run_virtual(lambda: _run(case, seed))
+    else:
+        result = asyncio.run(asyncio.wait_for(_run(case, seed), timeout=REAL_CLOCK_TIMEOUT))
+    if result.invalid and require_valid:
+        raise InvalidRun(result.invalid, result)
+    return result

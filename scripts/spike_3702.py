@@ -1,4 +1,4 @@
-"""One-day spike: does scripted timing alone expose livekit/agents#3702?
+"""Spike: does scripted timing alone expose livekit/agents#3702?
 
 Prints, per model call, whether the context shown to the model contained the tool result,
 and how many durable reservations the backend holds for the one booking intent.
