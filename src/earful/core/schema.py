@@ -1,7 +1,7 @@
-"""Validation of earful.ledger/2, and the one definition of a valid run.
+"""Validation of earful.ledger/3, and the one definition of a valid run.
 
 The shape of every event is defined by a JSON Schema document shipped with this package
-(``schemas/earful.ledger-2.schema.json``), so any language can validate a ledger line
+(``schemas/earful.ledger-3.schema.json``), so any language can validate a ledger line
 with a standard validator. This module applies that schema and adds the rules a
 per-line schema cannot express: order, and references between events.
 
@@ -21,7 +21,7 @@ from .ledger import run_id
 
 Event = dict[str, Any]
 
-SCHEMA_FILE = "earful.ledger-2.schema.json"
+SCHEMA_FILE = "earful.ledger-3.schema.json"
 
 
 @lru_cache(maxsize=1)
@@ -54,7 +54,7 @@ def _where(index: int, event: Any) -> str:
 
 
 def validate(events: list[Event]) -> list[str]:
-    """Every way ``events`` departs from earful.ledger/2. An empty list means valid."""
+    """Every way ``events`` departs from earful.ledger/3. An empty list means valid."""
     if not events:
         return ["ledger is empty"]
 
@@ -127,11 +127,22 @@ def _check_ledger(events: list[Event], errors: list[str]) -> None:
     stamp_owner: dict[int, int] = {}  # stamp -> the utterance it was synthesized for
     utterances: set[int] = set()
 
+    # What a VAD hears as one segment: speech that resumes within its silence window.
+    min_silence = scenario["providers"]["vad"]["min_silence_us"]
+    opens, closes = set(), set()
+    for n, speech in enumerate(speeches):
+        if n == 0 or speech["start_us"] - speeches[n - 1]["end_us"] >= min_silence:
+            opens.add(n)
+        if n == len(speeches) - 1 or speeches[n + 1]["start_us"] - speech["end_us"] >= min_silence:
+            closes.add(n)
+
     for i, e in enumerate(events):
         k, d, where = e["kind"], e["data"], _where(i, e)
         if k in ("user.vad_start", "user.vad_end", "user.transcript_final"):
             if d["speech"] >= len(speeches):
                 errors.append(f"{where}: speech {d['speech']} is not declared")
+            elif (k == "user.vad_start" and d["speech"] not in opens) or (k == "user.vad_end" and d["speech"] not in closes):
+                errors.append(f"{where}: speech {d['speech']} does not {'open' if k == 'user.vad_start' else 'close'} a segment the VAD would hear")
             if not origins or origins[0]["seq"] > e["seq"]:
                 errors.append(f"{where}: comes before user.origin")
             if (k, d["speech"]) in speech_events:

@@ -143,6 +143,7 @@ The checker reads these from the ledger header; it never imports the scenario.
 | `retires` on a speech | This turn corrects or cancels the named intent | A1 |
 | Intent | A logical action the user wants done once, with its authorized effect count (default 1) and the tools that carry it out | A1, A2, A3 |
 | Claim on a scripted reply | The reply, or a span of its words, tells the user an intent succeeded | A3 |
+| Provider delay | How long a model call, a first audio or a backend write takes, declared as data in place of what the scenario's code would ask for | L1; and it moves what every contract judges |
 | Policy values | The tolerances, bounds and budgets named in section 6, in `run.start`'s `contracts`. Times are integer microseconds, as everywhere in Earful. A value a contract does not define is an error, not ignored | all |
 
 ## 5. Verdicts
@@ -324,9 +325,9 @@ after it.
 | Milestone 1 | A model call whose context contains the turn |
 | Milestone 2 | If the model answered with tool calls: every call is made, every call finishes, and a further model call follows. Repeats up to `max_steps`. A tool cut off when the scenario ended did not finish. If every tool of a round asked for silence (`expects_reply` false), no further call is owed. A call the framework answered itself without running the tool (arguments the tool cannot take, a tool that does not exist) counts as made and finished when the model finished asking: the context that first shows its error result is the further call. A call to a witnessed tool that neither ran nor was answered was never made |
 | Milestone 3 | The first word of a reply to the turn starts playing. Any reply will do, including one the framework generated again for the same turn (after a backchannel, or because what it had generated ahead of time was out of date); the one heard first counts. However the chain ends (the rounds run out, a call is never answered, the model says nothing), the turn is still owed this, unless its tools asked for silence |
-| Rule | Fail if a milestone has not occurred by its deadline. The deadline is the start of the clock, plus the declared end-of-turn delay, plus the scripted provider delays on the chain so far, plus `slack_us` |
+| Rule | Fail if a milestone has not occurred by its deadline. The deadline is the start of the clock, plus the declared end-of-turn delay, plus the scripted provider delays on the chain so far, plus `slack_us`. A finding names the milestone that was missed (`milestone 1`, `milestone 2`, `milestone 3`), so that a failure to call the model and a reply that never plays are different failures |
 | End-of-turn delay | The scripted VAD's `min_silence_us` plus the session's `min_endpointing_delay_us`: the latest the framework can decide the turn is over |
-| Delays on the chain | For each step already taken: the model's `duration_us`; if it spoke, the TTS `ttfb_us` plus the length of its audio, since the framework finishes speaking before the next step; and the backend `latency_us` of the writes its tools made |
+| Delays on the chain | For each step already taken: the model's `duration_us`; if it spoke, the `ttfb_us` of its own utterance plus the length of its audio, since the framework finishes speaking before the next step; and the backend `latency_us` of the writes its tools made |
 | Excused | The user began speaking again before the milestone was due. If that speech expects a reply it carries the obligation, and this turn has no verdict. If it is noise or a backchannel, the turn keeps the obligation and its clock restarts when that speech ends plus the false-interruption timeout |
 | Policy | `slack_us` (default 1 000 000). `max_steps` (default 4) |
 | Unobservable | The scenario ended (the final history was read) before the deadline passed; a tool the model called was not witnessed; or the reply's audio cannot be attributed |
@@ -343,6 +344,14 @@ The **floor window** of a speech runs from the instant the scripted VAD reported
 to the framework until the true end of the speech. The **interruption point** is the
 speech's true start plus the declared minimum interruption duration; a speech shorter than
 that has none.
+
+A VAD hears speech that resumes within its silence window as one **segment**
+(`docs/ledger.md`), and a framework counts speech from the start of the segment. So for a
+speech that resumes inside a segment the VAD has already reported, the floor window opens
+at the speech's own true start, and its interruption point is the later of that start and
+the segment's start plus the minimum interruption duration. It has one only if that
+moment falls while the speech is under way and the segment lasts that long. The pause
+between two speeches of a segment is in neither floor window: the user is not speaking.
 
 | | |
 | --- | --- |
@@ -387,13 +396,15 @@ documentation it was compared against.
 
 These are requirements on the ledger. `docs/ledger.md` defines each event named here.
 
-| Requirement | Needed by | Recorded in `earful.ledger/2` |
+| Requirement | Needed by | Recorded in `earful.ledger/3` |
 | --- | --- | --- |
 | Scenario declarations and policy values in the run header | all | `run.start`: `scenario`, `contracts` |
 | The framework release and the clock the run used | all | `run.start`: `framework`, `clock` |
 | Session options the references are computed from, confirmed against the session | L1, L2 | `run.start`: `scenario.session`; a mismatch is a harness error |
 | Everything that decides validity | all | `run.start`: `clock`; `run.end`: `stamp_errors`, `executor_calls`, `underruns`, `harness_errors` |
 | True start and end of each user speech | L1, L2 | Speech offsets in `run.start`, plus `user.origin` |
+| Which speeches the VAD heard as one segment | L2 | `run.start`: the speeches and `providers.vad.min_silence_us`; `user.vad_start` and `user.vad_end` name the segment's first and last speech |
+| The provider delays the scenario declared | all | `run.start`: `scenario.delays` |
 | Completion time of each played word | A3, M1 | `playout.finished`: `words_completed_us` |
 | Which scripted reply each synthesized utterance belongs to | A3, M1, M2, L1 | `tts.synthesized`: `call`, `attribution` |
 | Tool witness events: called, returned, raised, cancelled, with the returned value as the model should be shown it, and whether the outcome asks for a further model call | M2, L1 | `tool.called`, `tool.returned` (`output`, `text`, `expects_reply`), `tool.raised` (`expects_reply`), `tool.cancelled` |
@@ -464,8 +475,8 @@ Taken while building the checker, 16 November 2026:
     the contracts.
 13. **Speeches closer together than the VAD's silence window are refused.** A VAD hears
     them as one speech; reporting an end and a start at the same instant, as the harness
-    would, is something no VAD does. Modelling continuous speech with several transcripts
-    is left to the fault work.
+    would, is something no VAD does. Decision 23 replaced the refusal with a model of
+    what a VAD does.
 14. **A tool that raised is not held to rule d's presence.** Frameworks and releases
     differ in what they show the model for one; a raise that asks for silence leaves no
     trace at all on older releases.
@@ -518,6 +529,23 @@ ledger was able to show.
     earliest or the latest copy, would be a guess; reporting the reading that fails least
     is a statement about all of them.
 
+Taken while building the search (`docs/search.md`), 16 November 2026:
+
+23. **Speech that resumes within the VAD's silence window is one segment.** Refusing such
+    scenarios (decision 13) kept the harness honest and put the most interesting moments
+    out of reach: a user who speaks again half a second after stopping does so as the
+    turn is committed, the model is called and the tool runs. The scripted VAD now does
+    what a VAD does, reporting one segment, and L2 takes the floor window and the
+    interruption point from the segment.
+24. **A provider delay can be declared as data.** How long a model call or a backend
+    write takes was a matter for the scenario's code, so a search could not move a tool's
+    completion, only the user. A declared delay takes the place of the code's, is stated
+    in the header and is recorded where it is applied. L1 budgets each reply with the
+    time to first audio its own utterance had.
+25. **L1 names the milestone a turn missed.** Its findings all carried one rule name, so
+    a search or a reduction that follows "the same failure" could slide from a model that
+    was never called to a reply that never played without noticing.
+
 ## 10. What the reference ledgers measure
 
 `scripts/check_ledger.py tests/golden/*.jsonl --measures` prints these. The 15 reference
@@ -544,12 +572,14 @@ passes.
 
 ### Sweeps
 
-`scripts/contracts_sweep.py` moves one user speech across 22 scenario shapes in 50 ms
-steps and checks every run: the three reference cases, and nineteen things ordinary
-agents do. Among them are a slow tool interrupted while it runs, a tool that raises, a
-call the framework refuses, two rounds of tools, a backchannel, noise, a speech shorter
-than the interruption threshold, an output that cannot pause, a slow recognizer, a long
-endpointing delay, a greeting, and a user who goes on speaking. That is 3 168 runs on
+`scripts/contracts_sweep.py` moves one user speech across 23 scenario shapes in 50 ms
+steps and checks every run: the three reference cases, and twenty things ordinary agents
+do. Among them are a slow tool interrupted while it runs, a tool that raises, a call the
+framework refuses, two rounds of tools, a backchannel, noise, a speech shorter than the
+interruption threshold, an output that cannot pause, a slow recognizer, a long
+endpointing delay, a greeting, a user who pauses mid-sentence and a user who goes on
+speaking. The moving speech starts as close to the one before it as it can, so the
+sweeps cover speech that resumes inside the VAD's silence window. That is 3 441 runs on
 each release.
 
 What fails:
@@ -558,7 +588,7 @@ What fails:
   rule d in 469 runs on 1.6.5 and 491 on 1.5.6 and 1.5.7. M2 shows it in six to eight
   shapes, wherever a reply that called a tool is interrupted, not only in the reference
   case.
-- **The second known defect**, on 1.5.6: L2 rule b in 238 runs, across 20 of the 22
+- **The second known defect**, on 1.5.6: L2 rule b in 242 runs, across 21 of the 23
   shapes.
 
 No rule other than those three fails on any release, and no verdict on any release is

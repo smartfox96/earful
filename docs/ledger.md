@@ -1,13 +1,13 @@
 # Ledger
 
-Schema: **`earful.ledger/2`**, 16 November 2026.
+Schema: **`earful.ledger/3`**, 16 November 2026.
 
 A ledger is the complete record of one run. It is the only input to the checker
 (`docs/contracts.md`), so anything a contract needs must be in it. One JSON object per
 line, append-only, in the order events happened.
 
 The shape of every event is defined by a JSON Schema (draft 2020-12) shipped with the
-package: [`src/earful/core/schemas/earful.ledger-2.schema.json`](../src/earful/core/schemas/earful.ledger-2.schema.json).
+package: [`src/earful/core/schemas/earful.ledger-3.schema.json`](../src/earful/core/schemas/earful.ledger-3.schema.json).
 That file is normative. Any JSON Schema validator, in any language, can check a ledger
 line against it. This document explains the events and lists the rules that span lines,
 which a per-line schema cannot express; `earful.core.schema.validate` applies both. A test
@@ -16,12 +16,12 @@ keeps this document and the schema in step.
 ## Envelope
 
 ```json
-{"schema": "earful.ledger/2", "run": "run-5f0c2a9be41d7c03", "seq": 17, "t_us": 3300000, "source": "sink", "kind": "playout.started", "data": {...}}
+{"schema": "earful.ledger/3", "run": "run-5f0c2a9be41d7c03", "seq": 17, "t_us": 3300000, "source": "sink", "kind": "playout.started", "data": {...}}
 ```
 
 | Field | Meaning |
 | --- | --- |
-| `schema` | Always `earful.ledger/2` |
+| `schema` | Always `earful.ledger/3` |
 | `run` | Identifies the run. A digest of the data of `run.start`, so two runs share it exactly when they declare the same case, seed, framework release, clock, scenario and contract policy. What then happened is identified by the ledger hash |
 | `seq` | Position in the ledger, from 0. The total order of the run: "before" means lower `seq` |
 | `t_us` | Virtual time in integer microseconds. Never decreases |
@@ -96,6 +96,7 @@ with ordinals; see Hashing.
 | `intents` | Per intent: `intent`, `tools`, `authorized` (durable effects allowed) |
 | `witnessed_tools` | The names of the function tools of the agent the run starts with. The tool witness records every call of each, so a call to one of them that leaves no `tool.called` was never made |
 | `session` | The framework options the contracts depend on: `min_interruption_duration_us`, `false_interruption_timeout_us`, `min_endpointing_delay_us`, `max_endpointing_delay_us`, `turn_detection`, and `extra_options` (any further options, by name, with their values) |
+| `delays` | Provider delays the scenario declares, each in place of what its code would ask for. Per delay: `of` (`llm.ttft`, `llm.duration`, `tts.ttfb` or `backend.latency`), `nth` (which model call, utterance or backend request, from 1) and `us`. Empty when the scenario declares none |
 | `providers` | `vad` (`min_speech_us`, `min_silence_us`), `tts` (`seconds_per_letter_us`, `ttfb_us`), `sink` (`can_pause`), `backend` (`mode`: `plain` or `keyed`) |
 
 The four `session` times are declared by the scenario and cannot be set any other way.
@@ -103,10 +104,19 @@ After constructing the session, the harness reads the same options back from it;
 difference is a harness error and the run is invalid. The header therefore states what
 the framework was actually configured with.
 
-Two scripted speeches are never closer together than the VAD's `min_silence_us`. A VAD
-reports the end of speech only after that much silence, so speech that resumes sooner is
-one speech to it; the harness refuses such a scenario rather than report an end and a
-start no VAD would.
+Scripted speeches may be as close together as an author likes, short of overlapping. A
+VAD reports the end of speech only after `min_silence_us` of silence, so speech that
+resumes sooner is one **segment** to it, and the scripted VAD reports it as one: a start
+when the first speech of the segment begins, an end after the last. While the segment
+lasts it tells the framework the user has been speaking since the segment began, pauses
+included. The recognizer still delivers one transcript per speech. Which speeches make a
+segment follows from the header alone: the speeches and `min_silence_us`.
+
+A declared delay takes the place of what the scenario's code asks for, where it is
+applied: `llm.response` records the `ttft_us` and `duration_us` the model call had,
+`tts.synthesized` the `ttfb_us` of that utterance, and `effect.requested` the `latency_us`
+of that write, whether declared or chosen by the code. The header states which were
+declared, so two runs that differ only in a declared delay have different run ids.
 
 The ledger names the framework release because verdicts are interpreted against it. It
 does not name the Python version or the platform: those do not change what a run means,
@@ -117,8 +127,8 @@ and a ledger must hash the same on every machine. They belong to a run's manifes
 | Kind | Fields | When |
 | --- | --- | --- |
 | `user.origin` | `by` (`vad` or `stt`) | The scripted user's clock starts. Once per run |
-| `user.vad_start` | `speech` | The scripted VAD reports speech to the framework: true start plus `min_speech_us` |
-| `user.vad_end` | `speech` | The scripted VAD reports silence: true end plus `min_silence_us` |
+| `user.vad_start` | `speech` | The scripted VAD reports speech to the framework: the true start of a segment's first speech, which `speech` names, plus `min_speech_us` |
+| `user.vad_end` | `speech` | The scripted VAD reports silence: the true end of a segment's last speech, which `speech` names, plus `min_silence_us` |
 | `user.transcript_final` | `speech`, `text` | The scripted STT delivers the final transcript: true end plus `stt_delay_us` |
 
 ### world: synthesis and tools
@@ -258,7 +268,8 @@ They never decide a verdict.
 - every event carries the same `run`, and it is the digest of `run.start`. Editing the
   header of a recorded ledger is detected;
 - speeches are numbered in order, end no earlier than they start, and scripted-user
-  events name a declared speech, come after the origin, and occur once per speech;
+  events name a declared speech, come after the origin, and occur at most once per
+  speech; a VAD report names the first or the last speech of a segment;
 - every intent named by a write, a claim or a speech's `retires` is declared, once. A
   misspelt intent is an error; it cannot quietly leave a contract with nothing to check;
 - each model call is requested once and answered once; a claim fits inside its reply; no
@@ -327,6 +338,16 @@ differ only in when the session closes.
 Adding a kind, or a field to a kind, is a new schema version, because the schema rejects
 unknown kinds and fields. Each version has its own schema file. Every version change
 regenerates the reference ledgers.
+
+## Changes from `earful.ledger/2`
+
+- The scenario states the provider delays it declares, in `delays`.
+- Speeches closer together than the VAD's silence window are no longer refused. They are
+  one segment to the VAD, so `user.vad_start` and `user.vad_end` are recorded once per
+  segment, for its first and its last speech, and no longer once per speech.
+- A scripted tool call that names no call id is given one by the scripted model, unique
+  to the model call (`call-<model call>-<n>`). The reference cases no longer invent ids,
+  so their recorded call ids changed.
 
 ## Changes from `earful.ledger/1`
 

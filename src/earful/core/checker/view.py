@@ -63,8 +63,12 @@ class Speech:
     expects_reply: bool
     backchannel: bool
     retires: tuple[str, ...]
-    vad_start: Event | None = None  # the scripted VAD told the framework
+    # A VAD hears speeches separated by less than its silence window as one segment, and
+    # reports the segment: its start when the first speech begins, its end after the last.
+    vad_start: Event | None = None  # the scripted VAD told the framework of the segment
     vad_end: Event | None = None
+    segment_start: int = 0  # true start of the segment's first speech
+    segment_end: int = 0  # true end of its last
     final: Event | None = None  # the final transcript was delivered
 
     @property
@@ -267,6 +271,20 @@ class View:
                     final=seen.get("user.transcript_final"),
                 )
             )
+
+        # The VAD's segments, from what the run declared: its report of a segment's start
+        # carries the first speech, its report of the end carries the last.
+        min_silence = self.providers["vad"]["min_silence_us"]
+        heard: list[list[Speech]] = []
+        for speech in sorted(self.speeches, key=lambda sp: sp.start):
+            if heard and speech.start - heard[-1][-1].end < min_silence:
+                heard[-1].append(speech)
+            else:
+                heard.append([speech])
+        for group in heard:
+            for speech in group:
+                speech.vad_start, speech.vad_end = group[0].vad_start, group[-1].vad_end
+                speech.segment_start, speech.segment_end = group[0].start, group[-1].end
 
     def _segment(self, number: int) -> Segment:
         return self.segments.setdefault(number, Segment(number))

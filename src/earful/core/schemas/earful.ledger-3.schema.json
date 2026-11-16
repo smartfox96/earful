@@ -1,8 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "urn:earful:ledger:2",
+  "$id": "urn:earful:ledger:3",
   "title": "Earful ledger event",
-  "description": "One line of an earful.ledger/2 file. A ledger is one JSON object per line, in the order events happened. Rules that span lines (order, references between events) are listed in docs/ledger.md.",
+  "description": "One line of an earful.ledger/3 file. A ledger is one JSON object per line, in the order events happened. Rules that span lines (order, references between events) are listed in docs/ledger.md.",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -16,7 +16,7 @@
   ],
   "properties": {
     "schema": {
-      "const": "earful.ledger/2"
+      "const": "earful.ledger/3"
     },
     "run": {
       "description": "Identifies the run: a digest of the data of its run.start event.",
@@ -698,6 +698,7 @@
         "speeches",
         "intents",
         "witnessed_tools",
+        "delays",
         "session",
         "providers"
       ],
@@ -792,6 +793,38 @@
           },
           "uniqueItems": true,
           "description": "Names of the function tools of the agent the run starts with. The tool witness records every call of each."
+        },
+        "delays": {
+          "type": "array",
+          "description": "Provider delays the scenario declares, each in place of what the scenario's code would ask for.",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "of",
+              "nth",
+              "us"
+            ],
+            "properties": {
+              "of": {
+                "enum": [
+                  "llm.ttft",
+                  "llm.duration",
+                  "tts.ttfb",
+                  "backend.latency"
+                ],
+                "description": "Which delay: the model's time to first token or its total generation time, the voice's time to first audio, or the time the backend takes to commit a write."
+              },
+              "nth": {
+                "$ref": "#/$defs/ordinal",
+                "description": "Which occurrence, from 1: the model call, the synthesized utterance or the backend request."
+              },
+              "us": {
+                "$ref": "#/$defs/microseconds",
+                "description": "The delay."
+              }
+            }
+          }
         },
         "session": {
           "description": "The framework options the contracts depend on, as passed to the framework and read back from it.",

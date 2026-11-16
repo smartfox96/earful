@@ -1,0 +1,47 @@
+{
+  "contracts": {},
+  "delays": [
+    {
+      "nth": 1,
+      "of": "llm.ttft",
+      "us": 0
+    }
+  ],
+  "scenario": "earful.livekit.cases:speak_over_new_turn",
+  "schema": "earful.case/1",
+  "seed": 0,
+  "settings": {
+    "backend_mode": "plain",
+    "drain_delay_us": 5000000,
+    "drain_timeout_us": 30000000,
+    "false_interruption_timeout_us": 2000000,
+    "max_endpointing_delay_us": 6000000,
+    "min_endpointing_delay_us": 500000,
+    "min_interruption_duration_us": 500000,
+    "seconds_per_letter_us": 60000,
+    "sink_can_pause": true,
+    "tts_ttfb_us": 200000,
+    "vad_min_silence_us": 500000,
+    "vad_min_speech_us": 50000
+  },
+  "speeches": [
+    {
+      "backchannel": false,
+      "end_us": 2500000,
+      "expects_reply": null,
+      "retires": [],
+      "start_us": 500000,
+      "stt_delay_us": 200000,
+      "transcript": "Tell me about the menu."
+    },
+    {
+      "backchannel": false,
+      "end_us": 4600000,
+      "expects_reply": null,
+      "retires": [],
+      "start_us": 3200000,
+      "stt_delay_us": 200000,
+      "transcript": "Actually what about dessert?"
+    }
+  ]
+}

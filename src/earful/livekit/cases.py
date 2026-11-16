@@ -91,12 +91,9 @@ def _booking_policy(items: list[dict[str, Any]]) -> Reply:
         for i in items
     )
     if wants_booking:
-        call_no = sum(1 for i in items if i["type"] == "message" and i.get("role") == "user")
         return Reply(
             text=BOOKING_ACK,
-            tool_calls=(
-                ToolCall("create_reservation", '{"party_size": 6}', call_id=f"call-{call_no}"),
-            ),
+            tool_calls=(ToolCall("create_reservation", '{"party_size": 6}'),),
         )
     return Reply(text="How can I help?")
 

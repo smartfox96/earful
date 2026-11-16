@@ -1,0 +1,143 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:earful:case:1",
+  "title": "Earful case",
+  "description": "An earful.case/1 document: everything about a scenario that is data. The agent and the model policy are code, named by `scenario`; the user's speeches, the provider delays the scenario declares, the settings, the seed and the contract policy are stated here, so a case can be moved in time, reduced and saved without touching code.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "scenario",
+    "seed",
+    "speeches",
+    "delays",
+    "settings",
+    "contracts"
+  ],
+  "properties": {
+    "schema": {
+      "const": "earful.case/1"
+    },
+    "scenario": {
+      "type": "string",
+      "pattern": "^[A-Za-z_][A-Za-z0-9_.]*:[A-Za-z_][A-Za-z0-9_.]*$",
+      "description": "Where the scenario's code lives, as module:function. The function takes no arguments and returns the scenario with its default speeches and settings."
+    },
+    "seed": {
+      "type": "integer",
+      "description": "Seed for every random choice in the run."
+    },
+    "speeches": {
+      "type": "array",
+      "description": "The scripted user's speeches, in order of their start.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "start_us",
+          "end_us",
+          "transcript",
+          "stt_delay_us",
+          "expects_reply",
+          "backchannel",
+          "retires"
+        ],
+        "properties": {
+          "start_us": {
+            "$ref": "#/$defs/microseconds",
+            "description": "True start, from the first audio frame."
+          },
+          "end_us": {
+            "$ref": "#/$defs/microseconds",
+            "description": "True end."
+          },
+          "transcript": {
+            "type": "string",
+            "description": "What the recognizer delivers. Empty: noise."
+          },
+          "stt_delay_us": {
+            "$ref": "#/$defs/microseconds",
+            "description": "From the end of the speech to its final transcript."
+          },
+          "expects_reply": {
+            "type": [
+              "boolean",
+              "null"
+            ],
+            "description": "Whether the agent owes this turn a response. Null: yes, unless it is noise or a backchannel."
+          },
+          "backchannel": {
+            "type": "boolean"
+          },
+          "retires": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Intents this turn corrects or cancels."
+          }
+        }
+      }
+    },
+    "delays": {
+      "type": "array",
+      "description": "Provider delays declared as data, each in place of what the scenario's code would ask for. At most one per delay and occurrence.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "of",
+          "nth",
+          "us"
+        ],
+        "properties": {
+          "of": {
+            "enum": [
+              "llm.ttft",
+              "llm.duration",
+              "tts.ttfb",
+              "backend.latency"
+            ],
+            "description": "Which delay: the model's time to first token or its total generation time, the voice's time to first audio, or the time the backend takes to commit a write."
+          },
+          "nth": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Which occurrence, from 1: the model call, the synthesized utterance or the backend request."
+          },
+          "us": {
+            "$ref": "#/$defs/microseconds",
+            "description": "The delay."
+          }
+        }
+      }
+    },
+    "settings": {
+      "type": "object",
+      "description": "Timing and provider settings, by name. Which names exist is the adapter's business; every time is integer microseconds.",
+      "additionalProperties": {
+        "type": [
+          "integer",
+          "boolean",
+          "string"
+        ]
+      }
+    },
+    "contracts": {
+      "type": "object",
+      "propertyNames": {
+        "pattern": "^(A[1-3]|M[12]|L[12])$"
+      },
+      "additionalProperties": {
+        "type": "object"
+      },
+      "description": "Contract id to the policy values declared for it."
+    }
+  },
+  "$defs": {
+    "microseconds": {
+      "type": "integer",
+      "minimum": 0
+    }
+  }
+}

@@ -36,9 +36,33 @@ def test_every_kind_and_field_in_the_schema_is_documented():
 
 
 def test_every_kind_the_document_names_is_in_the_schema():
-    documented = {token for token in MENTIONED if _KIND.match(token)}
+    # The names of the delays a scenario can declare look like kinds and are not.
+    delays = set(load_schema()["$defs"]["scenario"]["properties"]["delays"]["items"]["properties"]["of"]["enum"])
+    documented = {token for token in MENTIONED if _KIND.match(token)} - delays
     assert documented and documented <= set(kinds()), documented - set(kinds())
 
 
 def test_the_envelope_is_documented():
     assert set(load_schema()["required"]) <= MENTIONED
+
+
+SEARCH_DOC = (Path(__file__).resolve().parents[1] / "docs" / "search.md").read_text()
+SEARCH_MENTIONED = set(re.findall(r"`([^`\s]+)`", SEARCH_DOC))
+
+
+def test_every_field_of_a_case_and_of_a_bundle_manifest_is_documented():
+    from earful.core import bundle, case
+
+    missing = {}
+    for name, schema in (("earful.case/1", case.load_schema()), ("earful.bundle/1", bundle.load_schema())):
+        fields = _field_names(schema, schema.get("$defs", {}))
+        if fields - SEARCH_MENTIONED:
+            missing[name] = sorted(fields - SEARCH_MENTIONED)
+    assert not missing, f"docs/search.md does not mention {missing}"
+
+
+def test_every_setting_the_livekit_adapter_has_is_documented():
+    from earful.livekit.scenario import SETTINGS
+
+    assert set(SETTINGS) <= SEARCH_MENTIONED, sorted(set(SETTINGS) - SEARCH_MENTIONED)
+

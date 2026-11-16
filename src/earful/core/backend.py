@@ -31,10 +31,14 @@ class EffectBackend:
     committed is deduplicated and returns the original receipt.
     """
 
-    def __init__(self, ledger: Ledger, *, mode: BackendMode = "plain") -> None:
+    def __init__(
+        self, ledger: Ledger, *, mode: BackendMode = "plain", latencies_us: dict[int, int] | None = None
+    ) -> None:
         if mode not in ("plain", "keyed"):
             raise ValueError(f"unknown backend mode: {mode}")
         self.mode = mode
+        # Request number (from 1) -> how long that write takes, whatever the tool asked for.
+        self._latencies_us = dict(latencies_us or {})
         self._ledger = ledger
         self._requests = 0
         self._receipts = 0
@@ -51,13 +55,14 @@ class EffectBackend:
     ) -> str:
         """Request one durable effect for ``intent`` and return its receipt.
 
-        ``latency`` is the time, in seconds, the backend takes to make the write durable.
+        ``latency`` is the time, in seconds, the backend takes to make the write durable;
+        a latency the scenario declared for this request takes its place.
         A keyed backend decides whether a key is a repeat at that moment, not when the
         write was requested, so two overlapping writes with one key commit once.
         """
         self._requests += 1
         request = self._requests
-        latency_us = to_us(latency)
+        latency_us = self._latencies_us.get(request, to_us(latency))
         self._ledger.append(
             "backend",
             "effect.requested",

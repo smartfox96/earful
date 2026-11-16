@@ -77,6 +77,27 @@ class Intent:
     authorized: int = 1  # durable effects the scenario allows for this intent
 
 
+DELAYS = ("llm.ttft", "llm.duration", "tts.ttfb", "backend.latency")
+
+
+@dataclass(frozen=True)
+class Delay:
+    """A provider delay the scenario declares, in place of what its code would ask for.
+
+    ``of`` names the delay: the model's time to first token (``llm.ttft``) or its total
+    generation time (``llm.duration``), the voice's time to first audio (``tts.ttfb``), or
+    the time the backend takes to commit a write (``backend.latency``). ``nth`` is the
+    occurrence, from 1: the model call, the synthesized utterance or the backend request.
+
+    The agent and the model policy are code and choose their own delays. Declaring one
+    here makes it data: something a search can move and a reduction can drop.
+    """
+
+    of: str
+    nth: int
+    seconds: float
+
+
 @dataclass
 class Case:
     """Everything that defines a run. Same case + same seed must give the same ledger."""
@@ -87,6 +108,7 @@ class Case:
     policy: Policy
     intents: list[Intent] = field(default_factory=list)
     contracts: dict[str, dict[str, Any]] = field(default_factory=dict)  # id -> policy values
+    delays: list[Delay] = field(default_factory=list)  # provider delays declared as data
     backend_mode: BackendMode = "plain"
     seconds_per_letter: float = 0.06  # the scripted voice: a five-letter word takes 0.3 s
     tts_ttfb: float = 0.2
@@ -114,15 +136,17 @@ class Case:
         parse_all(self.contracts)  # raises PolicyError, a ValueError, on anything undefined
         ordered = sorted(self.speeches, key=lambda s: s.start)
         for before, after in itertools.pairwise(ordered):
-            gap_us = after.start_us - before.end_us
-            if gap_us < to_us(self.vad_min_silence):
-                # A VAD reports the end of speech only after this much silence. Speech that
-                # resumes sooner is, to it, one speech, and Earful does not yet model that.
-                raise ValueError(
-                    f"the speeches at {before.start} s and {after.start} s are {gap_us / 1e6:g} s "
-                    f"apart, closer than the VAD's min_silence ({self.vad_min_silence} s); "
-                    "a VAD would hear one speech"
-                )
+            if before.end > after.start:
+                raise ValueError(f"the speeches at {before.start} s and {after.start} s overlap")
+        seen: set[tuple[str, int]] = set()
+        for delay in self.delays:
+            if delay.of not in DELAYS:
+                raise ValueError(f"unknown delay {delay.of!r}; choose from {list(DELAYS)}")
+            if delay.nth < 1 or delay.seconds < 0:
+                raise ValueError(f"delay {delay.of} #{delay.nth}: nth counts from 1 and a delay cannot be negative")
+            if (delay.of, delay.nth) in seen:
+                raise ValueError(f"delay {delay.of} #{delay.nth} is declared more than once")
+            seen.add((delay.of, delay.nth))
         names = [it.intent for it in self.intents]
         if len(set(names)) != len(names):
             raise ValueError("an intent is declared more than once")
@@ -251,6 +275,10 @@ def _header(case: Case, witnessed_tools: list[str]) -> dict[str, Any]:
             for it in case.intents
         ],
         "witnessed_tools": witnessed_tools,
+        "delays": [
+            {"of": delay.of, "nth": delay.nth, "us": to_us(delay.seconds)}
+            for delay in sorted(case.delays, key=lambda d: (d.of, d.nth))
+        ],
         "session": {
             **_declared_session(case),
             "turn_detection": None,
@@ -350,10 +378,19 @@ async def _run(case: Case, seed: int) -> RunResult:
     world_origin = WorldOrigin(
         ledger, harness_errors, tolerance_us=0 if virtual else REAL_CLOCK_ORIGIN_TOLERANCE_US
     )
+    def declared(of: str) -> dict[int, int]:
+        return {delay.nth: to_us(delay.seconds) for delay in case.delays if delay.of == of}
+
     stt = ScriptedSTT(ledger, case.speeches, world_origin)
-    model = ScriptedLLM(ledger, case.policy, harness_errors)
+    model = ScriptedLLM(
+        ledger, case.policy, harness_errors, ttft_us=declared("llm.ttft"), duration_us=declared("llm.duration")
+    )
     tts = StampedTTS(
-        ledger, model.register, seconds_per_letter=case.seconds_per_letter, ttfb=case.tts_ttfb
+        ledger,
+        model.register,
+        seconds_per_letter=case.seconds_per_letter,
+        ttfb=case.tts_ttfb,
+        ttfb_us=declared("tts.ttfb"),
     )
     session = lk.AgentSession(
         vad=ScriptedVAD(
@@ -378,7 +415,9 @@ async def _run(case: Case, seed: int) -> RunResult:
 
     # The agent is built before the header is written, so the header can name the tools
     # the witness records. Nothing here reaches the ledger.
-    agent = case.agent(EffectBackend(ledger, mode=case.backend_mode))
+    agent = case.agent(
+        EffectBackend(ledger, mode=case.backend_mode, latencies_us=declared("backend.latency"))
+    )
     witnessed_tools = await tools.witness_agent_tools(agent)
 
     declared, effective = _declared_session(case), _effective_session(session)

@@ -21,6 +21,13 @@ AUDIO = "the first word of a reply starts playing"
 Step = tuple[str, str, int | None, int]  # (milestone, status, reached, deadline)
 
 
+def _milestone(step: str) -> str:
+    """Which of the three milestones a step belongs to: the rule a finding names."""
+    if step == AUDIO:
+        return "milestone 3"
+    return "milestone 2" if step.startswith("round ") else "milestone 1"
+
+
 class _Budget:
     """The deadline for a milestone, and what excuses missing it."""
 
@@ -65,7 +72,11 @@ def _judge(view: View, policy: policies.L1, speech: Speech, chain: list[ModelCal
     steps: list[Step] = []
     used = [speech.final]
     by_call_id = {t.call_id: t for t in view.tools.values() if t.call_id is not None}
-    ttfb = view.providers["tts"]["ttfb_us"]
+    def ttfb_of(call: ModelCall | None) -> int:
+        """The voice's time to first audio for a reply: as applied when it was
+        synthesized, or as the scenario declared for the voice if it never was."""
+        said = next((u for u in view.utterances.values() if call is not None and u.call == call.call), None)
+        return said.event["data"]["ttfb_us"] if said is not None else view.providers["tts"]["ttfb_us"]
 
     def record(name: str, reached: int | None, chain_us: int) -> bool:
         status, deadline = budget.settle(reached, chain_us)
@@ -122,7 +133,7 @@ def _judge(view: View, policy: policies.L1, speech: Speech, chain: list[ModelCal
             if e.requested["data"]["tool"] in ids
         )
         # The framework finishes speaking a reply before it takes the next step.
-        audio = ttfb + view.audio_us(current) if current.words else 0
+        audio = ttfb_of(current) + view.audio_us(current) if current.words else 0
         elapsed += data["duration_us"] + audio + latency
         # A tool cancelled when the scenario ended never finished.
         outcomes = [t.outcome for t in ran]
@@ -161,7 +172,7 @@ def _judge(view: View, policy: policies.L1, speech: Speech, chain: list[ModelCal
     # The first word of a reply in the chain starts playing. Any reply of the chain will
     # do: the one whose audio started first is the one that counts.
     def budget_of(call: ModelCall, before: int) -> int:
-        return before + call.response["data"]["duration_us"] + ttfb
+        return before + call.response["data"]["duration_us"] + ttfb_of(call)
 
     unknown = False
     heard: list[tuple[int, ModelCall, int]] = []
@@ -187,7 +198,7 @@ def _judge(view: View, policy: policies.L1, speech: Speech, chain: list[ModelCal
     elif on_track and not silenced:
         # Nothing was said, and nothing excuses it: however the chain ended, the turn is
         # still owed its first word.
-        record(AUDIO, None, elapsed + ttfb)
+        record(AUDIO, None, elapsed + ttfb_of(None))
     return budget, steps, used, silenced
 
 
@@ -227,7 +238,7 @@ def check(view: View, policy: policies.L1) -> ContractResult:
         if missed:
             findings = [
                 Finding(
-                    "rule",
+                    _milestone(name),
                     f"{name}: "
                     + (f"happened {reached - deadline} us after its deadline" if reached is not None else "never happened")
                     + f" (deadline {deadline} us)",

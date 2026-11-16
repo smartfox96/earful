@@ -60,7 +60,7 @@ def _edit_header(edit):
         (lambda ev: ev.pop(5), "seq"),
         (lambda ev: ev[3].update(t_us=-1), "t_us: -1 is less than the minimum"),
         (lambda ev: ev[-1].update(t_us=0), "earlier than the previous event"),
-        (lambda ev: ev[0].update(schema="earful.ledger/0"), "'earful.ledger/2' was expected"),
+        (lambda ev: ev[0].update(schema="earful.ledger/0"), "'earful.ledger/3' was expected"),
         (lambda ev: ev[4].update(run="run-0000000000000000"), "not the digest of run.start"),
         (lambda ev: ev[0]["data"].update(seed=7), "not the digest of run.start"),
         (lambda ev: ev[4].pop("run"), "'run' is a required property"),
@@ -102,6 +102,11 @@ def _edit_header(edit):
         (lambda ev: _data(ev, "playout.finished")["words_played"].__setitem__(0, 9999), "belongs to none of the segment's utterances"),
         (lambda ev: ev.insert(5, {**copy.deepcopy(_first(ev, "user.vad_start")), "seq": 5}), "recorded twice for speech 0"),
         (_edit_header(lambda h: h["scenario"].pop("witnessed_tools")), "'witnessed_tools' is a required property"),
+        (_edit_header(lambda h: h["scenario"].pop("delays")), "'delays' is a required property"),
+        (_edit_header(lambda h: h["scenario"]["delays"].append({"of": "llm.speed", "nth": 1, "us": 0})), "is not one of"),
+        # the two speeches are 2.5 s apart: each is a segment of its own to the VAD
+        (lambda ev: [e for e in ev if e["kind"] == "user.vad_end"][0]["data"].update(speech=1), "recorded twice for speech 1"),
+        (_edit_header(lambda h: h["scenario"]["speeches"][1].update(start_us=2_700_000)), "speech 1 does not open a segment the VAD would hear"),
         # intents must be declared
         (lambda ev: _data(ev, "effect.requested").update(intent="book-tabel-1"), "undeclared intent"),
         (lambda ev: _first(ev, "llm.response")["data"]["claims"].append(
@@ -115,7 +120,7 @@ def test_validator_rejects(booking, mutate, expected):
 
 
 def test_schema_version():
-    assert SCHEMA == "earful.ledger/2"
+    assert SCHEMA == "earful.ledger/3"
     assert load_schema()["properties"]["schema"]["const"] == SCHEMA
 
 

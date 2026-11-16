@@ -51,6 +51,11 @@ jobs:
         run: |
           .venvs/lk-${{ matrix.lk.version }}/bin/python scripts/spike_3702.py evidence
           .venvs/lk-${{ matrix.lk.version }}/bin/python scripts/spike_5509.py evidence
+      - name: Reduced historical cases, replayed
+        run: |
+          for kept in tests/bundles/*/; do
+            .venvs/lk-${{ matrix.lk.version }}/bin/python scripts/replay.py "$kept"
+          done
       - name: Negative control (real clock must change the hash)
         if: matrix.os == 'ubuntu-latest' && matrix.python == '3.13' && matrix.lk.version == '1.8.12'
         run: .venvs/lk-${{ matrix.lk.version }}/bin/python scripts/realtime_control.py 2

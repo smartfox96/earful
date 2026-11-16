@@ -1,0 +1,76 @@
+{
+  "clock": "virtual",
+  "environment": {
+    "earful": "0.0.0",
+    "livekit": "1.1.5",
+    "livekit-agents": "1.5.6",
+    "packages": "f171c39b23849530a501abe7dc5bc0508d46e9437b0cb01d7dcb61e9210720bb",
+    "platform": "Darwin-arm64",
+    "python": "3.13.12"
+  },
+  "formats": {
+    "case": "earful.case/1",
+    "contracts": "earful.contracts/1",
+    "ledger": "earful.ledger/3"
+  },
+  "framework": {
+    "name": "livekit-agents",
+    "version": "1.5.6"
+  },
+  "minimal": {
+    "delays": 0,
+    "findings": [
+      "segment 1 started 250000 us after the user took the floor"
+    ],
+    "hash": "c08a1d7e490b2f07c7bc870212f40af0914e047aa2cbd90357d752b5803f98b3",
+    "speeches": 2
+  },
+  "original": {
+    "delays": 1,
+    "findings": [
+      "segment 1 started 250000 us after the user took the floor"
+    ],
+    "hash": "0177f1acd8da1662915715a924358164d8347beaa1056a15268ec8e36460a5af",
+    "speeches": 2
+  },
+  "predicate": {
+    "contract": "L2",
+    "rule": "rule b"
+  },
+  "reduction": {
+    "complete": true,
+    "differences": [],
+    "runs": 60,
+    "steps": [
+      "kept 0 of 1 differences from the author's scenario"
+    ]
+  },
+  "replay": {
+    "distinct_hashes": 1,
+    "repeats": 3
+  },
+  "scenario_digest": "75628b259a06c3cfb084e1b3df74c57cd21bfc32354d42ac3337a4e1d2ea10d0",
+  "schema": "earful.bundle/1",
+  "windows": [
+    {
+      "hi_end": "passes",
+      "hi_us": 699000,
+      "instant": false,
+      "lo_end": "passes",
+      "lo_us": 251000,
+      "resolution_us": 1000,
+      "variable": "speech.position 0",
+      "width_us": 448000
+    },
+    {
+      "hi_end": "passes",
+      "hi_us": 3449000,
+      "instant": false,
+      "lo_end": "passes",
+      "lo_us": 3001000,
+      "resolution_us": 1000,
+      "variable": "speech.position 1",
+      "width_us": 448000
+    }
+  ]
+}

@@ -11,7 +11,7 @@ import pytest
 
 from earful.core.checker import FAIL, NOT_EXERCISED, PASS, UNOBSERVABLE, check
 from earful.livekit.cases import CASES, _last_user_text
-from earful.livekit.harness import Case, Intent, run_case
+from earful.livekit.harness import Case, Delay, Intent, run_case
 from earful.livekit.providers import Claim, Reply, ToolCall, UserSpeech
 from earful.livekit.sink import ClockedSink
 
@@ -261,10 +261,25 @@ def test_l1_fails_when_a_tool_never_returns():
     assert report.outcome("L1") == FAIL
     (failed,) = report.results["L1"].failures
     assert "every tool call finishes: never happened" in failed.findings[0].detail
+    assert _rules(report, "L1") == ["milestone 2"]  # the finding names the milestone that was missed
 
 
 def test_l1_passes_when_the_same_tool_returns():
     assert _report(_booking(_book_then_confirm)).outcome("L1") == PASS
+
+
+def test_l1_budgets_a_reply_with_the_delays_declared_for_it():
+    """The scenario declares that the first reply's audio takes 3 s to begin and that the
+    booking takes 4 s to commit. The turn is slow because it was scripted to be, and its
+    budget is built from those delays, not from the defaults."""
+    case = _booking(_book_then_confirm, drain_delay=14.0)
+    case.delays = [Delay("tts.ttfb", 1, 3.0), Delay("backend.latency", 1, 4.0)]
+    events = run_case(case).ledger.events
+    assert next(e for e in events if e["kind"] == "playout.started")["t_us"] >= 6_000_000
+    report = check(events)
+    assert report.outcome("L1") == PASS
+    first_audio = next(m for m in report.results["L1"].verdicts[0].measures["milestones"] if m["milestone"].startswith("the first word"))
+    assert first_audio["deadline_us"] - first_audio["reached_us"] >= 1_000_000  # the slack is still all there
 
 
 def _silent(items):
@@ -274,6 +289,7 @@ def _silent(items):
 def test_l1_fails_when_the_model_returns_nothing():
     report = _report(_booking(_silent))
     assert report.outcome("L1") == FAIL
+    assert _rules(report, "L1") == ["milestone 3"]
     assert "the first word of a reply starts playing: never happened" in report.results["L1"].failures[0].findings[0].detail
 
 

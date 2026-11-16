@@ -7,6 +7,7 @@ import livekit.agents as lk
 import pytest
 
 from earful.core.backend import EffectBackend, current_tool
+from earful.core.checker import PASS, check
 from earful.core.ledger import Ledger
 from earful.core.schema import validate
 from earful.livekit import tools
@@ -313,14 +314,41 @@ def test_a_scenario_that_contradicts_itself_is_refused_before_it_runs():
         run_case(make(session_kwargs={"min_interruption_duration": 0.1}))
     with pytest.raises(ValueError, match="unknown contracts"):
         run_case(make(contracts={"M9": {}}))
-    close = make()
-    close.speeches = [UserSpeech(0.5, 1.5, "Please do it."), UserSpeech(1.8, 2.5, "Right now.")]
-    with pytest.raises(ValueError, match="a VAD would hear one speech"):
-        run_case(close)  # 0.3 s apart; the VAD needs 0.5 s of silence to end a speech
+    overlapping = make()
+    overlapping.speeches = [UserSpeech(0.5, 1.5, "Please do it."), UserSpeech(1.4, 2.5, "Right now.")]
+    with pytest.raises(ValueError, match="overlap"):
+        run_case(overlapping)
     retiring = make()
     retiring.speeches = [UserSpeech(start=0.5, end=1.5, transcript="Cancel it.", retires=("nope",))]
     with pytest.raises(ValueError, match="undeclared intents"):
         run_case(retiring)
+
+
+def test_speech_that_resumes_within_the_vads_silence_window_is_one_segment_to_it():
+    """The user pauses for 0.3 s mid-sentence. A VAD reports the end of speech only after
+    0.5 s of silence, so it reports one segment: its start with the first speech, its end
+    after the second. The recognizer still delivers two transcripts."""
+    case = CASES["barge_in_mid_word"]()
+    case.speeches = [UserSpeech(0.5, 1.5, "Tell me about"), UserSpeech(1.8, 2.8, "the menu please.")]
+    events = run_case(case).ledger.events
+    reports = [(e["kind"], e["data"]["speech"], e["t_us"]) for e in events if e["kind"].startswith("user.vad")]
+    assert reports == [("user.vad_start", 0, 550_000), ("user.vad_end", 1, 3_300_000)]
+    assert [e["data"]["text"] for e in _of(events, "user.transcript_final")] == ["Tell me about", "the menu please."]
+    report = check(events)
+    assert report.failures == () and report.outcome("L2") == PASS
+    assert [v.instance for v in report.results["L2"].verdicts] == [{"speech": 0}, {"speech": 1}]
+    resumed = report.results["L2"].verdicts[1].measures
+    assert resumed["floor_opened_us"] == 1_800_000  # its own start: the VAD had already reported
+    assert resumed["interruption_point_us"] == 1_800_000  # 0.5 s of the segment had passed
+
+
+def test_speech_a_full_silence_window_later_is_a_segment_of_its_own():
+    case = CASES["barge_in_mid_word"]()
+    case.speeches = [UserSpeech(0.5, 1.5, "Tell me about"), UserSpeech(2.0, 3.0, "the menu please.")]
+    events = run_case(case).ledger.events
+    assert [(e["kind"], e["data"]["speech"]) for e in events if e["kind"].startswith("user.vad")] == [
+        ("user.vad_start", 0), ("user.vad_end", 0), ("user.vad_start", 1), ("user.vad_end", 1),
+    ]
 
 
 def test_header_declares_the_scenario_and_what_ran_it():

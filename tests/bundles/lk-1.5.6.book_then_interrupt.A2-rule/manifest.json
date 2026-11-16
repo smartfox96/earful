@@ -1,0 +1,74 @@
+{
+  "clock": "virtual",
+  "environment": {
+    "earful": "0.0.0",
+    "livekit": "1.1.5",
+    "livekit-agents": "1.5.6",
+    "packages": "f171c39b23849530a501abe7dc5bc0508d46e9437b0cb01d7dcb61e9210720bb",
+    "platform": "Darwin-arm64",
+    "python": "3.13.12"
+  },
+  "formats": {
+    "case": "earful.case/1",
+    "contracts": "earful.contracts/1",
+    "ledger": "earful.ledger/3"
+  },
+  "framework": {
+    "name": "livekit-agents",
+    "version": "1.5.6"
+  },
+  "minimal": {
+    "delays": 0,
+    "findings": [
+      "2 durable effects for 'book-table-1'; the scenario authorized 1"
+    ],
+    "hash": "b5b1d2bcb19fa511931d78fec5a8e388b3ad8adf1dd8bf6b6f1c9d3876e4e33f",
+    "speeches": 2
+  },
+  "original": {
+    "delays": 0,
+    "findings": [
+      "2 durable effects for 'book-table-1'; the scenario authorized 1"
+    ],
+    "hash": "b5b1d2bcb19fa511931d78fec5a8e388b3ad8adf1dd8bf6b6f1c9d3876e4e33f",
+    "speeches": 2
+  },
+  "predicate": {
+    "contract": "A2",
+    "rule": "rule"
+  },
+  "reduction": {
+    "complete": true,
+    "differences": [],
+    "runs": 77,
+    "steps": []
+  },
+  "replay": {
+    "distinct_hashes": 1,
+    "repeats": 3
+  },
+  "scenario_digest": "75628b259a06c3cfb084e1b3df74c57cd21bfc32354d42ac3337a4e1d2ea10d0",
+  "schema": "earful.bundle/1",
+  "windows": [
+    {
+      "hi_end": "passes",
+      "hi_us": 2500000,
+      "instant": false,
+      "lo_end": "blocked",
+      "lo_us": 0,
+      "resolution_us": 1000,
+      "variable": "speech.position 0",
+      "width_us": 2500000
+    },
+    {
+      "hi_end": "passes",
+      "hi_us": 7869000,
+      "instant": false,
+      "lo_end": "passes",
+      "lo_us": 3000000,
+      "resolution_us": 1000,
+      "variable": "speech.position 1",
+      "width_us": 4869000
+    }
+  ]
+}

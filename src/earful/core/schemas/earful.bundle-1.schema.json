@@ -1,0 +1,264 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:earful:bundle:1",
+  "title": "Earful failure bundle manifest",
+  "description": "manifest.json of an earful.bundle/1 directory: what failed, on what, and how the case was reduced. Beside it, under fixed names, are original.case.json and minimal.case.json (earful.case/1) and the normalized ledger of running each.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "predicate",
+    "framework",
+    "clock",
+    "formats",
+    "environment",
+    "scenario_digest",
+    "original",
+    "minimal",
+    "reduction",
+    "windows",
+    "replay"
+  ],
+  "properties": {
+    "schema": {
+      "const": "earful.bundle/1"
+    },
+    "predicate": {
+      "description": "The failure, frozen: the contract and the rule of it that broke.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "contract",
+        "rule"
+      ],
+      "properties": {
+        "contract": {
+          "type": "string",
+          "pattern": "^(A[1-3]|M[12]|L[12])$"
+        },
+        "rule": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "framework": {
+      "description": "The framework release the failure was found on.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "version"
+      ],
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "version": {
+          "type": "string"
+        }
+      }
+    },
+    "clock": {
+      "enum": [
+        "virtual",
+        "real"
+      ],
+      "description": "The clock the reduced case ran on."
+    },
+    "formats": {
+      "description": "The versions of the formats the bundle is written in.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "ledger",
+        "contracts",
+        "case"
+      ],
+      "properties": {
+        "ledger": {
+          "type": "string"
+        },
+        "contracts": {
+          "type": "string"
+        },
+        "case": {
+          "type": "string"
+        }
+      }
+    },
+    "environment": {
+      "description": "What the bundle was made with, by name: interpreter, platform, libraries. For the record; a replay does not depend on it.",
+      "type": "object",
+      "additionalProperties": {
+        "type": "string"
+      }
+    },
+    "scenario_digest": {
+      "type": "string",
+      "pattern": "^([0-9a-f]{64})?$",
+      "description": "A digest of the code of the scenario the cases name, as the adapter computes it. Empty if it could not be computed. A replay compares it to tell whether the code has changed."
+    },
+    "original": {
+      "$ref": "#/$defs/kept",
+      "description": "The case as it was found."
+    },
+    "minimal": {
+      "$ref": "#/$defs/kept",
+      "description": "The reduced case."
+    },
+    "reduction": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "runs",
+        "complete",
+        "steps",
+        "differences"
+      ],
+      "properties": {
+        "runs": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "How many times the system was run to reduce the case."
+        },
+        "steps": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "What the reduction did, in order."
+        },
+        "complete": {
+          "type": "boolean",
+          "description": "False: the run budget was spent before nothing more could be reduced."
+        },
+        "differences": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Every way the reduced case differs from the scenario as its author wrote it. Empty: the author's scenario fails as written, or no author's scenario was given."
+        }
+      }
+    },
+    "windows": {
+      "type": "array",
+      "description": "For each time the reduction settled, how far it can move while the reduced case still breaks the rule.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "variable",
+          "lo_us",
+          "hi_us",
+          "width_us",
+          "lo_end",
+          "hi_end",
+          "resolution_us",
+          "instant"
+        ],
+        "properties": {
+          "variable": {
+            "type": "string",
+            "description": "The time, as the reduced case names it: its kind and its index."
+          },
+          "lo_us": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "The least value at which it still breaks."
+          },
+          "hi_us": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "The greatest."
+          },
+          "width_us": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "lo_end": {
+            "enum": [
+              "passes",
+              "blocked",
+              "reach"
+            ],
+            "description": "Why the search downwards stopped. passes: a run just beyond does not break the rule. blocked: no case exists beyond, or none could be judged. reach: the search gave up."
+          },
+          "hi_end": {
+            "enum": [
+              "passes",
+              "blocked",
+              "reach"
+            ],
+            "description": "The same, upwards."
+          },
+          "resolution_us": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "How finely each end was located."
+          },
+          "instant": {
+            "type": "boolean",
+            "description": "It breaks at one value and not a microsecond either side."
+          }
+        }
+      }
+    },
+    "replay": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "repeats",
+        "distinct_hashes"
+      ],
+      "properties": {
+        "repeats": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "How many times the reduced case was run when the bundle was made."
+        },
+        "distinct_hashes": {
+          "const": 1,
+          "description": "How many different ledgers those runs gave. A bundle is written only if it is 1."
+        }
+      }
+    }
+  },
+  "$defs": {
+    "kept": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "hash",
+        "speeches",
+        "delays",
+        "findings"
+      ],
+      "properties": {
+        "hash": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$",
+          "description": "The ledger hash of running the case."
+        },
+        "speeches": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "How many user speeches the case has."
+        },
+        "delays": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "How many provider delays it declares."
+        },
+        "findings": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "What the checker said about the rule in that run, in its own words. Side by side, the two show whether the reduction kept the same failure."
+        }
+      }
+    }
+  }
+}

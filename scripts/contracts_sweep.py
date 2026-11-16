@@ -3,7 +3,8 @@
 Runs a set of scenario shapes, moving one user speech across each in small steps, and
 checks every run. Each shape is something real agents do: a slow tool interrupted while it
 runs, a tool that raises, two rounds of tools, a backchannel, noise, an output that cannot
-pause, a greeting, a slow recognizer. On a release without known defects nothing should
+pause, a greeting, a slow recognizer, a user who pauses mid-sentence. The moving speech
+starts as close to the one before it as it can. On a release without known defects nothing should
 fail; whatever does is either a defect of that release or a mistake in the checker, and
 is worth reading either way.
 
@@ -15,13 +16,13 @@ and rule, with the timings it appeared at. ``--dump`` writes the ledger of each 
 import json
 import sys
 from collections import defaultdict
-from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
 
 import livekit.agents as lk
 
 from earful.core.checker import check
 from earful.core.ledger import write_jsonl
+from earful.livekit import scenario
 from earful.livekit.cases import BOOKING_ACK, CASES, LONG_REPLY
 from earful.livekit.harness import Case, Intent, InvalidRun, run_case
 from earful.livekit.providers import Claim, Reply, ToolCall, UserSpeech
@@ -110,7 +111,6 @@ def booking(ack=BOOKING_ACK, call=None):
 
     def policy(items):
         text = last_user(items)
-        users = sum(1 for i in items if i["type"] == "message" and i.get("role") == "user")
         if after_a_tool(items):
             if outputs(items)[-1]["is_error"]:
                 return Reply(text="I am sorry something went wrong.")
@@ -120,7 +120,7 @@ def booking(ack=BOOKING_ACK, call=None):
         if "window" in text:
             return Reply(text="Yes it is right by the window.")
         if "table" in text and not outputs(items):
-            asked = call or ToolCall("create_reservation", BOOK, f"call-{users}")
+            asked = call or ToolCall("create_reservation", BOOK)
             return Reply(text=ack, tool_calls=(asked,))
         return Reply(text="How can I help?")
 
@@ -134,14 +134,14 @@ def two_rounds(items):
     if after_a_tool(items) and names[-1] == "check_availability" and "create_reservation" not in names:
         return Reply(
             text="There is a table at eight so I will book it now.",
-            tool_calls=(ToolCall("create_reservation", BOOK, "book-1"),),
+            tool_calls=(ToolCall("create_reservation", BOOK),),
         )
     if after_a_tool(items):
         return Reply(text="Your table is booked.", claims=(Claim(INTENT),))
     if "window" in text:
         return Reply(text="Yes it is right by the window.")
     if "table" in text and not names:
-        return Reply(text="Let me check.", tool_calls=(ToolCall("check_availability", BOOK, "look-1"),))
+        return Reply(text="Let me check.", tool_calls=(ToolCall("check_availability", BOOK),))
     return Reply(text="How can I help?")
 
 
@@ -155,8 +155,8 @@ def parallel_tools(items):
         return Reply(
             text="One moment please.",
             tool_calls=(
-                ToolCall("check_availability", BOOK, "look-1"),
-                ToolCall("create_reservation", BOOK, "book-1"),
+                ToolCall("check_availability", BOOK),
+                ToolCall("create_reservation", BOOK),
             ),
         )
     return Reply(text="How can I help?")
@@ -198,54 +198,59 @@ def hosted(at, second, **kwargs):
 # family -> (first and last start of the moving speech, builder)
 FAMILIES = {
     # The three reference cases.
-    "barge_in_mid_word": (3.0, 12.0, reference("barge_in_mid_word")),
-    "book_then_interrupt": (3.0, 12.0, reference("book_then_interrupt")),
-    "speak_over_new_turn": (3.0, 6.0, reference("speak_over_new_turn")),
+    "barge_in_mid_word": (2.5, 12.0, reference("barge_in_mid_word")),
+    "book_then_interrupt": (2.5, 12.0, reference("book_then_interrupt")),
+    "speak_over_new_turn": (2.5, 6.0, reference("speak_over_new_turn")),
     # A tool that takes 3 s to commit, interrupted while it runs.
-    "slow_tool": (3.0, 11.0, lambda at: booker(booking(), at, latency=3.0)),
+    "slow_tool": (2.5, 11.0, lambda at: booker(booking(), at, latency=3.0)),
     # The model calls the tool without saying anything.
-    "silent_tool_call": (3.0, 8.0, lambda at: booker(booking(ack=""), at, latency=2.0)),
+    "silent_tool_call": (2.5, 8.0, lambda at: booker(booking(ack=""), at, latency=2.0)),
     # The tool raises an ordinary error; the model apologizes.
-    "tool_raises": (3.0, 8.0, lambda at: booker(booking(ack="One moment please."), at, latency=1.0, fail=True)),
+    "tool_raises": (2.5, 8.0, lambda at: booker(booking(ack="One moment please."), at, latency=1.0, fail=True)),
     # The tool returns a dict.
-    "tool_returns_dict": (3.0, 8.0, lambda at: booker(booking(), at, latency=0.5, returns="dict")),
+    "tool_returns_dict": (2.5, 8.0, lambda at: booker(booking(), at, latency=0.5, returns="dict")),
     # The model asks for a tool with an argument the tool cannot take.
-    "refused_call": (3.0, 8.0, lambda at: booker(
-        booking(ack="One moment please.", call=ToolCall("create_reservation", '{"party_size": "six"}', "bad-1")), at)),
+    "refused_call": (2.5, 8.0, lambda at: booker(
+        booking(ack="One moment please.", call=ToolCall("create_reservation", '{"party_size": "six"}')), at)),
     # Two rounds of tools, then a confirmation.
-    "two_rounds": (3.0, 12.0, lambda at: booker(two_rounds, at, latency=1.0)),
+    "two_rounds": (2.5, 12.0, lambda at: booker(two_rounds, at, latency=1.0)),
     # Two tools called in one reply.
-    "parallel_tools": (3.0, 8.0, lambda at: booker(parallel_tools, at, latency=1.5)),
+    "parallel_tools": (2.5, 8.0, lambda at: booker(parallel_tools, at, latency=1.5)),
     # The user corrects the booking while it is being made.
-    "retire": (3.0, 11.0, lambda at: booker(
+    "retire": (2.5, 11.0, lambda at: booker(
         booking(), at, latency=2.0,
         speeches=[ASK_BOOK, speech(at, 1.0, "Actually stop that.", retires=(INTENT,))])),
     # The endpointing delay is long, so the next speech arrives before the turn is over.
-    "long_endpointing": (3.0, 8.0, lambda at: booker(booking(ack=""), at, latency=2.0, min_endpointing_delay=2.0)),
+    "long_endpointing": (2.5, 8.0, lambda at: booker(booking(ack=""), at, latency=2.0, min_endpointing_delay=2.0)),
     # A backchannel while the agent speaks.
-    "backchannel": (3.0, 12.0, lambda at: hosted(at, speech(at, 0.6, "Uh huh.", backchannel=True))),
+    "backchannel": (2.5, 12.0, lambda at: hosted(at, speech(at, 0.6, "Uh huh.", backchannel=True))),
     # Noise (the VAD fires, nothing is transcribed) while the agent speaks.
-    "noise": (3.0, 12.0, lambda at: hosted(at, speech(at, 0.8, ""), drain_delay=16.0)),
+    "noise": (2.5, 12.0, lambda at: hosted(at, speech(at, 0.8, ""), drain_delay=16.0)),
     # A speech shorter than the interruption threshold.
-    "short_speech": (3.0, 12.0, lambda at: hosted(at, speech(at, 0.3, "Wait."))),
+    "short_speech": (2.5, 12.0, lambda at: hosted(at, speech(at, 0.3, "Wait."))),
     # An output that cannot pause: the framework has to clear it.
-    "no_pause": (3.0, 12.0, lambda at: hosted(at, speech(at, 1.0, "Stop."), sink_can_pause=False)),
+    "no_pause": (2.5, 12.0, lambda at: hosted(at, speech(at, 1.0, "Stop."), sink_can_pause=False)),
     # A recognizer that takes 1.2 s to deliver a transcript.
-    "slow_stt": (3.0, 12.0, lambda at: Case(
+    "slow_stt": (2.5, 12.0, lambda at: Case(
         name="sweep", agent=plain_host, policy=host, drain_delay=10.0,
         speeches=[speech(0.5, 2.0, "Tell me about the menu.", stt_delay=1.2), speech(at, 1.0, "Stop.", stt_delay=1.2)])),
     # Other interruption thresholds.
-    "quick_interrupt": (3.0, 12.0, lambda at: hosted(
+    "quick_interrupt": (2.5, 12.0, lambda at: hosted(
         at, speech(at, 1.0, "Stop."), min_interruption_duration=0.2, min_endpointing_delay=1.0)),
-    "slow_interrupt": (3.0, 12.0, lambda at: hosted(at, speech(at, 1.5, "Stop."), min_interruption_duration=1.0)),
+    "slow_interrupt": (2.5, 12.0, lambda at: hosted(at, speech(at, 1.5, "Stop."), min_interruption_duration=1.0)),
     # A greeting the application speaks itself, interrupted.
     "greeting": (0.1, 7.0, lambda at: Case(
         name="sweep", agent=Greeter, policy=host, drain_delay=12.0,
         speeches=[speech(at, 1.5, "Tell me about the menu.")])),
     # Three turns: the third moves across the reply to the second.
-    "three_turns": (6.6, 14.0, lambda at: Case(
+    "three_turns": (6.0, 14.0, lambda at: Case(
         name="sweep", agent=plain_host, policy=host, drain_delay=8.0,
         speeches=[ASK_MENU, speech(5.0, 1.0, "Stop."), speech(at, 1.2, "Actually what about dessert?")])),
+    # The user pauses mid-sentence: the second half moves from right after the first to
+    # well after it. Under half a second apart, a VAD hears the two as one.
+    "pauses_mid_sentence": (1.5, 5.0, lambda at: Case(
+        name="sweep", agent=plain_host, policy=host, drain_delay=14.0,
+        speeches=[speech(0.5, 1.0, "Tell me about"), speech(at, 1.0, "the menu please.")])),
     # The user goes on speaking, in three parts, while a slow tool returns.
     "goes_on_speaking": (5.0, 9.0, lambda at: booker(
         booking(ack=""), at, latency=4.0,
@@ -310,7 +315,7 @@ if __name__ == "__main__":
         first, last, _build = FAMILIES[family]
         jobs += [(family, round(first + k * step, 3), dump) for k in range(int(round((last - first) / step)) + 1)]
     results = defaultdict(list)
-    with ProcessPoolExecutor() as pool:
+    with scenario.pool() as pool:
         for family, at, res in pool.map(run_one, jobs, chunksize=4):
             results[family].append((at, res))
 

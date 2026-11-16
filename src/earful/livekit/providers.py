@@ -107,6 +107,19 @@ def _check_speeches(speeches: list[UserSpeech]) -> list[UserSpeech]:
     return speeches
 
 
+def vad_segments(speeches: list[UserSpeech], min_silence_us: int) -> list[list[int]]:
+    """Which speeches a VAD hears as one: the indices of ``speeches`` (in order of start),
+    grouped. A VAD reports the end of speech only after ``min_silence_us`` of silence, so
+    speech that resumes sooner belongs to the segment before it."""
+    segments: list[list[int]] = []
+    for index, speech in enumerate(speeches):
+        if segments and speech.start_us - speeches[segments[-1][-1]].end_us < min_silence_us:
+            segments[-1].append(index)
+        else:
+            segments.append([index])
+    return segments
+
+
 class ScriptedVAD(lk_vad.VAD):
     def __init__(
         self,
@@ -149,31 +162,36 @@ class _ScriptedVADStream(lk_vad.VADStream):
 
         t0 = now_us()
         vad._origin.mark("vad", t0)
-        for i, speech in enumerate(vad._speeches):
-            await _sleep_until(t0, speech.start_us + vad._min_speech_us)
-            self._emit(lk_vad.VADEventType.START_OF_SPEECH, speech, now_us() - t0)
-            vad._ledger.append("world", "user.vad_start", speech=i)
+        for segment in vad_segments(vad._speeches, vad._min_silence_us):
+            # One segment: from the start of its first speech to the end of its last. The
+            # pauses inside it are shorter than the VAD's silence window, so to the VAD the
+            # user never stopped.
+            first, last = segment[0], segment[-1]
+            start_us, end_us = vad._speeches[first].start_us, vad._speeches[last].end_us
+            await _sleep_until(t0, start_us + vad._min_speech_us)
+            self._emit(lk_vad.VADEventType.START_OF_SPEECH, start_us, end_us, now_us() - t0)
+            vad._ledger.append("world", "user.vad_start", speech=first)
 
-            end_at = speech.end_us + vad._min_silence_us
+            end_at = end_us + vad._min_silence_us
             while now_us() - t0 < end_at - vad._min_speech_us * 2:
                 await asyncio.sleep(to_seconds(vad._min_speech_us))
-                self._emit(lk_vad.VADEventType.INFERENCE_DONE, speech, now_us() - t0)
+                self._emit(lk_vad.VADEventType.INFERENCE_DONE, start_us, end_us, now_us() - t0)
 
             await _sleep_until(t0, end_at)
-            self._emit(lk_vad.VADEventType.END_OF_SPEECH, speech, now_us() - t0)
-            vad._ledger.append("world", "user.vad_end", speech=i)
+            self._emit(lk_vad.VADEventType.END_OF_SPEECH, start_us, end_us, now_us() - t0)
+            vad._ledger.append("world", "user.vad_end", speech=last)
 
         async for _ in self._input_ch:
             pass
 
-    def _emit(self, type: lk_vad.VADEventType, speech: UserSpeech, at_us: int) -> None:
-        """Report to the framework at ``at_us`` microseconds after the origin.
+    def _emit(self, type: lk_vad.VADEventType, start: int, end: int, at_us: int) -> None:
+        """Report to the framework at ``at_us`` microseconds after the origin, for a
+        segment of speech from ``start`` to ``end``.
 
         Durations are differences of integers, converted once. A speech that has lasted
         500 000 us reports exactly 0.5 s, so the framework's own thresholds are decided by
         the scripted times and not by float rounding.
         """
-        start, end = speech.start_us, speech.end_us
         speaking = at_us <= end
         values = {
             "type": type,
@@ -282,9 +300,13 @@ def summarize_item(item: Any) -> dict[str, Any]:
 
 @dataclass(frozen=True)
 class ToolCall:
+    """A tool call in a scripted reply. Leave ``call_id`` out and the scripted model
+    assigns one, unique to the model call, as a real model does. A policy is a function of
+    the context alone, so an id it invents repeats whenever the same context does."""
+
     name: str
     arguments: str  # JSON text
-    call_id: str
+    call_id: str | None = None
 
 
 @dataclass(frozen=True)
@@ -351,11 +373,21 @@ Policy = Callable[[list[dict[str, Any]]], Reply]
 class ScriptedLLM(lk_llm.LLM):
     """Deterministic model. Also the memory witness: it records every context it is shown."""
 
-    def __init__(self, ledger: Ledger, policy: Policy, errors: list[str]) -> None:
+    def __init__(
+        self,
+        ledger: Ledger,
+        policy: Policy,
+        errors: list[str],
+        *,
+        ttft_us: dict[int, int] | None = None,
+        duration_us: dict[int, int] | None = None,
+    ) -> None:
         super().__init__()
         self._ledger = ledger
         self._policy = policy
         self._errors = errors
+        # Model call (from 1) -> a delay the scenario declared, in place of the reply's own.
+        self._ttft_us, self._duration_us = dict(ttft_us or {}), dict(duration_us or {})
         self._calls = 0
         self._call_ids: set[str] = set()
         self.register = ReplyRegister()
@@ -394,12 +426,18 @@ class _ScriptedLLMStream(lk_llm.LLMStream):
                 model._errors.append(f"call {call}: claim {claim} does not fit reply {reply.text!r}")
                 continue
             claims.append({"intent": claim.intent, "first_word": claim.first_word, "last_word": last})
-        for tool_call in reply.tool_calls:
+        tool_calls = [
+            t if t.call_id is not None else dataclasses.replace(t, call_id=f"call-{call}-{n}")
+            for n, t in enumerate(reply.tool_calls, 1)
+        ]
+        for tool_call in tool_calls:
             # A call id links a tool invocation to its result; a model never repeats one.
             if tool_call.call_id in model._call_ids:
                 model._errors.append(f"call {call}: the policy reused tool call id {tool_call.call_id!r}")
             model._call_ids.add(tool_call.call_id)
-        ttft_us, duration_us = to_us(reply.ttft), to_us(reply.duration)
+        ttft_us = model._ttft_us.get(call, to_us(reply.ttft))
+        # Generation cannot end before its first token.
+        duration_us = max(model._duration_us.get(call, to_us(reply.duration)), ttft_us)
         if words:
             model.register.replies[call] = words
         model._ledger.append(
@@ -407,7 +445,7 @@ class _ScriptedLLMStream(lk_llm.LLMStream):
             "llm.response",
             call=call,
             text=reply.text,
-            tool_calls=[dataclasses.asdict(t) for t in reply.tool_calls],
+            tool_calls=[dataclasses.asdict(t) for t in tool_calls],
             claims=claims,
             ttft_us=ttft_us,
             duration_us=duration_us,
@@ -419,12 +457,12 @@ class _ScriptedLLMStream(lk_llm.LLMStream):
         for i in range(0, len(reply.text), step):
             self._chunk(call, content=reply.text[i : i + step])
         await _sleep_until(t0, duration_us)
-        if reply.tool_calls:
+        if tool_calls:
             self._chunk(
                 call,
                 tool_calls=[
                     lk_llm.FunctionToolCall(name=t.name, arguments=t.arguments, call_id=t.call_id)
-                    for t in reply.tool_calls
+                    for t in tool_calls
                 ],
             )
 
@@ -484,6 +522,7 @@ class StampedTTS(lk_tts.TTS):
         sample_rate: int = 24000,
         seconds_per_letter: float = 0.06,
         ttfb: float = 0.2,
+        ttfb_us: dict[int, int] | None = None,
     ) -> None:
         super().__init__(
             capabilities=lk_tts.TTSCapabilities(streaming=True),
@@ -493,6 +532,8 @@ class StampedTTS(lk_tts.TTS):
         self._ledger = ledger
         self._register = register
         self._ttfb_us = to_us(ttfb)
+        # Utterance (from 1) -> a time to first audio the scenario declared for it.
+        self._ttfb_by_utterance = dict(ttfb_us or {})
         self._letter_us = to_us(seconds_per_letter)
         if sample_rate * self._letter_us < 1_000_000:
             raise ValueError("seconds_per_letter is shorter than one audio sample")
@@ -505,10 +546,12 @@ class StampedTTS(lk_tts.TTS):
     def stream(self, *, conn_options: APIConnectOptions = DEFAULT_API_CONNECT_OPTIONS) -> Any:
         return _StampedSynthesizeStream(tts=self, conn_options=conn_options)
 
-    def _render(self, text: str) -> bytes:
-        """PCM for ``text``; registers its words and records the synthesis."""
+    def _render(self, text: str) -> tuple[bytes, int]:
+        """PCM for ``text`` and the time to its first audio, in microseconds; registers
+        its words and records the synthesis."""
         self._utterances += 1
         utterance = self._utterances
+        ttfb_us = self._ttfb_by_utterance.get(utterance, self._ttfb_us)
         pcm = array("h")
         stamps, word_samples = [], []
         for index, word in enumerate(text.split()):
@@ -530,9 +573,9 @@ class StampedTTS(lk_tts.TTS):
             stamps=stamps,
             word_samples=word_samples,
             sample_rate=self.sample_rate,
-            ttfb_us=self._ttfb_us,
+            ttfb_us=ttfb_us,
         )
-        return pcm.tobytes()
+        return pcm.tobytes(), ttfb_us
 
 
 def _push_pcm(emitter: Any, pcm: bytes, sample_rate: int) -> None:
@@ -551,9 +594,9 @@ class _StampedChunkedStream(lk_tts.ChunkedStream):
             num_channels=1,
             mime_type="audio/pcm",
         )
-        pcm = tts._render(self._input_text)
+        pcm, ttfb_us = tts._render(self._input_text)
         if pcm:
-            await asyncio.sleep(to_seconds(tts._ttfb_us))
+            await asyncio.sleep(to_seconds(ttfb_us))
             _push_pcm(output_emitter, pcm, tts.sample_rate)
         output_emitter.flush()
 
@@ -579,9 +622,9 @@ class _StampedSynthesizeStream(lk_tts.SynthesizeStream):
                 continue
             if "_mark_started" in dir(self):
                 self._mark_started()
-            pcm = tts._render(text)
+            pcm, ttfb_us = tts._render(text)
             text = ""
-            await asyncio.sleep(to_seconds(tts._ttfb_us))
+            await asyncio.sleep(to_seconds(ttfb_us))
             output_emitter.start_segment(segment_id=utils.shortuuid("earful_segment_"))
             _push_pcm(output_emitter, pcm, tts.sample_rate)
             output_emitter.flush()
@@ -601,4 +644,5 @@ __all__ = [
     "UserSpeech",
     "WorldOrigin",
     "summarize_item",
+    "vad_segments",
 ]
