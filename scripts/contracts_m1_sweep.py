@@ -1,10 +1,10 @@
-"""How far does remembered text run ahead of played audio?
+"""How far does remembered text drift from played audio?
 
-Interrupts one long reply at many points and compares, for each point, the words the sink
-fully consumed with the words the framework kept in its chat history. The result sets the
-default tolerance of contract M1 in docs/contracts.md.
+Interrupts a reply at every 50 ms, for several sentences, and reports the drift between
+what the framework remembers and what the sink played, as contract M1 measures it: in
+audio time, and in words. The result sets M1's default tolerances in docs/contracts.md.
 
-    python scripts/contracts_m1_sweep.py [seconds_per_word]
+    python scripts/contracts_m1_sweep.py [seconds_per_letter]
 """
 import json
 import sys
@@ -12,64 +12,69 @@ from collections import Counter
 
 import livekit.agents as lk
 
-from earful.livekit.cases import LONG_REPLY, _barge_in_policy
+from earful.core.checker import check
+from earful.livekit.cases import BOOKING_ACK, LONG_REPLY
 from earful.livekit.harness import Case, run_case
-from earful.livekit.providers import UserSpeech
+from earful.livekit.providers import Reply, UserSpeech, letters
 
-seconds_per_word = float(sys.argv[1]) if len(sys.argv) > 1 else 0.3
-reply = LONG_REPLY.split()
-reply_starts, step = 3.3, 0.05
+SENTENCES = {
+    "menu": LONG_REPLY,
+    "booking": BOOKING_ACK,
+    "long words": (
+        "Unfortunately the reservation system is temporarily unavailable so I cannot "
+        "confirm availability for Saturday evening right now"
+    ),
+    "short words": "So if you can be at the bar by six or so we can put you at a big table by the door",
+}
+seconds_per_letter = float(sys.argv[1]) if len(sys.argv) > 1 else 0.06
+STEP = 0.05
 
-beyond_cut: Counter[int] = Counter()  # remembered - (fully played + cut word)
-below_played = not_remembered = points = 0
-at = 3.0
-while at < reply_starts + len(reply) * seconds_per_word:
-    case = Case(
-        name="m1_sweep",
-        agent=lambda backend: lk.Agent(instructions="You are a restaurant host."),
-        speeches=[
-            UserSpeech(start=0.5, end=2.5, transcript="Tell me about the menu."),
-            UserSpeech(start=round(at, 3), end=round(at + 1.0, 3), transcript="Stop."),
-        ],
-        policy=_barge_in_policy,
-        seconds_per_word=seconds_per_word,
-    )
-    events = run_case(case).ledger.events
-    at += step
-    cut_short = [
-        e for e in events if e["kind"] == "playout.finished" and e["data"]["interrupted"]
-    ]
-    if not cut_short:
-        continue  # the interruption arrived after the reply had finished
-    points += 1
-    played = len(cut_short[0]["data"]["words_played"])
-    cut = 1 if cut_short[0]["data"]["word_cut"] else 0
-    history = next(e for e in events if e["kind"] == "history.final")["data"]["items"]
-    kept = None
-    for item in history:
-        words = (item.get("text") or "").split()
-        if item.get("role") == "assistant" and words and words == reply[: len(words)]:
-            kept = len(words)
-            break
-    if kept is None:
-        not_remembered += 1
-        if played:
-            below_played += 1
-        continue
-    if kept < played:
-        below_played += 1
-    beyond_cut[kept - played - cut] += 1
 
-print(
-    json.dumps(
+def policy_for(text):
+    def policy(items):
+        last = next(i for i in reversed(items) if i["type"] == "message" and i.get("role") == "user")
+        return Reply(text="Okay, stopping.") if "Stop" in (last.get("text") or "") else Reply(text=text, ttft=0.1, duration=0.4)
+
+    return policy
+
+
+rows = []
+for name, text in SENTENCES.items():
+    audio = sum(letters(w) for w in text.split()) * seconds_per_letter
+    beyond_cut: Counter[int] = Counter()  # remembered - played - cut
+    drifts: list[int] = []
+    points = 0
+    at = 3.0
+    while at < 3.3 + audio:
+        case = Case(
+            name="m1_sweep",
+            agent=lambda backend: lk.Agent(instructions="You are a restaurant host."),
+            speeches=[
+                UserSpeech(start=0.5, end=2.5, transcript="Tell me more."),
+                UserSpeech(start=round(at, 3), end=round(at + 1.0, 3), transcript="Stop."),
+            ],
+            policy=policy_for(text),
+            seconds_per_letter=seconds_per_letter,
+        )
+        at += STEP
+        first = check(run_case(case).ledger.events).results["M1"].verdicts[0]
+        measures = first.measures
+        if not measures.get("contexts") or measures["played"] == measures["words"]:
+            continue  # not judged, or the interruption came after the last word
+        points += 1
+        row = measures["contexts"][0]
+        drifts.append(row["drift_us"])
+        beyond_cut[row["remembered_minus_played_and_cut"]] += 1
+    rows.append(
         {
-            "livekit-agents": lk.__version__,
-            "seconds_per_word": seconds_per_word,
+            "sentence": name,
+            "words": len(text.split()),
             "interruption_points": points,
+            "exact": sum(1 for d in drifts if d == 0),
+            "most_behind_us": -min(drifts),
+            "most_ahead_us": max(drifts),
             "remembered_minus_played_and_cut": dict(sorted(beyond_cut.items())),
-            "reply_absent_from_memory": not_remembered,
-            "remembered_fewer_than_fully_played": below_played,
-        },
-        indent=2,
+        }
     )
-)
+
+print(json.dumps({"livekit-agents": lk.__version__, "seconds_per_letter": seconds_per_letter, "sentences": rows}, indent=2))

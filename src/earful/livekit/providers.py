@@ -319,13 +319,14 @@ class ReplyRegister:
     replies: dict[int, list[str]] = field(default_factory=dict)
     synthesized: set[int] = field(default_factory=set)
 
-    def attribute(self, text: str) -> tuple[int | None, str]:
-        """Which reply a synthesized text belongs to.
+    def attribute(self, text: str) -> tuple[int | None, str, list[int]]:
+        """Which reply a synthesized text belongs to, and every reply it could be.
 
         Only replies not yet synthesized are candidates. ``unique``: exactly one has this
         text. ``prefix``: none matches in full but exactly one starts with it (generation
         stopped early). ``ambiguous``: more than one candidate fits. ``none``: nothing fits.
-        Earful never guesses between candidates.
+        The register never chooses between candidates: it names them all, and whoever reads
+        the ledger decides what follows from that.
         """
         words = _words(text)
         open_ = [c for c in self.replies if c not in self.synthesized]
@@ -333,13 +334,13 @@ class ReplyRegister:
             ("unique", lambda w: w == words),
             ("prefix", lambda w: len(w) > len(words) and w[: len(words)] == words),
         ):
-            hits = [c for c in open_ if words and fits(self.replies[c])]
+            hits = sorted(c for c in open_ if words and fits(self.replies[c]))
             if len(hits) == 1:
                 self.synthesized.add(hits[0])
-                return hits[0], kind
+                return hits[0], kind, hits
             if len(hits) > 1:
-                return None, "ambiguous"
-        return None, "none"
+                return None, "ambiguous", hits
+        return None, "none", []
 
 
 # A model policy: a pure function of the context the framework presents. It sees item
@@ -356,6 +357,7 @@ class ScriptedLLM(lk_llm.LLM):
         self._policy = policy
         self._errors = errors
         self._calls = 0
+        self._call_ids: set[str] = set()
         self.register = ReplyRegister()
 
     def chat(
@@ -392,6 +394,11 @@ class _ScriptedLLMStream(lk_llm.LLMStream):
                 model._errors.append(f"call {call}: claim {claim} does not fit reply {reply.text!r}")
                 continue
             claims.append({"intent": claim.intent, "first_word": claim.first_word, "last_word": last})
+        for tool_call in reply.tool_calls:
+            # A call id links a tool invocation to its result; a model never repeats one.
+            if tool_call.call_id in model._call_ids:
+                model._errors.append(f"call {call}: the policy reused tool call id {tool_call.call_id!r}")
+            model._call_ids.add(tool_call.call_id)
         ttft_us, duration_us = to_us(reply.ttft), to_us(reply.duration)
         if words:
             model.register.replies[call] = words
@@ -452,11 +459,21 @@ class StampTable:
         return stamp
 
 
+def letters(word: str) -> int:
+    """How long a word is to say, counted in letters and digits; never less than one."""
+    return sum(ch.isalnum() for ch in word) or 1
+
+
 class StampedTTS(lk_tts.TTS):
     """Emits PCM in which every sample's value is the stamp of the word it belongs to.
 
     The audio itself carries the ground truth, so the sink needs no side channel and no
     framework estimate to know which words it consumed.
+
+    A word's audio is as long as its letters: "I" is short and "reservation" is long, as
+    in speech. A voice that gave every word the same length would be unlike any real one,
+    and a framework that estimates what was spoken from the text would drift from it for
+    that reason alone.
     """
 
     def __init__(
@@ -465,7 +482,7 @@ class StampedTTS(lk_tts.TTS):
         register: ReplyRegister,
         *,
         sample_rate: int = 24000,
-        seconds_per_word: float = 0.3,
+        seconds_per_letter: float = 0.06,
         ttfb: float = 0.2,
     ) -> None:
         super().__init__(
@@ -476,10 +493,9 @@ class StampedTTS(lk_tts.TTS):
         self._ledger = ledger
         self._register = register
         self._ttfb_us = to_us(ttfb)
-        # Whole samples per word; the ledger records this number, not the requested seconds.
-        self._samples_per_word = (sample_rate * to_us(seconds_per_word) + 500_000) // 1_000_000
-        if self._samples_per_word < 1:
-            raise ValueError("seconds_per_word is shorter than one audio sample")
+        self._letter_us = to_us(seconds_per_letter)
+        if sample_rate * self._letter_us < 1_000_000:
+            raise ValueError("seconds_per_letter is shorter than one audio sample")
         self._utterances = 0
         self.table = StampTable(sample_rate=sample_rate)
 
@@ -493,23 +509,26 @@ class StampedTTS(lk_tts.TTS):
         """PCM for ``text``; registers its words and records the synthesis."""
         self._utterances += 1
         utterance = self._utterances
-        per_word = self._samples_per_word
         pcm = array("h")
-        stamps = []
+        stamps, word_samples = [], []
         for index, word in enumerate(text.split()):
-            stamp = self.table.add(utterance, index, word, per_word)
+            # Whole samples; the ledger records these numbers, not the requested seconds.
+            samples = (self.sample_rate * letters(word) * self._letter_us + 500_000) // 1_000_000
+            stamp = self.table.add(utterance, index, word, samples)
             stamps.append(stamp)
-            pcm.extend([stamp] * per_word)
-        call, attribution = self._register.attribute(text)
+            word_samples.append(samples)
+            pcm.extend([stamp] * samples)
+        call, attribution, candidates = self._register.attribute(text)
         self._ledger.append(
             "world",
             "tts.synthesized",
             utterance=utterance,
             call=call,
             attribution=attribution,
+            candidates=candidates,
             text=text,
             stamps=stamps,
-            samples_per_word=per_word,
+            word_samples=word_samples,
             sample_rate=self.sample_rate,
             ttfb_us=self._ttfb_us,
         )

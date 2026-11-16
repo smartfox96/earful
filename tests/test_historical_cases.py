@@ -1,16 +1,12 @@
 """The two historical defects, red on affected releases and green on repaired ones.
 
-The expectation is derived from the installed livekit-agents version; the case and the
-ledger queries are identical on both sides of each fix.
+The expectation is derived from the installed livekit-agents version. The case, the
+contracts and the checker are identical on both sides of each fix: nothing here knows
+which defect it is looking for.
 """
 import livekit.agents as lk
 
-from earful.core.observations import (
-    effect_counts,
-    memory_gaps,
-    played_vs_remembered,
-    playouts_started_over_user,
-)
+from earful.core.checker import FAIL, PASS, check
 from earful.livekit.cases import BOOKING_INTENT, CASES
 from earful.livekit.harness import run_case
 
@@ -19,38 +15,48 @@ FIX_3702 = (1, 6, 6)  # livekit/agents PR #6349
 FIX_5509 = (1, 5, 7)  # livekit/agents PR #5535
 
 
+def _report(case):
+    return check(run_case(case).ledger.events)
+
+
 def test_3702_interrupted_tool_result():
-    events = run_case(CASES["book_then_interrupt"]()).ledger.events
-    reservations = effect_counts(events).get(BOOKING_INTENT, 0)
-    gaps = memory_gaps(events)
+    """A booking's result is missing from the next model call, which books again."""
+    report = _report(CASES["book_then_interrupt"]())
     if VERSION < FIX_3702:
-        assert reservations == 2, "affected release: the booking should be duplicated"
-        assert gaps == [2], "affected release: model call 2 should not see the tool result"
+        (duplicate,) = report.results["A2"].failures
+        assert duplicate.instance == {"intent": BOOKING_INTENT}
+        assert duplicate.measures["committed"] == 2
+        first = report.results["M2"].failures[0]
+        assert first.instance == {"context": "call 2"}
+        assert [f.rule for f in first.findings] == ["rule d"]
     else:
-        assert reservations == 1
-        assert gaps == []
+        assert report.outcome("A2") == PASS
+        assert report.outcome("M2") == PASS
+    assert report.outcome("A3") == PASS  # the booking was confirmed only after it committed
 
 
 def test_5509_stale_reply_over_new_user_turn():
-    events = run_case(CASES["speak_over_new_turn"]()).ledger.events
-    overlaps = playouts_started_over_user(events)
+    """A reply still being generated starts playing after the user has taken the floor."""
+    report = _report(CASES["speak_over_new_turn"]())
     if VERSION < FIX_5509:
-        assert len(overlaps) == 1, "affected release: the stale reply should start playing"
-        assert overlaps[0]["started_after_user_us"] == 250_000
+        (over,) = report.results["L2"].failures
+        assert over.instance == {"speech": 1}
+        assert [f.rule for f in over.findings] == ["rule b"]
+        assert "started 250000 us after the user took the floor" in over.findings[0].detail
     else:
-        assert overlaps == []
+        assert report.outcome("L2") == PASS
 
 
 def test_5509_fix_needs_a_pausable_output():
     """The repair pauses the output, so an output that cannot pause is still affected."""
     case = CASES["speak_over_new_turn"]()
     case.sink_can_pause = False
-    overlaps = playouts_started_over_user(run_case(case).ledger.events)
-    assert len(overlaps) == 1
+    assert _report(case).outcome("L2") == FAIL
 
 
 def test_interrupted_reply_is_cut_mid_word():
-    events = run_case(CASES["barge_in_mid_word"]()).ledger.events
-    (cut,) = played_vs_remembered(events)
-    assert cut["played"] == "Tonight we have a roasted squash soup"
-    assert cut["word_cut"] == 8
+    report = _report(CASES["barge_in_mid_word"]())
+    cut = report.results["M1"].verdicts[0]
+    assert cut.outcome == PASS
+    assert (cut.measures["played"], cut.measures["cut"]) == (8, 1)
+    assert report.failures == ()

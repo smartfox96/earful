@@ -1,9 +1,10 @@
 """Print a ledger file in readable form. Optional second argument: start time in seconds."""
 import json
 import sys
+from pathlib import Path
 
 start = float(sys.argv[2]) if len(sys.argv) > 2 else 0.0
-for line in open(sys.argv[1]):
+for line in Path(sys.argv[1]).read_text().splitlines():
     e = json.loads(line)
     if e["t_us"] / 1e6 < start:
         continue

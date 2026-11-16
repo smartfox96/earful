@@ -12,7 +12,7 @@ from collections.abc import Callable, Iterable
 from pathlib import Path
 from typing import Any
 
-SCHEMA = "earful.ledger/1"
+SCHEMA = "earful.ledger/2"
 
 # Who observed the event. The checker treats these as independent witnesses.
 SOURCES = ("world", "llm", "sink", "backend", "framework", "harness")
@@ -61,6 +61,8 @@ class Ledger:
             snapshot = json.loads(json.dumps(data, allow_nan=False))
         except (TypeError, ValueError) as exc:
             raise TypeError(f"{kind}: event data must be plain JSON ({exc})") from exc
+        if self.events and self.events[-1]["kind"] == "run.end":
+            raise ValueError(f"{kind}: the ledger has ended; nothing follows run.end")
         if kind == "run.start" and self.run is None:
             self.run = run_id(snapshot)
         if self.run is None:

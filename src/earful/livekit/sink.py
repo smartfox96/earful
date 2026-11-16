@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import asyncio
 import time
+from collections.abc import Callable
 from typing import Any
 
 from livekit import rtc
@@ -42,6 +43,7 @@ class _Segment:
     """One playout segment: the audio between two flushes or clears."""
 
     __slots__ = (
+        "announced",
         "flushed",
         "number",
         "pause_began_us",
@@ -58,6 +60,7 @@ class _Segment:
         self.runs: list[list[int]] = []  # [stamp, sample count], in arrival order
         self.pushed_samples = 0
         self.sample_rate = sample_rate
+        self.announced = False  # the framework has been told playback started
         self.started_us: int | None = None  # None until the segment becomes audible
         self.pause_began_us: int | None = None  # set while an audible segment is paused
         self.paused_total_us = 0
@@ -148,20 +151,31 @@ class ClockedSink(io.AudioOutput):
             self._finish_handle = None
 
     def _start(self, segment: _Segment) -> None:
-        segment.started_us = self._ledger.now_us()
-        utterances = self._utterances(segment)
-        self._ledger.append(
-            "sink",
-            "playout.started",
-            segment=segment.number,
-            utterance=utterances[0] if utterances else None,
-        )
-        self.on_playback_started(created_at=time.time())
+        """Tell the framework playback has started, once, and begin playing."""
+        if not segment.announced:
+            segment.announced = True
+            self.on_playback_started(created_at=time.time())
+
+        def start() -> None:
+            if self._segment is not segment or segment.started_us is not None or self._paused:
+                return  # cleared or paused before it began; resume() starts it
+            segment.started_us = self._ledger.now_us()
+            utterances = self._utterances(segment)
+            self._ledger.append(
+                "sink",
+                "playout.started",
+                segment=segment.number,
+                utterance=utterances[0] if utterances else None,
+            )
+            if segment.flushed:
+                self._schedule_finish(segment)
+
+        self._begin(start)
 
     def _schedule_finish(self, segment: _Segment) -> None:
         self._cancel_finish()
-        if self._paused:
-            return  # deferred until resume()
+        if segment.started_us is None or segment.pause_began_us is not None:
+            return  # not playing: deferred until it starts or resumes
         delay_us = max(segment.pushed_us() - segment.played_us(self._ledger.now_us()), 0)
         self._finish_handle = asyncio.get_running_loop().call_later(
             to_seconds(delay_us), lambda: self._finish(segment, interrupted=False)
@@ -201,6 +215,20 @@ class ClockedSink(io.AudioOutput):
             interrupted=interrupted,
             synchronized_transcript=None,
         )
+
+    # ------------------------------------------------------------------ seams for faults
+    #
+    # A real output can begin playing later than it says, or take time to obey. These two
+    # methods are where a faulty sink differs from this one. The ledger always records
+    # what truly happened: the command when it arrived, the playout when it changed.
+
+    def _begin(self, start: Callable[[], None]) -> None:
+        """Begin playing a segment the framework has just been told is playing."""
+        start()
+
+    def _obey(self, action: Callable[[], None]) -> None:
+        """Carry out a pause or clear the framework asked for."""
+        action()
 
     def _command(self, name: str) -> None:
         self._ledger.append(
@@ -251,8 +279,15 @@ class ClockedSink(io.AudioOutput):
 
     def clear_buffer(self) -> None:
         self._command("clear")
-        if self._segment is not None and self._segment.pushed_samples:
-            self._finish(self._segment, interrupted=True)
+        segment = self._segment
+        if segment is None or not segment.pushed_samples:
+            return
+
+        def clear() -> None:
+            if self._segment is segment:  # not already finished by the time it is obeyed
+                self._finish(segment, interrupted=True)
+
+        self._obey(clear)
 
     def pause(self) -> None:
         super().pause()
@@ -260,16 +295,22 @@ class ClockedSink(io.AudioOutput):
             return  # the framework repeats pause on every VAD update; the state is unchanged
         self._paused = True
         self._command("pause")
-        self._cancel_finish()
-        segment = self._segment
-        if segment is not None and segment.started_us is not None:
-            segment.pause_began_us = self._ledger.now_us()
-            self._ledger.append(
-                "sink",
-                "playout.paused",
-                segment=segment.number,
-                played_us=segment.played_us(self._ledger.now_us()),
-            )
+
+        def pause() -> None:
+            segment = self._segment
+            if not self._paused:
+                return  # resumed before the pause was obeyed
+            self._cancel_finish()
+            if segment is not None and segment.started_us is not None and segment.pause_began_us is None:
+                segment.pause_began_us = self._ledger.now_us()
+                self._ledger.append(
+                    "sink",
+                    "playout.paused",
+                    segment=segment.number,
+                    played_us=segment.played_us(self._ledger.now_us()),
+                )
+
+        self._obey(pause)
 
     def resume(self) -> None:
         super().resume()

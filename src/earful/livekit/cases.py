@@ -13,7 +13,7 @@ from .providers import Claim, Reply, ToolCall, UserSpeech
 LONG_REPLY = (
     "Tonight we have a roasted squash soup to start then grilled sea bass with lemon "
     "butter or a slow braised short rib and for dessert a dark chocolate tart"
-)  # 29 words -> 8.7 s of audio at 0.3 s per word
+)  # 29 words, 124 letters -> 7.44 s of audio at 0.06 s per letter
 
 
 def _last_user_text(items: list[dict[str, Any]]) -> str:
@@ -37,9 +37,10 @@ def barge_in_mid_word() -> Case:
 
     Timeline (seconds from the first audio frame):
       0.5 - 2.5   user: "Tell me about the menu."
-      3.3         agent starts an 8.7 s reply (29 words, 0.3 s each)
+      3.3         agent starts a 7.44 s reply (29 words, 0.06 s per letter)
       5.0 - 6.0   user: "Stop." -> the framework pauses output after 0.5 s of speech
-                  (5.5), 2.2 s into the reply: inside the eighth word (2.1 - 2.4 s).
+                  (5.5), 2.2 s into the reply: inside the ninth word, "start"
+                  (1.98 - 2.28 s).
     """
     return Case(
         name="barge_in_mid_word",
@@ -56,7 +57,7 @@ BOOKING_INTENT = "book-table-1"
 BOOKING_ACK = (
     "One moment while I book that table for you and get everything confirmed with the "
     "restaurant for tonight"
-)  # 18 words -> 5.4 s of audio
+)  # 18 words, 86 letters -> 5.16 s of audio
 
 
 class BookingAgent(lk.Agent):
@@ -107,7 +108,7 @@ def book_then_interrupt() -> Case:
       0.5 - 2.5   user: "Book a table for six tonight."
       ~3.0        model replies with speech plus a create_reservation call
       ~3.0        tool runs; the backend commits one reservation
-      3.3 - 8.7   agent speaks the acknowledgement
+      3.2 - 8.4   agent speaks the acknowledgement
       5.0 - 6.0   user interrupts while the agent is still speaking
       ~6.5        next model call: does it see the tool result?
     """

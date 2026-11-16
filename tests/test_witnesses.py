@@ -166,7 +166,8 @@ def test_values_json_cannot_hold_are_named_not_printed():
     assert tools.json_value({"seat": Seat(3), "tags": ("a", "b")}) == {"seat": {"row": 3}, "tags": ["a", "b"]}
     assert tools.json_value(Opaque()) == {"unrepresentable": "Opaque"}  # no memory address
     assert tools.model_text("ok") == "ok" and tools.model_text({"a": 1}) == "{'a': 1}"
-    assert tools.model_text(Opaque()) is None and tools.model_text(None) is None
+    assert tools.model_text(Opaque()) is None
+    assert tools.model_text(None) == ""  # a tool that returns nothing is shown as empty text
 
 
 # --------------------------------------------------------------------------- backend
@@ -276,6 +277,25 @@ def test_a_write_for_an_undeclared_intent_makes_the_run_invalid():
 # --------------------------------------------------------------------------- scenario
 
 
+def test_a_policy_that_reuses_a_tool_call_id_is_a_harness_error():
+    """A call id links an invocation to its result; a model never gives two calls one id."""
+    turns = {"n": 0}
+
+    def policy(items):
+        outputs = sum(1 for i in items if i["type"] == "function_call_output")
+        users = sum(1 for i in items if i["type"] == "message" and i.get("role") == "user")
+        if outputs < users:
+            return Reply(tool_calls=(ToolCall("lookup", '{"code": "X1"}', call_id="same"),))
+        turns["n"] += 1
+        return Reply(text=f"Done {turns['n']}.")
+
+    case = _one_turn("reuse", _ContextAgent, policy)
+    case.speeches = [UserSpeech(0.5, 1.5, "Look it up."), UserSpeech(5.0, 6.0, "And again.")]
+    with pytest.raises(InvalidRun, match="tool call id 'same' is used twice") as caught:
+        run_case(case)
+    assert any("reused tool call id" in e for e in caught.value.result.harness_errors)
+
+
 def test_a_claim_that_does_not_fit_its_reply_is_a_harness_error():
     def policy(items):
         return Reply(text="All booked.", claims=(Claim("book-table", first_word=0, last_word=5),))
@@ -293,6 +313,10 @@ def test_a_scenario_that_contradicts_itself_is_refused_before_it_runs():
         run_case(make(session_kwargs={"min_interruption_duration": 0.1}))
     with pytest.raises(ValueError, match="unknown contracts"):
         run_case(make(contracts={"M9": {}}))
+    close = make()
+    close.speeches = [UserSpeech(0.5, 1.5, "Please do it."), UserSpeech(1.8, 2.5, "Right now.")]
+    with pytest.raises(ValueError, match="a VAD would hear one speech"):
+        run_case(close)  # 0.3 s apart; the VAD needs 0.5 s of silence to end a speech
     retiring = make()
     retiring.speeches = [UserSpeech(start=0.5, end=1.5, transcript="Cancel it.", retires=("nope",))]
     with pytest.raises(ValueError, match="undeclared intents"):
@@ -312,6 +336,7 @@ def test_header_declares_the_scenario_and_what_ran_it():
     assert scenario["intents"] == [
         {"intent": "book-table-1", "tools": ["create_reservation"], "authorized": 1}
     ]
+    assert scenario["witnessed_tools"] == ["create_reservation"]
     assert scenario["session"]["min_interruption_duration_us"] == 500_000
     assert scenario["session"]["extra_options"] == {"max_tool_steps": 3}
     assert len(_of(events, "user.origin")) == 1
@@ -321,13 +346,34 @@ def test_header_declares_the_scenario_and_what_ran_it():
 # --------------------------------------------------------------------------- sink and TTS
 
 
+def _word_ends_us(events, utterance=0):
+    """When each word of a synthesized text ends, in microseconds of audio."""
+    tts = _of(events, "tts.synthesized")[utterance]["data"]
+    ends, total = [], 0
+    for samples in tts["word_samples"]:
+        total += samples
+        ends.append(-(-total * 1_000_000 // tts["sample_rate"]))
+    return ends
+
+
+def test_a_word_is_as_long_as_its_letters():
+    events = run_case(CASES["barge_in_mid_word"]()).ledger.events
+    tts = _of(events, "tts.synthesized")[0]["data"]
+    words = tts["text"].split()
+    # 0.06 s a letter at 24 kHz: "Tonight" 7 letters, "we" 2, "a" 1
+    assert tts["word_samples"][:4] == [7 * 1440, 2 * 1440, 4 * 1440, 1 * 1440]
+    assert len(tts["word_samples"]) == len(words) == len(tts["stamps"])
+
+
 def test_word_completion_times_are_exact():
     events = run_case(CASES["barge_in_mid_word"]()).ledger.events
     start = _of(events, "playout.started")[0]["t_us"]
     finished = _of(events, "playout.finished")[0]["data"]
-    assert finished["words_completed_us"] == [start + 300_000 * k for k in range(1, 8)]
-    # paused 2.2 s in: word 8 spans 2.1-2.4 s, so 0.1 s of it (2400 samples at 24 kHz) played
-    assert finished["word_cut"] == 8 and finished["word_cut_samples"] == 2400
+    ends = _word_ends_us(events)
+    assert finished["words_played"] == [1, 2, 3, 4, 5, 6, 7, 8]
+    assert finished["words_completed_us"] == [start + end for end in ends[:8]]
+    # paused 2.2 s in: the ninth word, "start", spans 1.98-2.28 s, so 0.22 s of it played
+    assert finished["word_cut"] == 9 and finished["word_cut_samples"] == 5280
 
 
 def test_word_completion_times_skip_a_pause():
@@ -351,9 +397,8 @@ def test_word_completion_times_skip_a_pause():
     assert gap > 0
     done = _of(events, "playout.finished")[0]["data"]["words_completed_us"]
     assert len(done) == len(LONG_REPLY.split())
-    for k, t in enumerate(done, start=1):
-        at = 300_000 * k
-        assert t == start + at + (gap if at > paused["data"]["played_us"] else 0)
+    for end, t in zip(_word_ends_us(events), done):
+        assert t == start + end + (gap if end > paused["data"]["played_us"] else 0)
 
 
 def test_tts_attribution_is_unique_in_every_case():
@@ -362,19 +407,20 @@ def test_tts_attribution_is_unique_in_every_case():
             assert e["data"]["attribution"] == "unique", (name, e["data"])
 
 
-def test_attribution_never_guesses():
+def test_attribution_names_every_candidate_and_chooses_none():
     register = ReplyRegister()
     register.replies = {1: ["one", "moment", "please"], 2: ["one", "moment", "please"], 3: ["all", "done"]}
-    assert register.attribute("all done") == (3, "unique")
-    assert register.attribute("all done") == (None, "none")  # reply 3 is already synthesized
-    assert register.attribute("one moment please") == (None, "ambiguous")  # replies 1 and 2
-    assert register.attribute("something else") == (None, "none")
-    assert register.attribute("") == (None, "none")
+    assert register.attribute("all done") == (3, "unique", [3])
+    assert register.attribute("all done") == (None, "none", [])  # reply 3 is already synthesized
+    assert register.attribute("one moment please") == (None, "ambiguous", [1, 2])
+    assert register.attribute("one moment please") == (None, "ambiguous", [1, 2])  # still both
+    assert register.attribute("something else") == (None, "none", [])
+    assert register.attribute("") == (None, "none", [])
 
     stopped_early = ReplyRegister()
     stopped_early.replies = {1: ["your", "table", "is", "booked"], 2: ["how", "can", "I", "help"]}
-    assert stopped_early.attribute("your table") == (1, "prefix")
-    assert stopped_early.attribute("how can I help") == (2, "unique")
+    assert stopped_early.attribute("your table") == (1, "prefix", [1])
+    assert stopped_early.attribute("how can I help") == (2, "unique", [2])
 
 
 def test_claims_are_recorded():

@@ -1,12 +1,16 @@
-"""Spike: does scripted timing expose livekit/agents#5509?
+"""Historical case livekit/agents#5509, judged by the general contract checker.
 
-Reports every playout that started while the scripted user was speaking, and which words
-the sink consumed during that time.
+Runs the case in which the user takes the floor while a reply is still being generated,
+and prints what contract L2 (interruption) concludes. Nothing here is specific to the
+defect: the same checker judges every release.
+
+    python scripts/spike_5509.py [OUT_DIR] [--no-pause]
 """
 import json
 import sys
 from pathlib import Path
 
+from earful.core.checker import check
 from earful.core.ledger import write_jsonl
 from earful.livekit.cases import CASES
 from earful.livekit.harness import run_case
@@ -23,42 +27,16 @@ def make():
 
 runs = [run_case(make(), seed=0) for _ in range(20)]
 result = runs[0]
-ledger = result.ledger
-
-# Windows in which the scripted user is speaking, from Earful's own "world" record.
-windows, open_at = [], None
-for e in ledger.of("world"):
-    if e["kind"] == "user.vad_start":
-        open_at = e
-    elif e["kind"] == "user.vad_end" and open_at is not None:
-        windows.append((open_at, e))
-        open_at = None
-
-overlaps = []
-for start in ledger.of("sink", "playout.started"):
-    for begin, end in windows:
-        if begin["seq"] < start["seq"] < end["seq"]:
-            finish = next(
-                f for f in ledger.of("sink", "playout.finished")
-                if f["data"]["segment"] == start["data"]["segment"]
-            )
-            overlaps.append({
-                "user_speech": begin["data"]["speech"],
-                "user_speaking_since": begin["t_us"] / 1e6,
-                "playout_started": start["t_us"] / 1e6,
-                "started_after_user_by_ms": round((start["t_us"] - begin["t_us"]) / 1000),
-                "audible_for_ms": round(finish["data"]["position_us"] / 1000),
-                "words_played_over_user": finish["data"]["text_played"],
-            })
-
+report = check(result.ledger.events)
+l2 = report.results["L2"]
 summary = {
     "versions": result.versions,
     "sink_can_pause": can_pause,
-    "playouts_started_while_user_speaking": overlaps,
-    "verdict_no_playout_starts_over_user": "FAIL" if overlaps else "pass",
-    "agent_states": [
-        f'{e["t_us"] / 1e6:.2f} {e["data"]["old"]}->{e["data"]["new"]}'
-        for e in ledger.of("framework", "fw.agent_state_changed")
+    "outcomes": report.outcomes(),
+    "verdict_interruption": l2.outcome,
+    "interruption_failures": [
+        {"speech": v.instance["speech"], "findings": [f"{f.rule}: {f.detail}" for f in v.findings]}
+        for v in l2.failures
     ],
     "repeat_runs": len(runs),
     "distinct_hashes": len({r.hash for r in runs}),
@@ -70,4 +48,5 @@ if out_dir:
     out = Path(out_dir)
     out.mkdir(parents=True, exist_ok=True)
     (out / f"{tag}.summary.json").write_text(json.dumps(summary, indent=2) + "\n")
-    write_jsonl(ledger.events, out / f"{tag}.ledger.normalized.jsonl", normalized=True)
+    (out / f"{tag}.report.json").write_text(json.dumps(report.to_json(), indent=2) + "\n")
+    write_jsonl(result.ledger.events, out / f"{tag}.ledger.normalized.jsonl", normalized=True)

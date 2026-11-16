@@ -60,7 +60,7 @@ def _edit_header(edit):
         (lambda ev: ev.pop(5), "seq"),
         (lambda ev: ev[3].update(t_us=-1), "t_us: -1 is less than the minimum"),
         (lambda ev: ev[-1].update(t_us=0), "earlier than the previous event"),
-        (lambda ev: ev[0].update(schema="earful.ledger/0"), "'earful.ledger/1' was expected"),
+        (lambda ev: ev[0].update(schema="earful.ledger/0"), "'earful.ledger/2' was expected"),
         (lambda ev: ev[4].update(run="run-0000000000000000"), "not the digest of run.start"),
         (lambda ev: ev[0]["data"].update(seed=7), "not the digest of run.start"),
         (lambda ev: ev[4].pop("run"), "'run' is a required property"),
@@ -89,6 +89,19 @@ def _edit_header(edit):
         (lambda ev: _data(ev, "tts.synthesized").update(attribution="none"), "call must be set"),
         (lambda ev: _data(ev, "playout.finished")["words_completed_us"].pop(), "one completion time"),
         (lambda ev: ev.append({**copy.deepcopy(ev[-1]), "seq": len(ev)}), "only run.end"),
+        # things a real run cannot produce, which the checker need not survive
+        (lambda ev: _first(ev, "playout.paused").update(kind="playout.resumed"), "pauses while playing and resumes while paused"),
+        (lambda ev: _data(ev, "user.transcript_final").update(text=""), "should be non-empty"),
+        (lambda ev: _first(ev, "llm.response")["data"]["tool_calls"].append(
+            dict(_first(ev, "llm.response")["data"]["tool_calls"][0])), "is used twice"),
+        (lambda ev: _data(ev, "tts.synthesized")["word_samples"].pop(), "one stamp and one sample count per word"),
+        (lambda ev: _data(ev, "tool.returned").pop("expects_reply"), "'expects_reply' is a required property"),
+        (lambda ev: _data(ev, "tts.synthesized").update(text="", stamps=[], word_samples=[]), "cannot be attributed to a reply"),
+        (lambda ev: _data(ev, "playout.finished").update(utterances=[99]), "utterance 99 was never synthesized"),
+        (lambda ev: _data(ev, "playout.started").update(utterance=99), "utterance 99 was never synthesized"),
+        (lambda ev: _data(ev, "playout.finished")["words_played"].__setitem__(0, 9999), "belongs to none of the segment's utterances"),
+        (lambda ev: ev.insert(5, {**copy.deepcopy(_first(ev, "user.vad_start")), "seq": 5}), "recorded twice for speech 0"),
+        (_edit_header(lambda h: h["scenario"].pop("witnessed_tools")), "'witnessed_tools' is a required property"),
         # intents must be declared
         (lambda ev: _data(ev, "effect.requested").update(intent="book-tabel-1"), "undeclared intent"),
         (lambda ev: _first(ev, "llm.response")["data"]["claims"].append(
@@ -102,7 +115,7 @@ def test_validator_rejects(booking, mutate, expected):
 
 
 def test_schema_version():
-    assert SCHEMA == "earful.ledger/1"
+    assert SCHEMA == "earful.ledger/2"
     assert load_schema()["properties"]["schema"]["const"] == SCHEMA
 
 

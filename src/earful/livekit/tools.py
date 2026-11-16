@@ -71,15 +71,32 @@ def _plain(value: Any) -> bool:
 
 
 def model_text(value: Any) -> str | None:
-    """The text livekit-agents shows the model for a tool's return value: ``str(value)``.
+    """The text livekit-agents shows the model for a tool's return value: ``str(value)``,
+    and the empty string for a tool that returns nothing.
 
     Computed here from the value the tool returned, independently of the framework. Null
     for a value whose ``str`` is not a stable function of its content (an object, an agent
-    handoff), and for ``None``, which the framework treats as "no result to report".
+    handoff).
     """
-    if value is None or not _plain(value):
+    if value is None:
+        return ""
+    if not _plain(value):
         return None
     return str(value)
+
+
+def expects_reply(outcome: Any) -> bool:
+    """Whether livekit-agents gives the model another call after a tool ends this way.
+
+    A tool that returns nothing, or raises ``StopResponse``, asks for silence: its result
+    is kept but no reply is generated. A release that lets a result say so itself
+    (``reply_required``) is taken at its word. Everything else, errors included, is
+    reported to the model, which answers.
+    """
+    if isinstance(outcome, lk.StopResponse) or outcome is None:
+        return False
+    required = getattr(outcome, "reply_required", None)
+    return True if required is None else bool(required)
 
 
 class ToolWitness:
@@ -88,9 +105,21 @@ class ToolWitness:
     def __init__(self, ledger: Ledger) -> None:
         self._ledger = ledger
         self._invocations = 0
+        self._running: dict[int, asyncio.Task[Any] | None] = {}
+
+    async def cancel_running(self) -> None:
+        """Cut off every tool still running, in the order they were called. Each is
+        recorded as cancelled. The harness does this when the scenario is over, so that a
+        tool that never returns cannot hold the session open."""
+        tasks = [task for _tool, task in sorted(self._running.items()) if task is not None]
+        for task in tasks:
+            task.cancel()
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
 
     def called(self, name: str, call_id: str | None, arguments: dict[str, Any]) -> int:
         self._invocations += 1
+        self._running[self._invocations] = asyncio.current_task()
         self._ledger.append(
             "world",
             "tool.called",
@@ -102,6 +131,7 @@ class ToolWitness:
         return self._invocations
 
     def returned(self, tool: int, name: str, output: Any) -> None:
+        self._running.pop(tool, None)
         self._ledger.append(
             "world",
             "tool.returned",
@@ -109,14 +139,23 @@ class ToolWitness:
             name=name,
             output=json_value(output),
             text=model_text(output),
+            expects_reply=expects_reply(output),
         )
 
     def raised(self, tool: int, name: str, exc: BaseException) -> None:
+        self._running.pop(tool, None)
         self._ledger.append(
-            "world", "tool.raised", tool=tool, name=name, error=type(exc).__name__, message=str(exc)
+            "world",
+            "tool.raised",
+            tool=tool,
+            name=name,
+            error=type(exc).__name__,
+            message=str(exc),
+            expects_reply=expects_reply(exc),
         )
 
     def cancelled(self, tool: int, name: str) -> None:
+        self._running.pop(tool, None)
         self._ledger.append("world", "tool.cancelled", tool=tool, name=name)
 
 
@@ -200,10 +239,15 @@ def witnessed(fn: Callable[..., Any], *, name: str | None = None) -> Callable[..
         tail = [p for p in params if p.kind == inspect.Parameter.VAR_KEYWORD]
         head = [p for p in params if p.kind != inspect.Parameter.VAR_KEYWORD]
         wrapper.__signature__ = signature.replace(parameters=[*head, extra, *tail])  # type: ignore[attr-defined]
-        wrapper.__annotations__ = {**hints, _CONTEXT_PARAM: lk.RunContext}
+        annotations = {**hints, _CONTEXT_PARAM: lk.RunContext}
     else:
         wrapper.__signature__ = signature  # type: ignore[attr-defined]
-        wrapper.__annotations__ = dict(hints)
+        annotations = dict(hints)
+    # Python 3.14 (PEP 649) reads a function's annotations through ``__annotate__``, and
+    # ``functools`` copies that instead of ``__annotations__``. Set both, in this order:
+    # assigning ``__annotations__`` clears ``__annotate__`` on 3.14.
+    wrapper.__annotations__ = annotations
+    wrapper.__annotate__ = lambda _format=1: dict(annotations)  # type: ignore[attr-defined]
     setattr(wrapper, _MARK, True)
     return wrapper
 
@@ -219,9 +263,14 @@ def witness_tool(tool: Any) -> Any:
     return type(tool)(witnessed(tool, name=tool.info.name), tool.info)
 
 
-async def witness_agent_tools(agent: lk.Agent) -> None:
-    """Replace each of ``agent``'s function tools with a recording copy."""
-    await agent.update_tools([witness_tool(t) for t in agent.tools])
+async def witness_agent_tools(agent: lk.Agent) -> list[str]:
+    """Replace each of ``agent``'s function tools with a recording copy. Returns the names
+    of the tools now witnessed, sorted."""
+    originals = list(agent.tools)
+    await agent.update_tools([witness_tool(t) for t in originals])
+    return sorted(
+        t.info.name for t in originals if isinstance(t, (lk_llm.FunctionTool, lk_llm.RawFunctionTool))
+    )
 
 
 __all__ = [

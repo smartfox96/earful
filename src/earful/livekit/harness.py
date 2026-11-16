@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import itertools
 import logging
 import random
 from collections.abc import Callable
@@ -17,6 +18,7 @@ from livekit.agents.voice import io
 from livekit.agents.voice.transcription.synchronizer import TranscriptSynchronizer
 
 from ..core.backend import BackendMode, EffectBackend
+from ..core.checker.policy import parse_all
 from ..core.ledger import Ledger, ledger_hash
 from ..core.schema import validity
 from ..core.timebase import to_us
@@ -55,7 +57,6 @@ _DECLARED_OPTIONS = frozenset(
         "false_interruption_timeout",
     }
 )
-_CONTRACTS = frozenset({"A1", "A2", "A3", "M1", "M2", "L1", "L2"})
 
 
 class InvalidRun(RuntimeError):
@@ -87,7 +88,7 @@ class Case:
     intents: list[Intent] = field(default_factory=list)
     contracts: dict[str, dict[str, Any]] = field(default_factory=dict)  # id -> policy values
     backend_mode: BackendMode = "plain"
-    seconds_per_word: float = 0.3
+    seconds_per_letter: float = 0.06  # the scripted voice: a five-letter word takes 0.3 s
     tts_ttfb: float = 0.2
     vad_min_speech: float = 0.05
     vad_min_silence: float = 0.5
@@ -97,6 +98,10 @@ class Case:
     min_endpointing_delay: float = 0.5
     max_endpointing_delay: float = 6.0
     drain_delay: float = 5.0
+    # How long to wait for the session to finish what it is doing once the scenario is
+    # over. A turn that never finishes must not hang the run: it is cut off, and recorded.
+    drain_timeout: float = 30.0
+    sink: type[ClockedSink] = ClockedSink  # a faulty output is a subclass
     # Further AgentSession options. The options a Case declares through its own fields
     # cannot be set here.
     session_kwargs: dict[str, Any] = field(default_factory=dict)
@@ -106,9 +111,18 @@ class Case:
         clash = sorted(_DECLARED_OPTIONS & self.session_kwargs.keys())
         if clash:
             raise ValueError(f"session_kwargs may not set {clash}: use the Case fields")
-        unknown = sorted(self.contracts.keys() - _CONTRACTS)
-        if unknown:
-            raise ValueError(f"unknown contracts {unknown}; choose from {sorted(_CONTRACTS)}")
+        parse_all(self.contracts)  # raises PolicyError, a ValueError, on anything undefined
+        ordered = sorted(self.speeches, key=lambda s: s.start)
+        for before, after in itertools.pairwise(ordered):
+            gap_us = after.start_us - before.end_us
+            if gap_us < to_us(self.vad_min_silence):
+                # A VAD reports the end of speech only after this much silence. Speech that
+                # resumes sooner is, to it, one speech, and Earful does not yet model that.
+                raise ValueError(
+                    f"the speeches at {before.start} s and {after.start} s are {gap_us / 1e6:g} s "
+                    f"apart, closer than the VAD's min_silence ({self.vad_min_silence} s); "
+                    "a VAD would hear one speech"
+                )
         names = [it.intent for it in self.intents]
         if len(set(names)) != len(names):
             raise ValueError("an intent is declared more than once")
@@ -216,7 +230,7 @@ def _effective_session(session: lk.AgentSession) -> dict[str, int | None]:
     }
 
 
-def _header(case: Case) -> dict[str, Any]:
+def _header(case: Case, witnessed_tools: list[str]) -> dict[str, Any]:
     """The scenario as declared, so the checker never has to import it."""
     return {
         "speeches": [
@@ -236,6 +250,7 @@ def _header(case: Case) -> dict[str, Any]:
             {"intent": it.intent, "tools": list(it.tools), "authorized": it.authorized}
             for it in case.intents
         ],
+        "witnessed_tools": witnessed_tools,
         "session": {
             **_declared_session(case),
             "turn_detection": None,
@@ -250,7 +265,7 @@ def _header(case: Case) -> dict[str, Any]:
                 "min_silence_us": to_us(case.vad_min_silence),
             },
             "tts": {
-                "seconds_per_word_us": to_us(case.seconds_per_word),
+                "seconds_per_letter_us": to_us(case.seconds_per_letter),
                 "ttfb_us": to_us(case.tts_ttfb),
             },
             "sink": {"can_pause": case.sink_can_pause},
@@ -329,7 +344,8 @@ async def _run(case: Case, seed: int) -> RunResult:
     warnings = _WarningCollector()
     lk_logger = logging.getLogger("livekit.agents")
     lk_logger.addHandler(warnings)
-    witness_token = tools.install(tools.ToolWitness(ledger))
+    witness = tools.ToolWitness(ledger)
+    witness_token = tools.install(witness)
 
     world_origin = WorldOrigin(
         ledger, harness_errors, tolerance_us=0 if virtual else REAL_CLOCK_ORIGIN_TOLERANCE_US
@@ -337,7 +353,7 @@ async def _run(case: Case, seed: int) -> RunResult:
     stt = ScriptedSTT(ledger, case.speeches, world_origin)
     model = ScriptedLLM(ledger, case.policy, harness_errors)
     tts = StampedTTS(
-        ledger, model.register, seconds_per_word=case.seconds_per_word, ttfb=case.tts_ttfb
+        ledger, model.register, seconds_per_letter=case.seconds_per_letter, ttfb=case.tts_ttfb
     )
     session = lk.AgentSession(
         vad=ScriptedVAD(
@@ -354,11 +370,16 @@ async def _run(case: Case, seed: int) -> RunResult:
     )
 
     audio_in = _ScriptedAudioInput()
-    sink = ClockedSink(ledger, tts.table, can_pause=case.sink_can_pause)
+    sink = case.sink(ledger, tts.table, can_pause=case.sink_can_pause)
     sync = TranscriptSynchronizer(next_in_chain_audio=sink, next_in_chain_text=_NullTextOutput())
     session.input.audio = audio_in
     session.output.audio = sync.audio_output
     session.output.transcription = sync.text_output
+
+    # The agent is built before the header is written, so the header can name the tools
+    # the witness records. Nothing here reaches the ledger.
+    agent = case.agent(EffectBackend(ledger, mode=case.backend_mode))
+    witnessed_tools = await tools.witness_agent_tools(agent)
 
     declared, effective = _declared_session(case), _effective_session(session)
     for name in declared:
@@ -373,20 +394,18 @@ async def _run(case: Case, seed: int) -> RunResult:
         seed=seed,
         framework={"name": "livekit-agents", "version": lk.__version__},
         clock="virtual" if virtual else "real",
-        scenario=_header(case),
+        scenario=_header(case, witnessed_tools),
         contracts=case.contracts,
     )
     _tap(session, ledger, harness_errors)
 
     try:
-        agent = case.agent(EffectBackend(ledger, mode=case.backend_mode))
-        await tools.witness_agent_tools(agent)
         await session.start(agent)
         audio_in.push_silence(0.1)  # first frame starts the scripted user's clock
         await stt.done
         await asyncio.sleep(case.drain_delay)
-        with contextlib.suppress(RuntimeError):
-            await session.drain()
+        with contextlib.suppress(RuntimeError, asyncio.TimeoutError):
+            await asyncio.wait_for(session.drain(), timeout=case.drain_timeout)
         # Framework state read back by the harness: a judged record, never a reference.
         ledger.append(
             "harness",
@@ -394,7 +413,13 @@ async def _run(case: Case, seed: int) -> RunResult:
             read_from="AgentSession.history",
             items=[summarize_item(i) for i in session.history.items],
         )
-        await session.aclose()
+        # The scenario is over. A tool still running is cut off and recorded as cancelled:
+        # some releases cannot close a session while one of its tools is stuck.
+        await witness.cancel_running()
+        try:
+            await asyncio.wait_for(session.aclose(), timeout=case.drain_timeout)
+        except asyncio.TimeoutError:
+            harness_errors.append(f"the session did not close within {case.drain_timeout} s")
         await sync.aclose()
     finally:
         lk_logger.removeHandler(warnings)

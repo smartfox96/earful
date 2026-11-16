@@ -2,11 +2,12 @@
 import difflib
 import json
 import sys
+from pathlib import Path
 
 
 def render(path: str) -> list[str]:
     out = []
-    for line in open(path):
+    for line in Path(path).read_text().splitlines():
         e = json.loads(line)
         data = json.dumps(e["data"], sort_keys=True)
         out.append(f'{e["t_us"] / 1e6:>10.6f} {e["source"]:<9} {e["kind"]:<27} {data[:170]}')

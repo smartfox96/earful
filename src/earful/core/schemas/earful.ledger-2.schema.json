@@ -1,8 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "urn:earful:ledger:1",
+  "$id": "urn:earful:ledger:2",
   "title": "Earful ledger event",
-  "description": "One line of an earful.ledger/1 file. A ledger is one JSON object per line, in the order events happened. Rules that span lines (order, references between events) are listed in docs/ledger.md.",
+  "description": "One line of an earful.ledger/2 file. A ledger is one JSON object per line, in the order events happened. Rules that span lines (order, references between events) are listed in docs/ledger.md.",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -16,7 +16,7 @@
   ],
   "properties": {
     "schema": {
-      "const": "earful.ledger/1"
+      "const": "earful.ledger/2"
     },
     "run": {
       "description": "Identifies the run: a digest of the data of its run.start event.",
@@ -697,6 +697,7 @@
       "required": [
         "speeches",
         "intents",
+        "witnessed_tools",
         "session",
         "providers"
       ],
@@ -784,6 +785,14 @@
             }
           }
         },
+        "witnessed_tools": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "uniqueItems": true,
+          "description": "Names of the function tools of the agent the run starts with. The tool witness records every call of each."
+        },
         "session": {
           "description": "The framework options the contracts depend on, as passed to the framework and read back from it.",
           "type": "object",
@@ -862,12 +871,13 @@
               "type": "object",
               "additionalProperties": false,
               "required": [
-                "seconds_per_word_us",
+                "seconds_per_letter_us",
                 "ttfb_us"
               ],
               "properties": {
-                "seconds_per_word_us": {
-                  "$ref": "#/$defs/microseconds"
+                "seconds_per_letter_us": {
+                  "$ref": "#/$defs/microseconds",
+                  "description": "Audio per letter of a word."
                 },
                 "ttfb_us": {
                   "$ref": "#/$defs/microseconds"
@@ -1260,7 +1270,8 @@
           "$ref": "#/$defs/speech_index"
         },
         "text": {
-          "type": "string"
+          "type": "string",
+          "minLength": 1
         }
       }
     },
@@ -1272,9 +1283,10 @@
         "utterance",
         "call",
         "attribution",
+        "candidates",
         "text",
         "stamps",
-        "samples_per_word",
+        "word_samples",
         "sample_rate",
         "ttfb_us"
       ],
@@ -1302,6 +1314,14 @@
           ],
           "description": "How the text was matched to a reply not yet synthesized. unique: exactly one reply has this text. prefix: none matches in full and exactly one starts with it. ambiguous: more than one fits. none: nothing fits."
         },
+        "candidates": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ordinal"
+          },
+          "uniqueItems": true,
+          "description": "Every model call whose reply this text could be, in order. One for unique and prefix, more than one for ambiguous, none for none."
+        },
         "text": {
           "type": "string"
         },
@@ -1312,10 +1332,13 @@
           },
           "description": "One stamp per word, in order."
         },
-        "samples_per_word": {
-          "type": "integer",
-          "minimum": 1,
-          "description": "Audio samples carrying each word's stamp."
+        "word_samples": {
+          "description": "Audio samples carrying each word's stamp, one count per word. A word's length follows its number of letters.",
+          "type": "array",
+          "items": {
+            "type": "integer",
+            "minimum": 1
+          }
         },
         "sample_rate": {
           "type": "integer",
@@ -1366,7 +1389,8 @@
         "tool",
         "name",
         "output",
-        "text"
+        "text",
+        "expects_reply"
       ],
       "properties": {
         "tool": {
@@ -1384,6 +1408,10 @@
             "null"
           ],
           "description": "The returned value as the framework documents presenting it to the model. Null when the value has no stable text form."
+        },
+        "expects_reply": {
+          "description": "Whether this outcome asks the framework to give the model another call. False when the tool asked for silence.",
+          "type": "boolean"
         }
       }
     },
@@ -1395,7 +1423,8 @@
         "tool",
         "name",
         "error",
-        "message"
+        "message",
+        "expects_reply"
       ],
       "properties": {
         "tool": {
@@ -1410,6 +1439,10 @@
         },
         "message": {
           "type": "string"
+        },
+        "expects_reply": {
+          "description": "Whether this outcome asks the framework to give the model another call. False when the tool asked for silence.",
+          "type": "boolean"
         }
       }
     },

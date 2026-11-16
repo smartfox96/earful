@@ -1,7 +1,7 @@
-"""Validation of earful.ledger/1, and the one definition of a valid run.
+"""Validation of earful.ledger/2, and the one definition of a valid run.
 
 The shape of every event is defined by a JSON Schema document shipped with this package
-(``schemas/earful.ledger-1.schema.json``), so any language can validate a ledger line
+(``schemas/earful.ledger-2.schema.json``), so any language can validate a ledger line
 with a standard validator. This module applies that schema and adds the rules a
 per-line schema cannot express: order, and references between events.
 
@@ -21,7 +21,7 @@ from .ledger import run_id
 
 Event = dict[str, Any]
 
-SCHEMA_FILE = "earful.ledger-1.schema.json"
+SCHEMA_FILE = "earful.ledger-2.schema.json"
 
 
 @lru_cache(maxsize=1)
@@ -54,7 +54,7 @@ def _where(index: int, event: Any) -> str:
 
 
 def validate(events: list[Event]) -> list[str]:
-    """Every way ``events`` departs from earful.ledger/1. An empty list means valid."""
+    """Every way ``events`` departs from earful.ledger/2. An empty list means valid."""
     if not events:
         return ["ledger is empty"]
 
@@ -116,11 +116,16 @@ def _check_ledger(events: list[Event], errors: list[str]) -> None:
     attributed: set[int] = set()
     tools: set[int] = set()
     tool_outcomes: set[int] = set()
+    call_ids: set[str] = set()
+    paused: set[int] = set()
     effect_requests: dict[int, str] = {}
     effect_outcomes: set[int] = set()
     receipts: set[str] = set()
     started: set[int] = set()
     finished: set[int] = set()
+    speech_events: set[tuple[str, int]] = set()
+    stamp_owner: dict[int, int] = {}  # stamp -> the utterance it was synthesized for
+    utterances: set[int] = set()
 
     for i, e in enumerate(events):
         k, d, where = e["kind"], e["data"], _where(i, e)
@@ -129,6 +134,9 @@ def _check_ledger(events: list[Event], errors: list[str]) -> None:
                 errors.append(f"{where}: speech {d['speech']} is not declared")
             if not origins or origins[0]["seq"] > e["seq"]:
                 errors.append(f"{where}: comes before user.origin")
+            if (k, d["speech"]) in speech_events:
+                errors.append(f"{where}: recorded twice for speech {d['speech']}")
+            speech_events.add((k, d["speech"]))
         elif k == "llm.request":
             if d["call"] in requests:
                 errors.append(f"{where}: call {d['call']} requested twice")
@@ -137,6 +145,10 @@ def _check_ledger(events: list[Event], errors: list[str]) -> None:
             if d["call"] not in requests or d["call"] in responses:
                 errors.append(f"{where}: call {d['call']} has no open request")
             responses.add(d["call"])
+            for tool_call in d["tool_calls"]:
+                if tool_call["call_id"] in call_ids:
+                    errors.append(f"{where}: tool call id {tool_call['call_id']!r} is used twice")
+                call_ids.add(tool_call["call_id"])
             words = len(d["text"].split())
             for claim in d["claims"]:
                 if not claim["first_word"] <= claim["last_word"] < words:
@@ -152,8 +164,26 @@ def _check_ledger(events: list[Event], errors: list[str]) -> None:
                 if d["call"] in attributed:
                     errors.append(f"{where}: call {d['call']} is attributed twice")
                 attributed.add(d["call"])
-            if len(d["stamps"]) != len(d["text"].split()):
-                errors.append(f"{where}: one stamp per word expected")
+            if not len(d["stamps"]) == len(d["word_samples"]) == len(d["text"].split()):
+                errors.append(f"{where}: one stamp and one sample count per word expected")
+            if d["call"] is not None and not d["stamps"]:
+                errors.append(f"{where}: a text with no words cannot be attributed to a reply")
+            expected = {"unique": 1, "prefix": 1, "none": 0}.get(d["attribution"])
+            if (
+                (d["call"] is not None and d["candidates"] != [d["call"]])
+                or (expected is not None and len(d["candidates"]) != expected)
+                or (expected is None and len(d["candidates"]) < 2)
+            ):
+                errors.append(f"{where}: candidates do not fit the attribution")
+            if any(c not in responses or c in attributed - {d["call"]} for c in d["candidates"]):
+                errors.append(f"{where}: a candidate has not answered, or is already attributed")
+            if d["utterance"] in utterances:
+                errors.append(f"{where}: utterance {d['utterance']} synthesized twice")
+            utterances.add(d["utterance"])
+            for stamp in d["stamps"]:
+                if stamp in stamp_owner:
+                    errors.append(f"{where}: stamp {stamp} is used twice")
+                stamp_owner[stamp] = d["utterance"]
         elif k == "tool.called":
             if d["tool"] in tools:
                 errors.append(f"{where}: tool {d['tool']} called twice")
@@ -184,15 +214,26 @@ def _check_ledger(events: list[Event], errors: list[str]) -> None:
             if d["segment"] in started or d["segment"] in finished:
                 errors.append(f"{where}: segment {d['segment']} cannot start here")
             started.add(d["segment"])
+            if d["utterance"] is not None and d["utterance"] not in utterances:
+                errors.append(f"{where}: utterance {d['utterance']} was never synthesized")
         elif k in ("playout.paused", "playout.resumed"):
             if d["segment"] not in started or d["segment"] in finished:
                 errors.append(f"{where}: segment {d['segment']} is not playing")
+            elif (k == "playout.paused") == (d["segment"] in paused):
+                errors.append(f"{where}: a segment pauses while playing and resumes while paused")
+            paused ^= {d["segment"]}
         elif k == "playout.finished":
             if d["segment"] in finished:
                 errors.append(f"{where}: segment {d['segment']} finished twice")
             if d["audible"] != (d["segment"] in started):
                 errors.append(f"{where}: audible must match whether the segment started")
             finished.add(d["segment"])
+            for utterance in d["utterances"]:
+                if utterance not in utterances:
+                    errors.append(f"{where}: utterance {utterance} was never synthesized")
+            stamps = [*d["words_played"], *([d["word_cut"]] if d["word_cut"] is not None else [])]
+            if any(stamp_owner.get(stamp) not in d["utterances"] for stamp in stamps):
+                errors.append(f"{where}: a word played or cut belongs to none of the segment's utterances")
             done = d["words_completed_us"]
             if len(done) != len(d["words_played"]):
                 errors.append(f"{where}: one completion time per played word expected")

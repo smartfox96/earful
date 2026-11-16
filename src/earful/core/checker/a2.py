@@ -1,0 +1,65 @@
+"""A2. One logical effect: durable effects for an intent do not exceed the authorized count."""
+
+from __future__ import annotations
+
+from . import policy as policies
+from .report import ContractResult, Finding, result, verdict
+from .view import View
+
+
+def check(view: View, policy: policies.A2) -> ContractResult:
+    verdicts = []
+    # Tool invocations that wrote something through the backend, for any intent.
+    wrote = {e.requested["data"]["tool"] for e in view.effects.values()}
+    for intent, declared in view.intents.items():
+        instance = {"intent": intent}
+        effects = [e for e in view.effects.values() if e.intent == intent]
+        if not effects:
+            # A call of one of its tools that wrote nothing at all leaves no way to tell
+            # what it did. A call that wrote for another intent is accounted for.
+            calls = [
+                t.called
+                for t in view.tools.values()
+                if t.name in declared["tools"] and t.tool not in wrote
+            ]
+            if calls:
+                verdicts.append(
+                    verdict(
+                        "A2",
+                        instance,
+                        f"cannot count effects for {intent!r}",
+                        events=calls,
+                        unobservable="a tool for the intent was called but nothing reached the backend",
+                    )
+                )
+            continue  # no tool call and no write: the intent was never acted on
+
+        commits = [e.committed for e in effects if e.committed is not None]
+        deduplicated = sum(1 for e in effects if e.outcome and e.committed is None)
+        authorized = declared["authorized"]
+        findings = []
+        if len(commits) > authorized:
+            findings.append(
+                Finding(
+                    "rule",
+                    f"{len(commits)} durable effects for {intent!r}; the scenario authorized {authorized}",
+                    tuple(c["seq"] for c in commits),
+                )
+            )
+        verdicts.append(
+            verdict(
+                "A2",
+                instance,
+                f"{len(commits)} durable effect(s) for {intent!r}, {authorized} authorized",
+                events=[*(e.requested for e in effects), *(e.outcome for e in effects)],
+                findings=findings,
+                measures={
+                    "committed": len(commits),
+                    "authorized": authorized,
+                    "requested": len(effects),
+                    "deduplicated": deduplicated,
+                    "backend_mode": view.providers["backend"]["mode"],
+                },
+            )
+        )
+    return result("A2", policy, verdicts)
