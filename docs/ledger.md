@@ -1,13 +1,13 @@
 # Ledger
 
-Schema: **`earful.ledger/4`**, 16 November 2026.
+Schema: **`earful.ledger/5`**, 17 November 2026.
 
 A ledger is the complete record of one run. It is the only input to the checker
 (`docs/contracts.md`), so anything a contract needs must be in it. One JSON object per
 line, append-only, in the order events happened.
 
 The shape of every event is defined by a JSON Schema (draft 2020-12) shipped with the
-package: [`src/earful/core/schemas/earful.ledger-4.schema.json`](../src/earful/core/schemas/earful.ledger-4.schema.json).
+package: [`src/earful/core/schemas/earful.ledger-5.schema.json`](../src/earful/core/schemas/earful.ledger-5.schema.json).
 That file is normative. Any JSON Schema validator, in any language, can check a ledger
 line against it. This document explains the events and lists the rules that span lines,
 which a per-line schema cannot express; `earful.core.schema.validate` applies both. A test
@@ -16,12 +16,12 @@ keeps this document and the schema in step.
 ## Envelope
 
 ```json
-{"schema": "earful.ledger/4", "run": "run-5f0c2a9be41d7c03", "seq": 17, "t_us": 3300000, "source": "sink", "kind": "playout.started", "data": {...}}
+{"schema": "earful.ledger/5", "run": "run-5f0c2a9be41d7c03", "seq": 17, "t_us": 3300000, "source": "sink", "kind": "playout.started", "data": {...}}
 ```
 
 | Field | Meaning |
 | --- | --- |
-| `schema` | Always `earful.ledger/4` |
+| `schema` | Always `earful.ledger/5` |
 | `run` | Identifies the run. A digest of the data of `run.start`, so two runs share it exactly when they declare the same case, seed, framework release, clock, scenario and contract policy. What then happened is identified by the ledger hash |
 | `seq` | Position in the ledger, from 0. The total order of the run: "before" means lower `seq` |
 | `t_us` | Virtual time in integer microseconds. Never decreases |
@@ -94,6 +94,7 @@ with ordinals; see Hashing.
 | Field | Contents |
 | --- | --- |
 | `speeches` | Per speech: `speech`, `start_us`, `end_us` (offsets from the origin), `transcript` (empty for noise), `stt_delay_us`, `expects_reply`, `backchannel`, `retires` (intents it corrects or cancels) |
+| `hangup_us` | When the user hangs up, as an offset from the origin. Null when the user stays to the end of the scenario |
 | `intents` | Per intent: `intent`, `tools`, `authorized` (durable effects allowed) |
 | `witnessed_tools` | The names of the function tools of the agent the run starts with. The tool witness records every call of each, so a call to one of them that leaves no `tool.called` was never made |
 | `session` | The framework options the contracts depend on: `min_interruption_duration_us`, `false_interruption_timeout_us`, `min_endpointing_delay_us`, `max_endpointing_delay_us`, `turn_detection`, and `extra_options` (any further options, by name, with their values) |
@@ -120,6 +121,12 @@ applied: `llm.response` records the `ttft_us` and `duration_us` the model call h
 of that write, whether declared or chosen by the code. The header states which were
 declared, so two runs that differ only in a declared delay have different run ids.
 
+A scenario that declares `hangup_us` ends there. At that time the harness records
+`user.hangup` and closes the session with its public `aclose`, which is what a
+participant's disconnect does in livekit-agents. Writes already requested still have
+their outcome, and the final history is read after the session has closed. No speech may
+end after the hangup.
+
 The ledger names the framework release because verdicts are interpreted against it. It
 does not name the Python version or the platform: those do not change what a run means,
 and a ledger must hash the same on every machine. They belong to a run's manifest.
@@ -132,6 +139,7 @@ and a ledger must hash the same on every machine. They belong to a run's manifes
 | `user.vad_start` | `speech` | The scripted VAD reports speech to the framework: the true start of a segment's first speech, which `speech` names, plus `min_speech_us` |
 | `user.vad_end` | `speech` | The scripted VAD reports silence: the true end of a segment's last speech, which `speech` names, plus `min_silence_us` |
 | `user.transcript_final` | `speech`, `text` | The scripted STT delivers the final transcript: true end plus `stt_delay_us` |
+| `user.hangup` | none | The user leaves: the origin plus `hangup_us`. At most once per run |
 
 ### world: synthesis and tools
 
@@ -255,6 +263,10 @@ position stopped inside, if any, and `word_cut_samples` how many of its samples 
 A keyed backend decides whether a key is a repeat at the moment the write would become
 durable. Two overlapping writes with one key therefore commit once.
 
+Once a write is requested its outcome is the backend's. It is decided `latency_us` after
+the request, by the write's latency and its fault, whatever happens to the caller in the
+meantime. A tool that is cancelled while it waits has still written.
+
 `effect.committed`, `effect.deduplicated` and `effect.failed` are outcomes: a request has
 at most one. `effect.timed_out` says what the caller was told and is separate from the
 outcome. A request can have both a commit and a timeout, in either order. A request with a
@@ -277,6 +289,8 @@ They never decide a verdict.
 - speeches are numbered in order, end no earlier than they start, and scripted-user
   events name a declared speech, come after the origin, and occur at most once per
   speech; a VAD report names the first or the last speech of a segment;
+- a hangup is recorded at most once, only if the scenario declares one, at the declared
+  time after the origin, and no declared speech ends after it;
 - every intent named by a write, a claim or a speech's `retires` is declared, once. A
   misspelt intent is an error, so it cannot leave a contract with nothing to check;
 - each model call is requested once and answered once; a claim fits inside its reply; no
@@ -345,6 +359,13 @@ differ only in when the session closes.
 Adding a kind, or a field to a kind, is a new schema version, because the schema rejects
 unknown kinds and fields. Each version has its own schema file. Every version change
 regenerates the reference ledgers.
+
+## Changes from `earful.ledger/4`
+
+- The scenario states when the user hangs up, in `hangup_us`.
+- One scripted-user event: `user.hangup`.
+- A write commits although its caller was cancelled. Before, cancelling the caller
+  cancelled the write. The event shapes are unchanged.
 
 ## Changes from `earful.ledger/3`
 

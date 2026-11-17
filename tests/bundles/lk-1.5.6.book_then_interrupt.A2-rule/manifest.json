@@ -9,9 +9,9 @@
     "python": "3.13.12"
   },
   "formats": {
-    "case": "earful.case/2",
+    "case": "earful.case/3",
     "contracts": "earful.contracts/1",
-    "ledger": "earful.ledger/4"
+    "ledger": "earful.ledger/5"
   },
   "framework": {
     "name": "livekit-agents",
@@ -23,7 +23,7 @@
     "findings": [
       "2 durable effects for 'book-table-1'; the scenario authorized 1"
     ],
-    "hash": "c66e58f5992729294a7134c7d323d17951ea84f161007da4b1905a35661d3c6e",
+    "hash": "88f88e2206045549de38d0850751f045c5bb8382688be51f32dc3b5daab67792",
     "speeches": 2
   },
   "original": {
@@ -32,7 +32,7 @@
     "findings": [
       "2 durable effects for 'book-table-1'; the scenario authorized 1"
     ],
-    "hash": "7f86a583ca4cd478bfd4a3b4eaf5685e7c3bbe21be9251ad2aa3ffda44650ecf",
+    "hash": "496e72b5dd0846495b5706d86df78ae44454566e4ffeb86c0b6001a44866126e",
     "speeches": 2
   },
   "predicate": {

@@ -21,7 +21,7 @@ from ..core.backend import FAULTS, BackendMode, EffectBackend
 from ..core.checker.policy import parse_all
 from ..core.ledger import Ledger, ledger_hash
 from ..core.schema import validity
-from ..core.timebase import to_us
+from ..core.timebase import to_seconds, to_us
 from . import tools
 from .clock import WALL_CLOCK_EPOCH, ClockPatchReport, VirtualTimeLoop, now_us, run_virtual
 from .providers import (
@@ -126,6 +126,9 @@ class Case:
     contracts: dict[str, dict[str, Any]] = field(default_factory=dict)  # id -> policy values
     delays: list[Delay] = field(default_factory=list)  # provider delays declared as data
     faults: list[Fault] = field(default_factory=list)  # things declared to go wrong
+    # When the user hangs up, in seconds from the origin, if they do. The session is then
+    # closed, as a participant's disconnect closes it. No speech may end after it.
+    hangup: float | None = None
     backend_mode: BackendMode = "plain"
     seconds_per_letter: float = 0.06  # the scripted voice: a five-letter word takes 0.3 s
     tts_ttfb: float = 0.2
@@ -177,6 +180,12 @@ class Case:
             if fault.nth in faulted:
                 raise ValueError(f"backend write #{fault.nth} has more than one fault")
             faulted.add(fault.nth)
+        if self.hangup is not None:
+            if self.hangup < 0 or not self.speeches:
+                raise ValueError("the user hangs up after their last speech; a user who never speaks cannot")
+            late = [speech.start for speech in self.speeches if speech.end_us > to_us(self.hangup)]
+            if late:
+                raise ValueError(f"the user hangs up at {self.hangup} s, before the speech at {late[0]} s is over")
         names = [it.intent for it in self.intents]
         if len(set(names)) != len(names):
             raise ValueError("an intent is declared more than once")
@@ -300,6 +309,7 @@ def _header(case: Case, witnessed_tools: list[str]) -> dict[str, Any]:
             }
             for i, sp in enumerate(sorted(case.speeches, key=lambda sp: sp.start))
         ],
+        "hangup_us": None if case.hangup is None else to_us(case.hangup),
         "intents": [
             {"intent": it.intent, "tools": list(it.tools), "authorized": it.authorized}
             for it in case.intents
@@ -379,6 +389,41 @@ def _tap(session: lk.AgentSession, ledger: Ledger, errors: list[str]) -> None:
     on("agent_false_interruption", lambda e: {})
     on("close", lambda e: {"reason": str(getattr(e.reason, "value", e.reason))})
     on("error", lambda e: {"error": type(e.error).__name__})
+
+
+async def _hang_up(
+    case: Case,
+    session: lk.AgentSession,
+    origin: WorldOrigin,
+    ledger: Ledger,
+    witness: tools.ToolWitness,
+    backend: EffectBackend,
+    errors: list[str],
+) -> None:
+    """The user leaves at the declared time, and the session is closed as a participant's
+    disconnect closes it. Writes already requested still have their outcome."""
+    assert case.hangup is not None
+    await origin.started.wait()
+    assert origin.t0_us is not None
+    wait_us = origin.t0_us + to_us(case.hangup) - now_us()
+    if wait_us > 0:
+        await asyncio.sleep(to_seconds(wait_us))
+    ledger.append("world", "user.hangup")
+    closing = asyncio.ensure_future(session.aclose())
+    done, _ = await asyncio.wait({closing}, timeout=case.drain_timeout)
+    if not done:
+        # Some releases cannot close a session while one of its tools is stuck.
+        await witness.cancel_running()
+        done, _ = await asyncio.wait({closing}, timeout=case.drain_timeout)
+    if not done:
+        closing.cancel()
+        errors.append(f"the session did not close within {case.drain_timeout} s of the hangup")
+    else:
+        closing.result()  # a close that raises is the run's error, as at the end of a scenario
+    with contextlib.suppress(asyncio.TimeoutError):
+        await asyncio.wait_for(backend.settle_in_flight(), timeout=case.drain_timeout)
+    # An output that has not stopped is given the time a scenario gives one at its end.
+    await asyncio.sleep(case.drain_delay)
 
 
 class _WarningCollector(logging.Handler):
@@ -479,10 +524,13 @@ async def _run(case: Case, seed: int) -> RunResult:
     try:
         await session.start(agent)
         audio_in.push_silence(0.1)  # first frame starts the scripted user's clock
-        await stt.done
-        await asyncio.sleep(case.drain_delay)
-        with contextlib.suppress(RuntimeError, asyncio.TimeoutError):
-            await asyncio.wait_for(session.drain(), timeout=case.drain_timeout)
+        if case.hangup is None:
+            await stt.done
+            await asyncio.sleep(case.drain_delay)
+            with contextlib.suppress(RuntimeError, asyncio.TimeoutError):
+                await asyncio.wait_for(session.drain(), timeout=case.drain_timeout)
+        else:
+            await _hang_up(case, session, world_origin, ledger, witness, backend, harness_errors)
         # Framework state read back by the harness: a judged record, never a reference.
         ledger.append(
             "harness",

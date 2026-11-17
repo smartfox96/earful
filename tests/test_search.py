@@ -17,6 +17,7 @@ from earful.core.checker import check
 from earful.core.ledger import ledger_hash, read_jsonl
 from earful.core.predicate import Predicate, failures
 from earful.core.search import (
+    DEFAULT_VARIABLES,
     Handle,
     Runner,
     Transition,
@@ -49,8 +50,8 @@ def speech(start_us, end_us, transcript, **changes):
 
 def a_case(*speeches, **changes):
     return {
-        "schema": "earful.case/2", "scenario": "some.module:scenario", "seed": 0,
-        "speeches": list(speeches), "delays": [], "faults": [],
+        "schema": "earful.case/3", "scenario": "some.module:scenario", "seed": 0,
+        "speeches": list(speeches), "hangup_us": None, "delays": [], "faults": [],
         "settings": {"tts_ttfb_us": 200_000, "sink_can_pause": True}, "contracts": {}, **changes,
     }
 
@@ -314,7 +315,7 @@ def test_what_cannot_be_run_is_counted_and_said():
 
 def test_a_case_that_cannot_be_searched_is_refused_up_front():
     run = answers(lambda case: False)
-    with pytest.raises(ValueError, match="not an earful.case/2 document"):
+    with pytest.raises(ValueError, match="not an earful.case/3 document"):
         explore({**a_case(BOOK), "schema": "x"}, run)
     with pytest.raises(ValueError, match="unknown variables"):
         explore(a_case(BOOK), run, variables=["speech.volume"])
@@ -455,6 +456,87 @@ def test_a_fault_is_a_difference_and_a_reduction_keeps_it_only_if_the_failure_ne
     # A fault the author declared is removed if the failure does not need it.
     faulted = {**author, "faults": [fault("backend.error")]}
     assert shrink(faulted, answers(INTERRUPTS), Predicate("A2", "rule"), author=faulted).case["faults"] == []
+
+
+HANGUP = Variable("user.hangup", 0)
+
+
+def left_between(lo_us, hi_us):
+    """Fails where the user hangs up in a stretch of time, and nowhere else."""
+    return lambda case: case["hangup_us"] is not None and lo_us <= case["hangup_us"] <= hi_us
+
+
+def test_a_hangup_is_a_time_in_the_case_no_earlier_than_the_end_of_the_last_speech():
+    case = a_case(BOOK, WINDOW)
+    assert cases.value(case, HANGUP) is None  # the user stays
+    left = cases.with_value(case, HANGUP, 8_000_000)
+    assert left["hangup_us"] == 8_000_000 and case["hangup_us"] is None
+    assert cases.with_value(case, HANGUP, 6_000_000) is not None  # as the last speech ends
+    assert cases.with_value(case, HANGUP, 5_999_999) is None  # before it is over
+    assert "before their last speech is over" in cases.validate({**case, "hangup_us": 3_000_000})[0]
+    assert cases.with_value(left, SECOND, 7_500_000) is None  # a speech cannot be moved past it
+    assert "never speaks" in cases.validate(a_case(hangup_us=1_000_000))[0]  # the origin is the user's first audio
+    assert cases.without_hangup(left) == case
+
+
+def test_a_search_moves_the_hangup_to_every_transition_after_the_last_speech():
+    run = answers(left_between(7_000_000, 9_000_000))
+    found = explore(a_case(BOOK, WINDOW), run, variables=["user.hangup"], faults=[], words=False)
+    assert found.tried and all(t.candidate.variable == HANGUP for t in found.tried)
+    assert min(t.candidate.value_us for t in found.tried) >= WINDOW["end_us"]
+    # Before the last speech is over there is no such case: counted, and not run.
+    assert any(p.handle.variable == HANGUP for p in found.impossible)
+    breaking = found.breaking(A2)
+    assert breaking and all(7_000_000 <= t.candidate.value_us <= 9_000_000 for t in breaking)
+    (measured,) = found.windows(A2)
+    assert (measured.variable, measured.lo_us, measured.hi_us) == (HANGUP, 7_000_000, 9_000_000)
+    # The hangup is moved only when asked for.
+    unasked = explore(a_case(BOOK, WINDOW), run, variables=["speech.position"], faults=[], words=False)
+    assert not [t for t in unasked.tried if t.candidate.variable == HANGUP]
+    assert "user.hangup" not in DEFAULT_VARIABLES
+
+
+def test_pairs_move_the_hangup_with_each_fault_in_place():
+    run = answers(lambda case: False)
+    found = explore(a_case(BOOK, WINDOW), run, variables=["user.hangup"], faults=["backend.error"], pairs=True, words=False)
+    under = [t.candidate for t in found.tried if t.candidate.base == "backend.error 1" and t.candidate.variable == HANGUP]
+    assert under and all(c.case["faults"] == [fault("backend.error")] and c.case["hangup_us"] is not None for c in under)
+    assert {c.what for c in under} == {"backend.error 1 + user.hangup 0"}
+
+
+def test_a_hangup_the_case_declares_is_moved_against_the_run_in_which_the_user_stays():
+    seen = []
+
+    def run(case):
+        seen.append(case["hangup_us"])
+        return ledger("1.8.12", "book_then_interrupt")
+
+    leaving = a_case(BOOK, WINDOW, hangup_us=6_500_000)
+    found = explore(leaving, run, variables=["user.hangup"], faults=[])
+    assert None in seen  # the run without the hangup supplies the transitions
+    assert max(t.candidate.value_us for t in found.tried) > 6_500_000  # so it can be moved later, too
+
+
+def test_a_hangup_is_a_difference_and_a_reduction_keeps_it_only_if_the_failure_needs_it():
+    author = a_case(BOOK, WINDOW)
+    found = cases.with_value(cases.with_value(author, SECOND, 3_140_000), HANGUP, 8_130_000)
+    listed = differences(author, found)
+    assert "the user hangs up at 8130000 us" in [d.label for d in listed]
+    assert applied(author, listed) == found
+
+    # Needed: kept, and settled on a whole second in the middle of its window.
+    needs_both = lambda case: left_between(7_000_000, 9_000_000)(case) and len(case["speeches"]) == 2  # noqa: E731
+    shrunk = shrink(found, answers(needs_both), A2, author=author)
+    assert shrunk.case == {**author, "hangup_us": 8_000_000}
+    assert shrunk.differences == ["the user hangs up at 8000000 us"]
+    assert [(w.lo_us, w.hi_us) for w in shrunk.windows if w.variable == HANGUP] == [(7_000_000, 9_000_000)]
+
+    # Not needed: the reduced case has a user who stays.
+    assert shrink(found, answers(INTERRUPTS), A2, author=author).case["hangup_us"] is None
+    # A hangup the author declared is removed if the failure does not need it.
+    leaving = {**author, "hangup_us": 9_000_000}
+    reduced = shrink(leaving, answers(lambda case: True), A2, author=leaving)
+    assert reduced.case["hangup_us"] is None and "removed the hangup" in reduced.steps
 
 
 def test_a_window_is_found_by_doubling_out_and_halving_back():
@@ -643,7 +725,7 @@ def test_a_bundle_holds_the_failure_and_replays(tmp_path):
     assert bundle.validate(manifest) == []
     assert manifest["predicate"] == {"contract": "A2", "rule": "rule"}
     assert manifest["framework"] == {"name": "livekit-agents", "version": "1.5.6"} and manifest["clock"] == "virtual"
-    assert manifest["formats"] == {"ledger": "earful.ledger/4", "contracts": "earful.contracts/1", "case": "earful.case/2"}
+    assert manifest["formats"] == {"ledger": "earful.ledger/5", "contracts": "earful.contracts/1", "case": "earful.case/3"}
     assert (manifest["original"]["speeches"], manifest["minimal"]["speeches"]) == (4, 2)
     assert (manifest["original"]["delays"], manifest["minimal"]["delays"]) == (1, 0)
     assert manifest["original"]["findings"] == manifest["minimal"]["findings"] == ["2 durable effects for 'book-table-1'; the scenario authorized 1"]

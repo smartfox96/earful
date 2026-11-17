@@ -5,11 +5,13 @@ backend, a public agent hook, an agent option or the audio output. Nothing insid
 framework is patched, and the checker sees only the ledger.
 """
 import asyncio
+import copy
 
 import livekit.agents as lk
 import pytest
 
 from earful.core.checker import FAIL, NOT_EXERCISED, PASS, UNOBSERVABLE, check
+from earful.core.checker.view import View
 from earful.livekit.cases import CASES, _last_user_text
 from earful.livekit.harness import Case, Delay, Intent, run_case
 from earful.livekit.providers import Claim, Reply, ToolCall, UserSpeech
@@ -268,6 +270,23 @@ def test_l1_passes_when_the_same_tool_returns():
     assert _report(_booking(_book_then_confirm)).outcome("L1") == PASS
 
 
+def _stuck(**kwargs):
+    return _booking(_book_then_confirm, agent=lambda b: _Booker(b, hang=True), drain_timeout=5.0, **kwargs)
+
+
+def test_l1_owes_nothing_to_a_user_who_hung_up_before_it_was_due():
+    """The same tool that never returns. The user leaves at 4 s, before the tool was due
+    to finish, so the turn has no verdict."""
+    result = _report(_stuck(hangup=4.0)).results["L1"]
+    assert result.outcome == NOT_EXERCISED and not result.verdicts
+    assert result.notes == ("speech 0: the user hung up before a response was due",)
+
+
+def test_l1_still_fails_a_turn_that_was_overdue_when_the_user_left():
+    report = _report(_stuck(hangup=20.0))
+    assert report.outcome("L1") == FAIL and _rules(report, "L1") == ["milestone 2"]
+
+
 def test_l1_budgets_a_reply_with_the_delays_declared_for_it():
     """The scenario declares that the first reply's audio takes 3 s to begin and that the
     booking takes 4 s to commit. The turn is slow because it was scripted to be, and its
@@ -324,6 +343,71 @@ def test_l1_is_unobservable_when_the_run_ends_before_the_deadline():
 def test_l1_does_not_apply_to_a_turn_that_expects_no_reply():
     quiet = UserSpeech(start=0.5, end=2.5, transcript="Book a table for six tonight.", expects_reply=False)
     assert _report(_booking(_silent, speeches=(quiet,))).outcome("L1") == NOT_EXERCISED
+
+
+# --------------------------------------------------------------------------- hangup
+
+
+class _PlaysOn(ClockedSink):
+    """Keeps playing for 2.5 s after it is told to pause or clear: audio already in a
+    buffer nothing can flush."""
+
+    def _obey(self, action):
+        asyncio.get_running_loop().call_later(2.5, action)
+
+
+def _hung_up_on(sink):
+    """A long reply from 3.3 s; the user leaves at 5 s, six words in."""
+    case = CASES["barge_in_mid_word"]()
+    case.speeches, case.sink, case.hangup = case.speeches[:1], sink, 5.0
+    return run_case(case).ledger.events
+
+
+def test_m1_fails_when_the_output_plays_on_after_the_user_has_left():
+    """The output plays on for 2.5 s after the user has left, and the framework remembers
+    all of it. The user heard six words; fifteen are remembered as said."""
+    events = _hung_up_on(_PlaysOn)
+    (finished,) = [e for e in events if e["kind"] == "playout.finished"]
+    assert len(finished["data"]["words_played"]) == 15  # what the sink played, to no one
+    report = check(events)
+    assert report.outcome("M1") == FAIL and _rules(report, "M1") == ["rule 3"]
+    (reply,) = report.results["M1"].verdicts
+    assert (reply.measures["played"], reply.measures["cut"]) == (6, 1)  # what the user heard
+    assert reply.measures["contexts"][0]["remembered"] == 15
+    assert "played_on_after_the_hangup" in reply.flags
+
+
+def test_m1_passes_at_a_hangup_with_the_unmodified_output():
+    """The output stops as the user leaves, and the six words played are the six remembered."""
+    report = check(_hung_up_on(ClockedSink))
+    assert report.outcome("M1") == PASS
+    (reply,) = report.results["M1"].verdicts
+    assert (reply.measures["played"], reply.measures["contexts"][0]["remembered"]) == (6, 6)
+    assert "played_on_after_the_hangup" not in reply.flags
+
+
+def test_audio_that_starts_as_the_user_leaves_was_never_audible():
+    """The same run, read as if the user had left at the instant the reply began."""
+    events = copy.deepcopy(_hung_up_on(ClockedSink))
+    started = next(e for e in events if e["kind"] == "playout.started")
+    next(e for e in events if e["kind"] == "user.hangup")["t_us"] = started["t_us"]
+    (playout,) = View(events).playouts.values()
+    assert playout.first_audible_us is None and playout.played == 0 and playout.outlasted_hangup
+
+
+def test_a3_a_claim_that_finished_playing_after_the_user_left_was_not_delivered():
+    stays = run_case(_booking(_book_then_confirm, sink=_PlaysOn)).ledger.events
+    assert check(stays).outcome("A3") == PASS
+    origin = next(e["t_us"] for e in stays if e["kind"] == "user.origin")
+    claim_starts = [e["t_us"] for e in stays if e["kind"] == "playout.started"][-1] - origin
+    # The user leaves 0.3 s into "Your table is booked."; the output plays the rest to no one.
+    report = _report(_booking(_book_then_confirm, sink=_PlaysOn, hangup=(claim_starts + 300_000) / 1_000_000))
+    result = report.results["A3"]
+    assert result.outcome == NOT_EXERCISED
+    assert any("was not delivered" in note for note in result.notes)
+    # The user heard "Your" and the start of "table"; the output played all four words.
+    said = next(v for v in report.results["M1"].verdicts if v.measures["words"] == 4)
+    assert (said.measures["played"], said.measures["cut"]) == (1, 1)
 
 
 # --------------------------------------------------------------------------- L2

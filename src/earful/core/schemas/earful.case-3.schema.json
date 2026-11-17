@@ -1,8 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "urn:earful:case:2",
+  "$id": "urn:earful:case:3",
   "title": "Earful case",
-  "description": "An earful.case/2 document: everything about a scenario that is data. The agent and the model policy are code, named by `scenario`; the user's speeches, the provider delays and faults the scenario declares, the settings, the seed and the contract policy are stated here, so a case can be moved in time, reduced and saved without touching code.",
+  "description": "An earful.case/3 document: everything about a scenario that is data. The agent and the model policy are code, named by `scenario`; the user's speeches and when they hang up, the provider delays and faults the scenario declares, the settings, the seed and the contract policy are stated here, so a case can be moved in time, reduced and saved without touching code.",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -10,6 +10,7 @@
     "scenario",
     "seed",
     "speeches",
+    "hangup_us",
     "delays",
     "faults",
     "settings",
@@ -17,7 +18,7 @@
   ],
   "properties": {
     "schema": {
-      "const": "earful.case/2"
+      "const": "earful.case/3"
     },
     "scenario": {
       "type": "string",
@@ -79,6 +80,14 @@
           }
         }
       }
+    },
+    "hangup_us": {
+      "type": [
+        "integer",
+        "null"
+      ],
+      "minimum": 0,
+      "description": "When the user hangs up, in microseconds from the origin, or null if they stay. The session is then closed. No speech may end after it."
     },
     "delays": {
       "type": "array",

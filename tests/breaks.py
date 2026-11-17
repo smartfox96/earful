@@ -5,7 +5,9 @@ Each is a no-argument function returning a ``Case``, so a case file can name it
 
 The timing breaks are an output that keeps playing for 400 ms after it is told to stop;
 they differ in when. The fault breaks are booking models that handle a failed or
-timed-out write badly; each passes as written, where every write commits.
+timed-out write badly; each passes as written, where every write commits. The hangup
+break is an agent that books again when the session ends unless it had told the user the
+table is booked; it passes as written, where the user stays to hear it.
 """
 import asyncio
 
@@ -164,3 +166,45 @@ def retries_without_a_key() -> Case:
 def retries_with_a_key() -> Case:
     """The control: the same model, a tool that sends a key and a backend that honours it."""
     return _booking(_tries_again, agent=_KeyedBookingAgent, backend_mode="keyed")
+
+
+# ----------------------------------------------------------------------------- hangup
+
+
+class _BooksAgainOnExit(lk.Agent):
+    """Books in its tool, and once more when the session ends unless it had told the user
+    the table is booked: a cleanup written to make sure the booking went through."""
+
+    def __init__(self, backend, key=None) -> None:
+        super().__init__(instructions="You take restaurant reservations.")
+        self._backend, self._key, self._asked = backend, key, False
+
+    @lk.function_tool
+    async def create_reservation(self, party_size: int) -> str:
+        """Create a reservation.
+
+        Args:
+            party_size: Number of guests
+        """
+        self._asked = True
+        receipt = await self._backend.write(BOOKING_INTENT, {"party_size": party_size}, key=self._key)
+        return f"Reservation {receipt} confirmed for {party_size} guests."
+
+    async def on_exit(self) -> None:
+        told = any(
+            item.type == "message" and item.role == "assistant" and not item.interrupted and "booked" in (item.text_content or "")
+            for item in self.session.history.items
+        )
+        if self._asked and not told:
+            await self._backend.write(BOOKING_INTENT, {"party_size": 6}, key=self._key)
+
+
+def books_again_if_the_user_left() -> Case:
+    """One request to book. The agent books again on exit if the user never heard that
+    the table is booked. As written the user stays, and it books once."""
+    return _booking(_reads_the_error, agent=_BooksAgainOnExit)
+
+
+def books_again_with_a_key() -> Case:
+    """The control: the same agent sends a key with both writes, to a backend that honours it."""
+    return _booking(_reads_the_error, agent=lambda backend: _BooksAgainOnExit(backend, key="table-for-6"), backend_mode="keyed")

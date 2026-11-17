@@ -88,11 +88,13 @@ class WorldOrigin:
         self._tolerance_us = tolerance_us
         self.t0_us: int | None = None
         self.by: str | None = None
+        self.started = asyncio.Event()  # set once the origin is known
 
     def mark(self, by: str, at_us: int) -> None:
         if self.t0_us is None:
             self.t0_us, self.by = at_us, by
             self._ledger.append("world", "user.origin", by=by)
+            self.started.set()
         elif abs(at_us - self.t0_us) > self._tolerance_us:
             self._errors.append(
                 f"{by} started its clock at {at_us} us, {self.by} at {self.t0_us} us"

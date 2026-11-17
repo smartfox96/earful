@@ -14,7 +14,7 @@ from earful.core.predicate import Predicate
 from earful.core.shrink import nearest
 from earful.livekit import scenario
 
-author = scenario.default("earful.livekit.cases:book_then_interrupt")   # earful.case/2
+author = scenario.default("earful.livekit.cases:book_then_interrupt")   # earful.case/3
 found = search.explore(author, scenario.run)       # every time to every boundary, every fault on every write
 found.predicates()                                 # the rules some run broke
 found.windows(Predicate("A2", "rule"))             # how wide each failure is
@@ -32,7 +32,7 @@ All of it is framework-independent. The one thing an adapter supplies is `run`: 
 function from a case to the ledger of running it. For LiveKit that is
 `earful.livekit.scenario.run`.
 
-## 1. A case is data: `earful.case/2`
+## 1. A case is data: `earful.case/3`
 
 A scenario has two parts. Its code, the agent and the model policy, stays in the module it
 is written in and is named by a reference. Everything else is data. Because that part is
@@ -41,19 +41,20 @@ without touching code.
 
 | Field | Contents |
 | --- | --- |
-| `schema` | `earful.case/2` |
+| `schema` | `earful.case/3` |
 | `scenario` | Where the code lives, as `module:function`. The function takes no arguments and returns the scenario with its default speeches and settings |
 | `seed` | Seed for every random choice in the run |
 | `speeches` | The scripted user's speeches, in order of their start. Per speech: `start_us`, `end_us`, `transcript` (empty for noise), `stt_delay_us`, `expects_reply` (null: yes, unless noise or a backchannel), `backchannel`, `retires` |
+| `hangup_us` | When the user hangs up, as an offset from the origin, or null if they stay. The session is closed at that time |
 | `delays` | Provider delays declared as data, each in place of what the scenario's code would ask for. Per delay: `of` (`llm.ttft`, `llm.duration`, `tts.ttfb` or `backend.latency`), `nth` (which model call, utterance or backend request, from 1) and `us` |
 | `faults` | Faults declared as data, each for one backend write. Per fault: `of` (`backend.error`, `backend.timeout` or `backend.drop`), `nth` (which backend request, from 1) and `us` (how long the caller waits; null for `backend.error`) |
 | `settings` | Timing and provider settings, by name. Times are integer microseconds |
 | `contracts` | Contract id to the policy values declared for it, as in the ledger header |
 
 The shape is a JSON Schema document shipped with the package
-(`src/earful/core/schemas/earful.case-2.schema.json`). Speeches must be in order, end
-after they start and not overlap; a delay is declared at most once, and a write has at
-most one fault.
+(`src/earful/core/schemas/earful.case-3.schema.json`). Speeches must be in order, end
+after they start and not overlap; a hangup comes no earlier than the end of the last
+speech; a delay is declared at most once, and a write has at most one fault.
 
 The adapter defines which settings exist. The LiveKit adapter has
 `seconds_per_letter_us`, `tts_ttfb_us`, `vad_min_speech_us`, `vad_min_silence_us`,
@@ -74,13 +75,15 @@ Every time in a case is a **variable**: something that can be moved on its own.
 | `speech.position` | Moves a whole speech, its length kept |
 | `speech.end` | Moves the end of a speech, so its length |
 | `speech.stt_delay` | Changes how long its transcript takes |
+| `user.hangup` | Moves the moment the user hangs up. For a user who stays, moving it declares a hangup |
 | `llm.ttft`, `llm.duration` | The time to first token, or the total generation time, of one model call |
 | `tts.ttfb` | The time to first audio of one synthesized utterance |
 | `backend.latency` | The time one backend write takes to commit |
 | `backend.wait` | How long the caller of one backend write waits before it is told the write timed out. Exists only for a write with a `backend.timeout` or `backend.drop` fault |
 
 A speech variable is named with the speech's index, a delay or a wait with its
-occurrence: `speech.position 1`, `backend.latency 2`. A delay the case does not declare is
+occurrence, and the hangup with 0: `speech.position 1`, `backend.latency 2`,
+`user.hangup 0`. A delay the case does not declare is
 still a variable. Its value is whatever the scenario's code asked for, which the ledger
 records, and moving it declares it.
 
@@ -101,10 +104,25 @@ write commits afterwards. The caller cannot tell these apart, or tell either fro
 The exceptions are in `earful.core.backend`. A tool that does not catch them fails, and
 the framework reports the failure to the model as an error result.
 
+A write's outcome does not depend on its caller. It is scheduled when the write is
+requested, and a tool that is cancelled while it waits has still written. A backend that
+abandons a write when its caller goes away is the `backend.drop` fault on that write.
+
+### Hangup
+
+`hangup_us` is when the user leaves. The adapter then closes the session as a
+participant's disconnect closes it. For LiveKit that is the public `AgentSession.aclose`.
+Writes already requested still have their outcome, and the final history is read after
+the close. The ledger records the moment as `user.hangup`.
+
+Nothing after the hangup was heard. A word the output finishes after it does not count as
+played, and audio that starts after it never became audible (`docs/contracts.md`, M1 and
+A3). A turn whose response was not yet due when the user left has no L1 verdict.
+
 Some values give no case: a negative time, a speech that would end before it starts or
-overlap another. Speeches may be as close together as they like. A VAD hears speech that
-resumes within its silence window as one segment, and so does the scripted one
-(`docs/ledger.md`).
+overlap another, a hangup before the last speech is over. Speeches may be as close
+together as they like. A VAD hears speech that resumes within its silence window as one
+segment, and so does the scripted one (`docs/ledger.md`).
 
 ## 2. The same failure: a predicate
 
@@ -142,6 +160,7 @@ used.
 | `vad_end` | The VAD tells the framework the user stopped: its end plus `min_silence_us`. Moved by `speech.position` and `speech.end` |
 | `turn_end` | The turn can be committed: its end plus the longer of `min_silence_us` and `min_endpointing_delay_us`. Moved by `speech.position` and `speech.end` |
 | `done` | A provider delay runs out: the model's first token or last, the first audio, the commit. Moved by that delay |
+| `hangup` | The user leaves and the session is closed. Moved by `user.hangup` |
 
 **Candidates.** For each handle, each transition and each offset, change the handle's
 variable so that the handle falls there. The offsets are 10 ms before, exactly at, and
@@ -149,13 +168,15 @@ variable so that the handle falls there. The offsets are 10 ms before, exactly a
 Cases that coincide are one candidate. Each candidate is run and checked.
 
 A delay is placed against the transitions of the case as it is. A speech is placed against
-the transitions of the run without that speech: the timeline it would interrupt. No delay
+the transitions of the run without that speech: the timeline it would interrupt. A hangup
+is placed against the transitions of the run in which the user stays. No delay
 is made longer than a limit, 10 s by default. A model that answers after a minute is a
 different scenario and is outside the search.
 
 By default the search moves where every speech sits and every provider delay.
-`speech.end` and `speech.stt_delay` can be added, and the search can be limited to some
-speeches, some handles, or the boundaries other than word ends.
+`speech.end`, `speech.stt_delay` and `user.hangup` can be added, and the search can be
+limited to some speeches, some handles, or the boundaries other than word ends. With
+`user.hangup` the user leaves at every transition from the end of their last speech on.
 
 **Faults.** The search adds each fault to each backend write the run made, one fault per
 candidate. The caller waits 1 s unless told otherwise (`wait_us`). A timeout is run in
@@ -172,9 +193,9 @@ Each is placed against the transitions of the run with the fault in place.
 
 **Two things at a time.** Both are off by default.
 
-- `pairs=True` moves every speech again with each fault in place, and adds faults to two
-  different writes at once. The speech is placed against the transitions of the faulted
-  run without that speech.
+- `pairs=True` moves every speech again with each fault in place, and the hangup if it
+  is among the variables, and adds faults to two different writes at once. The speech is
+  placed against the transitions of the faulted run without that speech.
 - `profiles=N` draws N provider-timing profiles from the case's seed and moves every
   speech under each. A profile redraws every delay the run applied, uniformly between 0
   and twice its value (at least 1 s, at most the delay limit), in steps of 10 ms. The
@@ -226,13 +247,14 @@ of the changes the failure needs. After every step it runs the real system again
 keeps the step only if the run still breaks the same predicate.
 
 1. **Isolate.** List every difference between the found case and the author's scenario:
-   a speech moved, lengthened, added or dropped; a delay declared; a fault added; a
-   setting, a contract policy or the seed changed. Delta debugging (Zeller and
+   a speech moved, lengthened, added or dropped; a hangup; a delay declared; a fault
+   added; a setting, a contract policy or the seed changed. Delta debugging (Zeller and
    Hildebrandt's *ddmin*) over that list gives a smallest set of differences that still
    fails. The result is the author's scenario with only those changes. If the author's
    scenario fails as written, it is the author's scenario.
 2. **Remove.** ddmin again, over the speeches, then the declared delays, then the faults
-   that remain, the author's own included.
+   that remain, the author's own included. Then the hangup, if the case still fails with
+   a user who stays.
 3. **Settle.** For each time that still differs from the author's, measure its window. If
    the failure has an edge along that time, put the time on the roundest value in the
    middle half of the window: a whole second if one is there, else half a second, a
@@ -264,7 +286,7 @@ A bundle is what is kept when a failing case has been reduced. The file names ar
 | File | Contents |
 | --- | --- |
 | `manifest.json` | What failed, on what, and how the case was reduced |
-| `original.case.json` | The case as it was found (`earful.case/2`) |
+| `original.case.json` | The case as it was found (`earful.case/3`) |
 | `original.ledger.jsonl` | The normalized ledger of running it |
 | `minimal.case.json` | The reduced case |
 | `minimal.ledger.jsonl` | The normalized ledger of running it |
@@ -329,6 +351,9 @@ the one way they change.
   passes. A failure that stops and starts again is several windows, found from several
   candidates.
 - **The reduced case is 1-minimal.** A smaller failing case may exist.
-- **Faults are the backend's.** A write can fail, time out or be lost. A provider that
-  stalls, a caller that sends a write twice and a session that closes early cannot be
+- **Faults are the backend's, and the user can leave.** A write can fail, time out or be
+  lost, and the user can hang up once their last speech is over. A hangup in the middle
+  of a speech, a provider that stalls and a caller that sends a write twice cannot be
   declared yet.
+- **The hangup is moved only when asked for.** `user.hangup` is not among the default
+  variables.

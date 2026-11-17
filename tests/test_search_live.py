@@ -88,7 +88,7 @@ def test_data_that_cannot_be_run_is_refused_with_a_value_error():
         ({**data, "settings": {**data["settings"], "tts_ttfb_us": "fast"}}, "takes a time in microseconds"),
         ({**data, "settings": {**data["settings"], "tts_ttfb_us": -5}}, "takes a time in microseconds"),
         ({**data, "settings": {**data["settings"], "sink_can_pause": 1}}, "takes a bool"),
-        ({**data, "schema": "earful.case/0"}, "not an earful.case/2 document"),
+        ({**data, "schema": "earful.case/0"}, "not an earful.case/3 document"),
         ({**data, "scenario": "no.such.module:x"}, "no scenario 'no.such.module:x'"),
         ({**data, "scenario": "breaks:nope"}, "no scenario 'breaks:nope'"),
         ({**data, "delays": [{"of": "llm.ttft", "nth": 1, "us": 1}, {"of": "llm.ttft", "nth": 1, "us": 2}]}, "declared more than once"),
@@ -469,3 +469,82 @@ def test_profiles_are_the_same_for_the_same_seed_and_move_every_speech():
     profile = next(t.candidate.case for t in first.tried if t.candidate.base == "profile 1" and t.candidate.variable is None)
     assert profile["delays"] and all(0 <= d["us"] <= 10_000_000 for d in profile["delays"])
     assert all(t.outcome.ran for t in first.tried)
+
+
+# --------------------------------------------------------------------------- hangup
+
+LOST_RESULT = Predicate("M2", "rule d")  # livekit/agents#3702, which a hangup also reaches
+HANGUP = Variable("user.hangup", 0)
+
+
+@functools.cache
+def hangups_of(reference):
+    """Search a scenario by moving the moment the user hangs up, and nothing else. The
+    ends of played words are left out of the boundaries: no assertion below needs them."""
+    return explore(
+        scenario.default(reference), scenario.run, variables=["user.hangup"], faults=[], words=False, each=side_by_side,
+    )
+
+
+def test_a_hangup_is_part_of_a_cases_data():
+    case = CASES["barge_in_mid_word"]()
+    case.speeches, case.hangup = case.speeches[:1], 5.0
+    data = scenario.describe(case, "earful.livekit.cases:barge_in_mid_word")
+    assert data["hangup_us"] == 5_000_000 and cases.validate(data) == []
+    assert scenario.build(data).hangup == 5.0
+    assert ledger_hash(scenario.run(data)) == ledger_hash(run_case(case).ledger.events)
+    assert scenario.default("earful.livekit.cases:barge_in_mid_word")["hangup_us"] is None
+
+
+def test_the_hangup_scenarios_pass_as_written():
+    for name in ("books_again_if_the_user_left", "books_again_with_a_key"):
+        report = check(scenario.run(scenario.default(f"breaks:{name}")))
+        assert report.valid and not report.failures, (name, report.failures)
+
+
+def test_a_hangup_search_closes_the_session_at_every_boundary_after_the_last_speech():
+    found = hangups_of("breaks:books_again_with_a_key")
+    author = scenario.default("breaks:books_again_with_a_key")
+    assert len(found.tried) > 30 and all(t.outcome.ran for t in found.tried)
+    assert all(t.candidate.variable == HANGUP for t in found.tried)
+    assert min(t.candidate.value_us for t in found.tried) >= author["speeches"][-1]["end_us"]
+    reached = set(found.coverage()["user.hangup 0 hangup"]["reached"])
+    assert {"llm.request", "tool.called", "effect.requested", "effect.committed", "playout.started", "playout.finished"} <= reached
+    # The control sends a key with both writes, so leaving early books once.
+    assert BOOKED_TWICE not in found.predicates()
+    # A hangup interrupts the reply that called the tool, which is how #3702 is reached.
+    assert (LOST_RESULT in found.predicates()) == (VERSION < FIX_3702)
+
+
+def test_a_booking_made_again_because_the_user_left_is_found_with_its_window():
+    """The agent books again on exit unless it told the user the table is booked. The
+    search finds it by moving the hangup, and measures from when to when it happens."""
+    found = hangups_of("breaks:books_again_if_the_user_left")
+    assert found.original.failures == ()
+    assert BOOKED_TWICE in found.predicates()
+    summary = found.summary()
+    assert summary["found"]["A2/rule"]["changed"] == ["user.hangup 0"]
+    (measured,) = found.windows(BOOKED_TWICE)
+    assert measured.variable == HANGUP and not measured.instant
+    assert (measured.lo_end, measured.hi_end) == ("passes", "passes")
+    # From the tool being called, at about 3 s, to the end of "Your table is booked."
+    assert 2_900_000 <= measured.lo_us <= 3_100_000 and measured.width_us > 6_000_000
+    told = cases.with_value(found.breaking(BOOKED_TWICE)[0].candidate.case, HANGUP, measured.hi_us + measured.resolution_us)
+    assert not found.runner.breaks(told, BOOKED_TWICE)
+
+
+def test_a_case_found_with_a_hangup_reduces_to_the_hangup_and_replays(tmp_path):
+    found = hangups_of("breaks:books_again_if_the_user_left")
+    author = scenario.default("breaks:books_again_if_the_user_left")
+    case = nearest(author, [t.candidate.case for t in found.breaking(BOOKED_TWICE)])
+    manifest = bundle.capture(tmp_path / "kept", case, found.runner, BOOKED_TWICE, author=author)
+    kept = bundle.load(tmp_path / "kept")
+    left = kept.minimal["hangup_us"]
+    assert left is not None and {**kept.minimal, "hangup_us": None} == author
+    (difference,) = manifest["reduction"]["differences"]
+    assert difference == f"the user hangs up at {left} us"
+    measured = next(w for w in manifest["windows"] if w["variable"] == "user.hangup 0")
+    # Settled on a whole second, well inside the window.
+    assert left % 1_000_000 == 0 and measured["lo_us"] + 1_000_000 < left < measured["hi_us"] - 1_000_000
+    again = bundle.replay(kept, scenario.run)
+    assert again.reproduced and again.identical

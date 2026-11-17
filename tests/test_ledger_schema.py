@@ -61,7 +61,7 @@ def _edit_header(edit):
         (lambda ev: ev.pop(5), "seq"),
         (lambda ev: ev[3].update(t_us=-1), "t_us: -1 is less than the minimum"),
         (lambda ev: ev[-1].update(t_us=0), "earlier than the previous event"),
-        (lambda ev: ev[0].update(schema="earful.ledger/0"), "'earful.ledger/4' was expected"),
+        (lambda ev: ev[0].update(schema="earful.ledger/0"), "'earful.ledger/5' was expected"),
         (lambda ev: ev[4].update(run="run-0000000000000000"), "not the digest of run.start"),
         (lambda ev: ev[0]["data"].update(seed=7), "not the digest of run.start"),
         (lambda ev: ev[4].pop("run"), "'run' is a required property"),
@@ -164,6 +164,33 @@ def test_validator_rejects_a_faulted_write_that_cannot_have_happened(timed_out, 
     assert any(expected in e for e in errors), errors
 
 
+@pytest.fixture(scope="module")
+def hung_up():
+    """One booking; the user leaves at 5 s, while the reply plays."""
+    case = CASES["book_then_interrupt"]()
+    case.speeches = case.speeches[:1]
+    case.hangup = 5.0
+    return run_case(case).ledger.events
+
+
+@pytest.mark.parametrize(
+    "mutate, expected",
+    [
+        (_again("user.hangup"), "user.hangup recorded more than once"),
+        (_edit_header(lambda h: h["scenario"].update(hangup_us=None)), "the scenario declares no hangup"),
+        (_edit_header(lambda h: h["scenario"].update(hangup_us=4_000_000)), "not at the declared time"),
+        (_edit_header(lambda h: h["scenario"].update(hangup_us=1_000_000)), "hangs up before a speech is over"),
+        (_edit_header(lambda h: h["scenario"].pop("hangup_us")), "'hangup_us' is a required property"),
+        (lambda ev: _first(ev, "user.hangup").update(source="harness"), "'world' was expected"),
+        (lambda ev: _data(ev, "user.hangup").update(reason="bored"), "Additional properties are not allowed"),
+    ],
+)
+def test_validator_rejects_a_hangup_that_cannot_have_happened(hung_up, mutate, expected):
+    assert validate(hung_up) == [] and validity(hung_up) == []
+    errors = _broken(hung_up, mutate)
+    assert any(expected in e for e in errors), errors
+
+
 def _spoiled(event):
     """The event as recorded, then each way of spoiling it that a schema can see."""
     yield "as recorded", event
@@ -181,7 +208,7 @@ def _spoiled(event):
         yield f"as {other!r} in place of an object", other
 
 
-def test_an_event_checked_by_its_kind_gets_the_whole_schemas_errors(booking, timed_out):
+def test_an_event_checked_by_its_kind_gets_the_whole_schemas_errors(booking, timed_out, hung_up):
     """``event_errors`` leaves out the rules of every other kind. That must change nothing:
     the same errors, in the same order, as the whole schema gives."""
     whole = Draft202012Validator(load_schema())
@@ -190,7 +217,7 @@ def test_an_event_checked_by_its_kind_gets_the_whole_schemas_errors(booking, tim
         return [("/".join(map(str, e.absolute_path)), e.message) for e in errors]
 
     checked_as, compared, rejected = set(), 0, 0
-    for events in (booking, timed_out):
+    for events in (booking, timed_out, hung_up):
         for event in {e["kind"]: e for e in events}.values():  # one event of each kind
             for what, spoiled in _spoiled(event):
                 expected = said(sorted(whole.iter_errors(spoiled), key=lambda e: list(map(str, e.absolute_path))))
@@ -206,7 +233,7 @@ def test_an_event_checked_by_its_kind_gets_the_whole_schemas_errors(booking, tim
 
 
 def test_schema_version():
-    assert SCHEMA == "earful.ledger/4"
+    assert SCHEMA == "earful.ledger/5"
     assert load_schema()["properties"]["schema"]["const"] == SCHEMA
 
 

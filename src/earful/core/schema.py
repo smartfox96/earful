@@ -1,7 +1,7 @@
-"""Validation of earful.ledger/4, and the one definition of a valid run.
+"""Validation of earful.ledger/5, and the one definition of a valid run.
 
 The shape of every event is defined by a JSON Schema document shipped with this package
-(``schemas/earful.ledger-4.schema.json``), so any language can validate a ledger line
+(``schemas/earful.ledger-5.schema.json``), so any language can validate a ledger line
 with a standard validator. This module applies that schema and adds the rules a
 per-line schema cannot express: order, and references between events.
 
@@ -21,7 +21,7 @@ from .ledger import run_id
 
 Event = dict[str, Any]
 
-SCHEMA_FILE = "earful.ledger-4.schema.json"
+SCHEMA_FILE = "earful.ledger-5.schema.json"
 
 
 @lru_cache(maxsize=1)
@@ -79,7 +79,7 @@ def _where(index: int, event: Any) -> str:
 
 
 def validate(events: list[Event]) -> list[str]:
-    """Every way ``events`` departs from earful.ledger/4. An empty list means valid."""
+    """Every way ``events`` departs from earful.ledger/5. An empty list means valid."""
     if not events:
         return ["ledger is empty"]
 
@@ -135,6 +135,19 @@ def _check_ledger(events: list[Event], errors: list[str]) -> None:
     origins = [e for e in events if e["kind"] == "user.origin"]
     if len(origins) > 1:
         errors.append("user.origin recorded more than once")
+    hangups = [e for e in events if e["kind"] == "user.hangup"]
+    if len(hangups) > 1:
+        errors.append("user.hangup recorded more than once")
+    for e in hangups[:1]:
+        where = _where(e["seq"], e)
+        if scenario["hangup_us"] is None:
+            errors.append(f"{where}: the scenario declares no hangup")
+        elif not origins or origins[0]["seq"] > e["seq"]:
+            errors.append(f"{where}: comes before user.origin")
+        elif e["t_us"] != origins[0]["t_us"] + scenario["hangup_us"]:
+            errors.append(f"{where}: not at the declared time, {scenario['hangup_us']} us after the origin")
+    if scenario["hangup_us"] is not None and any(s["end_us"] > scenario["hangup_us"] for s in speeches):
+        errors.append("run.start: the user hangs up before a speech is over")
     requests: set[int] = set()
     responses: set[int] = set()
     attributed: set[int] = set()
