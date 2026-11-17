@@ -1,14 +1,66 @@
 name: ci
 
+# A pull request is checked once, as the merge of the branch into its base. A push is
+# checked only on main, so a branch with an open pull request does not run twice.
 on:
   push:
+    branches: [main]
   pull_request:
   schedule:
     - cron: "17 4 * * *" # nightly: catches dependency drift under the pinned releases
+  workflow_dispatch:
+
+# A new push to a pull request replaces the run in progress. Runs on main all finish.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
 
 jobs:
+  changes:
+    name: what changed
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      code: ${{ steps.scope.outputs.code }}
+      docs: ${{ steps.scope.outputs.docs }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Decide from the changed paths (scripts/ci_scope.sh)
+        id: scope
+        env:
+          EVENT: ${{ github.event_name }}
+          BEFORE: ${{ github.event.before }}
+        run: |
+          case "$EVENT" in
+            pull_request) scripts/ci_scope.sh HEAD^1 HEAD ;; # HEAD is the merge into the base
+            push) scripts/ci_scope.sh "$BEFORE" HEAD ;;
+            *) printf 'code=true\ndocs=true\n' ;; # nightly and manual runs check everything
+          esac | tee -a "$GITHUB_OUTPUT"
+
+  # A change to the pages alone: the one test file that reads them, on the latest release.
+  docs:
+    name: docs match the code
+    needs: changes
+    if: needs.changes.outputs.code != 'true' && needs.changes.outputs.docs == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - name: Build pinned environment
+        run: scripts/make_env.sh 1.8.12 2026-11-14
+      - name: Tests that read docs/
+        run: .venvs/lk-1.8.12/bin/python -m pytest -q tests/test_docs.py
+
   determinism:
     name: lk ${{ matrix.lk.version }} / ${{ matrix.os }} / py${{ matrix.python }}
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ${{ matrix.os }}
     timeout-minutes: 30
     strategy:
@@ -63,3 +115,21 @@ jobs:
         with:
           name: evidence-${{ matrix.lk.version }}-${{ matrix.os }}-py${{ matrix.python }}
           path: evidence/
+
+  # One result for the whole run, whichever jobs the change needed. This is the check to
+  # require on main: a skipped job passes, a failed or cancelled one does not.
+  result:
+    name: ci result
+    needs: [changes, docs, determinism]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Every job that ran has passed
+        env:
+          RESULTS: ${{ join(needs.*.result, ' ') }}
+        run: |
+          echo "changes, docs, determinism: $RESULTS"
+          case " $RESULTS " in
+            *" failure "* | *" cancelled "*) exit 1 ;;
+          esac
