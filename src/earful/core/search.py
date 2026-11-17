@@ -769,6 +769,26 @@ DEFAULT_VARIABLES = ("speech.position", *cases.DELAY_KINDS, cases.HANGUP)
 WAIT_US = 1_000_000
 
 
+def check_arguments(
+    case: cases.Case, variables: Iterable[str], faults: Iterable[str]
+) -> tuple[tuple[str, ...], tuple[str, ...]]:
+    """What a search is asked for, checked before anything is run or started: the case is
+    earful.case/1, and every variable and fault named is one there is. Returns the
+    variables and the faults. Raises ``ValueError`` otherwise."""
+    errors = cases.validate(case)
+    if errors:
+        raise ValueError("not an earful.case/1 document: " + "; ".join(errors))
+    kinds = tuple(variables)
+    unknown = sorted(set(kinds) - set(cases.SPEECH_KINDS) - set(cases.DELAY_KINDS) - {cases.HANGUP})
+    if unknown:
+        raise ValueError(f"unknown variables {unknown}")
+    fault_kinds = tuple(faults)
+    unknown = sorted(set(fault_kinds) - set(cases.FAULT_KINDS))
+    if unknown:
+        raise ValueError(f"unknown faults {unknown}")
+    return kinds, fault_kinds
+
+
 def explore(
     case: cases.Case,
     run: Run,
@@ -819,17 +839,7 @@ def explore(
 
     Raises ``ValueError`` if ``case`` is not earful.case/1 or cannot be run as given.
     """
-    errors = cases.validate(case)
-    if errors:
-        raise ValueError("not an earful.case/1 document: " + "; ".join(errors))
-    kinds = tuple(variables)
-    unknown = sorted(set(kinds) - set(cases.SPEECH_KINDS) - set(cases.DELAY_KINDS) - {cases.HANGUP})
-    if unknown:
-        raise ValueError(f"unknown variables {unknown}")
-    fault_kinds = tuple(faults)
-    unknown = sorted(set(fault_kinds) - set(cases.FAULT_KINDS))
-    if unknown:
-        raise ValueError(f"unknown faults {unknown}")
+    kinds, fault_kinds = check_arguments(case, variables, faults)
     runner = Runner(run)
     offsets = tuple(offsets_us)
     wanted_moments = None if moments is None else set(moments)
@@ -1047,6 +1057,7 @@ __all__ = [
     "anchors",
     "attempt",
     "candidates",
+    "check_arguments",
     "delay_handles",
     "evaluate",
     "explore",

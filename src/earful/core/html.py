@@ -1668,7 +1668,9 @@ def _bundle(manifest: dict[str, Any], digest: str) -> str:
                 _e(_str(w, "lo_end", "?")),
                 _e(_str(w, "hi_end", "?")),
                 _e(_sec(_int(w, "resolution_us") or 0)),
-                "an instant: it says nothing about the system" if w.get("instant") is True else "",
+                "an instant: it says nothing about the system"
+                if isinstance(w, dict) and w.get("instant") is True
+                else "",
             ]
             out.append("<tr>" + "".join(f"<td>{c}</td>" for c in cells) + "</tr>")
         out.append("</tbody></table>")

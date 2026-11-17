@@ -20,7 +20,7 @@ except ModuleNotFoundError as exc:
 from ..core.backend import BackendError, BackendTimeout, Effect, effect
 from ..core.checker import ContractFailure
 from ..core.predicate import Predicate
-from .api import cross_check, explore, keep, replay, run
+from .api import WorkersUnavailable, cross_check, explore, keep, replay, run
 from .harness import Case, Delay, Fault, Intent, InvalidRun, RunResult, run_case
 from .playbook import (
     Condition,
@@ -62,6 +62,7 @@ __all__ = [
     "ToolCall",
     "ToolResult",
     "UserSpeech",
+    "WorkersUnavailable",
     "cross_check",
     "effect",
     "effect_tool",

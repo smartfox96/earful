@@ -31,6 +31,11 @@ from .harness import Case, RunResult, run_case
 from .scenario import Scenario, Source
 
 
+class WorkersUnavailable(RuntimeError):
+    """A search was asked to run in worker processes and they could not be started, or
+    one died before it ran a case. ``workers=0`` runs the same search in this process."""
+
+
 @contextlib.contextmanager
 def _quiet_framework() -> Iterator[None]:
     """Keep the framework's log records from the root logger while a search's case
@@ -91,6 +96,10 @@ def explore(
     anything runs. Each worker is a fresh interpreter that imports the main module of
     this process: a script that searches with workers needs the usual
     ``if __name__ == "__main__":`` guard.
+
+    Raises ``ValueError``, before anything is run or started, for a case, a variable or
+    a fault there is not. Raises ``WorkersUnavailable`` if worker processes cannot be
+    started here, as in a sandbox that does not allow them, or if one dies.
     """
     found = Scenario.of(source)
     if workers < 0:
@@ -98,6 +107,8 @@ def explore(
     if workers:
         scenario.importable(found.reference, "search in worker processes")
     start = found.default(seed) if case is None else case
+    # Checked here as well as by the search itself: before any worker process is started.
+    variables, faults = search.check_arguments(start, variables, faults)
     options: dict[str, Any] = {
         "variables": variables,
         "faults": faults,
@@ -120,10 +131,19 @@ def explore(
     # scenario's code as it is now: workers kept between searches would go on running
     # what they first imported.
     try:
-        with scenario.pool(workers) as pool:
+        pool = scenario.pool(workers)
+    except (OSError, NotImplementedError, ImportError) as exc:
+        # No semaphores, no shared memory, no permission to start a process: a sandbox, a
+        # locked-down container, some serverless runners.
+        raise WorkersUnavailable(
+            f"worker processes cannot be started here ({type(exc).__name__}: {exc}). "
+            "workers=0 runs the search in this process"
+        ) from exc
+    try:
+        with pool:
             return search.explore(start, _run_quietly, each=pool.map, **options)
     except BrokenProcessPool as exc:
-        raise RuntimeError(
+        raise WorkersUnavailable(
             "a worker process died before it ran a case. A worker is a fresh interpreter "
             "that imports this process's main module, so a script that searches with "
             'workers must do so under `if __name__ == "__main__":`, and cannot be run '
@@ -209,4 +229,4 @@ def replay(directory: Path | str, *, repeats: int = 3) -> bundle.Replay:
     return bundle.replay(kept, scenario.run, repeats=repeats, fingerprint=scenario.fingerprint)
 
 
-__all__ = ["cross_check", "explore", "keep", "replay", "run"]
+__all__ = ["WorkersUnavailable", "cross_check", "explore", "keep", "replay", "run"]

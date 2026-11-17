@@ -169,6 +169,17 @@ def test_both_ledgers_of_each_bundle_render_with_what_the_bundle_froze(directory
     assert ("window" in doc.timeline) == (which == "minimal")
 
 
+def test_a_manifest_whose_windows_are_not_what_they_should_be_is_still_drawn():
+    """A manifest is read from a file anyone can have edited."""
+    from earful.core import bundle
+
+    kept = bundle.load(BUNDLES[0])
+    odd = {**kept.manifest, "windows": ["not a window", 7, None, ["a", "list"], {"instant": True}]}
+    doc = well_formed(report.render(kept.ledger(), manifest=odd))
+    assert "Windows." in doc.text
+    assert doc.text.count("an instant: it says nothing about the system") == 1
+
+
 def test_a_bundle_has_only_the_two_ledgers():
     with pytest.raises(ValueError, match="no 'other' ledger"):
         report.render_bundle(BUNDLES[0], "other")

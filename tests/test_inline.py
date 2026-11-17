@@ -9,9 +9,9 @@ from earful.core import case as cases
 from earful.core.checker import ContractFailure, check
 from earful.core.predicate import Predicate
 from earful.livekit import scenario
-from earful.livekit.api import explore, keep, replay, run
+from earful.livekit.api import WorkersUnavailable, explore, keep, replay, run
 from earful.livekit.cases import BOOKING_ACK, BOOKING_INTENT, barge_in_mid_word
-from earful.livekit.harness import Case, Fault
+from earful.livekit.harness import Case, Delay, Fault, Intent
 from earful.livekit.playbook import (
     ScriptedModel,
     reply,
@@ -238,6 +238,63 @@ def test_a_scenario_with_a_name_runs_in_this_process_unless_workers_are_asked_fo
     assert found.predicates() == [CONFIRMED_BUT_NOT_DONE] and pools == []
     with pytest.raises(ValueError, match="number of processes"):
         explore(as_written_confirms_a_failed_booking, workers=-1)
+
+
+def test_what_a_search_is_asked_for_is_checked_before_a_worker_is_started(pools):
+    scenario_ = as_written_confirms_a_failed_booking
+    with pytest.raises(ValueError, match="unknown variables \\['speech.colour'\\]"):
+        explore(scenario_, workers=2, variables=["speech.colour"])
+    with pytest.raises(ValueError, match="unknown faults \\['backend.melts'\\]"):
+        explore(scenario_, workers=2, faults=["backend.melts"])
+    with pytest.raises(ValueError, match="not an earful.case/1 document"):
+        explore(scenario_, workers=2, case={"schema": "earful.case/0"})
+    assert pools == []
+
+
+@pytest.mark.parametrize(
+    "refusal",
+    [PermissionError(13, "Permission denied"), NotImplementedError("no sem_open here")],
+    ids=["no permission", "no semaphores"],
+)
+def test_where_worker_processes_cannot_be_started_the_search_says_so(monkeypatch, refusal):
+    """A sandbox or a locked-down container can refuse the semaphores a pool needs."""
+
+    def refused(workers=None):
+        raise refusal
+
+    monkeypatch.setattr(scenario, "pool", refused)
+    with pytest.raises(WorkersUnavailable, match="cannot be started here.*workers=0") as caught:
+        explore(as_written_confirms_a_failed_booking, workers=2, variables=(), words=False)
+    assert caught.value.__cause__ is refusal
+    # In this process the same search runs.
+    found = explore(
+        as_written_confirms_a_failed_booking,
+        variables=(),
+        faults=["backend.error"],
+        words=False,
+    )
+    assert found.predicates() == [CONFIRMED_BUT_NOT_DONE]
+
+
+def test_a_case_given_as_a_scenario_keeps_its_lists_and_dicts_to_itself():
+    """Each run gets a copy whose containers are its own: what a run or a hook does to
+    them reaches neither the caller's Case nor the next run."""
+    case = booking(READS_THE_ERROR, contracts={"L2": {"stop_bound_us": 100_000}})
+    make = Scenario.of(case).make
+    made = make()
+    assert made is not case and made.agent is case.agent and made.policy is case.policy
+    made.speeches.append(UserSpeech(start=9.0, end=10.0, transcript="And another."))
+    made.intents.append(Intent("refund-1"))
+    made.effects["refund"] = BOOKING
+    made.contracts["L2"]["stop_bound_us"] = 1
+    made.delays.append(Delay("llm.ttft", 1, 0.5))
+    made.faults.append(Fault("backend.error", 1))
+    made.session_kwargs["allow_interruptions"] = False
+    for again in (case, make()):
+        assert len(again.speeches) == 1 and again.intents == [] and again.delays == []
+        assert list(again.effects) == ["create_reservation"] and again.faults == []
+        assert again.contracts == {"L2": {"stop_bound_us": 100_000}}
+        assert again.session_kwargs == {}
 
 
 def test_an_inline_case_is_refused_by_worker_processes_before_anything_runs():

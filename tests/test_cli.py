@@ -200,6 +200,33 @@ def test_keep_without_a_directory_and_a_search_of_no_scenario_are_refused(capsys
     assert status == REFUSED and "unknown variables" in err
 
 
+def test_a_search_asked_for_what_there_is_not_starts_no_worker(capsys, monkeypatch):
+    """By default the command searches in worker processes. A request it will refuse is
+    refused before one is started."""
+    started = []
+    monkeypatch.setattr(scenario, "pool", lambda workers=None: started.append(workers))
+    status, _, err = earful(capsys, "search", "breaks:host", "--variables", "speech.colour")
+    assert status == REFUSED and "unknown variables" in err and started == []
+
+
+def test_where_workers_cannot_be_started_the_search_runs_in_this_process_unless_told_a_number(
+    capsys, monkeypatch
+):
+    def refused(workers=None):
+        raise PermissionError(13, "Permission denied")
+
+    monkeypatch.setattr(scenario, "pool", refused)
+    narrow = ("--variables", "none", "--faults", "backend.error", "--no-words")
+    reference = "breaks:as_written_reads_the_error"
+    status, out, err = earful(capsys, "search", reference, *narrow)
+    assert status == OK and "0 contract rule(s) broken" in out
+    assert "cannot be started here" in err and "Searching in this process." in err
+    # Asked for by number, the command does not quietly do something else.
+    status, out, err = earful(capsys, "search", reference, *narrow, "--workers", "2")
+    assert status == REFUSED and out == "" and "cannot be started here" in err
+    assert earful(capsys, "search", reference, *narrow, "--workers", "0")[0] == OK
+
+
 def test_replay_of_a_committed_bundle_says_whether_this_release_still_has_the_defect(capsys):
     status, out, _ = earful(capsys, "replay", KEPT_3702, "--json")
     outcome = json.loads(out)
