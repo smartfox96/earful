@@ -95,16 +95,28 @@ def judged(case: cases.Case, events: list[Event]) -> Outcome:
     return Outcome(case, tuple(sorted(failures(report))), report.outcomes(), ledger_hash(events))
 
 
-def evaluate(run: Run, case: cases.Case) -> Outcome:
-    """Run a case and check it. A case the adapter refuses (``ValueError``) and a run that
-    raises anything else are recorded, not raised: one bad run must not end a search."""
+def attempt(run: Run, case: cases.Case) -> tuple[Outcome, list[Event] | None]:
+    """Run a case and check it. Returns the outcome, and the ledger if the run can be
+    judged. A case the adapter refuses (``ValueError``) and a run that raises anything
+    else are recorded, not raised: one bad run must not end a search."""
     try:
         events = run(case)
     except ValueError as exc:
-        return Outcome(case, refused=str(exc))
+        return Outcome(case, refused=str(exc)), None
     except Exception as exc:  # noqa: BLE001
-        return Outcome(case, error=f"{type(exc).__name__}: {exc}")
-    return judged(case, events)
+        return Outcome(case, error=f"{type(exc).__name__}: {exc}"), None
+    outcome = judged(case, events)
+    return outcome, events if outcome.ran else None
+
+
+def evaluate(run: Run, case: cases.Case) -> Outcome:
+    """Run a case and check it: the outcome of ``attempt``, without the ledger."""
+    return attempt(run, case)[0]
+
+
+# How a batch of runs is carried out: ``map`` one after another, a process pool's ``map``
+# side by side.
+Each = Callable[..., Iterable[Any]]
 
 
 class Runner:
@@ -115,21 +127,35 @@ class Runner:
         self.run = run
         self.runs = 0
         self._seen: dict[str, Outcome] = {}
+        self._ledgers: dict[str, list[Event] | None] = {}
 
     def outcome(self, case: cases.Case) -> Outcome:
         return self.many([case])[0]
 
-    def many(
-        self, wanted: list[cases.Case], each: Callable[..., Iterable[Outcome]] = map
-    ) -> list[Outcome]:
-        """The outcome of each case. ``each`` is how the runs are carried out: ``map`` runs
-        them one after another, a process pool's ``map`` side by side."""
+    def many(self, wanted: list[cases.Case], each: Each = map) -> list[Outcome]:
+        """The outcome of each case. ``each`` is how the runs are carried out."""
         keys = [cases.canonical(case) for case in wanted]
         todo = {key: case for key, case in zip(keys, wanted) if key not in self._seen}
         for key, outcome in zip(todo, each(partial(evaluate, self.run), list(todo.values()))):
             self._seen[key] = outcome
             self.runs += 1
         return [self._seen[key] for key in keys]
+
+    def ledger(self, case: cases.Case) -> list[Event] | None:
+        return self.ledgers([case])[0]
+
+    def ledgers(self, wanted: list[cases.Case], each: Each = map) -> list[list[Event] | None]:
+        """The ledger of each case, or None for a case whose run cannot be judged. A
+        search places candidates against these runs, so their ledgers are kept. Their
+        outcomes are kept too: a case run for its ledger is not run again for its verdict."""
+        keys = [cases.canonical(case) for case in wanted]
+        todo = {key: case for key, case in zip(keys, wanted) if key not in self._ledgers}
+        attempts = each(partial(attempt, self.run), list(todo.values()))
+        for key, (outcome, events) in zip(todo, attempts):
+            self._ledgers[key] = events
+            self._seen.setdefault(key, outcome)
+            self.runs += 1
+        return [self._ledgers[key] for key in keys]
 
     def breaks(self, case: cases.Case, predicate: Predicate) -> bool:
         return predicate in self.outcome(case).failures
@@ -600,7 +626,7 @@ def explore(
     words: bool = True,
     delay_limit_us: int = DELAY_LIMIT_US,
     wait_us: int = WAIT_US,
-    each: Callable[..., Iterable[Outcome]] = map,
+    each: Each = map,
 ) -> Exploration:
     """Search ``case`` for the timings and faults at which it breaks a contract.
 
@@ -649,16 +675,8 @@ def explore(
     delay_kinds = [k for k in kinds if k in cases.DELAY_KINDS]
     speech_kinds = [k for k in kinds if k in cases.SPEECH_KINDS]
 
-    def ledger(wanted: cases.Case) -> list[Event] | None:
-        """The ledger of a run that can be judged, or None."""
-        try:
-            produced = run(wanted)
-        except Exception:  # noqa: BLE001
-            return None
-        return produced if judged(wanted, produced).ran else None
-
-    original = evaluate(run, case)
-    events = ledger(case)
+    events = runner.ledger(case)
+    original = runner.outcome(case)
     if events is None:
         why = original.refused or original.error or "; ".join(original.invalid)
         raise ValueError(f"the case as given cannot be searched: {why}")
@@ -684,13 +702,16 @@ def explore(
 
     def move_speeches(on: cases.Case, produced: list[Event], base: str) -> None:
         """A speech races with the run it would interrupt: the one without it."""
-        for index in range(len(on["speeches"])) if speech_kinds else ():
-            if wanted_speeches is not None and index not in wanted_speeches:
-                continue
+        moved = [
+            index
+            for index in (range(len(on["speeches"])) if speech_kinds else ())
+            if wanted_speeches is None or index in wanted_speeches
+        ]
+        without = runner.ledgers([cases.without_speech(on, index) for index in moved], each)
+        for index, alone in zip(moved, without):
             handles = speech_handles(on, index, produced, speech_kinds)
             if wanted_moments is not None:
                 handles = [h for h in handles if h.moment in wanted_moments]
-            alone = ledger(cases.without_speech(on, index))
             if alone is not None:  # else the scenario cannot run without this speech
                 place(on, handles, transitions(alone, words=words), base)
 
@@ -698,7 +719,7 @@ def explore(
         """A hangup cuts short the run in which the user stays."""
         if cases.HANGUP not in kinds:
             return
-        stays = produced if on["hangup_us"] is None else ledger(cases.without_hangup(on))
+        stays = produced if on["hangup_us"] is None else runner.ledger(cases.without_hangup(on))
         if stays is not None:
             place(on, [hangup_handle(on, stays)], transitions(stays, words=words), base)
 
@@ -748,8 +769,8 @@ def explore(
                     keep(Candidate(version, None, None, base=label))
     # ... and the moment the caller gives up, to every transition.
     under: dict[str, list[Event]] = {}
-    for label, nth, version in faulted:
-        produced = ledger(version)
+    with_faults = runner.ledgers([version for _label, _nth, version in faulted], each)
+    for (label, nth, version), produced in zip(faulted, with_faults):
         if produced is None:
             continue
         under[label] = produced
@@ -796,17 +817,19 @@ def explore(
 
     # Every speech again, under provider delays redrawn from a seed.
     applied = delay_handles(events, cases.DELAY_KINDS)
+    redrawn: list[cases.Case] = []
     for number in range(1, profiles + 1):
         rng = random.Random(f"{case['seed']}:{number}")
-        redrawn = case
+        profile = case
         for handle in applied:
             most = min(delay_limit_us, max(2 * handle.value_us, 1_000_000))
-            changed = cases.with_value(redrawn, handle.variable, rng.randrange(0, most + 1, 10_000))
-            redrawn = changed if changed is not None else redrawn
-        produced = ledger(redrawn)
+            changed = cases.with_value(profile, handle.variable, rng.randrange(0, most + 1, 10_000))
+            profile = changed if changed is not None else profile
+        redrawn.append(profile)
+    for number, (profile, produced) in enumerate(zip(redrawn, runner.ledgers(redrawn, each)), 1):
         if produced is not None:
-            keep(Candidate(redrawn, None, None, base=f"profile {number}"))
-            move_speeches(redrawn, produced, f"profile {number}")
+            keep(Candidate(profile, None, None, base=f"profile {number}"))
+            move_speeches(profile, produced, f"profile {number}")
 
     todo = list(found.values())
     outcomes = runner.many([c.case for c in todo], each)
@@ -820,6 +843,7 @@ __all__ = [
     "OFFSETS_US",
     "WAIT_US",
     "Candidate",
+    "Each",
     "Exploration",
     "Handle",
     "Outcome",
@@ -829,6 +853,7 @@ __all__ = [
     "Tried",
     "Window",
     "anchors",
+    "attempt",
     "candidates",
     "delay_handles",
     "evaluate",

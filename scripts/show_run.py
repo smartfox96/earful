@@ -22,6 +22,6 @@ print("fw warnings    ", result.framework_warnings)
 print(
     "clock patched  ",
     len(result.clock.model_fields),
-    "model fields; skipped",
-    result.clock.skipped_modules,
+    "model fields; not patched",
+    result.clock.unpatched,
 )

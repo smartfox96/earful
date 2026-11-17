@@ -1,8 +1,15 @@
-"""The virtual clock: exact grid time and scheduling-order ties."""
+"""The virtual clock: exact grid time, scheduling-order ties, and the models that captured
+the real clock."""
 
 import asyncio
+import time
 
-from earful.livekit.clock import run_virtual
+import pytest
+from pydantic import BaseModel, Field
+
+from earful.livekit.cases import CASES
+from earful.livekit.clock import WALL_CLOCK_EPOCH, patch_report, run_virtual
+from earful.livekit.harness import InvalidRun, run_case
 
 
 def test_time_is_exact_on_the_grid():
@@ -76,7 +83,52 @@ def test_a_deadlocked_run_fails_instead_of_hanging(monkeypatch):
     async def main():
         await asyncio.get_running_loop().create_future()  # nothing will ever set it
 
-    import pytest
-
     with pytest.raises(clock.VirtualTimeStall):
         run_virtual(main)
+
+
+async def _nothing():
+    return None
+
+
+def test_a_model_defined_after_the_first_run_reads_the_virtual_clock():
+    """A field declared ``default_factory=time.time`` holds the real function. The patch
+    looks at every model class at the start of every run, so a model that arrived since
+    the last run is found, in whatever module it was defined."""
+    run_virtual(_nothing)  # the patch has looked at every model there was
+
+    class Late(BaseModel):
+        at: float = Field(default_factory=time.time)
+
+    async def main():
+        await asyncio.sleep(5)
+        return Late().at
+
+    assert run_virtual(main) == WALL_CLOCK_EPOCH + 5
+    assert any(name.endswith("Late.at") for name in patch_report().model_fields)
+    assert abs(Late().at - time.time()) < 60  # outside a run it reads the real clock
+
+
+def test_a_model_that_cannot_be_patched_is_reported_and_makes_a_run_invalid():
+    class Unbuilt(BaseModel):
+        at: float = Field(default_factory=time.time)
+        other: "NotDefinedYet"  # pydantic cannot build the model until this name exists
+
+    try:
+        run_virtual(_nothing)
+        (unpatched,) = patch_report().unpatched
+        assert unpatched.endswith("Unbuilt.at")
+        with pytest.raises(InvalidRun, match=r"Unbuilt\.at reads the wall clock"):
+            run_case(CASES["barge_in_mid_word"]())
+    finally:
+        NotDefinedYet = int  # the name the annotation asks for
+        Unbuilt.model_rebuild()
+
+    # Built, it is patched at the start of the next run, and runs are valid again.
+    async def main():
+        await asyncio.sleep(2)
+        return Unbuilt(other=1).at
+
+    assert run_virtual(main) == WALL_CLOCK_EPOCH + 2
+    assert patch_report().unpatched == []
+    assert not run_case(CASES["barge_in_mid_word"]()).invalid

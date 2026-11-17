@@ -151,7 +151,7 @@ def _repeat(case: str, args: argparse.Namespace) -> bool:
         "problems": problems[:20],
         "framework_warnings": reference.framework_warnings,
         "clock_model_fields_patched": len(reference.clock.model_fields),
-        "clock_modules_skipped": reference.clock.skipped_modules,
+        "clock_model_fields_unpatched": reference.clock.unpatched,
         "virtual_seconds_per_run": reference.ledger.events[-1]["t_us"] / 1e6,
     }
     # Wall time and the --check outcome are printed but kept out of the written evidence,

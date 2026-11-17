@@ -21,9 +21,9 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import heapq
-import importlib
 import selectors
 import time
+import weakref
 from collections.abc import Callable, Coroutine, Iterator, Mapping
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, TypeVar
@@ -74,15 +74,6 @@ class VirtualTimeStall(RuntimeError):
 
 def _tick(t: float) -> int:
     return round(t * _TICKS_PER_SECOND)
-
-
-# Modules whose pydantic models may capture time.time as a default_factory. Missing modules
-# are skipped: the list is a superset across supported livekit-agents releases.
-_MODEL_MODULES = (
-    "livekit.agents.voice.events",
-    "livekit.agents.llm.chat_context",
-    "livekit.agents.inference.interruption",
-)
 
 
 class _VirtualClock:
@@ -311,10 +302,13 @@ _VIRTUAL_FOR: dict[Any, Callable[[], Any]] = {_REAL_TIME: _now, _REAL_PERF: _per
 
 @dataclass
 class ClockPatchReport:
-    """What the patch covered on this livekit-agents version. Recorded in the run manifest."""
+    """What the patch covers in this process. Recorded in the run manifest."""
 
+    # Model fields whose default captured a real clock, now read from the virtual one.
     model_fields: list[str] = field(default_factory=list)
-    skipped_modules: list[str] = field(default_factory=list)
+    # Such fields on a model that could not be given a virtual clock. A run with any is
+    # not valid evidence.
+    unpatched: list[str] = field(default_factory=list)
     otel_patched: bool = False
 
 
@@ -334,50 +328,73 @@ def _model_node(schema: dict[str, Any]) -> dict[str, Any]:
 
 
 _PATCHED: dict[type[BaseModel], tuple[Any, Any]] = {}
+_LOOKED_AT: weakref.WeakSet[type[BaseModel]] = weakref.WeakSet()
 _REPORT = ClockPatchReport()
-_BUILT = False
 
 
-def _build_patch_cache() -> None:
-    """Build, once, a virtual-clock validator for every model that captured a real clock."""
-    global _BUILT
-    if _BUILT:
-        return
-    _BUILT = True
-
+def _models() -> Iterator[type[BaseModel]]:
+    """Every pydantic model class there is in this process, wherever it was defined."""
     from pydantic import BaseModel
+
+    seen: set[type[BaseModel]] = set()
+    stack: list[type[BaseModel]] = [BaseModel]
+    while stack:
+        for model in stack.pop().__subclasses__():
+            if model not in seen:
+                seen.add(model)
+                stack.append(model)
+                yield model
+
+
+def _patch_new_models() -> None:
+    """Build a virtual-clock validator for every model that captured a real clock and
+    has not been looked at yet.
+
+    A field declared ``default_factory=time.time`` holds the real function from the
+    moment its class is defined, so pointing ``time.time`` elsewhere does not reach it.
+    This runs at the start of every run and looks at every model class in the process,
+    so a model imported since the last run, from any module, is found.
+    """
     from pydantic_core import SchemaValidator
 
-    for module_name in _MODEL_MODULES:
-        try:
-            module = importlib.import_module(module_name)
-        except ImportError:
-            _REPORT.skipped_modules.append(module_name)
+    unpatched = []
+    for model in _models():
+        if model in _LOOKED_AT:
             continue
-        for obj in vars(module).values():
-            if not (isinstance(obj, type) and issubclass(obj, BaseModel)) or obj in _PATCHED:
-                continue
-            fields = {
-                name: _VIRTUAL_FOR[info.default_factory]
-                for name, info in obj.model_fields.items()
-                if info.default_factory in _VIRTUAL_FOR
-            }
-            if not fields:
-                continue
-            schema = _to_plain(obj.__pydantic_core_schema__)
-            node = _model_node(schema)
-            field_schemas = node["schema"]["fields"]
-            for name, factory in fields.items():
-                field_schemas[name]["schema"]["default_factory"] = factory
-                _REPORT.model_fields.append(f"{obj.__module__}.{obj.__name__}.{name}")
-            patched = SchemaValidator(schema, node.get("config"), _use_prebuilt=False)
-            _PATCHED[obj] = (patched, obj.__pydantic_validator__)
-    _REPORT.model_fields.sort()
+        fields = {
+            name: _VIRTUAL_FOR[info.default_factory]
+            for name, info in model.model_fields.items()
+            if info.default_factory in _VIRTUAL_FOR
+        }
+        names = [f"{model.__module__}.{model.__qualname__}.{name}" for name in fields]
+        if fields:
+            try:
+                # A model whose build pydantic deferred is built here: its validator is
+                # what gets replaced.
+                if not model.__pydantic_complete__:
+                    model.model_rebuild()
+                schema = _to_plain(model.__pydantic_core_schema__)
+                node = _model_node(schema)
+                for name, factory in fields.items():
+                    node["schema"]["fields"][name]["schema"]["default_factory"] = factory
+                patched = SchemaValidator(schema, node.get("config"), _use_prebuilt=False)
+            except Exception:  # noqa: BLE001  (whatever the reason, the field reads a real clock)
+                unpatched += names
+                continue  # looked at again on the next run, in case it can be built then
+            _PATCHED[model] = (patched, model.__pydantic_validator__)
+            _REPORT.model_fields = sorted([*_REPORT.model_fields, *names])
+        _LOOKED_AT.add(model)
+    _REPORT.unpatched = sorted(unpatched)
+
+
+def patch_report() -> ClockPatchReport:
+    """What the patch covers in this process, as of the last run that was started."""
+    return _REPORT
 
 
 @contextlib.contextmanager
 def _patched_model_clocks() -> Iterator[None]:
-    _build_patch_cache()
+    _patch_new_models()
     try:
         for model, (patched, _original) in _PATCHED.items():
             model.__pydantic_validator__ = patched

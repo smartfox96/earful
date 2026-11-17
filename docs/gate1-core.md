@@ -161,7 +161,7 @@ where the user stays to hear it.
 
 The figures are the same on all five releases, and every candidate was judged. The window
 runs from the tool being called to the end of "Your table is booked." The found case
-reduces in 39 runs to the author's scenario with the user hanging up at 6.000 s, and
+reduces in 38 runs to the author's scenario with the user hanging up at 6.000 s, and
 replays to the same ledger (`tests/test_search_live.py`).
 
 A hangup interrupts the reply that called the tool, so on the releases before 1.6.6 these
@@ -211,8 +211,8 @@ with the windows of its speeches measured.
 
 | Bundle | Predicate | Runs to reduce and measure | How far each speech can move and still fail | Replayed 100 times on 1.5.6 |
 | --- | --- | --- | --- | --- |
-| `lk-1.5.6.book_then_interrupt.A2-rule` | `A2/rule` | 78 | first: 0 to 2.5 s; second: 3.000 to 7.869 s | 1 ledger, the one recorded |
-| `lk-1.5.6.speak_over_new_turn.L2-rule-b` | `L2/rule b` | 60 | first: 0.251 to 0.699 s; second: 3.001 to 3.449 s | 1 ledger, the one recorded |
+| `lk-1.5.6.book_then_interrupt.A2-rule` | `A2/rule` | 75 | first: 0 to 2.5 s; second: 3.000 to 7.869 s | 1 ledger, the one recorded |
+| `lk-1.5.6.speak_over_new_turn.L2-rule-b` | `L2/rule b` | 57 | first: 0.251 to 0.699 s; second: 3.001 to 3.449 s | 1 ledger, the one recorded |
 
 Neither sits on an instant, and each speech is at least 199 ms inside its window.
 
@@ -238,7 +238,7 @@ python scripts/replay.py tests/bundles/lk-1.5.6.book_then_interrupt.A2-rule
 
 ## Mutation checks
 
-`tests/mutants.py` lists 117 deliberate breaks of the code. Each is one piece of source
+`tests/mutants.py` lists 122 deliberate breaks of the code. Each is one piece of source
 text and what replaces it: the offsets of a search ignored, the delay limit removed, a
 window's ends mislabelled, a reduction kept without the failure it needs, a timed-out
 write that never commits, a hangup that excuses a turn already overdue.
@@ -249,7 +249,7 @@ copy of the repository and runs the tests there.
 .venvs/lk-1.8.12/bin/python scripts/mutate.py
 ```
 
-On livekit-agents 1.8.12 the control passes and each of the 117 broken versions fails at
+On livekit-agents 1.8.12 the control passes and each of the 122 broken versions fails at
 least one test. The run takes about 20 minutes with five copies side by side and is not
 part of CI. The lint job does check, on every change, that the text of each break is
 still found exactly once in its file (`scripts/mutate.py --verify`), so a change that

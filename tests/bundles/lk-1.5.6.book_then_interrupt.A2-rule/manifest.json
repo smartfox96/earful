@@ -42,7 +42,7 @@
   "reduction": {
     "complete": true,
     "differences": [],
-    "runs": 78,
+    "runs": 75,
     "steps": [
       "kept 0 of 1 differences from the author's scenario"
     ]
