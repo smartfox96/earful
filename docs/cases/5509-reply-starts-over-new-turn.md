@@ -28,22 +28,22 @@ Requires [uv](https://docs.astral.sh/uv/).
 
 ```bash
 scripts/make_env.sh 1.5.6 2026-04-30
-.venvs/lk-1.5.6/bin/python scripts/replay.py tests/bundles/lk-1.5.6.speak_over_new_turn.L2-rule-b --expect reproduced
+.venvs/lk-1.5.6/bin/earful replay tests/bundles/lk-1.5.6.speak_over_new_turn.L2-rule-b --expect reproduced
 
 scripts/make_env.sh 1.5.7 2026-05-06
-.venvs/lk-1.5.7/bin/python scripts/replay.py tests/bundles/lk-1.5.6.speak_over_new_turn.L2-rule-b --expect clean
+.venvs/lk-1.5.7/bin/earful replay tests/bundles/lk-1.5.6.speak_over_new_turn.L2-rule-b --expect clean
 ```
 
 `make_env.sh` installs the release with its dependencies resolved as of the given date
-and writes the resulting set to `compat/lk-<version>.lock.txt`. `replay.py` runs the case
+and writes the resulting set to `compat/lk-<version>.lock.txt`. `earful replay` runs the case
 three times and exits 0 when the outcome matches `--expect`. The first command prints
-`"reproduced": true` and `"identical_to_recorded": true`. The second prints
-`"reproduced": false`.
+`breaks the rule       yes` and `the ledger recorded   yes`. The second prints
+`breaks the rule       no`.
 
 To print every verdict for the recorded run:
 
 ```bash
-.venvs/lk-1.5.6/bin/python scripts/check_ledger.py tests/bundles/lk-1.5.6.speak_over_new_turn.L2-rule-b/minimal.ledger.jsonl
+.venvs/lk-1.5.6/bin/earful check tests/bundles/lk-1.5.6.speak_over_new_turn.L2-rule-b/minimal.ledger.jsonl
 ```
 
 ## The case
@@ -86,6 +86,29 @@ speech at 3.0 s, and the VAD reports the new speech before the reply becomes aud
 3.518 s. The first speech can start anywhere from 0.233 s to 0.681 s. Both ranges are in the
 bundle's `manifest.json` under `windows`.
 
+## On the real clock
+
+The reduced case was also run on the real clock, with nothing patched, three times on
+the release that has the defect and three times on the first release that passes
+(`docs/testing.md`, section 10). 18 November 2026, macOS, Python 3.13.
+
+```bash
+.venvs/lk-1.5.6/bin/earful crosscheck tests/bundles/lk-1.5.6.speak_over_new_turn.L2-rule-b
+.venvs/lk-1.5.7/bin/earful crosscheck tests/bundles/lk-1.5.6.speak_over_new_turn.L2-rule-b
+```
+
+| livekit-agents | Virtual clock | Real clock, 3 runs | Largest drift |
+| --- | --- | --- | --- |
+| 1.5.6 | breaks L2 rule b | 3 of 3 break L2 rule b and agree with the virtual run | 39.8, 38.6, 38.4 ms |
+| 1.5.7 | breaks nothing | 3 of 3 break nothing and agree with the virtual run | 34.3, 34.9, 35.8 ms |
+
+A real-clock run agrees when the same events happen in the same order, each within
+100 ms of its virtual time, each segment plays the same words give or take one where it
+was cut short, every model call is shown the same context and the same rules break. The
+failure has 448 ms of room in the start of the second speech, which is more than ten
+times the drift. A real-clock run is not repeatable, and none of these six is evidence
+on its own.
+
 ## Evidence
 
 - Bundle: `tests/bundles/lk-1.5.6.speak_over_new_turn.L2-rule-b/`.
@@ -104,7 +127,8 @@ bundle's `manifest.json` under `windows`.
   process on a virtual clock.
 - "Started playing" means Earful's audio sink consumed the first sample. The audio never
   leaves the process.
-- The run has not been compared with a run on a real clock.
+- The real-clock runs remove the virtual clock and nothing else. The providers, the sink
+  and the backend are the same scripted ones.
 - The case produces the behaviour the issue describes. It does not use the reporter's
   agent.
 - Five releases were tested. 1.5.7 is the first of them that passes.

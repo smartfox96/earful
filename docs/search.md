@@ -24,8 +24,8 @@ bundle.capture(directory, case, scenario.run, Predicate("A2", "rule"), author=au
 ```
 
 ```bash
-python scripts/search.py earful.livekit.cases:book_then_interrupt --keep A2/rule --out out
-python scripts/replay.py out/lk-1.5.6.book_then_interrupt.A2-rule
+earful search earful.livekit.cases:book_then_interrupt --keep A2/rule --out out
+earful replay out/lk-1.5.6.book_then_interrupt.A2-rule
 ```
 
 All of it is framework-independent. The one thing an adapter supplies is `run`: a

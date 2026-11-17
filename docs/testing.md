@@ -2,17 +2,18 @@
 
 A test gives Earful a scenario, runs it against a real `AgentSession` on the virtual
 clock, and asserts the seven contracts (`docs/contracts.md`). This page covers the parts
-of a scenario and the calls a test makes. `docs/search.md` covers what a search does and
-what a saved failure holds.
+of a scenario, the calls a test makes, the `earful` command and the pytest fixture.
+`docs/search.md` covers what a search does and what a saved failure holds.
+
+Everything a test of a LiveKit agent needs is imported from `earful.livekit`. What needs
+no framework (checking a recorded ledger, the `effect` call of a stand-in service) is
+imported from `earful`.
 
 ```python
 import livekit.agents as lk
 
-from earful.core.backend import Effect
-from earful.livekit.api import explore, run
-from earful.livekit.harness import Case
-from earful.livekit.playbook import ScriptedModel, tool_returned, tool_succeeded, user_ever_said
-from earful.livekit.providers import UserSpeech
+from earful.livekit import Case, Effect, ScriptedModel, UserSpeech, explore, run
+from earful.livekit import tool_returned, tool_succeeded, user_ever_said
 
 from myapp.agent import BookingAgent  # the agent as the application ships it
 
@@ -60,7 +61,7 @@ ledger.
 | `contracts` | Policy values for the contracts, where the defaults do not fit |
 
 The remaining fields set the scripted voice, the VAD and the session's turn handling.
-`earful.livekit.harness.Case` lists them with their defaults.
+The `Case` class lists them with their defaults.
 
 ## 2. The model
 
@@ -102,7 +103,7 @@ A policy can also be a plain function. It receives the context as a list of item
 summaries and returns a `Reply`:
 
 ```python
-from earful.livekit.providers import Claim, Reply, ToolCall
+from earful.livekit import Claim, Reply, ToolCall
 
 def policy(items: list[dict]) -> Reply:
     if any(item["type"] == "function_call_output" for item in items):
@@ -123,7 +124,7 @@ two ways, and neither changes how the agent is constructed.
 its arguments, its error handling and its return value are the application's.
 
 ```python
-from earful.core.backend import effect
+from earful import effect
 
 class FakeReservations:
     async def create(self, party_size: int) -> str:
@@ -172,7 +173,7 @@ The same declaration can sit on the tool, for a team that wants it beside the co
 Outside a run the decorated tool is the tool as written:
 
 ```python
-from earful.livekit.tools import effect_tool
+from earful.livekit import effect_tool
 
 class BookingAgent(lk.Agent):
     @lk.function_tool
@@ -237,8 +238,8 @@ not counted (`docs/search.md`, section 4).
 case=example)` runs that example again.
 
 The options narrow a search: `variables` (which times to move), `faults` (which faults to
-add), `speeches`, `moments`, `words`, `pairs` and `profiles`. They are those of
-`earful.core.search.explore`. A default search of a one-turn booking scenario is about
+add), `speeches`, `moments`, `words`, `pairs` and `profiles`. `docs/search.md`, section
+3, says what each does. A default search of a one-turn booking scenario is about
 860 runs.
 
 ## 6. Where a scenario lives
@@ -257,10 +258,11 @@ that can be imported. `explore(case, workers=4)` and `keep(...)` refuse one that
 before anything runs, and say what to change.
 
 `explore(scenario, workers=N)` runs the cases in N worker processes. On a 15-core
-machine the 860 runs above take 36 s in the process of the test and 9 s in 15 workers,
-6 s once the workers are up. Each worker is a fresh interpreter that imports the main
-module of the process that started it, so a script that searches with workers needs the
-`if __name__ == "__main__":` guard. Under pytest nothing is needed.
+machine the 860 runs above take 36 s in the process of the test and 9 s in 15 workers.
+The workers are started for the search and stopped when it ends, so each search runs the
+scenario's code as it is at that moment. Each worker is a fresh interpreter that imports
+the main module of the process that started it, so a script that searches with workers
+needs the `if __name__ == "__main__":` guard. Under pytest nothing is needed.
 
 Passed as a function, a scenario is built anew for each run. Passed as a `Case`, it is
 copied for each run: its agent is built by its own factory each time, and its policy is
@@ -270,7 +272,7 @@ calls. A policy function that keeps state of its own needs the function form.
 ## 7. Keeping a failure
 
 ```python
-from earful.livekit.api import explore, keep, replay
+from earful.livekit import explore, keep, replay
 
 found = explore(book_then_interrupt)                # a top-level function
 kept = keep(found, "A2/rule", "failures/double-booking")
@@ -283,3 +285,121 @@ it gives the same ledger each time, and writes it as a bundle (`docs/search.md`,
 section 6). `replay` runs the reduced case again on whatever release is installed:
 `reproduced` says whether it still breaks the rule, and `identical` whether the ledger is
 the one recorded.
+
+## 8. With pytest
+
+Installing Earful registers a pytest plugin. Its `earful` fixture has the same `run`,
+`explore`, `keep` and `replay`, and keeps the evidence of a test that fails:
+
+```python
+def test_a_booking_is_made_once_and_confirmed_truthfully(earful):
+    earful.run(case).assert_contracts()
+    earful.explore(case).assert_contracts()
+```
+
+When the test fails, the ledger of each run it made, and an example case with its ledger
+for each rule a search of its found broken, are written under `.earful/`, in a directory
+named after the test. Each ledger has a report beside it, one HTML page to open in a
+browser (`docs/report.md`). The failure output ends with a section that says where:
+
+```
+---------------------------------- earful ----------------------------------
+run 1 (booking) breaks A3/rule
+    ledger  .earful/test_booking.py-test_with_a_failed_write/run-1.booking.ledger.jsonl
+    report  .earful/test_booking.py-test_with_a_failed_write/run-1.booking.html
+search 1 (booking) breaks A3/rule: backend.error 1
+    case    .earful/test_booking.py-test_searched/search-1.booking.A3-rule.case.json
+    ledger  .earful/test_booking.py-test_searched/search-1.booking.A3-rule.ledger.jsonl
+    report  .earful/test_booking.py-test_searched/search-1.booking.A3-rule.html
+```
+
+A test that passes writes nothing. `.earful/` belongs in `.gitignore`.
+
+| Option | Meaning |
+| --- | --- |
+| `--earful-out DIR` | Where the evidence goes. Default `.earful`, under pytest's root directory |
+| `--earful-workers N` | Worker processes for a search that does not name a number. Default 0 |
+
+`earful.keep(found, "A3/rule")` without a directory writes the bundle under the test's
+evidence directory.
+
+## 9. From the command line
+
+```bash
+earful run myapp.scenarios:booking --ledger booking.ledger.jsonl
+earful check booking.ledger.jsonl
+earful search myapp.scenarios:booking --keep A3/rule --out failures
+earful replay failures/lk-1.8.12.booking.A3-rule --expect reproduced
+earful report failures/lk-1.8.12.booking.A3-rule -o report.html
+```
+
+| Command | Does |
+| --- | --- |
+| `earful check LEDGER...` | Prints the verdicts for recorded ledgers. `--measures` adds what each verdict measured, `--json` prints one report per line |
+| `earful run SCENARIO` | Runs a scenario once and prints its verdicts. `--case FILE` runs a saved case, `--ledger FILE` writes the ledger |
+| `earful search SCENARIO` | Searches a scenario, in one worker process per processor unless `--workers` says otherwise. `--keep CONTRACT/RULE --out DIR` writes a bundle for a rule that broke. `--variables`, `--faults`, `--pairs`, `--profiles`, `--no-words` and `--no-windows` narrow or widen the search |
+| `earful replay BUNDLE_DIR` | Runs a bundle's reduced case again. `--expect reproduced` or `--expect clean` makes the outcome the exit status |
+| `earful crosscheck SCENARIO` or `BUNDLE_DIR` | Runs a case once on the virtual clock and `--runs` times on the real clock, and says whether the real-clock runs agree with the virtual one (section 10). `--tolerance-ms` and `--words` set how far they may differ, `--out DIR` writes every run's ledger |
+| `earful report LEDGER` or `BUNDLE_DIR` | With `-o FILE.html`, draws the run as one HTML page: a timeline, the verdicts and every event (`docs/report.md`). Without it, writes the same out as text. `--format` names one or the other |
+
+A scenario is named `module:function` on the command line, so it has to be importable
+from where the command runs. `check` and `report` read files and work without the
+framework installed. `--allow CONTRACT/RULE` on `check`, `run` and `search` lets a named
+rule break.
+
+| Exit status | Meaning |
+| --- | --- |
+| 0 | Nothing broke, or the replay did what `--expect` names. For `report`: the report was written |
+| 1 | A contract rule broke, the replay did not do what `--expect` names, or a real-clock run did not agree with the virtual one |
+| 2 | The command could not be carried out: bad arguments, a file that is not what it should be, a scenario that does not exist |
+| 3 | No verdict: a run was not valid evidence, did not repeat, or could not be compared |
+
+A rule that broke outranks a run without a verdict.
+
+## 10. On the real clock
+
+Every run above is on a virtual clock: time moves only when the harness moves it, which
+is what makes a run repeat. A production system has no such clock, so a finding is worth
+one more check before it is reported. `cross_check` runs the same case on the real clock,
+with nothing patched, and compares each of those runs with the virtual one.
+
+```python
+from earful.livekit import cross_check
+
+checked = cross_check(book_then_interrupt, runs=3)
+print("\n".join(checked.lines()))
+assert checked.agrees
+```
+
+```
+book_then_interrupt on livekit-agents 1.5.6
+on the virtual clock it breaks A2/rule, M2/rule d
+3 of 3 real-clock runs agree with the virtual run, within 100 ms and 1 word(s)
+run 1: agrees; breaks A2/rule, M2/rule d; largest drift 19.4 ms
+run 2: agrees; breaks A2/rule, M2/rule d; largest drift 19.4 ms
+run 3: agrees; breaks A2/rule, M2/rule d; largest drift 42.9 ms
+```
+
+A real-clock run agrees with the virtual run if it matches on six things.
+
+| Aspect | What has to match |
+| --- | --- |
+| order | The same events happened. Two events further apart on the virtual clock than the time tolerance came in the same order |
+| timing | Each event, from the user's first audio on, is within the time tolerance of its virtual time |
+| audible | Each segment said the same text and was or was not cut short. A segment cut short played the same number of words, give or take the word tolerance |
+| memory | Each model call was shown the same items, and the final history holds the same. A reply that was cut short may be remembered shorter or longer by the word tolerance |
+| effects | The same writes were requested, with the same outcome each |
+| verdicts | The same contract rules broke |
+
+The tolerances are declared: `Tolerance(time_us=100_000, words=1)` by default. Session
+start-up is left out of the timing, since it takes no virtual time and as long as the
+machine takes.
+
+A real-clock run takes as long as the conversation it scripts, and it is never evidence
+on its own: `validity` marks every one invalid and `check` gives it no verdicts. The
+cross-check reads it only against the virtual run. A real-clock run that is incomplete
+for another reason, such as playout that ran ahead of its audio, cannot be compared, and
+the result says so.
+
+Run cross-checks on a machine that is doing nothing else. Other work delays the event
+loop, and the delay shows as drift.

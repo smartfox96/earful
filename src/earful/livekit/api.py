@@ -15,36 +15,42 @@ refuse one that cannot, before anything runs, and say what to change.
 
 from __future__ import annotations
 
-import atexit
-from collections.abc import Iterable
-from concurrent.futures import ProcessPoolExecutor
+import contextlib
+import logging
+from collections.abc import Iterable, Iterator
 from concurrent.futures.process import BrokenProcessPool
 from pathlib import Path
 from typing import Any
 
-from ..core import bundle, search
+from ..core import bundle, crosscheck, search
 from ..core import case as cases
 from ..core.predicate import Predicate
 from ..core.shrink import nearest
 from . import scenario
-from .harness import RunResult, run_case
+from .harness import Case, RunResult, run_case
 from .scenario import Scenario, Source
 
-_pools: dict[int, ProcessPoolExecutor] = {}
+
+@contextlib.contextmanager
+def _quiet_framework() -> Iterator[None]:
+    """Keep the framework's log records from the root logger while a search's case
+    runs. A search makes hundreds of runs, and the framework logs every tool error with
+    its traceback: under pytest that buries the failure of the test. The harness still
+    counts the warnings of each run, and a single ``run`` is left as it is."""
+    logger = logging.getLogger("livekit")
+    before = logger.propagate
+    logger.propagate = False
+    try:
+        yield
+    finally:
+        logger.propagate = before
 
 
-def _pool(workers: int) -> ProcessPoolExecutor:
-    """One pool of worker processes for each size asked for, kept for the life of the
-    process: starting one means starting interpreters that import the framework."""
-    if workers not in _pools:
-        _pools[workers] = scenario.pool(workers)
-    return _pools[workers]
-
-
-@atexit.register
-def _shutdown() -> None:
-    while _pools:
-        _pools.popitem()[1].shutdown(cancel_futures=True)
+def _run_quietly(data: cases.Case) -> list[dict[str, Any]]:
+    """``scenario.run``, quietly. At the top level of the module, so that it can be sent
+    to a worker process."""
+    with _quiet_framework():
+        return scenario.run(data)
 
 
 def run(source: Source, *, case: cases.Case | None = None, seed: int = 0) -> RunResult:
@@ -101,12 +107,22 @@ def explore(
         "moments": moments,
         "words": words,
     }
+    # Every run a search makes is quiet: those of the search itself, and those made
+    # later from its result, to measure a window or to reduce a case.
     if workers == 0:
-        return search.explore(start, found.run, **options)
+
+        def quietly(data: cases.Case) -> list[dict[str, Any]]:
+            with _quiet_framework():
+                return found.run(data)
+
+        return search.explore(start, quietly, **options)
+    # The workers live for this search only. Each is a fresh interpreter, so it runs the
+    # scenario's code as it is now: workers kept between searches would go on running
+    # what they first imported.
     try:
-        return search.explore(start, scenario.run, each=_pool(workers).map, **options)
+        with scenario.pool(workers) as pool:
+            return search.explore(start, _run_quietly, each=pool.map, **options)
     except BrokenProcessPool as exc:
-        _pools.pop(workers, None)
         raise RuntimeError(
             "a worker process died before it ran a case. A worker is a fresh interpreter "
             "that imports this process's main module, so a script that searches with "
@@ -114,6 +130,40 @@ def explore(
             "from standard input or an interactive session. workers=0 runs the search "
             "in this process"
         ) from exc
+
+
+def cross_check(
+    source: Source,
+    *,
+    case: cases.Case | None = None,
+    seed: int = 0,
+    runs: int = 3,
+    tolerance: crosscheck.Tolerance | None = None,
+) -> crosscheck.CrossCheck:
+    """Run a scenario once on the virtual clock and ``runs`` times on the real clock,
+    with nothing patched, and compare each real-clock run with the virtual one
+    (``earful.core.crosscheck``).
+
+    A real-clock run takes as long as the conversation it scripts, and is never evidence
+    on its own. ``case`` is the data of a case of this scenario, such as one a search
+    found. Raises ``InvalidRun`` if the virtual run is not valid evidence, and
+    ``ValueError`` if the scenario or the case is refused.
+    """
+    found = Scenario.of(source)
+    if runs < 1:
+        raise ValueError(f"a cross-check makes at least one real-clock run; got {runs}")
+
+    def built() -> tuple[Case, int]:
+        return (found.make(), seed) if case is None else (found.build(case), case["seed"])
+
+    scripted, with_seed = built()
+    virtual = run_case(scripted, seed=with_seed).events
+    real = []
+    for _ in range(runs):
+        scripted, with_seed = built()
+        result = run_case(scripted, seed=with_seed, virtual=False, require_valid=False)
+        real.append(result.events)
+    return crosscheck.cross_check(virtual, real, tolerance)
 
 
 def keep(
@@ -132,8 +182,8 @@ def keep(
     predicate = Predicate.parse(rule) if isinstance(rule, str) else rule
     reference = scenario.importable(found.case["scenario"], "keep a failure as a bundle")
     breaking = [tried.candidate.case for tried in found.breaking(predicate)]
-    if predicate in found.original.failures:
-        breaking.append(found.case)
+    if not breaking and predicate in found.original.failures:
+        breaking = [found.case]  # it breaks as given, and nowhere the search went
     if not breaking:
         raise ValueError(f"the search found no case that breaks {predicate}")
     author = scenario.default(reference, found.case["seed"])
@@ -159,4 +209,4 @@ def replay(directory: Path | str, *, repeats: int = 3) -> bundle.Replay:
     return bundle.replay(kept, scenario.run, repeats=repeats, fingerprint=scenario.fingerprint)
 
 
-__all__ = ["explore", "keep", "replay", "run"]
+__all__ = ["cross_check", "explore", "keep", "replay", "run"]

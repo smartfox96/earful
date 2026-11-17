@@ -15,7 +15,7 @@ report.outcomes()               # {"A1": "not_exercised", "A2": "fail", ...}
 report.failures                 # every failed verdict, with the events it rests on
 ```
 
-`scripts/check_ledger.py LEDGER.jsonl` prints the same from a file. The checker reads only
+`earful check LEDGER.jsonl` prints the same from a file. The checker reads only
 the ledger: it imports neither the scenario nor the framework under test.
 
 ## 1. What a contract is
@@ -615,7 +615,7 @@ Taken at an architecture review, 17 November 2026:
 
 ## 10. What the reference ledgers measure
 
-`scripts/check_ledger.py tests/golden/*.jsonl --measures` prints these. The 15 reference
+`earful check tests/golden/*.jsonl --measures` prints these. The 15 reference
 ledgers are three cases on five releases.
 
 | Measure | Observed | Default it supports |

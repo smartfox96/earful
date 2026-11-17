@@ -34,7 +34,15 @@ This builds the five pinned environments if they are missing, then on each relea
 the tests, the repeatability check, both cases and a replay of both bundles. CI runs the
 same steps on Linux and macOS.
 
+## On the real clock
+
+Each reduced case was run on the real clock three times on a release that has the defect
+and three times on the first release that passes. All twelve runs agree with the virtual
+run of the same case: the same events in the same order, within 40 ms of their virtual
+times, and the same rules broken. The commands and the figures are on the two case pages.
+
 ## Limits
 
-Both cases run scripted providers against a real `AgentSession` on a virtual clock, and
-neither has been compared with a run on a real clock. Each case page lists the rest.
+Both cases run scripted providers against a real `AgentSession`. The real-clock runs
+remove the virtual clock and keep the scripted providers, the sink and the backend. Each
+case page lists the rest.

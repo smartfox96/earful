@@ -124,6 +124,7 @@ class Report:
         """Raise ``ContractFailure`` if the run is not valid evidence or a contract rule
         broke. ``allow`` names rules that may break, as ``CONTRACT/RULE``: a known defect
         of a release under test. ``what`` names the run in the message."""
+        __tracebackhide__ = True  # pytest then shows the test's own line, not this one
         if not self.valid:
             raise ContractFailure(
                 f"{what} is not valid evidence, so no contract was checked:\n"

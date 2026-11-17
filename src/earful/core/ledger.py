@@ -8,6 +8,7 @@ from __future__ import annotations
 import dataclasses
 import hashlib
 import json
+import os
 import re
 from collections.abc import Callable, Iterable
 from pathlib import Path
@@ -133,15 +134,22 @@ def ledger_hash(events: Iterable[dict[str, Any]]) -> str:
     return digest.hexdigest()
 
 
-def write_jsonl(events: Iterable[dict[str, Any]], path: Path, *, normalized: bool = False) -> None:
+def write_jsonl(
+    events: Iterable[dict[str, Any]], path: str | os.PathLike[str], *, normalized: bool = False
+) -> None:
+    """Write a ledger file: one event per line. ``normalized`` replaces random
+    identifiers by the order they first appear in, which is the form that is hashed."""
     events = list(events)
     lines = normalize(events) if normalized else [_canonical(e) for e in events]
+    path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text("\n".join(lines) + "\n", encoding="ascii")
 
 
-def read_jsonl(path: Path) -> list[dict[str, Any]]:
-    return [json.loads(line) for line in path.read_text(encoding="ascii").splitlines() if line]
+def read_jsonl(path: str | os.PathLike[str]) -> list[dict[str, Any]]:
+    """The events of a ledger file, in order."""
+    text = Path(path).read_text(encoding="ascii")
+    return [json.loads(line) for line in text.splitlines() if line]
 
 
 def compare_view(events: Iterable[dict[str, Any]]) -> list[dict[str, Any]]:

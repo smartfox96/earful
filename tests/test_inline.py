@@ -8,7 +8,7 @@ from breaks import BOOKING, TalksToItsServiceItself, as_written_confirms_a_faile
 from earful.core import case as cases
 from earful.core.checker import ContractFailure, check
 from earful.core.predicate import Predicate
-from earful.livekit import api, scenario
+from earful.livekit import scenario
 from earful.livekit.api import explore, keep, replay, run
 from earful.livekit.cases import BOOKING_ACK, BOOKING_INTENT, barge_in_mid_word
 from earful.livekit.harness import Case, Fault
@@ -52,6 +52,19 @@ def booking(model, **changes) -> Case:
         "drain_delay": 8.0,
     }
     return Case(**{**fields, **changes})
+
+
+@pytest.fixture
+def pools(monkeypatch):
+    """The sizes of the pools of worker processes started while the test runs."""
+    started, start = [], scenario.pool
+
+    def counted(workers=None):
+        started.append(workers)
+        return start(workers)
+
+    monkeypatch.setattr(scenario, "pool", counted)
+    return started
 
 
 # --------------------------------------------------------------------------- one run
@@ -200,12 +213,29 @@ def test_a_search_of_the_same_inline_case_gives_the_same_result_each_time():
     assert search() == search()
 
 
-def test_a_scenario_with_a_name_runs_in_this_process_unless_workers_are_asked_for():
-    before = dict(api._pools)
+def test_a_search_does_not_fill_the_log_with_the_frameworks_own_records(caplog):
+    """A tool that raises is logged by the framework with its traceback, in every run. A
+    single run lets that through; a search of hundreds of runs does not."""
+    import logging
+
+    failing = booking(CONFIRMS_ANYTHING, faults=[Fault("backend.error", 1)])
+    with caplog.at_level(logging.WARNING):
+        run(failing)
+        from_one_run = [r for r in caplog.records if r.name.startswith("livekit")]
+        caplog.clear()
+        found = explore(failing, variables=(), faults=())
+        found.runner.ledger(cases.with_value(found.case, cases.Variable("llm.ttft", 1), 250_000))
+        from_a_search = [r for r in caplog.records if r.name.startswith("livekit")]
+    assert from_one_run and not from_a_search
+    assert found.original.failures  # the search ran the failing case all the same
+    assert logging.getLogger("livekit").propagate  # and left logging as it found it
+
+
+def test_a_scenario_with_a_name_runs_in_this_process_unless_workers_are_asked_for(pools):
     found = explore(
         as_written_confirms_a_failed_booking, variables=(), faults=["backend.error"], words=False
     )
-    assert found.predicates() == [CONFIRMED_BUT_NOT_DONE] and api._pools == before
+    assert found.predicates() == [CONFIRMED_BUT_NOT_DONE] and pools == []
     with pytest.raises(ValueError, match="number of processes"):
         explore(as_written_confirms_a_failed_booking, workers=-1)
 
@@ -232,12 +262,12 @@ def test_a_failure_of_an_inline_case_is_refused_as_a_bundle_before_anything_runs
 
 
 @pytest.mark.slow
-def test_the_same_scenario_as_a_function_in_a_module_is_kept_and_replays(tmp_path):
+def test_the_same_scenario_as_a_function_in_a_module_is_kept_and_replays(tmp_path, pools):
     """Given as the function itself, the scenario has a name: it is searched in worker
     processes, and its failure is reduced, saved and replayed from the saved files."""
     found = explore(as_written_confirms_a_failed_booking, variables=(), words=False, workers=4)
     assert found.case["scenario"] == "breaks:as_written_confirms_a_failed_booking"
-    assert 4 in api._pools, "the search was not made in worker processes"
+    assert pools == [4], "the search was not made in worker processes"
     kept = keep(found, "A3/rule", tmp_path / "kept")
     assert kept.predicate == CONFIRMED_BUT_NOT_DONE
     assert [(f["of"], f["nth"]) for f in kept.minimal["faults"]] in (

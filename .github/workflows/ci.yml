@@ -86,6 +86,32 @@ jobs:
       - name: ruff format, ruff check, mypy, mutants apply (scripts/lint.sh)
         run: scripts/lint.sh
 
+  # What a release would ship: the wheel, installed alone outside the repository.
+  wheel:
+    name: wheel installs clean
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - name: Build the wheel, install it outside the repository and use it (scripts/wheel_smoke.sh)
+        run: scripts/wheel_smoke.sh
+
+  # What a newcomer does: the README's quickstart, from the wheel, outside the repository.
+  quickstart:
+    name: quickstart from the wheel
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - name: Install the wheel with livekit-agents and follow the README (scripts/quickstart_check.sh)
+        run: scripts/quickstart_check.sh
+
   determinism:
     name: lk ${{ matrix.lk.version }} / ${{ matrix.os }} / py${{ matrix.python }}
     needs: changes
@@ -145,7 +171,7 @@ jobs:
       - name: Reduced historical cases, replayed
         run: |
           for kept in tests/bundles/*/; do
-            .venvs/lk-${{ matrix.lk.version }}/bin/python scripts/replay.py "$kept"
+            .venvs/lk-${{ matrix.lk.version }}/bin/earful replay "$kept"
           done
       - name: Negative control (real clock must change the hash)
         if: matrix.os == 'ubuntu-latest' && matrix.python == '3.13' && matrix.lk.version == '1.8.12'
@@ -159,7 +185,7 @@ jobs:
   # require on main: a skipped job passes, a failed or cancelled one does not.
   result:
     name: ci result
-    needs: [changes, docs, lint, determinism]
+    needs: [changes, docs, lint, wheel, quickstart, determinism]
     if: always() && github.event.action != 'closed'
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -168,7 +194,7 @@ jobs:
         env:
           RESULTS: ${{ join(needs.*.result, ' ') }}
         run: |
-          echo "changes, docs, lint, determinism: $RESULTS"
+          echo "changes, docs, lint, wheel, quickstart, determinism: $RESULTS"
           case " $RESULTS " in
             *" failure "* | *" cancelled "*) exit 1 ;;
           esac

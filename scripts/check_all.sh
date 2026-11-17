@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# The static checks, then every determinism, historical and replay check on every supported
-# release. Builds the pinned environments if they are missing. The releases are checked
+# The static checks, the wheel and the README's quickstart, then every determinism,
+# historical and replay check on every supported release. Builds the pinned environments if they are missing. The releases are checked
 # side by side; each one's output is printed whole, in order, when all have finished.
 #
 #   scripts/check_all.sh            compare against tests/golden/ and tests/bundles/; writes nothing there
@@ -22,6 +22,8 @@ for entry in "${RELEASES[@]}"; do
 done
 
 scripts/lint.sh
+scripts/wheel_smoke.sh
+scripts/quickstart_check.sh
 
 # Run one command per release at once; fail if any of them fails.
 side_by_side() {
@@ -52,7 +54,7 @@ check() {
   "$py" scripts/spike_3702.py | grep -E '"(durable_reservations_for_one_intent|verdict_[a-z_]+)"'
   "$py" scripts/spike_5509.py | grep -E '"verdict_[a-z_]+"'
   for kept in "$BUNDLES"/*/; do
-    "$py" scripts/replay.py "$kept" | grep -E '"(predicate|reproduced|repeatable|identical_to_recorded|scenario_code_changed)"'
+    "$py" -m earful replay "$kept" --json | grep -E '"(predicate|reproduced|repeatable|identical_to_recorded|scenario_code_changed)"'
   done
 }
 
@@ -63,8 +65,12 @@ if [ "${1:-}" = "--update" ]; then
   # known defects, and replayed on every release below.
   echo "=== updating reference bundles: livekit-agents 1.5.6"
   rm -rf "$BUNDLES"
-  .venvs/lk-1.5.6/bin/python scripts/search.py earful.livekit.cases:book_then_interrupt --faults none --no-windows --keep "A2/rule" --out "$BUNDLES" | grep -E '"(directory|distinct_hashes)"'
-  .venvs/lk-1.5.6/bin/python scripts/search.py earful.livekit.cases:speak_over_new_turn --faults none --no-windows --keep "L2/rule b" --out "$BUNDLES" | grep -E '"(directory|distinct_hashes)"'
+  # The search exits 1 when a rule breaks, which is what these two are kept for.
+  keep() {
+    .venvs/lk-1.5.6/bin/python -m earful search "$1" --faults none --no-windows --keep "$2" --out "$BUNDLES" --json || [ $? -eq 1 ]
+  }
+  keep earful.livekit.cases:book_then_interrupt "A2/rule" | grep -E '"(directory|distinct_hashes)"'
+  keep earful.livekit.cases:speak_over_new_turn "L2/rule b" | grep -E '"(directory|distinct_hashes)"'
 fi
 
 side_by_side check

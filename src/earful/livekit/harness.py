@@ -264,6 +264,7 @@ class RunResult:
     def assert_contracts(self, *, allow: Iterable[Any] = ()) -> None:
         """Raise ``ContractFailure``, an ``AssertionError``, if a contract rule broke.
         ``allow`` names rules that may break, as ``CONTRACT/RULE``."""
+        __tracebackhide__ = True  # pytest then shows the test's own line, not this one
         framework = self.versions["livekit-agents"]
         self.report.assert_contracts(
             allow=allow, what=f"{self.case} (seed {self.seed}, livekit-agents {framework})"
