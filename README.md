@@ -5,11 +5,13 @@ Deterministic regression tests for real-time voice agents. First target: LiveKit
 
 A voice agent can sound fine in a demo and still book a table twice or keep talking over
 the caller. These failures live in timing: an interruption that lands while a tool is
-running, a write that commits after its caller gave up. Earful runs your real `AgentSession` on a virtual clock, against a scripted
-user, a scripted model, a scripted voice and a fake backend, and records everything that
-happened in a ledger. It checks seven contracts against that ledger, searches the timings
-and backend faults near your scenario for a run that breaks one, and reduces what it
-finds to a small case that replays the same way every time.
+running, a write that commits after its caller gave up.
+
+Earful runs your real `AgentSession` on a virtual clock, against a scripted user, a
+scripted model, a scripted voice and a fake backend, and records everything that happened
+in a ledger. It checks seven contracts against that ledger, searches the timings and
+backend faults near your scenario for a run that breaks one, and reduces what it finds to
+a small case that replays the same way every time.
 
 ## Quickstart
 
@@ -237,7 +239,8 @@ network, a client buffer or what a caller heard. It does not record production c
 ## Two known defects, reproduced
 
 Both were found by the same search and are checked by the same contracts on every
-supported release.
+supported release. Both also break the same rules when the reduced case is run on the
+real clock (`earful crosscheck`).
 
 | Issue | What happens | Fails on | Passes on |
 | --- | --- | --- | --- |
@@ -259,7 +262,7 @@ and what CI runs for each.
 
 | Page | What it covers |
 | --- | --- |
-| [`docs/testing.md`](docs/testing.md) | Writing a test: the scenario, the scripted model, side effects, pytest, the command line |
+| [`docs/testing.md`](docs/testing.md) | Writing a test: the scenario, the scripted model, side effects, pytest, the command line, the real clock |
 | [`docs/report.md`](docs/report.md) | The HTML report, lane by lane |
 | [`docs/contracts.md`](docs/contracts.md) | The seven contracts, their evidence and their policies |
 | [`docs/search.md`](docs/search.md) | The search, the reduction of a failing case, and the bundle that is kept |

@@ -22,12 +22,12 @@ from concurrent.futures.process import BrokenProcessPool
 from pathlib import Path
 from typing import Any
 
-from ..core import bundle, search
+from ..core import bundle, crosscheck, search
 from ..core import case as cases
 from ..core.predicate import Predicate
 from ..core.shrink import nearest
 from . import scenario
-from .harness import RunResult, run_case
+from .harness import Case, RunResult, run_case
 from .scenario import Scenario, Source
 
 
@@ -132,6 +132,40 @@ def explore(
         ) from exc
 
 
+def cross_check(
+    source: Source,
+    *,
+    case: cases.Case | None = None,
+    seed: int = 0,
+    runs: int = 3,
+    tolerance: crosscheck.Tolerance | None = None,
+) -> crosscheck.CrossCheck:
+    """Run a scenario once on the virtual clock and ``runs`` times on the real clock,
+    with nothing patched, and compare each real-clock run with the virtual one
+    (``earful.core.crosscheck``).
+
+    A real-clock run takes as long as the conversation it scripts, and is never evidence
+    on its own. ``case`` is the data of a case of this scenario, such as one a search
+    found. Raises ``InvalidRun`` if the virtual run is not valid evidence, and
+    ``ValueError`` if the scenario or the case is refused.
+    """
+    found = Scenario.of(source)
+    if runs < 1:
+        raise ValueError(f"a cross-check makes at least one real-clock run; got {runs}")
+
+    def built() -> tuple[Case, int]:
+        return (found.make(), seed) if case is None else (found.build(case), case["seed"])
+
+    scripted, with_seed = built()
+    virtual = run_case(scripted, seed=with_seed).events
+    real = []
+    for _ in range(runs):
+        scripted, with_seed = built()
+        result = run_case(scripted, seed=with_seed, virtual=False, require_valid=False)
+        real.append(result.events)
+    return crosscheck.cross_check(virtual, real, tolerance)
+
+
 def keep(
     found: search.Exploration,
     rule: Predicate | str,
@@ -175,4 +209,4 @@ def replay(directory: Path | str, *, repeats: int = 3) -> bundle.Replay:
     return bundle.replay(kept, scenario.run, repeats=repeats, fingerprint=scenario.fingerprint)
 
 
-__all__ = ["explore", "keep", "replay", "run"]
+__all__ = ["cross_check", "explore", "keep", "replay", "run"]

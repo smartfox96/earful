@@ -4,23 +4,27 @@
     earful run SCENARIO            run a scenario once and print its verdicts
     earful search SCENARIO         search a scenario for the timings and faults that break it
     earful replay BUNDLE           run a kept failure again
+    earful crosscheck SCENARIO     run a case on the real clock too, and compare
     earful report LEDGER|BUNDLE    a run, drawn as one HTML page or written out as text
 
 A SCENARIO is ``module:function``: a function that takes no arguments and returns the
 case. Running one imports and calls it, and replaying a bundle imports and runs the
 scenario the bundle names, so run only code you trust.
 
-``check`` and ``report`` read files and need nothing else. ``run``, ``search`` and
-``replay`` run an agent and need the framework adapter: ``pip install "earful[livekit]"``.
+``check`` and ``report`` read files and need nothing else. ``run``, ``search``,
+``replay`` and ``crosscheck`` run an agent and need the framework adapter:
+``pip install "earful[livekit]"``.
 
 Exit status, for every command:
 
     0   nothing broke, or what happened is what was expected; for ``report``, the
         report was written, whatever it says
-    1   a contract rule broke, or a replay did not do what --expect names
+    1   a contract rule broke, a replay did not do what --expect names, or a real-clock
+        run did not agree with the virtual one
     2   the command could not be carried out: bad arguments, a file that is not what it
         should be, a scenario that does not exist
-    3   there is no verdict: a run was not valid evidence, or did not repeat
+    3   there is no verdict: a run was not valid evidence, did not repeat, or could not
+        be compared
 """
 
 from __future__ import annotations
@@ -34,7 +38,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from . import __version__
-from .core import bundle, html, timeline
+from .core import bundle, crosscheck, html, timeline
 from .core import case as cases
 from .core.checker import Report, check
 from .core.checker.report import allowed
@@ -249,6 +253,44 @@ def _replay(args: argparse.Namespace) -> int:
     return OK if result.reproduced == (args.expect == "reproduced") else BROKEN
 
 
+# --------------------------------------------------------------------------- crosscheck
+
+
+def _crosscheck(args: argparse.Namespace) -> int:
+    adapter = _adapter()
+    reference: str = args.source
+    case = _case(args.case)
+    if Path(args.source).is_dir():  # a kept failure: its reduced case
+        try:
+            case = bundle.load(Path(args.source)).minimal
+        except OSError as exc:
+            raise Refused(f"cannot read the bundle in {args.source}: {exc.strerror}") from exc
+        reference = case["scenario"]
+    tolerance = crosscheck.Tolerance(time_us=args.tolerance_ms * 1000, words=args.words)
+    try:
+        checked = adapter.cross_check(
+            reference, case=case, seed=args.seed, runs=args.runs, tolerance=tolerance
+        )
+    except adapter.InvalidRun as exc:
+        print("the virtual run is not valid evidence, so there is nothing to compare with:")
+        for reason in exc.reasons:
+            print(f"    {reason}")
+        return NO_VERDICT
+    if args.out is not None:
+        write_jsonl(checked.virtual, args.out / "virtual.ledger.jsonl", normalized=True)
+        for number, events in enumerate(checked.real, 1):
+            write_jsonl(events, args.out / f"real-{number}.ledger.jsonl", normalized=True)
+    if args.json:
+        print(json.dumps(checked.to_json(), indent=2))
+    else:
+        print("\n".join(checked.lines()))
+        if args.out is not None:
+            print(f"\nledgers    {args.out}")
+    if checked.agrees:
+        return OK
+    return NO_VERDICT if checked.unusable else BROKEN
+
+
 # --------------------------------------------------------------------------- report
 
 
@@ -385,6 +427,35 @@ def _parser() -> argparse.ArgumentParser:
         help="fail unless the rule still breaks (reproduced) or no longer does (clean)",
     )
     sub.add_argument("--json", action="store_true", help="the outcome as JSON")
+
+    sub = command(
+        "crosscheck",
+        _crosscheck,
+        "Run a case once on the virtual clock and again on the real clock, with nothing "
+        "patched, and say whether the real-clock runs agree with the virtual one.",
+    )
+    sub.add_argument(
+        "source", metavar="SCENARIO|BUNDLE_DIR", help="module:function, or a kept failure"
+    )
+    sub.add_argument("--case", type=Path, metavar="FILE", help="a saved case (earful.case/1)")
+    sub.add_argument("--seed", type=int, default=0, help="seed of the runs (default 0)")
+    sub.add_argument("--runs", type=int, default=3, metavar="N", help="real-clock runs (default 3)")
+    sub.add_argument(
+        "--tolerance-ms",
+        type=int,
+        default=100,
+        metavar="MS",
+        help="how far an event may be from its virtual time (default 100)",
+    )
+    sub.add_argument(
+        "--words",
+        type=int,
+        default=1,
+        metavar="N",
+        help="words a segment that was cut short may differ by (default 1)",
+    )
+    sub.add_argument("--out", type=Path, metavar="DIR", help="write every run's ledger here")
+    sub.add_argument("--json", action="store_true", help="the result as JSON")
 
     sub = command(
         "report",
