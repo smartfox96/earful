@@ -16,9 +16,13 @@ bundle.
 
 SCENARIO is module:function. Running it imports and calls that function.
 
-    --case FILE          start from a saved case (earful.case/1) instead of the scenario as written
+    --case FILE          start from a saved case (earful.case/2) instead of the scenario as written
     --variables A,B      kinds of time to move (default: speech.position and every provider delay;
                          speech.end and speech.stt_delay can be added)
+    --faults A,B         faults to add to each backend write (default: backend.error, backend.timeout,
+                         backend.drop; "none" for no faults)
+    --pairs              also move every speech with each fault in place, and add faults to two writes at once
+    --profiles N         also move every speech under N seeded provider-timing profiles
     --no-words           do not treat the end of every played word as a boundary
     --no-windows         do not measure the window of every rule found (those kept are still measured)
     --keep CONTRACT/RULE reduce a case that breaks this rule and write a bundle (repeatable)
@@ -29,6 +33,7 @@ import sys
 from pathlib import Path
 
 from earful.core import bundle, search
+from earful.core import case as cases
 from earful.core.predicate import Predicate
 from earful.core.shrink import nearest
 from earful.livekit import scenario
@@ -37,6 +42,7 @@ from earful.livekit import scenario
 def main(argv: list[str]) -> int:
     args, keep, out, case_file, variables = [], [], None, None, None
     words, windows = True, True
+    faults, pairs, profiles = cases.FAULT_KINDS, False, 0
     it = iter(argv)
     for arg in it:
         if arg == "--keep":
@@ -47,6 +53,13 @@ def main(argv: list[str]) -> int:
             case_file = Path(next(it))
         elif arg == "--variables":
             variables = tuple(next(it).split(","))
+        elif arg == "--faults":
+            named = next(it)
+            faults = () if named == "none" else tuple(named.split(","))
+        elif arg == "--pairs":
+            pairs = True
+        elif arg == "--profiles":
+            profiles = int(next(it))
         elif arg == "--no-words":
             words = False
         elif arg == "--no-windows":
@@ -63,7 +76,14 @@ def main(argv: list[str]) -> int:
 
     with scenario.pool() as pool:
         found = search.explore(
-            case, scenario.run, variables=variables or search.DEFAULT_VARIABLES, words=words, each=pool.map
+            case,
+            scenario.run,
+            variables=variables or search.DEFAULT_VARIABLES,
+            faults=faults,
+            pairs=pairs,
+            profiles=profiles,
+            words=words,
+            each=pool.map,
         )
     summary = {"scenario": reference, **scenario.environment(), **found.summary(), "coverage": found.coverage(), "bundles": {}}
     for predicate in found.predicates():
@@ -72,7 +92,9 @@ def main(argv: list[str]) -> int:
             entry = summary["found"][str(predicate)]
             entry["windows"] = [w.to_json() for w in measured]
             # Breaks at single instants only: a matter of same-instant order, not a finding.
-            entry["instants_only"] = all(w.instant for w in measured)
+            # A break that needed no time moved has no window and is not one of these.
+            unmoved = any(t.candidate.variable is None for t in found.breaking(predicate))
+            entry["instants_only"] = not unmoved and all(w.instant for w in measured)
 
     for predicate in keep:
         breaking = found.breaking(predicate)
@@ -93,6 +115,7 @@ def main(argv: list[str]) -> int:
             "directory": str(directory),
             "speeches": [manifest["original"]["speeches"], manifest["minimal"]["speeches"]],
             "delays": [manifest["original"]["delays"], manifest["minimal"]["delays"]],
+            "faults": [manifest["original"]["faults"], manifest["minimal"]["faults"]],
             "reduction": manifest["reduction"],
             "windows": manifest["windows"],
             "replay": manifest["replay"],

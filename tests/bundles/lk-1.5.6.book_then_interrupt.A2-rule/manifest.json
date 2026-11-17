@@ -9,9 +9,9 @@
     "python": "3.13.12"
   },
   "formats": {
-    "case": "earful.case/1",
+    "case": "earful.case/2",
     "contracts": "earful.contracts/1",
-    "ledger": "earful.ledger/3"
+    "ledger": "earful.ledger/4"
   },
   "framework": {
     "name": "livekit-agents",
@@ -19,18 +19,20 @@
   },
   "minimal": {
     "delays": 0,
+    "faults": 0,
     "findings": [
       "2 durable effects for 'book-table-1'; the scenario authorized 1"
     ],
-    "hash": "b5b1d2bcb19fa511931d78fec5a8e388b3ad8adf1dd8bf6b6f1c9d3876e4e33f",
+    "hash": "c66e58f5992729294a7134c7d323d17951ea84f161007da4b1905a35661d3c6e",
     "speeches": 2
   },
   "original": {
-    "delays": 0,
+    "delays": 1,
+    "faults": 0,
     "findings": [
       "2 durable effects for 'book-table-1'; the scenario authorized 1"
     ],
-    "hash": "b5b1d2bcb19fa511931d78fec5a8e388b3ad8adf1dd8bf6b6f1c9d3876e4e33f",
+    "hash": "7f86a583ca4cd478bfd4a3b4eaf5685e7c3bbe21be9251ad2aa3ffda44650ecf",
     "speeches": 2
   },
   "predicate": {
@@ -40,15 +42,17 @@
   "reduction": {
     "complete": true,
     "differences": [],
-    "runs": 77,
-    "steps": []
+    "runs": 78,
+    "steps": [
+      "kept 0 of 1 differences from the author's scenario"
+    ]
   },
   "replay": {
     "distinct_hashes": 1,
     "repeats": 3
   },
   "scenario_digest": "75628b259a06c3cfb084e1b3df74c57cd21bfc32354d42ac3337a4e1d2ea10d0",
-  "schema": "earful.bundle/1",
+  "schema": "earful.bundle/2",
   "windows": [
     {
       "hi_end": "passes",

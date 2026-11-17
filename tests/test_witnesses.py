@@ -6,14 +6,14 @@ import dataclasses
 import livekit.agents as lk
 import pytest
 
-from earful.core.backend import EffectBackend, current_tool
+from earful.core.backend import BackendError, BackendTimeout, EffectBackend, current_tool
 from earful.core.checker import PASS, check
 from earful.core.ledger import Ledger
 from earful.core.schema import validate
 from earful.livekit import tools
 from earful.livekit.cases import CASES, LONG_REPLY, _barge_in_policy
 from earful.livekit.clock import now_us, run_virtual
-from earful.livekit.harness import Case, Intent, InvalidRun, run_case
+from earful.livekit.harness import Case, Delay, Fault, Intent, InvalidRun, run_case
 from earful.livekit.providers import Claim, Reply, ReplyRegister, ToolCall, UserSpeech
 from earful.livekit.tools import witnessed
 
@@ -221,6 +221,109 @@ def test_keyed_backend_deduplicates_writes_that_overlap():
         ("effect.deduplicated", 400_000, 1),
     ]
     assert receipts == ["R1", "R1"] and commits == 1
+
+
+def _faulty(faults, latencies_us=None, mode="plain"):
+    """Run one write against a backend with ``faults``; what the ledger and the caller saw."""
+
+    async def main():
+        ledger = Ledger(now_us, run="test")
+        backend = EffectBackend(ledger, mode=mode, faults=faults, latencies_us=latencies_us)
+        try:
+            said = await backend.write("book", {"n": 1}, key="k1")
+        except (BackendError, BackendTimeout) as error:
+            said = type(error).__name__
+        await asyncio.sleep(10)  # long enough for a write still under way to finish
+        await backend.cancel_in_flight()
+        return [(e["kind"], e["t_us"]) for e in ledger.events], said, backend.commits("book"), validate_effects(ledger.events)
+
+    return run_virtual(main)
+
+
+def validate_effects(events):
+    """The validator's rules for effect events only: these ledgers have no header."""
+    return [error for error in validate(events) if "effect" in error or "request" in error]
+
+
+def test_a_rejected_write_commits_nothing_and_the_caller_is_told():
+    events, said, commits, _ = _faulty({1: ("backend.error", None)}, latencies_us={1: 300_000})
+    assert events == [("effect.requested", 0), ("effect.failed", 300_000)]
+    assert said == "BackendError" and commits == 0
+
+
+def test_a_caller_that_times_out_first_is_told_so_and_the_write_still_commits():
+    events, said, commits, _ = _faulty({1: ("backend.timeout", 500_000)}, latencies_us={1: 2_000_000})
+    assert events == [("effect.requested", 0), ("effect.timed_out", 500_000), ("effect.committed", 2_000_000)]
+    assert said == "BackendTimeout" and commits == 1
+
+
+def test_a_write_that_commits_first_is_still_reported_as_timed_out():
+    events, said, commits, _ = _faulty({1: ("backend.timeout", 2_000_000)}, latencies_us={1: 500_000})
+    assert events == [("effect.requested", 0), ("effect.committed", 500_000), ("effect.timed_out", 2_000_000)]
+    assert said == "BackendTimeout" and commits == 1
+
+
+def test_a_dropped_write_commits_nothing_and_the_caller_times_out():
+    events, said, commits, _ = _faulty({1: ("backend.drop", 500_000)})
+    assert events == [("effect.requested", 0), ("effect.timed_out", 500_000)]
+    assert said == "BackendTimeout" and commits == 0
+
+
+def test_a_fault_belongs_to_one_write_and_the_next_is_untouched():
+    async def main():
+        ledger = Ledger(now_us, run="test")
+        backend = EffectBackend(ledger, faults={1: ("backend.error", None)})
+        with pytest.raises(BackendError):
+            await backend.write("book", {})
+        return await backend.write("book", {}), backend.commits("book")
+
+    assert run_virtual(main) == ("R1", 1)
+
+
+def test_a_write_still_under_way_when_the_scenario_ends_has_no_outcome():
+    async def main():
+        ledger = Ledger(now_us, run="test")
+        backend = EffectBackend(ledger, faults={1: ("backend.timeout", 100_000)}, latencies_us={1: 60_000_000})
+        with pytest.raises(BackendTimeout):
+            await backend.write("book", {})
+        await backend.cancel_in_flight()
+        return [e["kind"] for e in ledger.events], backend.commits("book")
+
+    assert run_virtual(main) == (["effect.requested", "effect.timed_out"], 0)
+
+
+def test_a_fault_that_is_no_fault_is_refused():
+    def make(*faults):
+        case = CASES["book_then_interrupt"]()
+        case.faults = list(faults)
+        return case
+
+    for bad, message in (
+        ((Fault("backend.explode", 1),), "unknown fault"),
+        ((Fault("backend.error", 0),), "counts from 1"),
+        ((Fault("backend.timeout", 1),), "how long the caller waits"),
+        ((Fault("backend.error", 1, 0.5),), "an error does not"),
+        ((Fault("backend.error", 1), Fault("backend.drop", 1, 0.5)), "more than one fault"),
+    ):
+        with pytest.raises(ValueError, match=message):
+            run_case(make(*bad))
+
+
+def test_declared_faults_are_in_the_header_and_the_run_is_valid():
+    case = CASES["book_then_interrupt"]()
+    case.speeches = case.speeches[:1]  # nothing interrupts the reply that made the call
+    case.faults = [Fault("backend.timeout", 1, 0.5)]
+    case.delays = [Delay("backend.latency", 1, 2.0)]
+    events = run_case(case).ledger.events
+    assert events[0]["data"]["scenario"]["faults"] == [{"of": "backend.timeout", "nth": 1, "us": 500_000}]
+    assert validate(events) == []
+    gave_up, committed = _of(events, "effect.timed_out")[0], _of(events, "effect.committed")[0]
+    assert gave_up["data"]["after_us"] == 500_000 and committed["t_us"] - gave_up["t_us"] == 1_500_000
+    # The tool was told; the model was shown an error for that call.
+    raised = _of(events, "tool.raised")[0]
+    assert raised["t_us"] == gave_up["t_us"]
+    shown = [i for i in _of(events, "llm.request")[1]["data"]["items"] if i["type"] == "function_call_output"]
+    assert [i["is_error"] for i in shown] == [True]
 
 
 def test_plain_backend_commits_every_write():

@@ -9,9 +9,9 @@
     "python": "3.13.12"
   },
   "formats": {
-    "case": "earful.case/1",
+    "case": "earful.case/2",
     "contracts": "earful.contracts/1",
-    "ledger": "earful.ledger/3"
+    "ledger": "earful.ledger/4"
   },
   "framework": {
     "name": "livekit-agents",
@@ -19,18 +19,20 @@
   },
   "minimal": {
     "delays": 0,
+    "faults": 0,
     "findings": [
       "segment 1 started 250000 us after the user took the floor"
     ],
-    "hash": "c08a1d7e490b2f07c7bc870212f40af0914e047aa2cbd90357d752b5803f98b3",
+    "hash": "09411e54a81996bbb0398527bc8bbd18fda2f6d58403e97b09270551e25e86c6",
     "speeches": 2
   },
   "original": {
     "delays": 1,
+    "faults": 0,
     "findings": [
       "segment 1 started 250000 us after the user took the floor"
     ],
-    "hash": "0177f1acd8da1662915715a924358164d8347beaa1056a15268ec8e36460a5af",
+    "hash": "0829cafbf531acf7ec256b18f07935dcc8f272220ff6b6b9c090cdc13290e387",
     "speeches": 2
   },
   "predicate": {
@@ -50,7 +52,7 @@
     "repeats": 3
   },
   "scenario_digest": "75628b259a06c3cfb084e1b3df74c57cd21bfc32354d42ac3337a4e1d2ea10d0",
-  "schema": "earful.bundle/1",
+  "schema": "earful.bundle/2",
   "windows": [
     {
       "hi_end": "passes",

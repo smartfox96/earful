@@ -17,6 +17,7 @@ from earful.core.checker import check
 from earful.core.ledger import ledger_hash, read_jsonl
 from earful.core.predicate import Predicate, failures
 from earful.core.search import (
+    Handle,
     Runner,
     Transition,
     Window,
@@ -48,8 +49,8 @@ def speech(start_us, end_us, transcript, **changes):
 
 def a_case(*speeches, **changes):
     return {
-        "schema": "earful.case/1", "scenario": "some.module:scenario", "seed": 0,
-        "speeches": list(speeches), "delays": [],
+        "schema": "earful.case/2", "scenario": "some.module:scenario", "seed": 0,
+        "speeches": list(speeches), "delays": [], "faults": [],
         "settings": {"tts_ttfb_us": 200_000, "sink_can_pause": True}, "contracts": {}, **changes,
     }
 
@@ -231,6 +232,17 @@ def test_a_search_never_makes_a_provider_slower_than_its_limit():
     assert sorted(c.value_us for c in found) == [56_990_000, 57_000_000, 57_010_000]
 
 
+def test_a_caller_is_never_made_to_wait_longer_than_the_limit():
+    dropped = cases.with_fault(a_case(BOOK, WINDOW), "backend.drop", 1, 1_000_000)
+    gave_up = [Handle(Variable("backend.wait", 1), "gave_up", 4_000_000, 1_000_000)]
+    late = [Transition(60_000_000, ("playout.started",))]
+    found, impossible = candidates(dropped, gave_up, late)
+    assert not found and len(impossible) == 3
+    found, _ = candidates(dropped, gave_up, late, delay_limit_us=90_000_000)
+    assert sorted(c.value_us for c in found) == [56_990_000, 57_000_000, 57_010_000]
+    assert all(c.case["faults"] == [{"of": "backend.drop", "nth": 1, "us": c.value_us}] for c in found)
+
+
 # --------------------------------------------------------------------------- running
 
 
@@ -267,7 +279,7 @@ def test_exploring_runs_every_candidate_and_reports_what_broke_and_what_was_reac
     assert all(3_000_000 <= t.candidate.value_us <= 7_800_000 for t in found.breaking(A2))
     summary = found.summary()
     assert summary["candidates"] == summary["ran"] == len(found.tried) and summary["runs"] == found.runner.runs
-    assert summary["found"]["A2/rule"]["variables"] == ["speech.position 1"]
+    assert summary["found"]["A2/rule"]["changed"] == ["speech.position 1"]
     reached = found.coverage()["speech.position 1 interrupt"]
     assert {"playout.started", "tool.returned", "llm.done"} <= set(reached["reached"])
     # the interruption point cannot be put where the speech would lie inside the other one
@@ -302,7 +314,7 @@ def test_what_cannot_be_run_is_counted_and_said():
 
 def test_a_case_that_cannot_be_searched_is_refused_up_front():
     run = answers(lambda case: False)
-    with pytest.raises(ValueError, match="not an earful.case/1 document"):
+    with pytest.raises(ValueError, match="not an earful.case/2 document"):
         explore({**a_case(BOOK), "schema": "x"}, run)
     with pytest.raises(ValueError, match="unknown variables"):
         explore(a_case(BOOK), run, variables=["speech.volume"])
@@ -310,11 +322,139 @@ def test_a_case_that_cannot_be_searched_is_refused_up_front():
         explore(a_case(BOOK), lambda case: (_ for _ in ()).throw(ValueError("too close")))
     with pytest.raises(ValueError, match="cannot be searched: RuntimeError: deadlock"):
         explore(a_case(BOOK), lambda case: (_ for _ in ()).throw(RuntimeError("deadlock")))
-    nothing = explore(a_case(), run, variables=["speech.position", "backend.latency"], words=False)  # no speeches to move
+    nothing = explore(a_case(), run, variables=["speech.position", "backend.latency"], faults=[], words=False)  # no speeches to move
     assert nothing.predicates() == [] and all(t.candidate.variable.kind in cases.DELAY_KINDS for t in nothing.tried)
 
 
 # --------------------------------------------------------------------------- windows
+
+
+# --------------------------------------------------------------------------- faults
+
+
+def fault(of, nth=1, us=None):
+    return {"of": of, "nth": nth, "us": us}
+
+
+def has_fault(of, nth=1):
+    return lambda case: any(f["of"] == of and f["nth"] == nth for f in case["faults"])
+
+
+def test_a_fault_is_data_for_one_write():
+    case = a_case(BOOK)
+    assert cases.validate(a_case(BOOK, faults=[fault("backend.error"), fault("backend.drop", 2, 500_000)])) == []
+    assert "more than one fault" in cases.validate(a_case(BOOK, faults=[fault("backend.error"), fault("backend.drop", 1, 5)]))[0]
+    assert "how long the caller waits" in cases.validate(a_case(BOOK, faults=[fault("backend.timeout")]))[0]
+    assert "an error does not" in cases.validate(a_case(BOOK, faults=[fault("backend.error", 1, 5)]))[0]
+    assert "is not one of" in cases.validate(a_case(BOOK, faults=[fault("backend.explode")]))[0]
+
+    dropped = cases.with_fault(case, "backend.drop", 1, 500_000)
+    assert dropped["faults"] == [fault("backend.drop", 1, 500_000)] and case["faults"] == []
+    assert cases.with_fault(dropped, "backend.error", 1) is None  # that write has a fault already
+    assert cases.with_fault(case, "backend.timeout", 1) is None  # a timeout says how long the caller waits
+
+    wait = Variable("backend.wait", 1)
+    assert cases.value(dropped, wait) == 500_000 and cases.value(case, wait) is None
+    assert cases.with_value(dropped, wait, 750_000)["faults"] == [fault("backend.drop", 1, 750_000)]
+    assert cases.with_value(case, wait, 750_000) is None  # no fault, nothing waits
+    assert cases.with_value(cases.with_fault(case, "backend.error", 1), wait, 750_000) is None  # an error has no wait
+
+
+def test_a_search_adds_each_fault_to_each_write_the_run_made():
+    run = answers(has_fault("backend.drop"))
+    found = explore(a_case(BOOK, WINDOW), run, variables=())
+    by_base = {t.candidate.base: t.candidate.case for t in found.tried if t.candidate.variable is None}
+    assert set(by_base) == {t.candidate.base for t in found.tried} == {"backend.error 1", "backend.drop 1", "backend.timeout 1, commit first", "backend.timeout 1, commit later"}
+    assert by_base["backend.error 1"]["faults"] == [fault("backend.error")]
+    assert by_base["backend.drop 1"]["faults"] == [fault("backend.drop", 1, 1_000_000)]
+    # A timeout in both orders: the write as the scenario has it, and committing after the caller gave up.
+    assert by_base["backend.timeout 1, commit first"]["delays"] == []
+    assert by_base["backend.timeout 1, commit later"]["delays"] == [{"of": "backend.latency", "nth": 1, "us": 2_000_000}]
+    assert found.predicates() == [Predicate("A2", "rule"), Predicate("M2", "rule d")]
+    assert found.summary()["found"]["A2/rule"]["changed"] == ["backend.drop 1"]
+    # A break that moved nothing has no window to measure.
+    assert found.windows(Predicate("A2", "rule")) == []
+
+    # A write as slow as the wait commits later as written. The other order has the caller wait longer.
+    slow = explore(a_case(BOOK, WINDOW), run, variables=(), faults=["backend.timeout"], wait_us=0)
+    orders = {t.candidate.base: t.candidate.case for t in slow.tried if t.candidate.variable is None}
+    assert orders["backend.timeout 1, commit later"]["faults"] == [fault("backend.timeout", 1, 0)]
+    assert orders["backend.timeout 1, commit first"]["faults"] == [fault("backend.timeout", 1, 1_000_000)]
+    assert all(case["delays"] == [] for case in orders.values())
+
+    assert {t.candidate.base for t in explore(a_case(BOOK, WINDOW), run, variables=(), faults=["backend.error"]).tried} == {"backend.error 1"}
+    assert explore(a_case(BOOK, WINDOW), run, variables=(), faults=[]).tried == []
+    with pytest.raises(ValueError, match="unknown faults"):
+        explore(a_case(BOOK, WINDOW), run, faults=["backend.explode"])
+
+
+def test_a_write_that_already_has_a_fault_is_given_no_other():
+    run = answers(lambda case: False)
+    found = explore(a_case(BOOK, WINDOW, faults=[fault("backend.error")]), run, variables=())
+    assert found.tried == []
+
+
+def test_pairs_put_faults_on_two_writes_and_move_speeches_under_each_fault():
+    two_writes = answers(lambda case: True)  # the recorded failing run made two writes
+    alone = explore(a_case(BOOK, WINDOW), two_writes, variables=(), faults=["backend.error", "backend.drop"])
+    paired = explore(a_case(BOOK, WINDOW), two_writes, variables=(), faults=["backend.error", "backend.drop"], pairs=True)
+    assert len(alone.tried) == 4
+    both = [t.candidate.case["faults"] for t in paired.tried if len(t.candidate.case["faults"]) == 2]
+    assert len(both) == 4 and all({f["nth"] for f in faults} == {1, 2} for faults in both)
+
+    # A timeout that commits later is a fault and a latency. Paired, it keeps both.
+    timeouts = explore(a_case(BOOK, WINDOW), two_writes, variables=(), faults=["backend.timeout"], pairs=True)
+    later = {t.candidate.base: t.candidate.case for t in timeouts.tried if t.candidate.variable is None}
+    both_later = later["backend.timeout 1, commit later + backend.timeout 2, commit later"]
+    assert both_later["delays"] == [{"of": "backend.latency", "nth": n, "us": 2_000_000} for n in (1, 2)]
+    assert later["backend.timeout 1, commit first + backend.timeout 2, commit later"]["delays"] == [{"of": "backend.latency", "nth": 2, "us": 2_000_000}]
+
+    moving = explore(
+        a_case(BOOK, WINDOW), answers(lambda case: False), variables=["speech.position"], speeches=[1],
+        moments=["interrupt"], faults=["backend.error"], pairs=True, words=False,
+    )
+    under = [t.candidate for t in moving.tried if t.candidate.base == "backend.error 1" and t.candidate.variable == SECOND]
+    assert under and all(c.case["faults"] == [fault("backend.error")] and c.what == "backend.error 1 + speech.position 1" for c in under)
+    assert any(not t.candidate.base and t.candidate.variable == SECOND for t in moving.tried)
+
+
+def test_profiles_redraw_every_delay_from_the_seed_and_move_speeches_under_each():
+    def searched(seed=0, profiles=2):
+        return explore(
+            a_case(BOOK, WINDOW, seed=seed), answers(lambda case: False), variables=["speech.position"], speeches=[1],
+            moments=["interrupt"], faults=[], profiles=profiles, words=False,
+        )
+
+    first = searched()
+    assert [cases.canonical(t.candidate.case) for t in first.tried] == [cases.canonical(t.candidate.case) for t in searched().tried]
+    profile = {t.candidate.base: t.candidate.case["delays"] for t in first.tried if t.candidate.variable is None}
+    assert set(profile) == {"profile 1", "profile 2"} and profile["profile 1"] != profile["profile 2"]
+    assert all(0 <= d["us"] <= 10_000_000 and d["us"] % 10_000 == 0 for delays in profile.values() for d in delays)
+    assert any(t.candidate.base == "profile 1" and t.candidate.variable == SECOND for t in first.tried)
+    other = {t.candidate.base: t.candidate.case["delays"] for t in searched(seed=1).tried if t.candidate.variable is None}
+    assert other["profile 1"] != profile["profile 1"]
+    assert not any(t.candidate.base for t in searched(profiles=0).tried)
+
+
+def test_a_fault_is_a_difference_and_a_reduction_keeps_it_only_if_the_failure_needs_it():
+    author = a_case(BOOK, WINDOW)
+    found = cases.with_fault(cases.with_value(author, SECOND, 3_140_000), "backend.drop", 1, 700_000)
+    found = {**found, "delays": [{"of": "llm.ttft", "nth": 1, "us": 400_000}]}
+    listed = differences(author, found)
+    assert "backend.drop on backend write 1, the caller waiting 700000 us" in [d.label for d in listed]
+    assert applied(author, listed) == found
+    assert applied(author, [d for d in listed if d.target[0] != "fault"])["faults"] == []
+
+    needs_both = lambda case: has_fault("backend.drop")(case) and len(case["speeches"]) == 2  # noqa: E731
+    shrunk = shrink(found, answers(needs_both), Predicate("A2", "rule"), author=author)
+    assert shrunk.case == {**author, "faults": [fault("backend.drop", 1, 700_000)]}
+    assert shrunk.differences == ["backend.drop on backend write 1, the caller waiting 700000 us"]
+    # The failure does not depend on how long the caller waits, so the wait is left alone.
+    assert [(str(w.variable), w.lo_end, w.hi_end) for w in shrunk.windows if w.variable.kind == "backend.wait"] == [("backend.wait 1", "blocked", "reach")]
+
+    # A fault the author declared is removed if the failure does not need it.
+    faulted = {**author, "faults": [fault("backend.error")]}
+    assert shrink(faulted, answers(INTERRUPTS), Predicate("A2", "rule"), author=faulted).case["faults"] == []
 
 
 def test_a_window_is_found_by_doubling_out_and_halving_back():
@@ -503,7 +643,7 @@ def test_a_bundle_holds_the_failure_and_replays(tmp_path):
     assert bundle.validate(manifest) == []
     assert manifest["predicate"] == {"contract": "A2", "rule": "rule"}
     assert manifest["framework"] == {"name": "livekit-agents", "version": "1.5.6"} and manifest["clock"] == "virtual"
-    assert manifest["formats"] == {"ledger": "earful.ledger/3", "contracts": "earful.contracts/1", "case": "earful.case/1"}
+    assert manifest["formats"] == {"ledger": "earful.ledger/4", "contracts": "earful.contracts/1", "case": "earful.case/2"}
     assert (manifest["original"]["speeches"], manifest["minimal"]["speeches"]) == (4, 2)
     assert (manifest["original"]["delays"], manifest["minimal"]["delays"]) == (1, 0)
     assert manifest["original"]["findings"] == manifest["minimal"]["findings"] == ["2 durable effects for 'book-table-1'; the scenario authorized 1"]
@@ -541,7 +681,7 @@ def test_a_case_that_does_not_repeat_is_not_kept(tmp_path):
 
 def test_a_bundle_that_is_not_one_is_refused(tmp_path):
     (tmp_path / "manifest.json").write_text(json.dumps({"schema": "something/1"}))
-    with pytest.raises(ValueError, match="not an earful.bundle/1 manifest"):
+    with pytest.raises(ValueError, match="not an earful.bundle/2 manifest"):
         bundle.load(tmp_path)
 
 

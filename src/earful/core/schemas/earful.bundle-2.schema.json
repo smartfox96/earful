@@ -1,8 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "urn:earful:bundle:1",
+  "$id": "urn:earful:bundle:2",
   "title": "Earful failure bundle manifest",
-  "description": "manifest.json of an earful.bundle/1 directory: what failed, on what, and how the case was reduced. Beside it, under fixed names, are original.case.json and minimal.case.json (earful.case/1) and the normalized ledger of running each.",
+  "description": "manifest.json of an earful.bundle/2 directory: what failed, on what, and how the case was reduced. Beside it, under fixed names, are original.case.json and minimal.case.json (earful.case/2) and the normalized ledger of running each.",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -21,7 +21,7 @@
   ],
   "properties": {
     "schema": {
-      "const": "earful.bundle/1"
+      "const": "earful.bundle/2"
     },
     "predicate": {
       "description": "The failure, frozen: the contract and the rule of it that broke.",
@@ -233,6 +233,7 @@
         "hash",
         "speeches",
         "delays",
+        "faults",
         "findings"
       ],
       "properties": {
@@ -250,6 +251,11 @@
           "type": "integer",
           "minimum": 0,
           "description": "How many provider delays it declares."
+        },
+        "faults": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "How many faults it declares."
         },
         "findings": {
           "type": "array",

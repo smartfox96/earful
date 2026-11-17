@@ -1,4 +1,4 @@
-"""Between a ``Case`` and its data: the LiveKit side of earful.case/1.
+"""Between a ``Case`` and its data: the LiveKit side of earful.case/2.
 
 The core moves, reduces and saves cases as plain data (``earful.core.case``). This module
 turns a harness ``Case`` into that data and back, and runs the data: the one function the
@@ -9,7 +9,7 @@ boundary scheduler and the shrinker need from an adapter.
 
 A scenario is named by ``module:function``. The function takes no arguments and returns
 a ``Case``: the agent, the model policy and the defaults. The data then overrides the
-speeches, the declared delays, the settings, the seed and the contract policy.
+speeches, the declared delays and faults, the settings, the seed and the contract policy.
 
 Running a case imports and calls the function it names. Run only cases you trust, as you
 would only run test code you trust.
@@ -33,7 +33,7 @@ from livekit import rtc
 
 from ..core import case as case_format
 from ..core.timebase import to_seconds, to_us
-from .harness import Case, Delay, run_case
+from .harness import Case, Delay, Fault, run_case
 from .providers import UserSpeech
 
 # Setting name -> the Case field that holds it, in seconds.
@@ -82,7 +82,7 @@ def fingerprint(scenario: str) -> str:
 
 
 def describe(case: Case, scenario: str, seed: int = 0) -> dict[str, Any]:
-    """The data of ``case``, as earful.case/1. ``scenario`` is the reference that will
+    """The data of ``case``, as earful.case/2. ``scenario`` is the reference that will
     produce its code again."""
     return {
         "schema": case_format.SCHEMA,
@@ -104,6 +104,10 @@ def describe(case: Case, scenario: str, seed: int = 0) -> dict[str, Any]:
             {"of": delay.of, "nth": delay.nth, "us": to_us(delay.seconds)}
             for delay in sorted(case.delays, key=lambda d: (d.of, d.nth))
         ],
+        "faults": [
+            {"of": fault.of, "nth": fault.nth, "us": None if fault.seconds is None else to_us(fault.seconds)}
+            for fault in sorted(case.faults, key=lambda f: (f.of, f.nth))
+        ],
         "settings": {
             **{name: to_us(getattr(case, attr)) for name, attr in _TIMES.items()},
             **{name: getattr(case, attr) for name, (attr, _kind) in _PLAIN.items()},
@@ -120,11 +124,11 @@ def default(scenario: str, seed: int = 0) -> dict[str, Any]:
 def build(data: dict[str, Any]) -> Case:
     """The ``Case`` that ``data`` describes: the scenario's code, with the data's
     speeches, delays, settings and contract policy. Raises ``ValueError`` on data that is
-    not earful.case/1, names a setting this adapter does not have or gives one the wrong
+    not earful.case/2, names a setting this adapter does not have or gives one the wrong
     kind of value, or names a scenario that does not exist."""
     errors = case_format.validate(data)
     if errors:
-        raise ValueError("not an earful.case/1 document: " + "; ".join(errors))
+        raise ValueError("not an earful.case/2 document: " + "; ".join(errors))
     for name, value in data["settings"].items():
         if name not in SETTINGS:
             raise ValueError(f"unknown setting {name!r}; this adapter has {sorted(SETTINGS)}")
@@ -145,6 +149,9 @@ def build(data: dict[str, Any]) -> Case:
         for speech in data["speeches"]
     ]
     case.delays = [Delay(d["of"], d["nth"], to_seconds(d["us"])) for d in data["delays"]]
+    case.faults = [
+        Fault(f["of"], f["nth"], None if f["us"] is None else to_seconds(f["us"])) for f in data["faults"]
+    ]
     for name, value in data["settings"].items():
         if name in _TIMES:
             setattr(case, _TIMES[name], to_seconds(value))

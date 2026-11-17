@@ -13,7 +13,7 @@ Gate 1 is complete only when each of these is demonstrated.
 
 | Criterion | Where it is shown |
 | --- | --- |
-| The ledger is versioned and defined by a published schema | `docs/ledger.md`; `earful.ledger/3` |
+| The ledger is versioned and defined by a published schema | `docs/ledger.md`; `earful.ledger/4` |
 | The checker reads only the ledger and imports no framework | `docs/contracts.md`; `tests/test_core_boundary.py` |
 | Tools write to a deterministic backend that records each write apart from what the tool returns | `src/earful/core/backend.py`; `effect.*` events |
 | Every contract detects a deliberate break, and passes the same scenario without it | Mutations and controls, below |
@@ -105,6 +105,31 @@ The first defect has a window nearly five seconds wide: any interruption of the 
 that called the tool. The second has one of 448 ms: the user must begin speaking after
 the previous turn is committed and before the reply to it becomes audible.
 
+### Faults
+
+`docs/search.md` section 3 describes them. The search adds an error, a timeout and a
+dropped write to each backend write of a run, and moves the moment the caller gives up
+and the commit of a timed-out write to every transition.
+
+Four scenarios (`tests/breaks.py`) ask for one booking. Each passes as written, where
+every write commits. Two are controls.
+
+| Model and tool | Candidates run | Found | Under which fault |
+| --- | --- | --- | --- |
+| Confirms the booking whatever the tool returned | 360 | `A3/rule` in 92 | A rejected write; a dropped write; a timeout whose write commits after the claim is heard |
+| Control: confirms only a result that is not an error | 396 | nothing | |
+| Calls the tool again after an error; the tool sends no key | 488 | `A2/rule` in 366 | A timeout in either order |
+| Control: the same model, a tool that sends a key, a keyed backend | 488 | nothing | |
+
+The figures are the same on all five releases, and every candidate was judged. In the
+first row the search also measures where the timeout starts to matter: the confirmation
+is false once the write takes longer than 6.890 s, which is when its commit falls after
+the last word of "Your table is booked." In the third row a rejected or dropped write is
+not reported, because sending it again writes once.
+
+A case found with a dropped write and a moved wait reduces to the author's scenario plus
+the one fault, and replays to the same ledger (`tests/test_search_live.py`).
+
 ### The search against stepping through time
 
 `scripts/contracts_sweep.py` steps one speech through 23 scenario shapes in 50 ms
@@ -141,7 +166,7 @@ with the windows of its speeches measured.
 
 | Bundle | Predicate | Runs to reduce and measure | How far each speech can move and still fail | Replayed 100 times on 1.5.6 |
 | --- | --- | --- | --- | --- |
-| `lk-1.5.6.book_then_interrupt.A2-rule` | `A2/rule` | 77 | first: 0 to 2.5 s; second: 3.000 to 7.869 s | 1 ledger, the one recorded |
+| `lk-1.5.6.book_then_interrupt.A2-rule` | `A2/rule` | 78 | first: 0 to 2.5 s; second: 3.000 to 7.869 s | 1 ledger, the one recorded |
 | `lk-1.5.6.speak_over_new_turn.L2-rule-b` | `L2/rule b` | 60 | first: 0.251 to 0.699 s; second: 3.001 to 3.449 s | 1 ledger, the one recorded |
 
 Neither sits on an instant, and each speech is at least 199 ms inside its window.
@@ -179,10 +204,12 @@ broken version fails at least one test.
 Stated in full in `docs/search.md` section 7 and `docs/contracts.md`. The ones that bear
 on this gate:
 
-- **One variable at a time.** Pairs of moved events are not explored.
+- **Two moved times at once are not explored.** A fault can be combined with a moved
+  speech, and speeches can be moved under redrawn provider delays (`docs/search.md`,
+  section 3).
 - **A failure with no boundary beside it is not looked for.** Stepping through time is
   the complement.
-- **No faults.** Delays move; the backend commits every write. A write that fails or
-  times out is not recorded and cannot be injected.
+- **Faults are the backend's.** A write can fail, time out or be lost. A provider that
+  stalls and a session that closes early cannot be declared.
 - **Scripts, not a package surface.** There is no command-line tool, pytest plugin or
   report yet.

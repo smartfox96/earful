@@ -12,7 +12,7 @@ from collections.abc import Callable, Iterable
 from pathlib import Path
 from typing import Any
 
-SCHEMA = "earful.ledger/3"
+SCHEMA = "earful.ledger/4"
 
 # Who observed the event. The checker treats these as independent witnesses.
 SOURCES = ("world", "llm", "sink", "backend", "framework", "harness")

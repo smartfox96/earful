@@ -26,11 +26,12 @@ The search uses everything in the ledger to decide where to look, the framework'
 events included. What it finds is decided by the checker alone.
 
 Framework-independent: this module must never import livekit. The adapter supplies
-``run``, a function from a case (earful.case/1) to the ledger of running it.
+``run``, a function from a case (earful.case/2) to the ledger of running it.
 """
 
 from __future__ import annotations
 
+import random
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 from functools import partial
@@ -275,9 +276,16 @@ class Placement:
 @dataclass
 class Candidate:
     case: cases.Case
-    variable: Variable  # the variable that was moved
-    value_us: int  # what it was moved to
+    variable: Variable | None  # the variable that was moved; None if only a fault was added
+    value_us: int | None  # what it was moved to
     placements: list[Placement] = field(default_factory=list)
+    base: str = ""  # what was done to the case before anything was moved: a fault, a profile
+
+    @property
+    def what(self) -> str:
+        """What was changed, for a person: ``backend.error 1``, ``speech.position 1``,
+        ``backend.drop 1 + speech.position 1``."""
+        return " + ".join(part for part in (self.base, str(self.variable) if self.variable else "") if part)
 
 
 def candidates(
@@ -287,6 +295,7 @@ def candidates(
     *,
     offsets_us: Iterable[int] = OFFSETS_US,
     delay_limit_us: int = DELAY_LIMIT_US,
+    base: str = "",
 ) -> tuple[list[Candidate], list[Placement]]:
     """Every case in which one of ``handles`` falls before, at or after one of
     ``targets``, and the placements for which no such case exists (a delay cannot be
@@ -302,14 +311,15 @@ def candidates(
             for offset in offsets:
                 placement = Placement(handle, transition, offset)
                 to = handle.value_us + transition.t_us + offset - handle.t_us
-                too_long = handle.variable.kind in cases.DELAY_KINDS and to > max(delay_limit_us, handle.value_us)
+                waits = handle.variable.kind in (*cases.DELAY_KINDS, cases.WAIT)
+                too_long = waits and to > max(delay_limit_us, handle.value_us)
                 moved = None if too_long else cases.with_value(case, handle.variable, to)
                 if moved is None:
                     impossible.append(placement)
                     continue
                 key = cases.canonical(moved)
                 if key not in found:
-                    found[key] = Candidate(moved, handle.variable, to)
+                    found[key] = Candidate(moved, handle.variable, to, base=base)
                 found[key].placements.append(placement)
     return list(found.values()), impossible
 
@@ -451,20 +461,26 @@ class Exploration:
         return predicate in self.original.failures and all(predicate in t.outcome.failures for t in ran)
 
     def windows(self, predicate: Predicate, *, most: int = 3, resolution_us: int = 1_000) -> list[Window]:
-        """The windows in which the rule breaks, measured: at most ``most`` per variable,
-        each around a breaking candidate that lies in none measured before it."""
+        """The windows in which the rule breaks, measured: at most ``most`` per variable
+        and base, each around a breaking candidate that lies in none measured before it.
+        A candidate that only added a fault moved nothing and has no window."""
         out: list[Window] = []
-        per_variable: dict[Variable, int] = {}
-        for tried in sorted(self.breaking(predicate), key=lambda t: (t.candidate.variable, t.candidate.value_us)):
+        measured: list[tuple[str, Window]] = []
+        per_variable: dict[tuple[str, Variable], int] = {}
+        moved = [t for t in self.breaking(predicate) if t.candidate.variable is not None]
+        for tried in sorted(moved, key=lambda t: (t.candidate.base, t.candidate.variable, t.candidate.value_us)):
             variable, at = tried.candidate.variable, tried.candidate.value_us
-            if per_variable.get(variable, 0) >= most:
+            key = (tried.candidate.base, variable)
+            if per_variable.get(key, 0) >= most:
                 continue
-            if any(w.variable == variable and w.lo_us <= at <= w.hi_us for w in out):
+            if any(b == tried.candidate.base and w.variable == variable and w.lo_us <= at <= w.hi_us for b, w in measured):
                 continue
             if cases.value(tried.candidate.case, variable) is None:
                 continue
-            out.append(window(self.runner, tried.candidate.case, variable, predicate, resolution_us=resolution_us))
-            per_variable[variable] = per_variable.get(variable, 0) + 1
+            found = window(self.runner, tried.candidate.case, variable, predicate, resolution_us=resolution_us)
+            measured.append((tried.candidate.base, found))
+            out.append(found)
+            per_variable[key] = per_variable.get(key, 0) + 1
         return out
 
     def coverage(self) -> dict[str, dict[str, Any]]:
@@ -513,7 +529,7 @@ class Exploration:
                 str(p): {
                     "candidates": len(self.breaking(p)),
                     "everywhere": self.everywhere(p),
-                    "variables": sorted({str(t.candidate.variable) for t in self.breaking(p)}),
+                    "changed": sorted({t.candidate.what for t in self.breaking(p)}),
                 }
                 for p in self.predicates()
             },
@@ -522,6 +538,8 @@ class Exploration:
 
 
 DEFAULT_VARIABLES = ("speech.position", *cases.DELAY_KINDS)
+# How long the caller of a write waits, when a search adds a timeout or a drop.
+WAIT_US = 1_000_000
 
 
 def explore(
@@ -529,37 +547,60 @@ def explore(
     run: Run,
     *,
     variables: Iterable[str] = DEFAULT_VARIABLES,
+    faults: Iterable[str] = cases.FAULT_KINDS,
+    pairs: bool = False,
+    profiles: int = 0,
     speeches: Iterable[int] | None = None,
     moments: Iterable[str] | None = None,
     offsets_us: Iterable[int] = OFFSETS_US,
     words: bool = True,
     delay_limit_us: int = DELAY_LIMIT_US,
+    wait_us: int = WAIT_US,
     each: Callable[..., Iterable[Outcome]] = map,
 ) -> Exploration:
-    """Move each variable of ``case`` so that its handles fall before, at and after every
-    transition, and check each run.
+    """Search ``case`` for the timings and faults at which it breaks a contract.
 
-    ``variables`` names the kinds of variable to move: by default where each speech sits
-    and every provider delay; ``speech.end`` and ``speech.stt_delay`` can be added.
+    **One thing at a time.** Each variable named by ``variables`` is moved so that its
+    handles fall before, at and after every transition: by default where each speech
+    sits and every provider delay; ``speech.end`` and ``speech.stt_delay`` can be added.
+    Each fault named by ``faults`` is added to each backend write the run made: an error,
+    a timeout, a drop. For a timeout the write is tried committing before the caller
+    gives up and after. The moment the caller gives up is then moved to every transition,
+    and so is the commit of a write that timed out.
+
+    **Two things at a time**, if asked for. With ``pairs``, every speech is moved again
+    with each fault in place, and faults are added to two writes at once. With
+    ``profiles``, every speech is moved again under that many provider-timing profiles:
+    every delay the run applied, redrawn at random from a seed, so that the same search
+    gives the same profiles.
+
     ``speeches`` limits the speeches moved (by index) and ``moments`` the speech handles
     used (``vad_start``, ``interrupt``, ``transcript``, ``vad_end``, ``turn_end``).
-    ``words`` adds the end of every played word to the transitions. No provider delay is
-    made longer than ``delay_limit_us``. ``each`` is how the
-    runs are carried out: ``map`` one after another, a process pool's ``map`` side by
-    side, provided ``run`` can be sent to another process.
+    ``words`` adds the end of every played word to the transitions. No provider delay or
+    wait is made longer than ``delay_limit_us``, and ``wait_us`` is how long a caller
+    waits where a search adds a timeout or a drop. ``each`` is how the runs are carried
+    out: ``map`` one after another, a process pool's ``map`` side by side, provided
+    ``run`` can be sent to another process.
 
-    Raises ``ValueError`` if ``case`` is not earful.case/1 or cannot be run as given.
+    Raises ``ValueError`` if ``case`` is not earful.case/2 or cannot be run as given.
     """
     errors = cases.validate(case)
     if errors:
-        raise ValueError("not an earful.case/1 document: " + "; ".join(errors))
+        raise ValueError("not an earful.case/2 document: " + "; ".join(errors))
     kinds = tuple(variables)
     unknown = sorted(set(kinds) - set(cases.SPEECH_KINDS) - set(cases.DELAY_KINDS))
     if unknown:
         raise ValueError(f"unknown variables {unknown}")
+    fault_kinds = tuple(faults)
+    unknown = sorted(set(fault_kinds) - set(cases.FAULT_KINDS))
+    if unknown:
+        raise ValueError(f"unknown faults {unknown}")
     runner = Runner(run)
     offsets = tuple(offsets_us)
     wanted_moments = None if moments is None else set(moments)
+    wanted_speeches = None if speeches is None else set(speeches)
+    delay_kinds = [k for k in kinds if k in cases.DELAY_KINDS]
+    speech_kinds = [k for k in kinds if k in cases.SPEECH_KINDS]
 
     def ledger(wanted: cases.Case) -> list[Event] | None:
         """The ledger of a run that can be judged, or None."""
@@ -577,29 +618,114 @@ def explore(
     found: dict[str, Candidate] = {}
     impossible: list[Placement] = []
 
-    def add(handles: list[Handle], targets: list[Transition]) -> None:
-        tried, cannot = candidates(case, handles, targets, offsets_us=offsets, delay_limit_us=delay_limit_us)
+    def keep(candidate: Candidate) -> None:
+        key = cases.canonical(candidate.case)
+        if key == cases.canonical(case):
+            return
+        if key in found:
+            found[key].placements += candidate.placements
+        else:
+            found[key] = candidate
+
+    def place(on: cases.Case, handles: list[Handle], targets: list[Transition], base: str) -> None:
+        tried, cannot = candidates(on, handles, targets, offsets_us=offsets, delay_limit_us=delay_limit_us, base=base)
         impossible.extend(cannot)
         for candidate in tried:
-            key = cases.canonical(candidate.case)
-            if key in found:
-                found[key].placements += candidate.placements
-            else:
-                found[key] = candidate
+            keep(candidate)
 
-    # A delay races with everything else in the run as it is.
-    add(delay_handles(events, [k for k in kinds if k in cases.DELAY_KINDS]), transitions(events, words=words))
-    # A speech races with the run it would interrupt: the one without it.
-    speech_kinds = [k for k in kinds if k in cases.SPEECH_KINDS]
-    for index in range(len(case["speeches"])) if speech_kinds else ():
-        if speeches is not None and index not in set(speeches):
+    def move_speeches(on: cases.Case, produced: list[Event], base: str) -> None:
+        """A speech races with the run it would interrupt: the one without it."""
+        for index in range(len(on["speeches"])) if speech_kinds else ():
+            if wanted_speeches is not None and index not in wanted_speeches:
+                continue
+            handles = speech_handles(on, index, produced, speech_kinds)
+            if wanted_moments is not None:
+                handles = [h for h in handles if h.moment in wanted_moments]
+            alone = ledger(cases.without_speech(on, index))
+            if alone is not None:  # else the scenario cannot run without this speech
+                place(on, handles, transitions(alone, words=words), base)
+
+    # One thing at a time: each delay against the run as it is, each speech against the
+    # run without it.
+    place(case, delay_handles(events, delay_kinds), transitions(events, words=words), "")
+    move_speeches(case, events, "")
+
+    # One fault at a time, on each write the run made.
+    faulted: list[tuple[str, int, cases.Case]] = []  # (label, the write, the case with the fault)
+    as_written: set[str] = set()  # the labels of timeouts whose write keeps the scenario's latency
+    requests = [e["data"] for e in events if e["kind"] == "effect.requested"]
+    for request in requests:
+        nth = request["request"]
+        for of in fault_kinds:
+            with_one = cases.with_fault(case, of, nth, None if of == "backend.error" else wait_us)
+            if with_one is None:
+                continue  # the write already has a fault
+            versions = [(f"{of} {nth}", with_one)]
+            if of == "backend.timeout":
+                # The write commits at its own latency: before the caller gives up, or
+                # after. One order is the scenario's. The other is made by letting the
+                # write take 1 s longer than the wait, or the caller wait 1 s longer than
+                # the write.
+                latency = request["latency_us"]
+                if latency < wait_us:
+                    other = cases.with_value(with_one, Variable("backend.latency", nth), wait_us + 1_000_000)
+                    versions = [(f"{of} {nth}, commit first", with_one), (f"{of} {nth}, commit later", other)]
+                else:
+                    other = cases.with_value(with_one, Variable(cases.WAIT, nth), latency + 1_000_000)
+                    versions = [(f"{of} {nth}, commit later", with_one), (f"{of} {nth}, commit first", other)]
+                as_written.add(versions[0][0])
+            for label, version in versions:
+                if version is not None:
+                    faulted.append((label, nth, version))
+                    keep(Candidate(version, None, None, base=label))
+    # ... and the moment the caller gives up, to every transition.
+    under: dict[str, list[Event]] = {}
+    for label, nth, version in faulted:
+        produced = ledger(version)
+        if produced is None:
             continue
-        handles = speech_handles(case, index, events, speech_kinds)
-        if wanted_moments is not None:
-            handles = [h for h in handles if h.moment in wanted_moments]
-        alone = ledger(cases.without_speech(case, index))
-        if alone is not None:  # else the scenario cannot run without this speech
-            add(handles, transitions(alone, words=words))
+        under[label] = produced
+        gave_up = next((e for e in produced if e["kind"] == "effect.timed_out" and e["data"]["request"] == nth), None)
+        if gave_up is not None:
+            handle = Handle(Variable(cases.WAIT, nth), "gave_up", gave_up["t_us"], gave_up["data"]["after_us"])
+            place(version, [handle], transitions(produced, words=words), label)
+        if label in as_written:
+            # ... and the commit of a write whose caller gives up, to every transition.
+            commit = [h for h in delay_handles(produced, ["backend.latency"]) if h.variable.index == nth]
+            place(version, commit, transitions(produced, words=words), label)
+
+    if pairs:
+        # A fault and a speech: every speech again, with each fault in place.
+        for label, _nth, version in faulted:
+            if label in under:
+                move_speeches(version, under[label], label)
+        # Two faults: on two different writes.
+        for i, (label, nth, version) in enumerate(faulted):
+            for other_label, other_nth, other in faulted[i + 1 :]:
+                if other_nth == nth:
+                    continue
+                extra = next(f for f in other["faults"] if f["nth"] == other_nth)
+                both = cases.with_fault(version, extra["of"], other_nth, extra["us"])
+                # A timeout that commits later is a fault and a latency: carry both.
+                commit = Variable("backend.latency", other_nth)
+                if both is not None and cases.value(other, commit) != cases.value(case, commit):
+                    both = cases.with_value(both, commit, cases.value(other, commit))
+                if both is not None:
+                    keep(Candidate(both, None, None, base=f"{label} + {other_label}"))
+
+    # Every speech again, under provider delays redrawn from a seed.
+    applied = delay_handles(events, cases.DELAY_KINDS)
+    for number in range(1, profiles + 1):
+        rng = random.Random(f"{case['seed']}:{number}")
+        redrawn = case
+        for handle in applied:
+            most = min(delay_limit_us, max(2 * handle.value_us, 1_000_000))
+            changed = cases.with_value(redrawn, handle.variable, rng.randrange(0, most + 1, 10_000))
+            redrawn = changed if changed is not None else redrawn
+        produced = ledger(redrawn)
+        if produced is not None:
+            keep(Candidate(redrawn, None, None, base=f"profile {number}"))
+            move_speeches(redrawn, produced, f"profile {number}")
 
     todo = list(found.values())
     outcomes = runner.many([c.case for c in todo], each)
@@ -610,6 +736,7 @@ def explore(
 __all__ = [
     "DEFAULT_VARIABLES",
     "DELAY_LIMIT_US",
+    "WAIT_US",
     "OFFSETS_US",
     "Candidate",
     "Exploration",

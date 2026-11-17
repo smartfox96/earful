@@ -127,8 +127,10 @@ def _judge(view: View, policy: policies.L1, speech: Speech, chain: list[ModelCal
             break
         used += [t.called for t in ran] + refused
         ids = {t.tool for t in ran}
+        # What each write cost its caller: its latency, or the wait after which the
+        # caller was told it timed out.
         latency = sum(
-            e.requested["data"]["latency_us"]
+            e.timed_out["data"]["after_us"] if e.timed_out else e.requested["data"]["latency_us"]
             for e in view.effects.values()
             if e.requested["data"]["tool"] in ids
         )

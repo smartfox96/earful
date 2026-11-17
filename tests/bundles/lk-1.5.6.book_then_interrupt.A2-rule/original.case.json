@@ -1,8 +1,15 @@
 {
   "contracts": {},
-  "delays": [],
+  "delays": [
+    {
+      "nth": 1,
+      "of": "llm.ttft",
+      "us": 0
+    }
+  ],
+  "faults": [],
   "scenario": "earful.livekit.cases:book_then_interrupt",
-  "schema": "earful.case/1",
+  "schema": "earful.case/2",
   "seed": 0,
   "settings": {
     "backend_mode": "plain",

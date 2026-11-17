@@ -7,8 +7,9 @@
       "us": 0
     }
   ],
+  "faults": [],
   "scenario": "earful.livekit.cases:speak_over_new_turn",
-  "schema": "earful.case/1",
+  "schema": "earful.case/2",
   "seed": 0,
   "settings": {
     "backend_mode": "plain",

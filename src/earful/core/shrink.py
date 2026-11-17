@@ -11,7 +11,7 @@ a step is kept only if the run still breaks the same rule of the same contract.
    that list gives a smallest set of differences that still fails. The result is the
    author's scenario with only those changes, and if the author's scenario fails as
    written it is the author's scenario.
-2. **Remove.** ddmin again, over the speeches and then the declared delays that remain,
+2. **Remove.** ddmin again, over the speeches, the declared delays and the faults that remain,
    the author's own included: the fewest that still fail.
 3. **Settle.** For each time that still differs from the author's, measure the window in
    which the failure holds. If the failure has an edge along that time, put the time on
@@ -142,6 +142,16 @@ def differences(author: cases.Case, found: cases.Case) -> list[Difference]:
             to = theirs_delays.get(key)
             label = f"{key[0]} {key[1]} " + ("left to the scenario's code" if to is None else f"declared as {to} us")
             out.append(Difference(label, ("delay", *key), to))
+    ours_faults = {f["nth"]: (f["of"], f["us"]) for f in author["faults"]}
+    theirs_faults = {f["nth"]: (f["of"], f["us"]) for f in found["faults"]}
+    for nth in sorted(ours_faults.keys() | theirs_faults.keys()):
+        if ours_faults.get(nth) != theirs_faults.get(nth):
+            to = theirs_faults.get(nth)
+            if to is None:
+                label = f"backend write {nth} without its fault"
+            else:
+                label = f"{to[0]} on backend write {nth}" + ("" if to[1] is None else f", the caller waiting {to[1]} us")
+            out.append(Difference(label, ("fault", nth), to))
     for name in sorted(author["settings"].keys() | found["settings"].keys()):
         if author["settings"].get(name) != found["settings"].get(name):
             out.append(Difference(f"setting {name} = {found['settings'].get(name)!r}", ("setting", name), found["settings"].get(name)))
@@ -162,6 +172,7 @@ def applied(author: cases.Case, chosen: Sequence[Difference]) -> cases.Case:
     ]
     added: list[dict[str, Any]] = []
     delays = {(d["of"], d["nth"]): d["us"] for d in out["delays"]}
+    faults = {f["nth"]: (f["of"], f["us"]) for f in out["faults"]}
     for difference in chosen:
         target, to = difference.target, difference.value
         if target[0] == "added":
@@ -174,6 +185,8 @@ def applied(author: cases.Case, chosen: Sequence[Difference]) -> cases.Case:
                 draft[{"start": "start_us"}.get(target[2], target[2])] = copy.deepcopy(to)
         elif target[0] == "delay":
             delays.pop(target[1:], None) if to is None else delays.__setitem__(target[1:], to)
+        elif target[0] == "fault":
+            faults.pop(target[1], None) if to is None else faults.__setitem__(target[1], tuple(to))
         elif target[0] == "setting":
             out["settings"].pop(target[1], None) if to is None else out["settings"].__setitem__(target[1], to)
         elif target[0] == "contract":
@@ -187,6 +200,9 @@ def applied(author: cases.Case, chosen: Sequence[Difference]) -> cases.Case:
             speeches.append({**draft, "end_us": draft["start_us"] + length})
     out["speeches"] = sorted(speeches, key=lambda s: s["start_us"])
     out["delays"] = [{"of": of, "nth": nth, "us": us} for (of, nth), us in sorted(delays.items())]
+    out["faults"] = sorted(
+        ({"of": of, "nth": nth, "us": us} for nth, (of, us) in faults.items()), key=lambda f: (f["of"], f["nth"])
+    )
     return out
 
 
@@ -253,6 +269,8 @@ def _moved_times(author: cases.Case | None, case: cases.Case) -> list[Variable]:
             out.append(Variable("speech.end", j))
     declared = {(d["of"], d["nth"]): d["us"] for d in (author["delays"] if author else [])}
     out += [Variable(d["of"], d["nth"]) for d in case["delays"] if declared.get((d["of"], d["nth"])) != d["us"]]
+    waits = {f["nth"]: f["us"] for f in (author["faults"] if author else [])}
+    out += [Variable(cases.WAIT, f["nth"]) for f in case["faults"] if f["us"] is not None and waits.get(f["nth"]) != f["us"]]
     return out
 
 
@@ -277,8 +295,8 @@ def shrink(
     """Reduce ``case`` while running it still breaks ``predicate``.
 
     ``author`` is the scenario as its author wrote it: what the reduction measures the
-    case against. Without it differences cannot be isolated; speeches and delays are
-    removed and every time is settled. ``max_runs`` bounds the work; if it is spent, the
+    case against. Without it differences cannot be isolated; speeches, delays and
+    faults are removed and every time is settled. ``max_runs`` bounds the work; if it is spent, the
     case reduced so far is returned and ``complete`` is false.
 
     Raises ``ValueError`` if ``case`` does not break ``predicate`` to begin with.
@@ -305,8 +323,8 @@ def shrink(
                 current = applied(author, needed)
                 steps.append(f"kept {len(needed)} of {len(all_of_them)} differences from the author's scenario")
 
-    # 2. Remove: the fewest speeches and declared delays, the author's own included.
-    for name, plural in (("speeches", "speeches"), ("delays", "declared delays")):
+    # 2. Remove: the fewest speeches, declared delays and faults, the author's own included.
+    for name, plural in (("speeches", "speeches"), ("delays", "declared delays"), ("faults", "faults")):
         items = current[name]
         if items and not spent():
             kept = ddmin(

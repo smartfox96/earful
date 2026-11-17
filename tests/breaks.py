@@ -1,14 +1,19 @@
 """Scenarios with a deliberate break, and their controls, for the search tests.
 
 Each is a no-argument function returning a ``Case``, so a case file can name it
-(``breaks:slow_to_stop``) and a worker process can build it. Every break is an output
-that keeps playing for 400 ms after it is told to stop; they differ in when.
+(``breaks:slow_to_stop``) and a worker process can build it.
+
+The timing breaks are an output that keeps playing for 400 ms after it is told to stop;
+they differ in when. The fault breaks are booking models that handle a failed or
+timed-out write badly; each passes as written, where every write commits.
 """
 import asyncio
 
-from earful.livekit.cases import CASES, LONG_REPLY
-from earful.livekit.harness import Case
-from earful.livekit.providers import UserSpeech, letters
+import livekit.agents as lk
+
+from earful.livekit.cases import BOOKING_ACK, BOOKING_INTENT, CASES, LONG_REPLY
+from earful.livekit.harness import Case, Intent
+from earful.livekit.providers import Claim, Reply, ToolCall, UserSpeech, letters
 from earful.livekit.sink import ClockedSink
 
 # How much of the long reply has played when its seventh word ends: a boundary well
@@ -71,3 +76,91 @@ def interrupted_and_slow_to_stop() -> Case:
     case.sink = _slow_between(0, 10**12)
     return case
 
+
+
+# ----------------------------------------------------------------------------- faults
+
+
+def _asked_to_book(items) -> bool:
+    return any(i["type"] == "message" and i.get("role") == "user" and "table" in (i.get("text") or "").lower() for i in items)
+
+
+def _book() -> Reply:
+    return Reply(text=BOOKING_ACK, tool_calls=(ToolCall("create_reservation", '{"party_size": 6}'),))
+
+
+def _confirms_whatever_came_back(items) -> Reply:
+    """Says the table is booked once the tool has answered, error or not."""
+    if any(i["type"] == "function_call_output" for i in items):
+        return Reply(text="Your table is booked.", claims=(Claim(BOOKING_INTENT),))
+    return _book() if _asked_to_book(items) else Reply(text="How can I help?")
+
+
+def _reads_the_error(items) -> Reply:
+    """Confirms a booking only on a result that is not an error."""
+    results = [i for i in items if i["type"] == "function_call_output"]
+    if any(not r["is_error"] for r in results):
+        return Reply(text="Your table is booked.", claims=(Claim(BOOKING_INTENT),))
+    if results:
+        return Reply(text="Sorry, I could not make that booking.")
+    return _book() if _asked_to_book(items) else Reply(text="How can I help?")
+
+
+def _tries_again(items) -> Reply:
+    """After one error it calls the tool a second time; after two it gives up."""
+    results = [i for i in items if i["type"] == "function_call_output"]
+    if any(not r["is_error"] for r in results):
+        return Reply(text="Your table is booked.", claims=(Claim(BOOKING_INTENT),))
+    if len(results) == 1:
+        return _book()
+    if results:
+        return Reply(text="Sorry, I could not make that booking.")
+    return _book() if _asked_to_book(items) else Reply(text="How can I help?")
+
+
+class _KeyedBookingAgent(lk.Agent):
+    """Books with an idempotency key: the same booking asked for twice is one write."""
+
+    def __init__(self, backend) -> None:
+        super().__init__(instructions="You take restaurant reservations.")
+        self._backend = backend
+
+    @lk.function_tool
+    async def create_reservation(self, party_size: int) -> str:
+        """Create a reservation.
+
+        Args:
+            party_size: Number of guests
+        """
+        receipt = await self._backend.write(BOOKING_INTENT, {"party_size": party_size}, key=f"table-for-{party_size}")
+        return f"Reservation {receipt} confirmed for {party_size} guests."
+
+
+def _booking(policy, **changes) -> Case:
+    case = CASES["book_then_interrupt"]()
+    case.speeches = case.speeches[:1]
+    case.policy = policy
+    case.intents = [Intent(BOOKING_INTENT, tools=("create_reservation",))]
+    for name, to in changes.items():
+        setattr(case, name, to)
+    return case
+
+
+def confirms_a_failed_booking() -> Case:
+    """One request to book. The model confirms whatever the tool returned."""
+    return _booking(_confirms_whatever_came_back)
+
+
+def reads_the_error() -> Case:
+    """The control: the model confirms only a write that succeeded."""
+    return _booking(_reads_the_error)
+
+
+def retries_without_a_key() -> Case:
+    """The model calls the tool again after an error, and the tool sends no key."""
+    return _booking(_tries_again)
+
+
+def retries_with_a_key() -> Case:
+    """The control: the same model, a tool that sends a key and a backend that honours it."""
+    return _booking(_tries_again, agent=_KeyedBookingAgent, backend_mode="keyed")

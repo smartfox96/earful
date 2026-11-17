@@ -17,7 +17,7 @@ from livekit.agents import utils
 from livekit.agents.voice import io
 from livekit.agents.voice.transcription.synchronizer import TranscriptSynchronizer
 
-from ..core.backend import BackendMode, EffectBackend
+from ..core.backend import FAULTS, BackendMode, EffectBackend
 from ..core.checker.policy import parse_all
 from ..core.ledger import Ledger, ledger_hash
 from ..core.schema import validity
@@ -98,6 +98,22 @@ class Delay:
     seconds: float
 
 
+@dataclass(frozen=True)
+class Fault:
+    """Something the scenario declares goes wrong, for one occurrence of something.
+
+    ``backend.error``: the backend rejects write ``nth``; nothing commits and the tool is
+    told. ``backend.timeout``: the tool stops waiting for write ``nth`` after ``seconds``
+    and is told it timed out, while the write still commits at its own latency.
+    ``backend.drop``: write ``nth`` is lost; nothing commits and the tool is told, after
+    ``seconds``, that it timed out.
+    """
+
+    of: str
+    nth: int
+    seconds: float | None = None  # how long the caller waits; not used by backend.error
+
+
 @dataclass
 class Case:
     """Everything that defines a run. Same case + same seed must give the same ledger."""
@@ -109,6 +125,7 @@ class Case:
     intents: list[Intent] = field(default_factory=list)
     contracts: dict[str, dict[str, Any]] = field(default_factory=dict)  # id -> policy values
     delays: list[Delay] = field(default_factory=list)  # provider delays declared as data
+    faults: list[Fault] = field(default_factory=list)  # things declared to go wrong
     backend_mode: BackendMode = "plain"
     seconds_per_letter: float = 0.06  # the scripted voice: a five-letter word takes 0.3 s
     tts_ttfb: float = 0.2
@@ -147,6 +164,19 @@ class Case:
             if (delay.of, delay.nth) in seen:
                 raise ValueError(f"delay {delay.of} #{delay.nth} is declared more than once")
             seen.add((delay.of, delay.nth))
+        faulted: set[int] = set()
+        for fault in self.faults:
+            if fault.of not in FAULTS:
+                raise ValueError(f"unknown fault {fault.of!r}; choose from {list(FAULTS)}")
+            waits = fault.of != "backend.error"
+            if fault.nth < 1 or (waits and (fault.seconds is None or fault.seconds < 0)) or (not waits and fault.seconds is not None):
+                raise ValueError(
+                    f"fault {fault.of} #{fault.nth}: nth counts from 1; a timeout or a drop says "
+                    "how long the caller waits, and an error does not"
+                )
+            if fault.nth in faulted:
+                raise ValueError(f"backend write #{fault.nth} has more than one fault")
+            faulted.add(fault.nth)
         names = [it.intent for it in self.intents]
         if len(set(names)) != len(names):
             raise ValueError("an intent is declared more than once")
@@ -287,6 +317,10 @@ def _header(case: Case, witnessed_tools: list[str]) -> dict[str, Any]:
                 for name in sorted(case.session_kwargs)
             },
         },
+        "faults": [
+            {"of": fault.of, "nth": fault.nth, "us": None if fault.seconds is None else to_us(fault.seconds)}
+            for fault in sorted(case.faults, key=lambda f: (f.of, f.nth))
+        ],
         "providers": {
             "vad": {
                 "min_speech_us": to_us(case.vad_min_speech),
@@ -415,9 +449,13 @@ async def _run(case: Case, seed: int) -> RunResult:
 
     # The agent is built before the header is written, so the header can name the tools
     # the witness records. Nothing here reaches the ledger.
-    agent = case.agent(
-        EffectBackend(ledger, mode=case.backend_mode, latencies_us=declared("backend.latency"))
+    backend = EffectBackend(
+        ledger,
+        mode=case.backend_mode,
+        latencies_us=declared("backend.latency"),
+        faults={f.nth: (f.of, None if f.seconds is None else to_us(f.seconds)) for f in case.faults},
     )
+    agent = case.agent(backend)
     witnessed_tools = await tools.witness_agent_tools(agent)
 
     declared, effective = _declared_session(case), _effective_session(session)
@@ -455,6 +493,7 @@ async def _run(case: Case, seed: int) -> RunResult:
         # The scenario is over. A tool still running is cut off and recorded as cancelled:
         # some releases cannot close a session while one of its tools is stuck.
         await witness.cancel_running()
+        await backend.cancel_in_flight()
         try:
             await asyncio.wait_for(session.aclose(), timeout=case.drain_timeout)
         except asyncio.TimeoutError:

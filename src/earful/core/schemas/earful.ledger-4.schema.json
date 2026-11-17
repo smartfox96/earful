@@ -1,8 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "urn:earful:ledger:3",
+  "$id": "urn:earful:ledger:4",
   "title": "Earful ledger event",
-  "description": "One line of an earful.ledger/3 file. A ledger is one JSON object per line, in the order events happened. Rules that span lines (order, references between events) are listed in docs/ledger.md.",
+  "description": "One line of an earful.ledger/4 file. A ledger is one JSON object per line, in the order events happened. Rules that span lines (order, references between events) are listed in docs/ledger.md.",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -16,7 +16,7 @@
   ],
   "properties": {
     "schema": {
-      "const": "earful.ledger/3"
+      "const": "earful.ledger/4"
     },
     "run": {
       "description": "Identifies the run: a digest of the data of its run.start event.",
@@ -73,7 +73,9 @@
             "playout.finished",
             "effect.requested",
             "effect.committed",
-            "effect.deduplicated"
+            "effect.deduplicated",
+            "effect.failed",
+            "effect.timed_out"
           ]
         },
         {
@@ -618,6 +620,50 @@
       "if": {
         "properties": {
           "kind": {
+            "const": "effect.failed"
+          }
+        },
+        "required": [
+          "kind"
+        ]
+      },
+      "then": {
+        "properties": {
+          "source": {
+            "const": "backend"
+          },
+          "data": {
+            "$ref": "#/$defs/effect.failed"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "kind": {
+            "const": "effect.timed_out"
+          }
+        },
+        "required": [
+          "kind"
+        ]
+      },
+      "then": {
+        "properties": {
+          "source": {
+            "const": "backend"
+          },
+          "data": {
+            "$ref": "#/$defs/effect.timed_out"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "kind": {
             "const": "effect.deduplicated"
           }
         },
@@ -699,6 +745,7 @@
         "intents",
         "witnessed_tools",
         "delays",
+        "faults",
         "session",
         "providers"
       ],
@@ -822,6 +869,44 @@
               "us": {
                 "$ref": "#/$defs/microseconds",
                 "description": "The delay."
+              }
+            }
+          }
+        },
+        "faults": {
+          "type": "array",
+          "description": "Things the scenario declares go wrong, each for one occurrence.",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "of",
+              "nth",
+              "us"
+            ],
+            "properties": {
+              "of": {
+                "enum": [
+                  "backend.error",
+                  "backend.timeout",
+                  "backend.drop"
+                ],
+                "description": "backend.error: the backend rejects the write and tells the caller. backend.timeout: the caller stops waiting; the write still commits at its own latency. backend.drop: the write is lost and the caller is told it timed out."
+              },
+              "nth": {
+                "$ref": "#/$defs/ordinal",
+                "description": "Which backend request, from 1."
+              },
+              "us": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/microseconds"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "How long the caller waits before it is told the write timed out. Null for backend.error."
               }
             }
           }
@@ -1937,6 +2022,59 @@
             "integer",
             "null"
           ]
+        }
+      }
+    },
+    "effect.failed": {
+      "description": "The backend rejected a write. Nothing was committed, and the caller was told.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "request",
+        "intent",
+        "key"
+      ],
+      "properties": {
+        "request": {
+          "$ref": "#/$defs/ordinal"
+        },
+        "intent": {
+          "$ref": "#/$defs/intent_id"
+        },
+        "key": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "effect.timed_out": {
+      "description": "The caller of a write stopped waiting for it. Says nothing about whether the write commits.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "request",
+        "intent",
+        "key",
+        "after_us"
+      ],
+      "properties": {
+        "request": {
+          "$ref": "#/$defs/ordinal"
+        },
+        "intent": {
+          "$ref": "#/$defs/intent_id"
+        },
+        "key": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "after_us": {
+          "$ref": "#/$defs/microseconds",
+          "description": "How long the caller had waited."
         }
       }
     }
