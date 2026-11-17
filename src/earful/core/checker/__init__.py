@@ -57,6 +57,18 @@ def check(events: list[dict[str, Any]]) -> Report:
     run = events[0].get("run") if events and isinstance(events[0], dict) else None
     if reasons:
         return Report(run=run, valid=False, invalid=tuple(reasons), results={})
+    reading, possible, results = _judge(events)
+    return Report(
+        run=run, valid=True, invalid=(), results=results, reading=reading, readings=possible
+    )
+
+
+def _judge(events: list[dict[str, Any]]) -> tuple[Reading, int, dict[str, ContractResult]]:
+    """The verdict of every contract for a well-formed ledger: the reading reported, how
+    many readings the ledger allows, and the results. It does not ask whether the run is
+    valid evidence. ``check`` does, and is what decides a run; the one other caller is
+    the comparison of a real-clock run with its virtual one (``earful.core.crosscheck``).
+    """
     policies = parse_all(events[0]["data"]["contracts"])
     # Where the ledger cannot say which of several identical replies a text was, every
     # reading is checked and the one most favourable to the system is reported: fewest
@@ -78,14 +90,7 @@ def check(events: list[dict[str, Any]]) -> Report:
             best = (score, reading, results)
     assert best is not None
     _score, reading, results = best
-    return Report(
-        run=run,
-        valid=True,
-        invalid=(),
-        results=split(results, checked),
-        reading=reading,
-        readings=len(possible),
-    )
+    return reading, len(possible), split(results, checked)
 
 
 __all__ = [
