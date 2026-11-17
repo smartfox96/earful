@@ -943,4 +943,11 @@ MUTANTS = [
         ),
         first="names_no_reply",
     ),
+    Mutant(
+        "reading_split: an instance only another reading judges leaves no note",
+        "src/earful/core/checker/report.py",
+        "                if other.outcome == PASS or other.instance in judged:\n",
+        "                if True:\n",
+        first="only_another_reading_judges",
+    ),
 ]

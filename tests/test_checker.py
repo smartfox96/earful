@@ -624,6 +624,20 @@ def test_a_split_is_a_worse_outcome_for_the_same_instance_under_another_reading(
     assert [v.outcome for v in marked] == [v.outcome for v in reported["L1"].verdicts]
 
 
+def test_an_instance_only_another_reading_judges_is_said_in_a_note():
+    """The reported reading has no verdict for it, so there is nothing to flag. A note
+    on the contract says that another reading judges it and it does not pass there."""
+    reported = _turns(PASS, None, None, None)
+    other = _turns(PASS, FAIL, UNOBSERVABLE, PASS)
+    result = split(reported, [reported, other, other])["L1"]
+    assert [v.flags for v in result.verdicts] == [("silenced_by_a_tool",)]
+    assert result.notes == (
+        "another reading judges speech 1, which this one does not: fail",
+        "another reading judges speech 2, which this one does not: unobservable",
+    )
+    assert split(reported, [reported])["L1"].notes == ()  # one reading: nothing to say
+
+
 def _speech(index, text, backchannel=False):
     return Speech(index, 0, 0, text, not backchannel, backchannel, ())
 
