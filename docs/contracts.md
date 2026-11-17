@@ -5,7 +5,8 @@ Status: **implemented**, 16 November 2026, as contracts version `earful.contract
 
 This document defines what Earful checks. The checker, the ledger schema and the deliberate
 breaks that prove the checker works are all built against it. Section 10 records what the
-checker measured on the reference ledgers, which is what the default policy values rest on.
+checker measured on the reference ledgers. The default policy values rest on those
+measurements.
 
 ```python
 from earful.core.checker import check
@@ -21,8 +22,8 @@ the ledger: it imports neither the scenario nor the framework under test.
 
 A contract is a statement about one run that can be decided from the run's ledger alone.
 The test author declares which contracts apply and with which policy. A violation means
-the run contradicted the declared contract. It does not by itself mean the framework has
-a defect: section 7 covers attribution.
+the run contradicted the declared contract. Whether the framework has a defect is a
+separate question, covered in section 7.
 
 Earful does not judge answer quality, speech recognition accuracy, voice quality or
 whether a conversation achieved its goal.
@@ -63,14 +64,14 @@ Each contract compares a **judged record** with a **reference record**.
 - `seq` is the total order of a run. "Before" means lower `seq`.
 - `t_us` is virtual time in microseconds. A deadline is met if the event's `t_us` is at or
   before the deadline.
-- Where a rule compares an event with a time that is derived rather than recorded (for
-  example the instant a word finished playing), equal times satisfy "at or before".
+- Where a rule compares an event with a derived time (for example the instant a word
+  finished playing), equal times satisfy "at or before".
 - Two things that happen at the same instant are ordered by `seq`, but nothing the
   scenario declares decides that order. Two rules would otherwise turn on it, and in
   those the framework is not held to either reading: a stop that reaches the sink as the
   audio ends (M1, rule 5), and a tool that returns as a call for a later turn is being
-  made (M2, rule d). On a virtual clock these ties are exact and repeatable; on a real
-  one they are a race nobody could win reliably. Every other rule goes by `seq`.
+  made (M2, rule d). On a virtual clock these ties are exact and repeatable. On a real
+  clock either order can occur. Every other rule goes by `seq`.
 
 ### 2.4 Run validity
 
@@ -90,23 +91,22 @@ All five are decided from the ledger alone, by one function
 
 Two things in a ledger have no identity beyond their words.
 
-- **A synthesized text.** The scripted voice is handed a text, not the model call it came
-  from. A framework that generates a reply again for the same turn gets the same words
-  from a scripted model, and voices one of the copies. The ledger names every reply the
-  text could be (`tts.synthesized`: `candidates`).
+- **A synthesized text.** The scripted voice is handed a text with no reference to the
+  model call it came from. A framework that generates a reply again for the same turn
+  gets the same words from a scripted model, and voices one of the copies. The ledger
+  names every reply the text could be (`tts.synthesized`: `candidates`).
 - **A remembered message.** An assistant message in a context carries its words and its
   place. When two things the agent said have the same words and one message remains, it
   could be either.
 
 Which copy was voiced, or kept, is not observable, and it makes no difference to what
-the user heard or to what the model is shown. So the checker does not treat it as missing
-evidence. It reads the ledger every way the candidates allow, and reports the reading
-most favourable to the system under test: the fewest failed verdicts, then the fewest
-unobservable ones. A run therefore fails only if it fails however it is read, and a
-failure reported holds under the kindest reading.
+the user heard or to what the model is shown. The checker reads the ledger every way the
+candidates allow and reports the reading most favourable to the system under test: the
+fewest failed verdicts, then the fewest unobservable ones. A run fails only if it fails
+under every reading.
 
-One reading is chosen for the whole run, not one per contract, so no verdict rests on a
-reading that another verdict contradicts. The report names the reading taken
+One reading is chosen for the whole run, so no verdict rests on a reading that another
+verdict contradicts. The report names the reading taken
 (`reading`: utterance to model call) and how many there were (`readings`), and every
 verdict that rests on it carries the flag `most_favourable_reading`. Within M1, each
 context's messages are matched to what was said the same way: of the matchings that keep
@@ -139,12 +139,12 @@ The checker reads these from the ledger header; it never imports the scenario.
 | --- | --- | --- |
 | User speech: start, end, transcript | A scripted utterance. An empty transcript is noise | all |
 | `expects_reply` on a speech | The agent owes this turn a response. Default: true when the transcript is non-empty and the speech is not a backchannel | L1 |
-| `backchannel` on a speech | The user is acknowledging, not taking the floor | L1, L2, M2 |
+| `backchannel` on a speech | The user is acknowledging and does not take the floor | L1, L2, M2 |
 | `retires` on a speech | This turn corrects or cancels the named intent | A1 |
 | Intent | A logical action the user wants done once, with its authorized effect count (default 1) and the tools that carry it out | A1, A2, A3 |
 | Claim on a scripted reply | The reply, or a span of its words, tells the user an intent succeeded | A3 |
 | Provider delay | How long a model call, a first audio or a backend write takes, declared as data in place of what the scenario's code would ask for | L1; and it moves what every contract judges |
-| Policy values | The tolerances, bounds and budgets named in section 6, in `run.start`'s `contracts`. Times are integer microseconds, as everywhere in Earful. A value a contract does not define is an error, not ignored | all |
+| Policy values | The tolerances, bounds and budgets named in section 6, in `run.start`'s `contracts`. Times are integer microseconds, as everywhere in Earful. A value a contract does not define is an error | all |
 
 ## 5. Verdicts
 
@@ -158,9 +158,9 @@ section 6 defines. An instance gets one of three verdicts.
 A contract's result for a run is `fail` if any instance failed, otherwise `unobservable`
 if any instance was unobservable, otherwise `pass`.
 
-A contract with no instances in a run is reported as **not exercised**, never as a pass.
-A test may require that a contract is exercised, so that a scenario which never reaches
-the behaviour cannot pass silently.
+A contract with no instances in a run is reported as **not exercised**. A test may
+require that a contract is exercised, so a scenario that never reaches the behaviour does
+not pass.
 
 Every verdict carries: the contract, the instance, a one-sentence summary, the rule each
 finding broke, the `seq` of each event it rests on, the witnesses those events came from,
@@ -186,7 +186,7 @@ After the user corrects or cancels an intent, no new side-effecting call for it 
 | Retirement point | The `world` event delivering that final transcript. This is the earliest instant any system could know |
 | Judged record | `backend`: write requests for the intent |
 | Rule | Fail if a write request for the intent comes after the retirement point |
-| In-flight calls | A write requested before the retirement point may still commit after it. Reported as a late commit, not a failure |
+| In-flight calls | A write requested before the retirement point may still commit after it. This is reported as a late commit and does not fail |
 | Policy | `in_flight`: `may_finish` (default) or `must_not_commit`. `reissue_allowed`: intents the correction is permitted to start |
 | Unobservable | The intent's tool was called after the retirement and wrote nothing at all through the backend, so what it did cannot be known. A call that wrote for another intent is accounted for |
 | Deliberate break | A model policy that calls the tool again after the correction is in its context |
@@ -202,7 +202,7 @@ Durable effects for an intent do not exceed the count the scenario authorized.
 | Judged record | `backend`: committed effects |
 | Rule | Fail if committed effects for the intent exceed its authorized count |
 | Policy | None of its own. The authorized count is declared on the intent (default 1). The backend mode is declared on the scenario: `plain` (every write commits) or `keyed` (a repeated idempotency key is deduplicated and does not count) |
-| Unobservable | A tool for the intent was called and wrote nothing at all through the backend. A call that wrote for another intent is accounted for: the intent was simply not acted on, and has no instance |
+| Unobservable | A tool for the intent was called and wrote nothing at all through the backend. A call that wrote for another intent is accounted for: the intent was not acted on, and has no instance |
 | Faults | A write counts if it committed, whatever its caller was told. A write the backend rejected or lost never counts |
 | Not judged | Too few effects. That is A3 when the agent claimed success, and otherwise a scenario expectation |
 | Deliberate break | A tool that writes twice for one call, on a `plain` backend |
@@ -258,9 +258,9 @@ length: two words can be 0.2 s or 1.2 s.
 | Deliberate break | A sink that tells the framework playback has started 2.5 seconds before it begins to play, as an output with an unannounced buffer would, while recording the truth |
 | Clean control | The unmodified sink |
 
-Why the tolerances default to one second. The framework estimates how much text was
-spoken; the sink counts samples. `scripts/contracts_m1_sweep.py` interrupts a reply at
-every 50 ms, for four sentences, and reports the drift:
+The one-second defaults come from a measurement. The framework estimates how much text
+was spoken, and the sink counts samples. `scripts/contracts_m1_sweep.py` interrupts a
+reply at every 50 ms, for four sentences, and reports the drift:
 
 | livekit-agents | Seconds per letter | Sentence | Interruption points | Exact | Most behind | Most ahead |
 | --- | --- | --- | --- | --- | --- | --- |
@@ -280,10 +280,10 @@ every 50 ms, for four sentences, and reports the drift:
 1.6.5 gives the same figures as 1.8.12. The framework's memory of an interrupted reply
 is exact at most interruption points and otherwise within about 0.7 s of what was played,
 in either direction, depending on the sentence and on how fast the voice speaks. Counted
-in words that is anywhere from four words behind to two ahead, which is why the tolerance
-is not counted in words. With one second each way an ordinary interruption never fails,
-while a reply remembered in full after two seconds of playout does, and so does one
-remembered not at all. A scenario that needs exact agreement sets both tolerances to 0.
+in words that is anywhere from four words behind to two ahead, so the tolerance is in
+audio time. With one second each way an ordinary interruption passes. A reply remembered
+in full after two seconds of playout fails, and so does one that is not remembered at
+all. A scenario that needs exact agreement sets both tolerances to 0.
 
 The scripted voice gives each word audio in proportion to its letters. A voice that gave
 every word the same length, as an earlier version of the harness did, is unlike any real
@@ -369,16 +369,16 @@ between two speeches of a segment is in neither floor window: the user is not sp
 | Deliberate break | A sink that keeps consuming for 400 ms after it is told to pause or clear; a second variant with interruptions disabled on the agent while the policy still expects them |
 | Clean control | The unmodified sink; interruptions disabled with `interruptions_allowed = false` |
 
-The interruption point is computed from the declared threshold, not from the moment the
-framework says it decided. That keeps the reference record independent. The cost is that
-Earful must model the framework's threshold correctly; if a release changes how it counts
-speech, the computed point is wrong and failures would be false. The `reference_in_doubt`
-mark exists for that case, and the decision lag on every instance shows the drift before
-it causes a failure.
+The interruption point is computed from the declared threshold. The moment the framework
+says it decided is not used, which keeps the reference record independent of the
+framework. In return Earful must model the framework's threshold correctly: if a release
+changes how it counts speech, the computed point is wrong and failures would be false.
+The `reference_in_doubt` mark exists for that case, and the decision lag on every
+instance shows the drift before it causes a failure.
 
 Stop latency is zero in every run with the standard sink, because the sink stops the
 instant it is told to. Rule a therefore tests whether and when the framework issues the
-command, not how fast an output device obeys it.
+command. How fast an output device obeys it is outside the rule.
 
 ## 7. Attributing a failure
 
@@ -449,25 +449,27 @@ Taken while building the checker, 16 November 2026:
 7. **The checker never guesses which reply a remembered message is.** When two replies
    have the same text and only one is remembered, order cannot say which. Both were left
    ambiguous and M1 reported them unobservable. The alternative considered then, taking
-   the earlier one, turns one honest unknown into two false failures. Decision 22
-   replaced this: the checker still does not guess, but no longer calls it unknown.
-8. **M1's deliberate break is a late-starting output, not a misreported position.** The
-   framework does not use the playback position an output reports to decide what it
-   remembers; it runs its own estimate from the moment the output says playback started.
-   An output that says so 2.5 seconds early is the fault that makes memory run ahead of
-   what was played, and it is a real one: any buffer the framework does not know about.
+   the earlier one, reports two false failures where there is one unknown. Decision 22
+   replaced this. The checker still does not guess, and it no longer reports the reply as
+   unobservable.
+8. **M1's deliberate break is an output that starts late.** A misreported playback
+   position would break nothing: the framework does not use the position an output
+   reports to decide what it remembers. It runs its own estimate from the moment the
+   output says playback started. An output that says so 2.5 seconds early makes memory
+   run ahead of what was played. Any buffer the framework does not know about has the
+   same effect.
 9. **L1's budget is built only from what the scenario declared.** Each deadline is the
    declared end-of-turn delay plus the scripted delays of the steps taken so far, plus one
    allowance of slack. The alternative, measuring each step from when the previous one
    happened, forgives a turn that falls behind a little at every step.
-10. **Policy values are versioned with the contracts, not with the ledger.** The ledger
-    carries them as declared; `earful.contracts/1` defines which exist. A scenario that
+10. **Policy values are versioned with the contracts.** The ledger carries them as
+    declared, and `earful.contracts/1` defines which exist. A scenario that
     declares one that does not exist is refused, by the harness before the run and by the
     checker.
 
-11. **M1's tolerance is audio time, not words.** Measured over four sentences and three
+11. **M1's tolerance is audio time.** Measured over four sentences and three
     speaking rates, the framework's memory is anywhere from four words behind to two
-    ahead of what was played, but always within about 0.7 s. A tolerance in words is too
+    ahead of what was played, and always within about 0.7 s. A tolerance in words is too
     loose for short words and too tight for long ones. The first tolerance, one word, had
     been measured on a single sentence spoken by a voice that gave every word the same
     length.
@@ -504,8 +506,8 @@ ledger was able to show.
     transcript never disappears once it has appeared. A framework that answers ahead of
     time shows the model a transcript it has not yet committed; a call it then makes for
     the turn before does not hold it. The lag is now measured from the instant the turn
-    can be over, which is also what makes a long endpointing delay, or a user who goes on
-    speaking, not a failure.
+    can be over, so a long endpointing delay, or a user who goes on speaking, does not
+    fail.
 19. **Any reply to a turn is its response.** L1 followed a turn's replies only through
     its tool rounds, and so missed a reply the framework generated again after a
     backchannel: the turn was answered and the verdict said it never was.
@@ -524,29 +526,31 @@ ledger was able to show.
     unobservable whenever the same sentence was said twice and one copy was voiced or
     kept. A framework does that by itself: it generates a reply again for the same turn,
     and a scripted model gives the same words. On livekit-agents 1.8.12 that left M1
-    unobservable in 134 of 3 168 swept runs, L1 in 51 and A3 in 10. But which copy it was
-    is not a fact anyone can observe, in the ledger or in production, and nothing a user
-    hears depends on it. So the ledger names every candidate, the checker checks every
-    reading, and a run fails only if every reading does. The alternative, choosing the
-    earliest or the latest copy, would be a guess; reporting the reading that fails least
-    is a statement about all of them.
+    unobservable in 134 of 3 168 swept runs, L1 in 51 and A3 in 10. Which copy it was
+    cannot be observed, in the ledger or in production, and nothing a user hears depends
+    on it. The ledger names every candidate, the checker checks every reading, and a run
+    fails only if every reading does. The alternative, choosing the earliest or the
+    latest copy, would be a guess.
 
 Taken while building the search (`docs/search.md`), 16 November 2026:
 
 23. **Speech that resumes within the VAD's silence window is one segment.** Refusing such
-    scenarios (decision 13) kept the harness honest and put the most interesting moments
-    out of reach: a user who speaks again half a second after stopping does so as the
+    scenarios (decision 13) put the moments around a turn's commit out of reach: a user
+    who speaks again half a second after stopping does so as the
     turn is committed, the model is called and the tool runs. The scripted VAD now does
     what a VAD does, reporting one segment, and L2 takes the floor window and the
     interruption point from the segment.
 24. **A provider delay can be declared as data.** How long a model call or a backend
-    write takes was a matter for the scenario's code, so a search could not move a tool's
-    completion, only the user. A declared delay takes the place of the code's, is stated
-    in the header and is recorded where it is applied. L1 budgets each reply with the
-    time to first audio its own utterance had.
+    write takes was a matter for the scenario's code, so a search could move the user's
+    speech and could not move a tool's completion. A declared delay takes the place of
+    the code's, is stated in the header and is recorded where it is applied. L1 budgets
+    each reply with the time to first audio its own utterance had.
 25. **L1 names the milestone a turn missed.** Its findings all carried one rule name, so
     a search or a reduction that follows "the same failure" could slide from a model that
     was never called to a reply that never played without noticing.
+
+Taken while adding backend faults, agreed 17 November 2026:
+
 26. **A backend fault is declared as data, for one write.** The caller is told what a
     real client is told: an error, or a timeout that says nothing about whether the write
     committed. The ledger records the outcome of a write and what its caller was told as
@@ -562,7 +566,7 @@ ledgers are three cases on five releases.
 | --- | --- | --- |
 | L2 decision lag: declared interruption point to the command | 0 in every interruption | `stop_bound_us` 100 000, two ticks of the scripted VAD |
 | L2 stop latency: command to silence | 0 in every interruption | the same |
-| L2 recognition delay: true start of speech to the command | 500 000 when the agent was speaking; 50 000 when the repaired releases pause before a stale reply starts | reported, not judged |
+| L2 recognition delay: true start of speech to the command | 500 000 when the agent was speaking; 50 000 when the repaired releases pause before a stale reply starts | reported only |
 | L1 time to the first model call | 0 to 300 000 | `slack_us` 1 000 000 |
 | L1 time to first audio | 500 000 to 800 000 | the same |
 | L1 smallest margin before a deadline | 1 690 000 | the same. Every milestone is on time even with `slack_us` 0 |
@@ -593,8 +597,7 @@ What fails:
 
 - **The first known defect**, on the three releases before 1.6.6: A2 in 98 runs, and M2
   rule d in 469 runs on 1.6.5 and 491 on 1.5.6 and 1.5.7. M2 shows it in six to eight
-  shapes, wherever a reply that called a tool is interrupted, not only in the reference
-  case.
+  shapes: wherever a reply that called a tool is interrupted.
 - **The second known defect**, on 1.5.6: L2 rule b in 242 runs, across 21 of the 23
   shapes.
 
