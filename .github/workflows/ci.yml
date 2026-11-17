@@ -66,7 +66,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v6
-      - name: ruff format, ruff check, mypy (scripts/lint.sh)
+      - name: ruff format, ruff check, mypy, mutants apply (scripts/lint.sh)
         run: scripts/lint.sh
 
   determinism:

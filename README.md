@@ -30,7 +30,7 @@ Layout:
 
 - `src/earful/core/` - ledger, its JSON Schema and validator, run validity, effect backend, the contract checker (`checker/`), the case format (`case.py`), the boundary scheduler (`search.py`), the shrinker (`shrink.py`) and the failure bundle (`bundle.py`). Never imports `livekit`.
 - `src/earful/livekit/` - virtual clock, scripted providers, tool witness, clocked sink, harness, cases, and the adapter that runs a case from its data (`scenario.py`).
-- `scripts/` - environment builder, repeatability and historical checks, and the sweeps the contract defaults rest on (`contracts_sweep.py`, `contracts_m1_sweep.py`).
+- `scripts/` - environment builder, the static checks (`lint.sh`), repeatability and historical checks, the sweeps the contract defaults rest on (`contracts_sweep.py`, `contracts_m1_sweep.py`), and the checks behind the Gate 1 page: deliberate breaks of the code (`mutate.py`), its figures (`gate1_figures.py`) and the search against the sweep (`search_vs_sweep.py`).
 - `tests/golden/` - reference ledgers every platform must reproduce byte for byte. Checks never write here.
 - `tests/bundles/` - the two known defects, found by the search and reduced: red on the releases that have them, green on the ones that repaired them.
 - `docs/cases/` - one page per known defect: the commands, what the ledger shows, the limits.
