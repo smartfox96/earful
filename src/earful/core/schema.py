@@ -161,7 +161,12 @@ def _check_ledger(events: list[Event], errors: list[str]) -> None:
             errors.append(f"{where}: the scenario declares no hangup")
         elif not origins or origins[0]["seq"] > e["seq"]:
             errors.append(f"{where}: comes before user.origin")
-        elif e["t_us"] != origins[0]["t_us"] + scenario["hangup_us"]:
+        elif header["clock"] == "virtual" and (
+            e["t_us"] != origins[0]["t_us"] + scenario["hangup_us"]
+        ):
+            # To the microsecond, which only a virtual clock can keep. A real-clock ledger
+            # is not evidence in any case; how near its hangup came is for whoever
+            # compares it with the virtual run.
             errors.append(
                 f"{where}: not at the declared time, {scenario['hangup_us']} us after the origin"
             )

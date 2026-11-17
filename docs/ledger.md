@@ -323,8 +323,9 @@ They never decide a verdict.
 - speeches are numbered in order, end no earlier than they start, and scripted-user
   events name a declared speech, come after the origin, and occur at most once per
   speech; a VAD report names the first or the last speech of a segment;
-- a hangup is recorded at most once, only if the scenario declares one, at the declared
-  time after the origin, and no declared speech ends after it;
+- a hangup is recorded at most once, only if the scenario declares one, and no declared
+  speech ends after it. On the virtual clock it is at the declared time after the origin,
+  to the microsecond;
 - every intent named by a write, a claim or a speech's `retires` is declared, once. A
   misspelt intent is an error, so it cannot leave a contract with nothing to check;
 - a tool listed in `effects` is listed once, is one of `witnessed_tools`, and is among the
