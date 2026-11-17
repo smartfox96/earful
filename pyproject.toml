@@ -8,7 +8,15 @@ license = "Apache-2.0"
 dependencies = ["jsonschema>=4.18"]
 
 [project.optional-dependencies]
-livekit = ["livekit-agents>=1.5.6"]
+# From the oldest release tested to the newest line tested: docs/compatibility.md.
+livekit = ["livekit-agents>=1.5.6,<1.9"]
+
+[project.scripts]
+earful = "earful.cli:main"
+
+# The `earful` fixture and its options, in any project that installs the package.
+[project.entry-points.pytest11]
+earful = "earful.pytest_plugin"
 
 [build-system]
 requires = ["hatchling"]

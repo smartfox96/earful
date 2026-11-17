@@ -24,13 +24,16 @@ bundle.capture(directory, case, scenario.run, Predicate("A2", "rule"), author=au
 ```
 
 ```bash
-python scripts/search.py earful.livekit.cases:book_then_interrupt --keep A2/rule --out out
-python scripts/replay.py out/lk-1.5.6.book_then_interrupt.A2-rule
+earful search earful.livekit.cases:book_then_interrupt --keep A2/rule --out out
+earful replay out/lk-1.5.6.book_then_interrupt.A2-rule
 ```
 
 All of it is framework-independent. The one thing an adapter supplies is `run`: a
 function from a case to the ledger of running it. For LiveKit that is
 `earful.livekit.scenario.run`.
+
+A test calls these through `earful.livekit.api`: `run`, `explore`, `keep` and `replay`
+(`docs/testing.md`).
 
 ## 1. A case is data: `earful.case/1`
 
@@ -46,7 +49,7 @@ without touching code.
 | --- | --- |
 | `schema` | `earful.case/1` |
 | `schema_minor` | Additive format revision; absent means 0 |
-| `scenario` | Where the code lives, as `module:function`. The function takes no arguments and returns the scenario with its default speeches and settings |
+| `scenario` | Where the code lives, as `module:function`. The function takes no arguments and returns the scenario with its default speeches and settings. A scenario built in the process that runs it has no name and is given as `__inline__:case`: its data cannot be run anywhere else (`docs/testing.md`, section 6) |
 | `seed` | Seed for every random choice in the run |
 | `speeches` | The scripted user's speeches, in order of their start. Per speech: `start_us`, `end_us`, `transcript` (empty for noise), `stt_delay_us`, `expects_reply` (null: yes, unless noise or a backchannel), `backchannel`, `retires` |
 | `hangup_us` | When the user hangs up, as an offset from the origin, or null if they stay. The session is closed at that time |
