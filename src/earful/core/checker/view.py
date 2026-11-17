@@ -22,28 +22,49 @@ Reading = dict[int, int]  # utterance -> the model call it is read as being the 
 MAX_READINGS = 512
 
 
-def readings(events: list[Event]) -> list[Reading]:
-    """Every way to say which reply each ambiguously attributed text was.
+def candidates(events: list[Event]) -> dict[int, list[int]]:
+    """For each ambiguously attributed text, by utterance, the replies it could be.
 
-    The scripted voice is given a text, not the model call it came from. When more than
-    one reply not yet spoken has that text, the ledger names them all (``candidates``).
-    A reading gives each such text one of its candidates, no reply twice. Which reading
-    is true cannot be observed, and makes no difference to what was heard.
-
-    Always holds at least one reading. With nothing ambiguous that is the empty one. If
-    there are more than ``MAX_READINGS``, or none fits, it is the empty one too, and the
-    ambiguous texts stay unattributed.
+    The ledger names every reply with the text's words that had not been spoken
+    (``candidates``). Two kinds of reply among them cannot be the text. One that another
+    text is attributed to outright was that other text. One whose first token came after
+    the text was synthesized did not exist yet: ``llm.response`` is recorded when the
+    model decides its answer, and the first token is out ``ttft_us`` later.
     """
     taken = {
         e["data"]["call"]
         for e in events
         if e["kind"] == "tts.synthesized" and e["data"]["call"] is not None
     }
-    open_ = [
-        (e["data"]["utterance"], [c for c in e["data"]["candidates"] if c not in taken])
+    first_token = {
+        e["data"]["call"]: e["t_us"] + e["data"]["ttft_us"]
+        for e in events
+        if e["kind"] == "llm.response"
+    }
+    return {
+        e["data"]["utterance"]: [
+            c for c in e["data"]["candidates"] if c not in taken and first_token[c] <= e["t_us"]
+        ]
         for e in events
         if e["kind"] == "tts.synthesized" and e["data"]["attribution"] == "ambiguous"
-    ]
+    }
+
+
+def readings(events: list[Event]) -> list[Reading]:
+    """Every way to say which reply each ambiguously attributed text was.
+
+    The scripted voice is given a text, not the model call it came from. When more than
+    one reply not yet spoken has that text, the ledger names them all, and ``candidates``
+    keeps those the text could be. A reading gives each such text one of them, no reply
+    twice. Which reading is true cannot be observed, and makes no difference to what was
+    heard.
+
+    Always holds at least one reading. With nothing ambiguous that is the empty one. If
+    there are more than ``MAX_READINGS``, or none fits, it is the empty one too, and the
+    ambiguous texts stay unattributed. None fits when a text is left with no reply it
+    could be.
+    """
+    open_ = list(candidates(events).items())
 
     def assign(at: int, used: frozenset[int]) -> Iterator[Reading]:
         if at == len(open_):
@@ -214,6 +235,7 @@ class View:
         self.reading = reading or {}
         # Replies that some ambiguous text could be: what is said of them rests on a reading.
         self.read_calls: set[int] = set()
+        could_be = candidates(events)
         self.header = events[0]["data"]
         self.scenario = self.header["scenario"]
         self.session = self.scenario["session"]
@@ -252,7 +274,7 @@ class View:
                 call = d["call"]
                 if d["attribution"] == "ambiguous":
                     call = self.reading.get(d["utterance"])
-                    self.read_calls |= set(d["candidates"]) if call is not None else set()
+                    self.read_calls |= set(could_be[d["utterance"]]) if call is not None else set()
                 self.utterances[d["utterance"]] = Utterance(
                     d["utterance"], e, call, d["attribution"], d["text"].split(), d["stamps"]
                 )

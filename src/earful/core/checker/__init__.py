@@ -29,6 +29,7 @@ from .report import (
     Finding,
     Report,
     Verdict,
+    split,
 )
 from .view import Reading, View, readings
 
@@ -59,11 +60,14 @@ def check(events: list[dict[str, Any]]) -> Report:
     # Where the ledger cannot say which of several identical replies a text was, every
     # reading is checked and the one most favourable to the system is reported: fewest
     # failed verdicts, then fewest unobservable. A run fails only if every reading does.
+    # A verdict of the reported reading that another reading makes worse is flagged.
     possible = readings(events)
+    checked: list[dict[str, ContractResult]] = []
     best: tuple[tuple[int, int], Reading, dict[str, ContractResult]] | None = None
     for reading in possible:
         view = View(events, reading)
         results = {name: _CHECKS[name](view, policies[name]) for name in POLICIES}
+        checked.append(results)
         verdicts = [v for result in results.values() for v in result.verdicts]
         score = (
             sum(v.outcome == FAIL for v in verdicts),
@@ -74,7 +78,12 @@ def check(events: list[dict[str, Any]]) -> Report:
     assert best is not None
     _score, reading, results = best
     return Report(
-        run=run, valid=True, invalid=(), results=results, reading=reading, readings=len(possible)
+        run=run,
+        valid=True,
+        invalid=(),
+        results=split(results, checked),
+        reading=reading,
+        readings=len(possible),
     )
 
 

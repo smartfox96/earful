@@ -454,8 +454,6 @@ class _ScriptedLLMStream(lk_llm.LLMStream):
         ttft_us = model._ttft_us.get(call, to_us(reply.ttft))
         # Generation cannot end before its first token.
         duration_us = max(model._duration_us.get(call, to_us(reply.duration)), ttft_us)
-        if words:
-            model.register.replies[call] = words
         model._ledger.append(
             "llm",
             "llm.response",
@@ -469,6 +467,9 @@ class _ScriptedLLMStream(lk_llm.LLMStream):
 
         t0 = now_us()
         await _sleep_until(t0, ttft_us)
+        # A text can be this reply only from its first token on.
+        if words:
+            model.register.replies[call] = words
         step = 3
         for i in range(0, len(reply.text), step):
             self._chunk(call, content=reply.text[i : i + step])

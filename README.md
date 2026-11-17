@@ -20,6 +20,8 @@ The developer-facing package (pytest plugin, command line, report) is not built 
 ```bash
 scripts/check_all.sh            # builds five pinned environments; runs tests, repeatability, historical checks and replays
 scripts/check_all.sh --update   # rewrites tests/golden/ and tests/bundles/; review the diff
+scripts/lint.sh                 # format, lint rules, types
+.venvs/lk-1.8.12/bin/python -m pytest -m "not slow"   # the tests under a second each: about 15 s in all
 
 python scripts/check_ledger.py tests/golden/lk-1.5.6.*.jsonl           # the verdicts for a ledger file
 python scripts/search.py earful.livekit.cases:book_then_interrupt      # every time to every boundary, every fault on every write: what breaks, how wide, what was reached

@@ -21,8 +21,9 @@ SCENARIO is module:function. Running it imports and calls that function.
                          delay and user.hangup; speech.end and speech.stt_delay can be added)
     --faults A,B         faults to add to each backend write (default: backend.error,
                          backend.timeout, backend.drop; "none" for no faults)
-    --pairs              also move every speech with each fault in place, and add faults to
-                         two writes at once
+    --pairs              also move every speech and the hangup with each fault in place, and
+                         with each write and each generation stretched to 1.5 s, and add
+                         faults to two writes at once
     --profiles N         also move every speech under N seeded provider-timing profiles
     --no-words           do not treat the end of every played word as a boundary
     --no-windows         do not measure the window of every rule found (those kept are still

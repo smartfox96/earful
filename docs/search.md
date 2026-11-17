@@ -196,12 +196,24 @@ Each is placed against the transitions of the run with the fault in place.
 - `pairs=True` moves every speech again with each fault in place, and the hangup if it
   is among the variables, and adds faults to two different writes at once. The speech is
   placed against the transitions of the faulted run without that speech.
+
+  It also makes a provider slow and moves every speech and the hangup against that. A
+  write that commits at once has no moment at which it is under way, so a speech or a
+  hangup moved alone never falls inside it. Each backend write and each model generation
+  the run made is stretched to `stretch_us`, 1.5 s by default and at most the delay
+  limit, one per version of the case. The version is run and checked, and every speech
+  and the hangup are moved against its run. 1.5 s is longer than the default
+  interruption threshold, so a speech can interrupt while the write or the generation is
+  under way. A delay already that long is left as it is. To keep these candidates few, a
+  handle is put at each transition itself, with no offset, and the ends of played words
+  are left out. Such a candidate is reported as
+  `backend.latency 1, stretched + user.hangup 0`.
 - `profiles=N` draws N provider-timing profiles from the case's seed and moves every
   speech under each. A profile redraws every delay the run applied, uniformly between 0
   and twice its value (at least 1 s, at most the delay limit), in steps of 10 ms. The
   same case and N give the same profiles.
 
-Pairs of two moved times with no fault and no profile are not explored.
+Two times each moved to boundaries are not explored together.
 
 The search uses everything in the ledger to decide where to look, the framework's own
 events included. What it finds is decided by the checker alone.
@@ -259,6 +271,9 @@ keeps the step only if the run still breaks the same predicate.
    the failure has an edge along that time, put the time on the roundest value in the
    middle half of the window: a whole second if one is there, else half a second, a
    tenth, a twentieth, 10 ms, 1 ms. A time the failure does not depend on is left alone.
+   A delay or a wait is not settled longer than the search's limit, 10 s by default: a
+   window that runs past the limit is cut off there, and the time is put just inside the
+   edge the window has below it. The window is still reported whole.
 
 The result is 1-minimal: undoing any one remaining difference, or removing any one
 remaining speech, declared delay or fault, makes it pass. It is not necessarily the smallest
@@ -335,9 +350,10 @@ the one way they change.
 ## 7. Limits
 
 - **Mostly one thing at a time.** A candidate moves one variable or adds one fault.
-  With `pairs` it combines a fault with a moved speech, or two faults. With `profiles` it
-  moves a speech under redrawn delays. Two moved times with nothing else changed are not
-  explored, and neither are three changes of any kind.
+  With `pairs` it combines a fault or a stretched delay with a moved speech or hangup, or
+  two faults. With `profiles` it moves a speech under redrawn delays. A stretched delay
+  has one value, and only writes and generations are stretched. Two times each moved to
+  boundaries are not explored together, and neither are three changes of any kind.
 - **The boundaries are those of one run.** Once a moved event falls somewhere new it
   changes what follows, so a handle aimed at a later transition may meet a timeline that
   has moved. The search chooses where to look. It does not prove that every ordering was

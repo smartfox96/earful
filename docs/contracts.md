@@ -105,6 +105,13 @@ candidates allow and reports the reading most favourable to the system under tes
 fewest failed verdicts, then the fewest unobservable ones. A run fails only if it fails
 under every reading.
 
+A reading has to be possible in time. The ledger names candidates by their words, and a
+text cannot be a reply whose first token did not exist when the text was synthesized.
+The checker drops a candidate when the text's `tts.synthesized` is earlier than that
+reply's `llm.response` plus its `ttft_us`. A first token that is out at the instant the
+text is synthesized is in time. A text left with one candidate is that reply in every
+reading.
+
 One reading is chosen for the whole run, so no verdict rests on a reading that another
 verdict contradicts. The report names the reading taken
 (`reading`: utterance to model call) and how many there were (`readings`), and every
@@ -112,8 +119,16 @@ verdict that rests on it carries the flag `most_favourable_reading`. Within M1, 
 context's messages are matched to what was said the same way: of the matchings that keep
 order and words, the one that agrees best with what was played.
 
-A ledger with more than 512 readings is not read every way: its ambiguous texts stay
-unattributed, and what depends on them is unobservable.
+A verdict of the reading taken carries the flag `reading_split` when another reading
+gives the same contract and instance a worse outcome: a failure where this one passes or
+is unobservable, or unobservable where this one passes. A result that holds under every
+reading can then be told from one that depends on the reading taken. Another reading
+can also judge an instance the reading taken has no verdict for. There is then no
+verdict to flag, so if the instance does not pass there, a note on its contract says so.
+
+A ledger with more than 512 readings, or with a text left with no candidate, is not read
+every way: its ambiguous texts stay unattributed, and what depends on them is
+unobservable.
 
 ## 3. Played audio
 
@@ -582,6 +597,19 @@ Taken while adding the hangup, agreed 17 November 2026:
     milestone was not yet due. M1 and A3 count what had played by the hangup. The
     alternative for M1, counting everything the sink consumed, passes an output that
     plays a confirmation to nobody and a history that records it as said.
+
+Taken at an architecture review, 17 November 2026:
+
+29. **A reading has to be possible in time, and a verdict says when the reading decides
+    it** (section 2.5). The scripted voice named a reply as a candidate from the moment
+    the model decided its answer, which is before the first token. A reading could then
+    have the voice speak a reply the model had not begun to give, and a run could pass
+    on it. The scripted voice now names a reply from its first token on. The checker
+    also drops such a candidate itself, because a ledger may come from an adapter that
+    names candidates some other way. A pass under one reading of two also
+    looked the same as a pass under both, so a verdict that another reading makes worse
+    now carries `reading_split`. The alternative, reporting the verdicts of every
+    reading, leaves the comparison to whoever reads the report.
 
 ## 10. What the reference ledgers measure
 

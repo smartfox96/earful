@@ -7,7 +7,9 @@ The timing breaks are an output that keeps playing for 400 ms after it is told t
 they differ in when. The fault breaks are booking models that handle a failed or
 timed-out write badly; each passes as written, where every write commits. The hangup
 break is an agent that books again when the session ends unless it had told the user the
-table is booked; it passes as written, where the user stays to hear it.
+table is booked; it passes as written, where the user stays to hear it. The break of a
+write in flight is an agent that books again if its reply was cut short while the write
+was under way; it passes as written, where the write commits at once.
 """
 
 import asyncio
@@ -224,5 +226,47 @@ def books_again_with_a_key() -> Case:
     return _booking(
         _reads_the_error,
         agent=lambda backend: _BooksAgainOnExit(backend, key="table-for-6"),
+        backend_mode="keyed",
+    )
+
+
+# ----------------------------------------------------------------------------- a write in flight
+
+
+class _BooksAgainIfCutShort(lk.Agent):
+    """Books in its tool, and once more if the reply that called the tool was cut short
+    while the write was under way: it takes a booking the user did not stay to hear
+    about for one that did not go through. The first write commits all the same."""
+
+    def __init__(self, backend, key=None) -> None:
+        super().__init__(instructions="You take restaurant reservations.")
+        self._backend, self._key = backend, key
+
+    @lk.function_tool
+    async def create_reservation(self, context: lk.RunContext, party_size: int) -> str:
+        """Create a reservation.
+
+        Args:
+            party_size: Number of guests
+        """
+        booking = {"party_size": party_size}
+        was_cut_short = context.speech_handle.interrupted
+        receipt = await self._backend.write(BOOKING_INTENT, booking, key=self._key)
+        if context.speech_handle.interrupted and not was_cut_short:
+            receipt = await self._backend.write(BOOKING_INTENT, booking, key=self._key)
+        return f"Reservation {receipt} confirmed for {party_size} guests."
+
+
+def books_again_if_cut_short() -> Case:
+    """One request to book. The agent books again if its reply was cut short while the
+    write was under way. As written the write commits at once, and it books once."""
+    return _booking(_reads_the_error, agent=_BooksAgainIfCutShort)
+
+
+def books_again_if_cut_short_with_a_key() -> Case:
+    """The control: the same agent sends a key with both writes, to a backend that honours it."""
+    return _booking(
+        _reads_the_error,
+        agent=lambda backend: _BooksAgainIfCutShort(backend, key="table-for-6"),
         backend_mode="keyed",
     )

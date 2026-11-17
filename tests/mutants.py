@@ -904,4 +904,86 @@ MUTANTS = [
         "        capabilities = lk_vad.VADCapabilities(update_interval=0.1)\n",
         first="declares_the_interval",
     ),
+    Mutant(
+        "readings: a text may be a reply with no token out yet",
+        "src/earful/core/checker/view.py",
+        'if c not in taken and first_token[c] <= e["t_us"]',
+        "if c not in taken",
+        first="first_token_came or causally_possible or stays_unattributed",
+    ),
+    Mutant(
+        "readings: a first token out as the text is synthesized is too late",
+        "src/earful/core/checker/view.py",
+        'first_token[c] <= e["t_us"]',
+        'first_token[c] < e["t_us"]',
+        first="first_token_came or causally_possible",
+    ),
+    Mutant(
+        "reading_split: readings that agree are marked",
+        "src/earful/core/checker/report.py",
+        "_SEVERITY[other.outcome] > _SEVERITY[v.outcome]",
+        "_SEVERITY[other.outcome] >= _SEVERITY[v.outcome]",
+        first="makes_worse or split_is",
+    ),
+    Mutant(
+        "model: a reply is named before its first token is out",
+        "src/earful/livekit/providers.py",
+        (
+            "        t0 = now_us()\n"
+            "        await _sleep_until(t0, ttft_us)\n"
+            "        # A text can be this reply only from its first token on.\n"
+            "        if words:\n"
+            "            model.register.replies[call] = words\n"
+        ),
+        (
+            "        t0 = now_us()\n"
+            "        if words:\n"
+            "            model.register.replies[call] = words\n"
+            "        await _sleep_until(t0, ttft_us)\n"
+        ),
+        first="names_no_reply",
+    ),
+    Mutant(
+        "reading_split: an instance only another reading judges leaves no note",
+        "src/earful/core/checker/report.py",
+        "                if other.outcome == PASS or other.instance in judged:\n",
+        "                if True:\n",
+        first="only_another_reading_judges",
+    ),
+    # A stretched delay, paired with a speech or the hangup.
+    Mutant(
+        "search: speeches are not moved under a stretched delay",
+        "src/earful/core/search.py",
+        "                move_speeches(longer, produced, label, coarse=True)\n",
+        "                pass\n",
+        first="slow_write_and_a_speech",
+    ),
+    Mutant(
+        "search: the hangup is not moved under a stretched delay",
+        "src/earful/core/search.py",
+        "                move_hangup(longer, produced, label, coarse=True)\n",
+        "                pass\n",
+        first="slow_write_and_a_hangup",
+    ),
+    Mutant(
+        "search: a delay already as long as the stretch is paired",
+        "src/earful/core/search.py",
+        "            if delay.value_us < to and longer is not None:\n",
+        "            if longer is not None:\n",
+        first="shorter_than_the_stretch",
+    ),
+    Mutant(
+        "search: under a stretched delay every offset and word end is used",
+        "src/earful/core/search.py",
+        "        tried, cannot = candidates(\n            on,\n",
+        "        coarse = False\n        tried, cannot = candidates(\n            on,\n",
+        first="at_no_word_end",
+    ),
+    Mutant(
+        "shrink: a delay is settled beyond the longest a search makes",
+        "src/earful/core/shrink.py",
+        "        inside = _up_to(found, max(delay_limit_us, at)) if waits else found\n",
+        "        inside = found\n",
+        first="no_delay_longer_than_a_search",
+    ),
 ]
