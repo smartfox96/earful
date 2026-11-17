@@ -545,7 +545,7 @@ class Exploration:
         }
 
 
-DEFAULT_VARIABLES = ("speech.position", *cases.DELAY_KINDS)
+DEFAULT_VARIABLES = ("speech.position", *cases.DELAY_KINDS, cases.HANGUP)
 # How long the caller of a write waits, when a search adds a timeout or a drop.
 WAIT_US = 1_000_000
 
@@ -570,9 +570,9 @@ def explore(
 
     **One thing at a time.** Each variable named by ``variables`` is moved so that its
     handles fall before, at and after every transition: by default where each speech
-    sits and every provider delay; ``speech.end`` and ``speech.stt_delay`` can be added,
-    and so can ``user.hangup``: the user leaves, and the session is closed, at every
-    transition after their last speech.
+    sits, every provider delay, and the moment the user hangs up: the user leaves, and
+    the session is closed, at every transition after their last speech. ``speech.end``
+    and ``speech.stt_delay`` can be added.
     Each fault named by ``faults`` is added to each backend write the run made: an error,
     a timeout, a drop. For a timeout the write is tried committing before the caller
     gives up and after. The moment the caller gives up is then moved to every transition,

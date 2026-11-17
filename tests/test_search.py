@@ -490,10 +490,10 @@ def test_a_search_moves_the_hangup_to_every_transition_after_the_last_speech():
     assert breaking and all(7_000_000 <= t.candidate.value_us <= 9_000_000 for t in breaking)
     (measured,) = found.windows(A2)
     assert (measured.variable, measured.lo_us, measured.hi_us) == (HANGUP, 7_000_000, 9_000_000)
-    # The hangup is moved only when asked for.
+    # The hangup is one of the default variables, and is left alone by a search that names others.
+    assert "user.hangup" in DEFAULT_VARIABLES
     unasked = explore(a_case(BOOK, WINDOW), run, variables=["speech.position"], faults=[], words=False)
     assert not [t for t in unasked.tried if t.candidate.variable == HANGUP]
-    assert "user.hangup" not in DEFAULT_VARIABLES
 
 
 def test_pairs_move_the_hangup_with_each_fault_in_place():
