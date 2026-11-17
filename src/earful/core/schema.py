@@ -1,7 +1,7 @@
-"""Validation of earful.ledger/5, and the one definition of a valid run.
+"""Validation of earful.ledger/1, and the one definition of a valid run.
 
 The shape of every event is defined by a JSON Schema document shipped with this package
-(``schemas/earful.ledger-5.schema.json``), so any language can validate a ledger line
+(``schemas/earful.ledger-1.schema.json``), so any language can validate a ledger line
 with a standard validator. This module applies that schema and adds the rules a
 per-line schema cannot express: order, and references between events.
 
@@ -21,7 +21,7 @@ from .ledger import run_id
 
 Event = dict[str, Any]
 
-SCHEMA_FILE = "earful.ledger-5.schema.json"
+SCHEMA_FILE = "earful.ledger-1.schema.json"
 
 
 @lru_cache(maxsize=1)
@@ -80,7 +80,7 @@ def _where(index: int, event: Any) -> str:
 
 
 def validate(events: list[Event]) -> list[str]:
-    """Every way ``events`` departs from earful.ledger/5. An empty list means valid."""
+    """Every way ``events`` departs from earful.ledger/1. An empty list means valid."""
     if not events:
         return ["ledger is empty"]
 
@@ -116,6 +116,8 @@ def _check_ledger(events: list[Event], errors: list[str]) -> None:
         last_t = max(last_t, e["t_us"])
         if e["run"] != run:
             errors.append(f"{where}: run {e['run']!r} is not the digest of run.start ({run!r})")
+        if e.get("schema_minor", 0) != events[0].get("schema_minor", 0):
+            errors.append(f"{where}: schema_minor differs from run.start")
 
     scenario = header["scenario"]
     speeches = scenario["speeches"]
@@ -169,6 +171,8 @@ def _check_ledger(events: list[Event], errors: list[str]) -> None:
     speech_events: set[tuple[str, int]] = set()
     stamp_owner: dict[int, int] = {}  # stamp -> the utterance it was synthesized for
     utterances: set[int] = set()
+    synthesis: dict[int, Event] = {}
+    playouts: list[Event] = []
 
     # What a VAD hears as one segment: speech that resumes within its silence window.
     min_silence = scenario["providers"]["vad"]["min_silence_us"]
@@ -215,6 +219,8 @@ def _check_ledger(events: list[Event], errors: list[str]) -> None:
                 if claim["intent"] not in declared:
                     errors.append(f"{where}: claim names undeclared intent {claim['intent']!r}")
         elif k == "tts.synthesized":
+            if d["started_us"] > e["t_us"]:
+                errors.append(f"{where}: synthesis starts after it was recorded")
             if (d["call"] is None) != (d["attribution"] in ("ambiguous", "none")):
                 errors.append(
                     f"{where}: call must be set exactly when attribution is unique or prefix"
@@ -241,6 +247,7 @@ def _check_ledger(events: list[Event], errors: list[str]) -> None:
             if d["utterance"] in utterances:
                 errors.append(f"{where}: utterance {d['utterance']} synthesized twice")
             utterances.add(d["utterance"])
+            synthesis[d["utterance"]] = e
             for stamp in d["stamps"]:
                 if stamp in stamp_owner:
                     errors.append(f"{where}: stamp {stamp} is used twice")
@@ -284,8 +291,7 @@ def _check_ledger(events: list[Event], errors: list[str]) -> None:
             if d["segment"] in started or d["segment"] in finished:
                 errors.append(f"{where}: segment {d['segment']} cannot start here")
             started.add(d["segment"])
-            if d["utterance"] is not None and d["utterance"] not in utterances:
-                errors.append(f"{where}: utterance {d['utterance']} was never synthesized")
+            playouts.append(e)
         elif k in ("playout.paused", "playout.resumed"):
             if d["segment"] not in started or d["segment"] in finished:
                 errors.append(f"{where}: segment {d['segment']} is not playing")
@@ -298,14 +304,7 @@ def _check_ledger(events: list[Event], errors: list[str]) -> None:
             if d["audible"] != (d["segment"] in started):
                 errors.append(f"{where}: audible must match whether the segment started")
             finished.add(d["segment"])
-            for utterance in d["utterances"]:
-                if utterance not in utterances:
-                    errors.append(f"{where}: utterance {utterance} was never synthesized")
-            stamps = [*d["words_played"], *([d["word_cut"]] if d["word_cut"] is not None else [])]
-            if any(stamp_owner.get(stamp) not in d["utterances"] for stamp in stamps):
-                errors.append(
-                    f"{where}: a word played or cut belongs to none of the segment's utterances"
-                )
+            playouts.append(e)
             done = d["words_completed_us"]
             if len(done) != len(d["words_played"]):
                 errors.append(f"{where}: one completion time per played word expected")
@@ -313,6 +312,28 @@ def _check_ledger(events: list[Event], errors: list[str]) -> None:
                 errors.append(
                     f"{where}: completion times must be in order and no later than the event"
                 )
+
+    # A streaming utterance is finalized after its first audio, including on cancellation.
+    # Resolve those references after reading the ledger; the start and TTFB still bound
+    # the first playout, and every word must belong to a recorded utterance.
+    for e in playouts:
+        d, where = e["data"], _where(e["seq"], e)
+        if e["kind"] == "playout.started":
+            numbers = [] if d["utterance"] is None else [d["utterance"]]
+        else:
+            numbers = d["utterances"]
+            stamps = [*d["words_played"], *([d["word_cut"]] if d["word_cut"] is not None else [])]
+            if any(stamp_owner.get(stamp) not in numbers for stamp in stamps):
+                errors.append(
+                    f"{where}: a word played or cut belongs to none of the segment's utterances"
+                )
+        for number in numbers:
+            if number not in synthesis:
+                errors.append(f"{where}: utterance {number} was never synthesized")
+            elif e["kind"] == "playout.started":
+                said = synthesis[number]["data"]
+                if e["t_us"] < said["started_us"] + said["ttfb_us"]:
+                    errors.append(f"{where}: playout precedes the utterance's first audio")
 
 
 def validity(events: list[Event]) -> list[str]:

@@ -62,7 +62,7 @@ def _edit_header(edit):
         (lambda ev: ev.pop(5), "seq"),
         (lambda ev: ev[3].update(t_us=-1), "t_us: -1 is less than the minimum"),
         (lambda ev: ev[-1].update(t_us=0), "earlier than the previous event"),
-        (lambda ev: ev[0].update(schema="earful.ledger/0"), "'earful.ledger/5' was expected"),
+        (lambda ev: ev[0].update(schema="earful.ledger/0"), "'earful.ledger/1' was expected"),
         (lambda ev: ev[4].update(run="run-0000000000000000"), "not the digest of run.start"),
         (lambda ev: ev[0]["data"].update(seed=7), "not the digest of run.start"),
         (lambda ev: ev[4].pop("run"), "'run' is a required property"),
@@ -76,7 +76,7 @@ def _edit_header(edit):
             lambda ev: _data(ev, "playout.finished").pop("word_cut"),
             "'word_cut' is a required property",
         ),
-        (lambda ev: _data(ev, "llm.request").update(extra=1), "'extra' was unexpected"),
+        (lambda ev: _data(ev, "llm.request").update(call="one"), "'one' is not of type"),
         (
             lambda ev: _data(ev, "effect.committed").update(request=True),
             "True is not of type 'integer'",
@@ -93,8 +93,8 @@ def _edit_header(edit):
         ),
         (lambda ev: _data(ev, "llm.request")["items"][0].update(text=3), "3 is not of type"),
         (
-            lambda ev: _data(ev, "history.final")["items"][0].update(extra=1),
-            "'extra' was unexpected",
+            lambda ev: _data(ev, "history.final")["items"][0].update(type=1),
+            "1 is not of type",
         ),
         (
             lambda ev: _data(ev, "llm.response")["tool_calls"][0].pop("call_id"),
@@ -290,10 +290,6 @@ def hung_up():
             "'hangup_us' is a required property",
         ),
         (lambda ev: _first(ev, "user.hangup").update(source="harness"), "'world' was expected"),
-        (
-            lambda ev: _data(ev, "user.hangup").update(reason="bored"),
-            "Additional properties are not allowed",
-        ),
     ],
 )
 def test_validator_rejects_a_hangup_that_cannot_have_happened(hung_up, mutate, expected):
@@ -358,7 +354,7 @@ def test_an_event_checked_by_its_kind_gets_the_whole_schemas_errors(booking, tim
 
 
 def test_schema_version():
-    assert SCHEMA == "earful.ledger/5"
+    assert SCHEMA == "earful.ledger/1"
     assert load_schema()["properties"]["schema"]["const"] == SCHEMA
 
 
@@ -386,3 +382,18 @@ def test_validity_names_each_reason(booking, edit, expected):
     assert validity(events) == []
     edit(events)
     assert any(expected in reason for reason in validity(events)), validity(events)
+
+
+def test_streaming_metadata_cannot_start_after_it_is_finalized(booking):
+    events = copy.deepcopy(booking)
+    synthesized = _first(events, "tts.synthesized")
+    synthesized["data"]["started_us"] = synthesized["t_us"] + 1
+    assert any("starts after" in error for error in validate(events))
+
+
+def test_playout_cannot_precede_the_declared_first_audio(booking):
+    events = copy.deepcopy(booking)
+    synthesized = _first(events, "tts.synthesized")
+    started = _first(events, "playout.started")
+    synthesized["data"]["ttfb_us"] = started["t_us"] - synthesized["data"]["started_us"] + 1
+    assert any("precedes" in error for error in validate(events))

@@ -1,10 +1,10 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "urn:earful:bundle:2",
+  "$id": "urn:earful:bundle:1",
   "title": "Earful failure bundle manifest",
-  "description": "manifest.json of an earful.bundle/2 directory: what failed, on what, and how the case was reduced. Beside it, under fixed names, are original.case.json and minimal.case.json (earful.case/2) and the normalized ledger of running each.",
+  "description": "manifest.json of an earful.bundle/1 directory: what failed, on what, and how the case was reduced. Beside it, under fixed names, are original.case.json and minimal.case.json (earful.case/1) and the normalized ledger of running each.",
   "type": "object",
-  "additionalProperties": false,
+  "additionalProperties": true,
   "required": [
     "schema",
     "predicate",
@@ -21,12 +21,12 @@
   ],
   "properties": {
     "schema": {
-      "const": "earful.bundle/2"
+      "const": "earful.bundle/1"
     },
     "predicate": {
       "description": "The failure, frozen: the contract and the rule of it that broke.",
       "type": "object",
-      "additionalProperties": false,
+      "additionalProperties": true,
       "required": [
         "contract",
         "rule"
@@ -45,7 +45,7 @@
     "framework": {
       "description": "The framework release the failure was found on.",
       "type": "object",
-      "additionalProperties": false,
+      "additionalProperties": true,
       "required": [
         "name",
         "version"
@@ -69,7 +69,7 @@
     "formats": {
       "description": "The versions of the formats the bundle is written in.",
       "type": "object",
-      "additionalProperties": false,
+      "additionalProperties": true,
       "required": [
         "ledger",
         "contracts",
@@ -109,7 +109,7 @@
     },
     "reduction": {
       "type": "object",
-      "additionalProperties": false,
+      "additionalProperties": true,
       "required": [
         "runs",
         "complete",
@@ -147,7 +147,7 @@
       "description": "For each time the reduction settled, how far it can move while the reduced case still breaks the rule.",
       "items": {
         "type": "object",
-        "additionalProperties": false,
+        "additionalProperties": true,
         "required": [
           "variable",
           "lo_us",
@@ -207,7 +207,7 @@
     },
     "replay": {
       "type": "object",
-      "additionalProperties": false,
+      "additionalProperties": true,
       "required": [
         "repeats",
         "distinct_hashes"
@@ -223,12 +223,17 @@
           "description": "How many different ledgers those runs gave. A bundle is written only if it is 1."
         }
       }
+    },
+    "schema_minor": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Additive format revision within major version 1. Absent means 0. Unknown optional fields are ignored by readers."
     }
   },
   "$defs": {
     "kept": {
       "type": "object",
-      "additionalProperties": false,
+      "additionalProperties": true,
       "required": [
         "hash",
         "speeches",

@@ -107,8 +107,9 @@ under every reading.
 
 A reading has to be possible in time. The ledger names candidates by their words, and a
 text cannot be a reply whose first token did not exist when the text was synthesized.
-The checker drops a candidate when the text's `tts.synthesized` is earlier than that
-reply's `llm.response` plus its `ttft_us`. A first token that is out at the instant the
+The checker drops a candidate when `tts.synthesized`'s `started_us` is earlier than that
+reply's `llm.response` plus its `ttft_us`. Streaming metadata is finalized later, so its
+recording time cannot be used for attribution. A first token out at the instant the
 text is synthesized is in time. A text left with one candidate is that reply in every
 reading.
 
@@ -421,7 +422,7 @@ documentation it was compared against.
 
 These are requirements on the ledger. `docs/ledger.md` defines each event named here.
 
-| Requirement | Needed by | Recorded in `earful.ledger/5` |
+| Requirement | Needed by | Recorded in `earful.ledger/1` |
 | --- | --- | --- |
 | Scenario declarations and policy values in the run header | all | `run.start`: `scenario`, `contracts` |
 | The framework release and the clock the run used | all | `run.start`: `framework`, `clock` |

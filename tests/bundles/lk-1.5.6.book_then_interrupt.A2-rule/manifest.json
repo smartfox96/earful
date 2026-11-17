@@ -9,9 +9,9 @@
     "python": "3.13.12"
   },
   "formats": {
-    "case": "earful.case/3",
+    "case": "earful.case/1",
     "contracts": "earful.contracts/1",
-    "ledger": "earful.ledger/5"
+    "ledger": "earful.ledger/1"
   },
   "framework": {
     "name": "livekit-agents",
@@ -23,7 +23,7 @@
     "findings": [
       "2 durable effects for 'book-table-1'; the scenario authorized 1"
     ],
-    "hash": "d98bea3d4e91137dd35cb01dd0760a0d8fd73c4c7d84ffa93ffb0b9447622dd3",
+    "hash": "17cb49659910a6674810baa7ec8e43de59ee156ec414690fe07defcd2949d614",
     "speeches": 2
   },
   "original": {
@@ -32,7 +32,7 @@
     "findings": [
       "2 durable effects for 'book-table-1'; the scenario authorized 1"
     ],
-    "hash": "622f13957f55d537d306aa73ea91962c8c7c905c5a1a2a2528c38704488e60b7",
+    "hash": "dfbc4bd687472459cee084ff15cd8117cb1943a937100dd3df7add04eea21e31",
     "speeches": 2
   },
   "predicate": {
@@ -42,7 +42,7 @@
   "reduction": {
     "complete": true,
     "differences": [],
-    "runs": 75,
+    "runs": 74,
     "steps": [
       "kept 0 of 1 differences from the author's scenario"
     ]
@@ -51,8 +51,9 @@
     "distinct_hashes": 1,
     "repeats": 3
   },
-  "scenario_digest": "ce3b7af9ba22152550aa46eee198694975df4b5f0290bfc9183e7e3523e4190e",
-  "schema": "earful.bundle/2",
+  "scenario_digest": "dff2165cf1c3bb20de022ca042012cbc0ba6638f9c59bc7be1361b8d4a5204be",
+  "schema": "earful.bundle/1",
+  "schema_minor": 0,
   "windows": [
     {
       "hi_end": "passes",
@@ -66,13 +67,13 @@
     },
     {
       "hi_end": "passes",
-      "hi_us": 7869000,
+      "hi_us": 7859000,
       "instant": false,
       "lo_end": "passes",
       "lo_us": 3000000,
       "resolution_us": 1000,
       "variable": "speech.position 1",
-      "width_us": 4869000
+      "width_us": 4859000
     }
   ]
 }

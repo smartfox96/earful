@@ -58,7 +58,7 @@ def speech(start_us, end_us, transcript, **changes):
 
 def a_case(*speeches, **changes):
     return {
-        "schema": "earful.case/3",
+        "schema": "earful.case/1",
         "scenario": "some.module:scenario",
         "seed": 0,
         "speeches": list(speeches),
@@ -207,14 +207,14 @@ def test_transitions_are_the_events_of_a_run_and_the_moments_the_ledger_states()
     assert (
         "llm.first_token" in at[2_800_000] and "llm.done" in at[3_100_000]
     )  # 0.1 s and 0.4 s later
-    assert "tts.first_audio" in at[3_300_000] and "playout.started" in at[3_300_000]
+    assert "tts.first_audio" in at[3_200_000] and "playout.started" in at[3_200_000]
     assert "user.turn_end" in at[3_000_000]  # the first speech ends at 2.5 s; 0.5 s of silence
     kinds = {kind for t in found for kind in t.kinds}
     assert {"playout.mid_word", "playout.word_end", "sink.pause", "fw.agent_state_changed"} <= kinds
     assert not kinds & {"run.start", "run.end", "history.final", "user.origin"}
-    # one per word that played: eight of the long reply before the interruption, two of the
+    # one per word that played: nine of the long reply before the interruption, two of the
     # short one
-    assert sum("playout.word_end" in t.kinds for t in found) == 10
+    assert sum("playout.word_end" in t.kinds for t in found) == 11
     assert not any("playout.word_end" in t.kinds for t in transitions(events, words=False))
 
 
@@ -265,7 +265,7 @@ def test_every_delay_a_run_applied_is_a_handle_whether_declared_or_not():
     assert handles["llm.duration 1"] == (3_000_000, 300_000)  # asked at 2.7 s, took 0.3 s
     assert handles["llm.ttft 1"] == (2_800_000, 100_000)
     assert handles["backend.latency 1"] == (3_000_000, 0)  # the reference tool commits at once
-    assert handles["tts.ttfb 2"] == (7_000_000, 200_000)
+    assert handles["tts.ttfb 2"] == (6_900_000, 200_000)
     assert set(handles) == {
         f"{kind} {n}" for kind in ("llm.ttft", "llm.duration", "tts.ttfb") for n in (1, 2)
     } | {"backend.latency 1"}
@@ -415,7 +415,7 @@ def test_what_cannot_be_run_is_counted_and_said():
 
 def test_a_case_that_cannot_be_searched_is_refused_up_front():
     run = answers(lambda case: False)
-    with pytest.raises(ValueError, match="not an earful.case/3 document"):
+    with pytest.raises(ValueError, match="not an earful.case/1 document"):
         explore({**a_case(BOOK), "schema": "x"}, run)
     with pytest.raises(ValueError, match="unknown variables"):
         explore(a_case(BOOK), run, variables=["speech.volume"])
@@ -1242,9 +1242,9 @@ def test_a_bundle_holds_the_failure_and_replays(tmp_path):
         and manifest["clock"] == "virtual"
     )
     assert manifest["formats"] == {
-        "ledger": "earful.ledger/5",
+        "ledger": "earful.ledger/1",
         "contracts": "earful.contracts/1",
-        "case": "earful.case/3",
+        "case": "earful.case/1",
     }
     assert (manifest["original"]["speeches"], manifest["minimal"]["speeches"]) == (4, 2)
     assert (manifest["original"]["delays"], manifest["minimal"]["delays"]) == (1, 0)
@@ -1299,20 +1299,22 @@ def test_a_case_that_does_not_repeat_is_not_kept(tmp_path):
 
 def test_a_bundle_that_is_not_one_is_refused(tmp_path):
     (tmp_path / "manifest.json").write_text(json.dumps({"schema": "something/1"}))
-    with pytest.raises(ValueError, match="not an earful.bundle/2 manifest"):
+    with pytest.raises(ValueError, match="not an earful.bundle/1 manifest"):
         bundle.load(tmp_path)
 
 
 @pytest.mark.slow
 def test_a_manifest_cannot_point_outside_its_bundle(tmp_path):
-    """The file names are fixed. A manifest that tries to name another is not a manifest."""
+    """Unknown metadata cannot redirect the fixed case and ledger paths."""
     bundle.capture(tmp_path / "kept", a_case(BOOK, WINDOW), answers(INTERRUPTS), A2)
+    recorded = bundle.load(tmp_path / "kept")
     path = tmp_path / "kept" / "manifest.json"
     manifest = json.loads(path.read_text())
     manifest["minimal"]["case"] = "../elsewhere.json"
     path.write_text(json.dumps(manifest))
-    with pytest.raises(ValueError, match="'case' was unexpected"):
-        bundle.load(tmp_path / "kept")
+    loaded = bundle.load(tmp_path / "kept")
+    assert loaded.minimal == recorded.minimal
+    assert loaded.ledger("minimal") == recorded.ledger("minimal")
 
 
 @pytest.mark.parametrize(

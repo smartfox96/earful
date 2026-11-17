@@ -10,7 +10,8 @@
   "faults": [],
   "hangup_us": null,
   "scenario": "earful.livekit.cases:book_then_interrupt",
-  "schema": "earful.case/3",
+  "schema": "earful.case/1",
+  "schema_minor": 0,
   "seed": 0,
   "settings": {
     "backend_mode": "plain",

@@ -12,7 +12,17 @@ def check(view: View, policy: policies.L2) -> ContractResult:
     spans = view.audible()
     minimum = view.session["min_interruption_duration_us"]
     stops = [e for e in view.commands if e["kind"] in ("sink.pause", "sink.clear")]
-    starts = [e for e in view.events if e["kind"] in ("playout.started", "playout.resumed")]
+    continuous = {
+        resumed["seq"]
+        for segment in view.segments.values()
+        for paused, resumed in segment.pauses
+        if resumed is not None and resumed["t_us"] == paused["t_us"]
+    }
+    starts = [
+        e
+        for e in view.events
+        if e["kind"] in ("playout.started", "playout.resumed") and e["seq"] not in continuous
+    ]
     ordered = sorted(view.speeches, key=lambda s: s.start)
 
     for position, speech in enumerate(ordered):

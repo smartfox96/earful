@@ -1,4 +1,4 @@
-"""A case as data: earful.case/3.
+"""A case as data: earful.case/1.
 
 A scenario has two parts. Its code, the agent and the model policy, is named by a
 ``module:function`` reference and never leaves the module it is written in. Everything
@@ -13,7 +13,7 @@ variables, the shrinker moves them back, and both do it through the functions he
 neither needs to know what a speech or a delay is.
 
 The shape is defined by a JSON Schema document shipped with this package
-(``schemas/earful.case-3.schema.json``).
+(``schemas/earful.case-1.schema.json``).
 
 Framework-independent: this module must never import livekit.
 """
@@ -29,8 +29,9 @@ from typing import Any
 
 from jsonschema import Draft202012Validator
 
-SCHEMA = "earful.case/3"
-SCHEMA_FILE = "earful.case-3.schema.json"
+SCHEMA = "earful.case/1"
+SCHEMA_MINOR = 0
+SCHEMA_FILE = "earful.case-1.schema.json"
 
 Case = dict[str, Any]
 
@@ -49,7 +50,7 @@ def _validator() -> Draft202012Validator:
 
 
 def validate(case: Any) -> list[str]:
-    """Every way ``case`` departs from earful.case/3. An empty list means valid."""
+    """Every way ``case`` departs from earful.case/1. An empty list means valid."""
     errors = [
         f"{'/'.join(str(p) for p in error.absolute_path) or 'case'}: {error.message}"
         for error in sorted(

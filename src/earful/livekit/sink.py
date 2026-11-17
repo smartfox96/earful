@@ -11,8 +11,8 @@ not it ever becomes audible.
 
 Playout model:
 
-* Playback of a segment starts at its first frame. Audio may arrive faster than real
-  time; it must never arrive late (an underrun is counted and invalidates the run).
+* Playback of a segment starts at its first frame. If streaming audio runs dry before
+  flush, playback pauses until the next frame. Word times exclude that silent interval.
 * ``flush`` ends a segment once everything pushed has played. ``clear_buffer`` ends it
   at once.
 * Pause belongs to the output, not to a segment, as in livekit-agents' room output: once
@@ -53,6 +53,7 @@ class _Segment:
         "runs",
         "sample_rate",
         "started_us",
+        "starved",
     )
 
     def __init__(self, number: int, sample_rate: int) -> None:
@@ -66,6 +67,7 @@ class _Segment:
         self.paused_total_us = 0
         self.pauses: list[tuple[int, int]] = []  # (audio played when paused, pause length)
         self.flushed = False
+        self.starved = False
 
     def pushed_us(self) -> int:
         """Length of the audio given so far: the instant its last sample has played."""
@@ -167,8 +169,7 @@ class ClockedSink(io.AudioOutput):
                 segment=segment.number,
                 utterance=utterances[0] if utterances else None,
             )
-            if segment.flushed:
-                self._schedule_finish(segment)
+            self._schedule_finish(segment)
 
         self._begin(start)
 
@@ -178,7 +179,37 @@ class ClockedSink(io.AudioOutput):
             return  # not playing: deferred until it starts or resumes
         delay_us = max(segment.pushed_us() - segment.played_us(self._ledger.now_us()), 0)
         self._finish_handle = asyncio.get_running_loop().call_later(
-            to_seconds(delay_us), lambda: self._finish(segment, interrupted=False)
+            to_seconds(delay_us), lambda: self._exhausted(segment)
+        )
+
+    def _exhausted(self, segment: _Segment) -> None:
+        if segment.flushed:
+            self._finish(segment, interrupted=False)
+        elif self._segment is segment and segment.pause_began_us is None:
+            segment.starved = True
+            self._pause(segment)
+
+    def _pause(self, segment: _Segment) -> None:
+        self._cancel_finish()
+        segment.pause_began_us = self._ledger.now_us()
+        self._ledger.append(
+            "sink",
+            "playout.paused",
+            segment=segment.number,
+            played_us=segment.played_us(self._ledger.now_us()),
+        )
+
+    def _resume(self, segment: _Segment) -> None:
+        assert segment.pause_began_us is not None
+        length = self._ledger.now_us() - segment.pause_began_us
+        segment.pauses.append((segment.played_us(self._ledger.now_us()), length))
+        segment.paused_total_us += length
+        segment.pause_began_us = None
+        self._ledger.append(
+            "sink",
+            "playout.resumed",
+            segment=segment.number,
+            played_us=segment.played_us(self._ledger.now_us()),
         )
 
     def _finish(self, segment: _Segment, *, interrupted: bool) -> None:
@@ -251,8 +282,8 @@ class ClockedSink(io.AudioOutput):
             and segment.pause_began_us is None
             and segment.played_us(self._ledger.now_us()) > segment.pushed_us()
         ):
-            # Playout ran out of audio before this frame arrived. The playout model assumes
-            # audio arrives ahead of playback, so word times are now unreliable.
+            # The exhaustion timer did not stop playback at the buffer's end.
+            # Word times can no longer be trusted.
             self.underruns += 1
 
         samples = memoryview(frame.data).cast("B").cast("h")
@@ -265,8 +296,15 @@ class ClockedSink(io.AudioOutput):
                 segment.runs.append([value, 1])
         segment.pushed_samples += len(samples)
 
+        if segment.starved:
+            segment.starved = False
+            if not self._paused:
+                self._resume(segment)
+
         if segment.started_us is None and not self._paused:
             self._start(segment)
+        else:
+            self._schedule_finish(segment)
 
     def flush(self) -> None:
         super().flush()
@@ -275,7 +313,10 @@ class ClockedSink(io.AudioOutput):
         if segment is None or not segment.pushed_samples:
             return
         segment.flushed = True
-        self._schedule_finish(segment)
+        if segment.starved:
+            self._finish(segment, interrupted=False)
+        else:
+            self._schedule_finish(segment)
 
     def clear_buffer(self) -> None:
         self._command("clear")
@@ -300,19 +341,12 @@ class ClockedSink(io.AudioOutput):
             segment = self._segment
             if not self._paused:
                 return  # resumed before the pause was obeyed
-            self._cancel_finish()
             if (
                 segment is not None
                 and segment.started_us is not None
                 and segment.pause_began_us is None
             ):
-                segment.pause_began_us = self._ledger.now_us()
-                self._ledger.append(
-                    "sink",
-                    "playout.paused",
-                    segment=segment.number,
-                    played_us=segment.played_us(self._ledger.now_us()),
-                )
+                self._pause(segment)
 
         self._obey(pause)
 
@@ -325,22 +359,13 @@ class ClockedSink(io.AudioOutput):
         segment = self._segment
         if segment is None:
             return
+        if segment.starved:
+            return  # still no audio; the next frame resumes playback
         if segment.pause_began_us is not None:
-            # A pause during playout is recorded at the playout position where it happened.
-            length = self._ledger.now_us() - segment.pause_began_us
-            segment.pauses.append((segment.played_us(self._ledger.now_us()), length))
-            segment.paused_total_us += length
-            segment.pause_began_us = None
-            self._ledger.append(
-                "sink",
-                "playout.resumed",
-                segment=segment.number,
-                played_us=segment.played_us(self._ledger.now_us()),
-            )
+            self._resume(segment)
         elif segment.started_us is None:
             self._start(segment)  # a pause before the segment was audible only delayed it
-        if segment.flushed:
-            self._schedule_finish(segment)
+        self._schedule_finish(segment)
 
     def capabilities_summary(self) -> dict[str, Any]:
         return {"pause": self._can_pause}

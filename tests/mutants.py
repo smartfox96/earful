@@ -845,6 +845,7 @@ MUTANTS = [
         "src/earful/livekit/scenario.py",
         '    case.hangup = None if data["hangup_us"] is None else to_seconds(data["hangup_us"])\n',
         "    case.hangup = None\n",
+        first="a_hangup_is_part_of_a_cases_data",
     ),
     Mutant(
         "adapter: a case's hangup is not described",
@@ -854,12 +855,14 @@ MUTANTS = [
             '        "delays": ['
         ),
         ('        "hangup_us": None,\n        "delays": ['),
+        first="a_hangup_is_part_of_a_cases_data",
     ),
     Mutant(
         "harness: a close that raises is swallowed",
         "src/earful/livekit/harness.py",
         "        closing.result()  # a close that raises is the run's error, as at the end of a scenario\n",
         "        pass\n",
+        first="a_close_that_raises_at_the_hangup",
     ),
     # The runner's ledgers and the clock patch.
     Mutant(
@@ -907,15 +910,15 @@ MUTANTS = [
     Mutant(
         "readings: a text may be a reply with no token out yet",
         "src/earful/core/checker/view.py",
-        'if c not in taken and first_token[c] <= e["t_us"]',
+        'if c not in taken and first_token[c] <= e["data"]["started_us"]',
         "if c not in taken",
         first="first_token_came or causally_possible or stays_unattributed",
     ),
     Mutant(
         "readings: a first token out as the text is synthesized is too late",
         "src/earful/core/checker/view.py",
-        'first_token[c] <= e["t_us"]',
-        'first_token[c] < e["t_us"]',
+        'first_token[c] <= e["data"]["started_us"]',
+        'first_token[c] < e["data"]["started_us"]',
         first="first_token_came or causally_possible",
     ),
     Mutant(
@@ -949,6 +952,63 @@ MUTANTS = [
         "                if other.outcome == PASS or other.instance in judged:\n",
         "                if True:\n",
         first="only_another_reading_judges",
+    ),
+    # Streaming delivery, immutable final metadata, and gaps between word frames.
+    Mutant(
+        "streaming: all model chunks arrive at the first token",
+        "src/earful/livekit/providers.py",
+        "            await _sleep_until(t0, at_us)\n",
+        "            await _sleep_until(t0, ttft_us)\n",
+        first="model_chunks_are_paced",
+    ),
+    Mutant(
+        "streaming: complete words wait for the end of input",
+        "src/earful/livekit/providers.py",
+        "                    await push(words)\n",
+        "                    pass\n",
+        first="voice_emits_complete_words",
+    ),
+    Mutant(
+        "streaming: first audio ignores the voice TTFB",
+        "src/earful/livekit/providers.py",
+        "                    await _sleep_until(synthesis.t0_us, synthesis.ttfb_us)\n",
+        "                    await _sleep_until(synthesis.t0_us, 0)\n",
+        first="voice_emits_complete_words",
+    ),
+    Mutant(
+        "streaming: cancellation loses the utterance metadata",
+        "src/earful/livekit/providers.py",
+        "            if synthesis is not None:\n                synthesis.finish()\n",
+        "            if False:\n                synthesis.finish()\n",
+        first="cancelled_voice_records_one_prefix",
+    ),
+    Mutant(
+        "streaming: attribution uses finalization instead of synthesis start",
+        "src/earful/core/checker/view.py",
+        'first_token[c] <= e["data"]["started_us"]',
+        'first_token[c] <= e["t_us"]',
+        first="first_token_came",
+    ),
+    Mutant(
+        "streaming: an empty buffer keeps playing",
+        "src/earful/livekit/sink.py",
+        "            segment.starved = True\n            self._pause(segment)\n",
+        "            segment.starved = True\n",
+        first="streaming_gaps_pause_playout",
+    ),
+    Mutant(
+        "streaming: a zero gap starts audio again",
+        "src/earful/core/checker/l2.py",
+        ' and e["seq"] not in continuous',
+        "",
+        first="zero_length_buffer_gap_does_not_start",
+    ),
+    Mutant(
+        "streaming: a zero gap hides a late stop",
+        "src/earful/core/checker/view.py",
+        '            if resumed is not None and resumed["t_us"] == paused["t_us"]:\n',
+        "            if False:\n",
+        first="zero_length_buffer_gap_does_not_hide",
     ),
     # A stretched delay, paired with a speech or the hangup.
     Mutant(

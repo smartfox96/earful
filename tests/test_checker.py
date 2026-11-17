@@ -248,8 +248,8 @@ def remembered(events, call):
 
 
 def test_m1_the_tolerance_is_audio_time_and_a_policy_choice(barge):
-    """Eight words played and the ninth was cut. Memory that stops on either side of the
-    cut word agrees exactly; two words further ("then grilled") is 0.66 s of audio ahead."""
+    """Nine words played and the tenth was cut. Memory on either side of the cut agrees;
+    two words further ("grilled sea") is 0.6 s of audio ahead."""
     said = [
         "Tonight",
         "we",
@@ -262,9 +262,10 @@ def test_m1_the_tolerance_is_audio_time_and_a_policy_choice(barge):
         "start",
         "then",
         "grilled",
+        "sea",
     ]
     message = remembered(barge, 2)
-    for kept, drift in ((8, 0), (9, 0), (11, 660_000)):
+    for kept, drift in ((9, 0), (10, 0), (12, 600_000)):
         message["text"] = " ".join(said[:kept])
         row = check(copy.deepcopy(barge)).results["M1"].verdicts[0].measures["contexts"][0]
         assert (row["remembered"], row["drift_us"]) == (kept, drift)
@@ -281,11 +282,11 @@ def test_m1_reports_the_measured_difference_on_every_instance(fixed):
 
 def test_m1_fails_when_memory_falls_behind_what_was_played(barge):
     item = remembered(barge, 2)
-    item["text"] = " ".join(item["text"].split()[:3])  # five played words, 1.2 s, forgotten
+    item["text"] = " ".join(item["text"].split()[:3])  # six played words, 1.5 s, forgotten
     report = check(copy.deepcopy(barge))
     assert rules(report, "M1") == ["rule 2"]
-    assert report.results["M1"].failures[0].measures["contexts"][0]["drift_us"] == -1_200_000
-    assert check(declare(barge, M1={"behind_us": 1_200_000})).outcome("M1") == PASS
+    assert report.results["M1"].failures[0].measures["contexts"][0]["drift_us"] == -1_500_000
+    assert check(declare(barge, M1={"behind_us": 1_500_000})).outcome("M1") == PASS
 
 
 def test_m1_fails_when_a_reply_that_never_played_is_remembered():
@@ -471,6 +472,7 @@ def _synthesized(utterance, attribution, candidates, call=None, t_us=0):
         "kind": "tts.synthesized",
         "t_us": t_us,
         "data": {
+            "started_us": t_us,
             "utterance": utterance,
             "attribution": attribution,
             "candidates": candidates,
@@ -494,6 +496,9 @@ def test_a_text_is_no_reply_whose_first_token_came_after_it_was_synthesized():
     """The ledger names candidates by their words. A reply the model had decided on, with
     no token of it out when the voice was handed the text, is none of them."""
     text = _synthesized(1, "ambiguous", [2, 4], t_us=500)
+    # Final metadata can be recorded much later; attribution uses synthesis start.
+    text["t_us"] = 900
+    text["t_us"] = 900  # final metadata can be recorded after a later call's first token
     early, late = _answered(2, ttft_us=500), _answered(4, t_us=100, ttft_us=401)
     # a first token that is out the instant the text is synthesized is in time
     assert readings([*early, *_answered(4, t_us=100, ttft_us=400), text]) == [{1: 2}, {1: 4}]
@@ -556,7 +561,7 @@ def test_a_reading_that_is_not_causally_possible_excuses_nothing(barge):
     events = _generated_twice(barge)
     _forget(context(events, 2), "Stop.")
     text, second = of(events, "tts.synthesized", 1), of(events, "llm.response", 2)
-    second["data"]["ttft_us"] = text["t_us"] - second["t_us"] + 1
+    second["data"]["ttft_us"] = text["data"]["started_us"] - second["t_us"] + 1
     report = check(events)
     assert report.readings == 1 and report.reading == {2: 2}
     (failed,) = report.failures
@@ -572,7 +577,7 @@ def test_a_text_no_reply_could_be_stays_unattributed(barge):
     events = _generated_twice(barge)
     text = of(events, "tts.synthesized", 1)
     for response in (of(events, "llm.response", 1), of(events, "llm.response", 2)):
-        response["data"]["ttft_us"] = text["t_us"] - response["t_us"] + 1
+        response["data"]["ttft_us"] = text["data"]["started_us"] - response["t_us"] + 1
     report = check(events)
     assert report.readings == 1 and report.reading == {}
     assert [v.outcome for v in report.results["M1"].verdicts[1:]] == [UNOBSERVABLE, UNOBSERVABLE]
@@ -883,6 +888,30 @@ def test_m2_fails_when_a_reply_comes_before_the_turn_it_answered(barge):
 # --------------------------------------------------------------------------- L2
 
 
+def _buffer_gap(events, at, length=0):
+    paused = copy.deepcopy(of(events, "playout.paused"))
+    paused["t_us"] = at
+    paused["data"]["played_us"] = at - of(events, "playout.started")["t_us"]
+    resumed = copy.deepcopy(paused)
+    resumed.update(kind="playout.resumed", t_us=at + length)
+    events.extend((paused, resumed))
+    return seal(sorted(events, key=lambda event: event["t_us"]))
+
+
+@pytest.mark.parametrize("gap_us", [0, 1])
+def test_l2_a_zero_length_buffer_gap_does_not_start_audio_again(barge, gap_us):
+    events = _buffer_gap(barge, 5_100_000, gap_us)
+    report = check(events)
+    assert report.valid
+    assert report.outcome("L2") == (PASS if gap_us == 0 else FAIL)
+
+
+def test_l2_a_zero_length_buffer_gap_does_not_hide_a_late_stop(barge):
+    of(barge, "playout.paused")["t_us"] = 5_900_000
+    report = check(_buffer_gap(barge, 5_500_000))
+    assert report.valid and rules(report, "L2") == ["rule a"]
+
+
 def _late_pause(events, by_us):
     """Shift the pause the framework issued, and what follows at the same instant."""
     at = of(events, "sink.pause")["t_us"]
@@ -932,7 +961,7 @@ def test_l1_a_later_speech_carries_the_obligation():
 def test_l1_reports_time_to_first_model_call_and_first_audio(barge):
     measures = check(barge).results["L1"].verdicts[0].measures
     assert measures["time_to_first_model_call_us"] == 0
-    assert measures["time_to_first_audio_us"] == 600_000
+    assert measures["time_to_first_audio_us"] == 500_000
 
 
 def test_l1_slack_is_a_policy_choice(barge):

@@ -1,4 +1,4 @@
-"""Between a ``Case`` and its data: the LiveKit side of earful.case/3.
+"""Between a ``Case`` and its data: the LiveKit side of earful.case/1.
 
 The core moves, reduces and saves cases as plain data (``earful.core.case``). This module
 turns a harness ``Case`` into that data and back, and runs the data: the one function the
@@ -87,10 +87,11 @@ def fingerprint(scenario: str) -> str:
 
 
 def describe(case: Case, scenario: str, seed: int = 0) -> dict[str, Any]:
-    """The data of ``case``, as earful.case/3. ``scenario`` is the reference that will
+    """The data of ``case``, as earful.case/1. ``scenario`` is the reference that will
     produce its code again."""
     return {
         "schema": case_format.SCHEMA,
+        "schema_minor": case_format.SCHEMA_MINOR,
         "scenario": scenario,
         "seed": seed,
         "speeches": [
@@ -134,11 +135,11 @@ def default(scenario: str, seed: int = 0) -> dict[str, Any]:
 def build(data: dict[str, Any]) -> Case:
     """The ``Case`` that ``data`` describes: the scenario's code, with the data's
     speeches, hangup, delays, faults, settings and contract policy. Raises ``ValueError``
-    on data that is not earful.case/3, names a setting this adapter does not have or gives
+    on data that is not earful.case/1, names a setting this adapter does not have or gives
     one the wrong kind of value, or names a scenario that does not exist."""
     errors = case_format.validate(data)
     if errors:
-        raise ValueError("not an earful.case/3 document: " + "; ".join(errors))
+        raise ValueError("not an earful.case/1 document: " + "; ".join(errors))
     for name, value in data["settings"].items():
         if name not in SETTINGS:
             raise ValueError(f"unknown setting {name!r}; this adapter has {sorted(SETTINGS)}")

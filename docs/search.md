@@ -14,7 +14,7 @@ from earful.core.predicate import Predicate
 from earful.core.shrink import nearest
 from earful.livekit import scenario
 
-author = scenario.default("earful.livekit.cases:book_then_interrupt")   # earful.case/3
+author = scenario.default("earful.livekit.cases:book_then_interrupt")   # earful.case/1
 found = search.explore(author, scenario.run)       # every time to every boundary, every fault on every write
 found.predicates()                                 # the rules some run broke
 found.windows(Predicate("A2", "rule"))             # how wide each failure is
@@ -32,7 +32,10 @@ All of it is framework-independent. The one thing an adapter supplies is `run`: 
 function from a case to the ledger of running it. For LiveKit that is
 `earful.livekit.scenario.run`.
 
-## 1. A case is data: `earful.case/3`
+## 1. A case is data: `earful.case/1`
+
+Cases and bundles follow the format policy in `docs/ledger.md`: optional fields can be
+added within `/1`; execution settings and contract policy values remain checked.
 
 A scenario has two parts. Its code, the agent and the model policy, stays in the module it
 is written in and is named by a reference. Everything else is data. Because that part is
@@ -41,7 +44,8 @@ without touching code.
 
 | Field | Contents |
 | --- | --- |
-| `schema` | `earful.case/3` |
+| `schema` | `earful.case/1` |
+| `schema_minor` | Additive format revision; absent means 0 |
 | `scenario` | Where the code lives, as `module:function`. The function takes no arguments and returns the scenario with its default speeches and settings |
 | `seed` | Seed for every random choice in the run |
 | `speeches` | The scripted user's speeches, in order of their start. Per speech: `start_us`, `end_us`, `transcript` (empty for noise), `stt_delay_us`, `expects_reply` (null: yes, unless noise or a backchannel), `backchannel`, `retires` |
@@ -52,7 +56,7 @@ without touching code.
 | `contracts` | Contract id to the policy values declared for it, as in the ledger header |
 
 The shape is a JSON Schema document shipped with the package
-(`src/earful/core/schemas/earful.case-3.schema.json`). Speeches must be in order, end
+(`src/earful/core/schemas/earful.case-1.schema.json`). Speeches must be in order, end
 after they start and not overlap; a hangup comes no earlier than the end of the last
 speech; a delay is declared at most once, and a write has at most one fault.
 
@@ -294,24 +298,25 @@ knows nothing of the mechanism: if the same rule can be broken two ways, a reduc
 end at the other one. The bundle keeps what the checker said of the case as found and of
 the case as reduced, so the two can be compared.
 
-## 6. The bundle: `earful.bundle/2`
+## 6. The bundle: `earful.bundle/1`
 
 A bundle is what is kept when a failing case has been reduced. The file names are fixed.
 
 | File | Contents |
 | --- | --- |
 | `manifest.json` | What failed, on what, and how the case was reduced |
-| `original.case.json` | The case as it was found (`earful.case/3`) |
+| `original.case.json` | The case as it was found (`earful.case/1`) |
 | `original.ledger.jsonl` | The normalized ledger of running it |
 | `minimal.case.json` | The reduced case |
 | `minimal.ledger.jsonl` | The normalized ledger of running it |
 
 The manifest freezes the failure. Its shape is
-`src/earful/core/schemas/earful.bundle-2.schema.json`.
+`src/earful/core/schemas/earful.bundle-1.schema.json`.
 
 | Field | Contents |
 | --- | --- |
-| `schema` | `earful.bundle/2` |
+| `schema` | `earful.bundle/1` |
+| `schema_minor` | Additive format revision; absent means 0 |
 | `predicate` | `contract` and `rule`: the failure |
 | `framework` | `name` and `version` of the release it was found on |
 | `clock` | The clock the reduced case ran on |

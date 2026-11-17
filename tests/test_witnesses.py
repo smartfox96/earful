@@ -670,10 +670,10 @@ def test_word_completion_times_are_exact():
     start = _of(events, "playout.started")[0]["t_us"]
     finished = _of(events, "playout.finished")[0]["data"]
     ends = _word_ends_us(events)
-    assert finished["words_played"] == [1, 2, 3, 4, 5, 6, 7, 8]
-    assert finished["words_completed_us"] == [start + end for end in ends[:8]]
-    # paused 2.2 s in: the ninth word, "start", spans 1.98-2.28 s, so 0.22 s of it played
-    assert finished["word_cut"] == 9 and finished["word_cut_samples"] == 5280
+    assert finished["words_played"] == list(range(1, 10))
+    assert finished["words_completed_us"] == [start + end for end in ends[:9]]
+    # Streaming starts 0.1 s sooner: "then" is cut 20 ms into its 240 ms waveform.
+    assert finished["word_cut"] == 10 and finished["word_cut_samples"] == 480
 
 
 def test_word_completion_times_skip_a_pause():

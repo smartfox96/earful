@@ -12,7 +12,8 @@ from collections.abc import Callable, Iterable
 from pathlib import Path
 from typing import Any
 
-SCHEMA = "earful.ledger/5"
+SCHEMA = "earful.ledger/1"
+SCHEMA_MINOR = 0
 
 # Who observed the event. The checker treats these as independent witnesses.
 SOURCES = ("world", "llm", "sink", "backend", "framework", "harness")
@@ -69,6 +70,7 @@ class Ledger:
             raise ValueError("the first event of a ledger must be run.start")
         event = {
             "schema": SCHEMA,
+            "schema_minor": SCHEMA_MINOR,
             "run": self.run,
             "seq": len(self.events),
             "t_us": self._clock_us(),

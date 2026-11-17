@@ -15,7 +15,7 @@ confirm it repeats, and written as a bundle.
 
 SCENARIO is module:function. Running it imports and calls that function.
 
-    --case FILE          start from a saved case (earful.case/3) instead of the scenario as
+    --case FILE          start from a saved case (earful.case/1) instead of the scenario as
                          written
     --variables A,B      kinds of time to move (default: speech.position, every provider
                          delay and user.hangup; speech.end and speech.stt_delay can be added)
