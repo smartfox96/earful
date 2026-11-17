@@ -18,7 +18,7 @@ from breaks import SEVENTH_WORD_ENDS_US
 from earful.core import bundle
 from earful.core import case as cases
 from earful.core.case import Variable
-from earful.core.checker import check
+from earful.core.checker import ContractFailure, check
 from earful.core.ledger import ledger_hash
 from earful.core.predicate import Predicate
 from earful.core.search import Runner, explore, window
@@ -229,6 +229,14 @@ def test_a_break_that_lasts_30_ms_at_a_boundary_is_found_and_its_width_measured(
     )  # "Stop." starts 0.5 s before its interruption point
     assert (measured.lo_us, measured.hi_us) == (opens, opens + 29_000)  # located to a millisecond
     assert not measured.instant
+    # Asserted, the search fails the test, and says what was moved and how wide it is.
+    with pytest.raises(ContractFailure) as caught:
+        found.assert_contracts()
+    message = str(caught.value)
+    assert "L2/rule a  in 2 case(s)" in message
+    assert "changed: speech.position 1 at" in message and "(as written 14.000 s)" in message
+    assert f"breaks with speech.position 1 from {opens / 1e6:.3f} s" in message
+    found.assert_contracts(allow=["L2/rule a"])
 
 
 def test_a_break_at_one_microsecond_is_an_instant_and_is_called_one():
@@ -238,6 +246,12 @@ def test_a_break_at_one_microsecond_is_an_instant_and_is_called_one():
     assert len(found.breaking(SLOW_TO_STOP)) == 1
     (measured,) = found.windows(SLOW_TO_STOP)
     assert measured.instant and measured.width_us == 0 and measured.resolution_us == 1
+    # Such a break is reported and not counted: asserting the search does not fail.
+    (one,) = found.breaks()
+    assert one.instants_only and "same-instant order" in found.describe()
+    found.assert_contracts()
+    # Without its window measured, nothing says it is an instant.
+    assert not found.breaks(windows=False)[0].instants_only
 
 
 def test_the_search_reaches_the_boundaries_of_a_tool_and_says_what_it_did_not_reach():

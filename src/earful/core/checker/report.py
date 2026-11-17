@@ -5,6 +5,7 @@ Framework-independent: this module must never import livekit.
 
 from __future__ import annotations
 
+import json
 from collections.abc import Iterable
 from dataclasses import asdict, dataclass, field, replace
 from typing import Any
@@ -17,6 +18,16 @@ _SEVERITY = {PASS: 0, UNOBSERVABLE: 1, FAIL: 2}  # a verdict's outcomes, from be
 SPLIT = "reading_split"  # the flag on a verdict that another reading makes worse
 
 Event = dict[str, Any]
+
+
+class ContractFailure(AssertionError):
+    """A contract rule broke. What ``assert_contracts`` raises, so a test that calls it
+    fails as a test fails on any assertion."""
+
+
+def allowed(allow: Iterable[Any]) -> set[str]:
+    """The rules a caller lets break, each as ``CONTRACT/RULE`` text."""
+    return {str(rule) for rule in allow}
 
 
 @dataclass(frozen=True)
@@ -81,6 +92,48 @@ class Report:
 
     def to_json(self) -> dict[str, Any]:
         return asdict(self)
+
+    def broken(self) -> list[str]:
+        """Every rule a failed verdict names, as ``CONTRACT/RULE``, sorted."""
+        return sorted(
+            {f"{v.contract}/{finding.rule}" for v in self.failures for finding in v.findings}
+        )
+
+    def lines(self, *, measures: bool = False, passes: bool = False) -> list[str]:
+        """The report as text, one line per contract and one per verdict that is not a
+        plain pass: a failure, an unobservable one, or a pass that carries a flag.
+        ``passes`` lists every passing verdict too, and ``measures`` adds what each
+        verdict measured."""
+        if not self.valid:
+            return [f"invalid: {reason}" for reason in self.invalid]
+        out: list[str] = []
+        for name, result in self.results.items():
+            out.append(f"{name}  {result.outcome}")
+            for v in result.verdicts:
+                if v.outcome != PASS or v.flags or passes or measures:
+                    out.append(f"    {v.outcome}: {json.dumps(v.instance)} {v.summary}")
+                out += [f"        {f.rule}: {f.detail}" for f in v.findings]
+                if measures and v.measures:
+                    out.append(f"        {json.dumps(v.measures)}")
+                if v.flags:
+                    out.append(f"        flags: {', '.join(v.flags)}")
+            out += [f"    note: {note}" for note in result.notes]
+        return out
+
+    def assert_contracts(self, *, allow: Iterable[Any] = (), what: str = "the run") -> None:
+        """Raise ``ContractFailure`` if the run is not valid evidence or a contract rule
+        broke. ``allow`` names rules that may break, as ``CONTRACT/RULE``: a known defect
+        of a release under test. ``what`` names the run in the message."""
+        if not self.valid:
+            raise ContractFailure(
+                f"{what} is not valid evidence, so no contract was checked:\n"
+                + "\n".join(f"  {reason}" for reason in self.invalid)
+            )
+        broken = [rule for rule in self.broken() if rule not in allowed(allow)]
+        if broken:
+            raise ContractFailure(
+                f"{what} breaks {', '.join(broken)}\n\n" + "\n".join(self.lines())
+            )
 
 
 def verdict(

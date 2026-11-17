@@ -75,3 +75,27 @@ def test_every_setting_the_livekit_adapter_has_is_documented():
     from earful.livekit.scenario import SETTINGS
 
     assert set(SETTINGS) <= SEARCH_MENTIONED, sorted(set(SETTINGS) - SEARCH_MENTIONED)
+
+
+TESTING_DOC = (Path(__file__).resolve().parents[1] / "docs" / "testing.md").read_text()
+
+
+def test_every_name_the_testing_page_imports_from_earful_exists():
+    """The examples on the page are read as Python, and each name they import from the
+    package is looked up."""
+    import ast
+    import importlib
+
+    blocks = re.findall(r"```python\n(.*?)```", TESTING_DOC, flags=re.DOTALL)
+    assert blocks
+    imported = []
+    for block in blocks:
+        for node in ast.walk(ast.parse(block)):
+            if isinstance(node, ast.ImportFrom) and (node.module or "").startswith("earful"):
+                module = importlib.import_module(node.module)
+                for alias in node.names:
+                    assert hasattr(module, alias.name), f"{node.module} has no {alias.name}"
+                    imported.append(alias.name)
+    assert {"run", "explore", "keep", "replay", "ScriptedModel", "Effect", "effect"} <= set(
+        imported
+    )

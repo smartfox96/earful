@@ -8,8 +8,9 @@ import dataclasses
 import itertools
 import logging
 import random
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
+from functools import cached_property
 from typing import TYPE_CHECKING, Any
 
 import livekit.agents as lk
@@ -18,6 +19,7 @@ from livekit.agents import utils
 
 from ..core import backend as backends
 from ..core.backend import FAULTS, BackendMode, Effect, EffectBackend
+from ..core.checker import Report, check
 from ..core.checker.policy import parse_all
 from ..core.ledger import Ledger, ledger_hash
 from ..core.schema import validity
@@ -248,6 +250,24 @@ class RunResult:
     harness_errors: list[str]
     framework_warnings: list[str]
     invalid: list[str]  # reasons the run may not be used as evidence; empty when valid
+
+    @property
+    def events(self) -> list[dict[str, Any]]:
+        """The ledger's events: what the checker reads and what a ledger file holds."""
+        return self.ledger.events
+
+    @cached_property
+    def report(self) -> Report:
+        """The verdict of every contract for this run."""
+        return check(self.ledger.events)
+
+    def assert_contracts(self, *, allow: Iterable[Any] = ()) -> None:
+        """Raise ``ContractFailure``, an ``AssertionError``, if a contract rule broke.
+        ``allow`` names rules that may break, as ``CONTRACT/RULE``."""
+        framework = self.versions["livekit-agents"]
+        self.report.assert_contracts(
+            allow=allow, what=f"{self.case} (seed {self.seed}, livekit-agents {framework})"
+        )
 
 
 class _ScriptedAudioInput(io.AudioInput):

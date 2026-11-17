@@ -17,28 +17,11 @@ as_json, measures = "--json" in sys.argv, "--measures" in sys.argv
 failed = False
 for path in paths:
     report = check(read_jsonl(path))
+    failed = failed or not report.valid or bool(report.failures)
     if as_json:
         print(json.dumps({"ledger": path.name, **report.to_json()}))
-        failed = failed or not report.valid or bool(report.failures)
         continue
     print(f"== {path.name}")
-    if not report.valid:
-        failed = True
-        for reason in report.invalid:
-            print(f"   invalid: {reason}")
-        continue
-    for name, result in report.results.items():
-        print(f"   {name}  {result.outcome}")
-        for v in result.verdicts:
-            if v.outcome != "pass" or measures:
-                print(f"       {v.outcome}: {json.dumps(v.instance)} {v.summary}")
-            for f in v.findings:
-                print(f"           {f.rule}: {f.detail}")
-            if measures and v.measures:
-                print(f"           {json.dumps(v.measures)}")
-            if v.flags:
-                print(f"           flags: {', '.join(v.flags)}")
-        for note in result.notes:
-            print(f"       note: {note}")
-    failed = failed or bool(report.failures)
+    for line in report.lines(measures=measures):
+        print(f"   {line}")
 sys.exit(1 if failed else 0)

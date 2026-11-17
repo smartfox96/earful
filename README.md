@@ -15,7 +15,9 @@ ledger ([`docs/contracts.md`](docs/contracts.md)). It searches a scenario for th
 the backend faults and the moment of a hangup under which a contract breaks, and measures
 how wide each failure is. A failing case is reduced to a small one that replays
 ([`docs/search.md`](docs/search.md)).
-The developer-facing package (pytest plugin, command line, report) is not built yet.
+A test gives it an agent, a scripted user and a scripted model, and asserts the contracts
+([`docs/testing.md`](docs/testing.md)).
+The command line, the pytest plugin and the report are not built yet.
 
 ```bash
 scripts/check_all.sh            # builds five pinned environments; runs tests, repeatability, historical checks and replays
