@@ -358,6 +358,20 @@ FAMILIES = {
 }
 
 
+class _AtTheEnd:
+    """Each family as a scenario a search can name: ``contracts_sweep:at_the_end.<family>``
+    is the family with its moving speech at the last position of its sweep."""
+
+    def __getattr__(self, family):
+        if family not in FAMILIES:
+            raise AttributeError(family)
+        _first, last, build = FAMILIES[family]
+        return lambda: build(last)
+
+
+at_the_end = _AtTheEnd()
+
+
 def run_one(job):
     family, at, dump = job
     try:
