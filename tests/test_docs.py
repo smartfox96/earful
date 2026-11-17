@@ -170,3 +170,37 @@ def test_the_ci_table_on_the_compatibility_page_is_what_the_workflow_runs():
     for release, (_, pythons) in table.items():
         expected = sorted(python for python, with_release in extra if with_release == release)
         assert sorted(filter(None, (p.strip() for p in pythons.split(",")))) == expected
+
+
+README = (ROOT / "README.md").read_text()
+
+
+def test_the_readme_shows_the_example_as_it_is_in_the_repository():
+    """The quickstart's two files are the files of examples/booking, which a test runs
+    as shipped and with the fix, and scripts/quickstart_check.sh runs from the wheel."""
+    for name in ("agent.py", "test_booking.py"):
+        source = (ROOT / "examples" / "booking" / name).read_text()
+        assert f"```python\n{source}```" in README, f"the README does not show {name} as it is"
+    # The fix it gives is the fix the test of the example applies.
+    assert 'idempotency_key=f"table-for-{party_size}"' in README
+    # The failure it quotes is the failure the test of the example expects.
+    for line in (
+        "A2/rule  in 261 case(s)",
+        "2 durable effects for 'book-table'; the scenario authorized 1",
+        "changed: backend.timeout 1, commit first",
+        "search 1 (booking) breaks A2/rule: backend.timeout 1, commit first",
+    ):
+        assert line in README, line
+
+
+def test_every_page_and_command_the_readme_names_exists():
+    from earful.cli import _parser
+
+    for target in re.findall(r"\]\(([^)#]+)\)", README):
+        assert target.startswith("https://") or (ROOT / target).exists(), target
+    commands = _parser()._subparsers._group_actions[0].choices
+    named = set(re.findall(r"^earful ([a-z]+) ", README, re.MULTILINE))
+    assert named and named <= set(commands), named - set(commands)
+    page = (ROOT / "docs" / "compatibility.md").read_text()
+    releases = re.findall(r"^\| (\d+\.\d+\.\d+) \| \d{4}", page, re.MULTILINE)
+    assert f"livekit-agents {', '.join(releases[:-1])} and {releases[-1]}" in README

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# The static checks and the wheel, then every determinism, historical and replay check on
-# every supported release. Builds the pinned environments if they are missing. The releases are checked
+# The static checks, the wheel and the README's quickstart, then every determinism,
+# historical and replay check on every supported release. Builds the pinned environments if they are missing. The releases are checked
 # side by side; each one's output is printed whole, in order, when all have finished.
 #
 #   scripts/check_all.sh            compare against tests/golden/ and tests/bundles/; writes nothing there
@@ -23,6 +23,7 @@ done
 
 scripts/lint.sh
 scripts/wheel_smoke.sh
+scripts/quickstart_check.sh
 
 # Run one command per release at once; fail if any of them fails.
 side_by_side() {

@@ -22,7 +22,8 @@ run the code in your checkout.
 | `.venvs/lk-1.8.12/bin/python -m pytest -m "not slow"` | Every test under a second, on one release | 20 s |
 | `scripts/lint.sh` | ruff format, ruff, mypy, and that every deliberate break still applies. `--fix` reformats first | 20 s |
 | `scripts/wheel_smoke.sh` | Builds the wheel, installs it alone outside the repository and uses it | 5 s |
-| `scripts/check_all.sh` | All of the above, then on each of the five releases: every test, repeatability of the reference ledgers, the two historical cases and the replays | 6 min |
+| `scripts/quickstart_check.sh` | Follows the README's quickstart from the wheel, with livekit-agents, outside the repository | 90 s |
+| `scripts/check_all.sh` | All of the above, then on each of the five releases: every test, repeatability of the reference ledgers, the two historical cases and the replays | 8 min |
 | `.venvs/lk-1.8.12/bin/python scripts/mutate.py` | Applies each deliberate break of `tests/mutants.py` and checks that a test fails | 30 min |
 
 CI runs `check_all.sh`'s parts on every pull request, on Linux for the five releases and
@@ -67,6 +68,11 @@ move code a break is anchored on, `scripts/lint.sh` fails until the break's text
 brought along. A break that no test can catch is a sign the code it breaks is not needed.
 
 **Tests over a second are marked `slow`.** `pytest -m "not slow"` is the loop to work in.
+
+**The README's quickstart is run.** Its two files are `examples/booking`, a test runs
+them as shipped and with the fix, and `scripts/quickstart_check.sh` follows the steps from
+a built wheel. A change to the example, to a message the README quotes or to a command it
+uses fails one of them until the README is brought along.
 
 ## Adding a livekit-agents release
 
