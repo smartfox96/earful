@@ -904,4 +904,25 @@ MUTANTS = [
         "        capabilities = lk_vad.VADCapabilities(update_interval=0.1)\n",
         first="declares_the_interval",
     ),
+    Mutant(
+        "readings: a text may be a reply with no token out yet",
+        "src/earful/core/checker/view.py",
+        'if c not in taken and first_token[c] <= e["t_us"]',
+        "if c not in taken",
+        first="first_token_came or causally_possible or stays_unattributed",
+    ),
+    Mutant(
+        "readings: a first token out as the text is synthesized is too late",
+        "src/earful/core/checker/view.py",
+        'first_token[c] <= e["t_us"]',
+        'first_token[c] < e["t_us"]',
+        first="first_token_came or causally_possible",
+    ),
+    Mutant(
+        "reading_split: readings that agree are marked",
+        "src/earful/core/checker/report.py",
+        "_SEVERITY[other.outcome] > _SEVERITY[v.outcome]",
+        "_SEVERITY[other.outcome] >= _SEVERITY[v.outcome]",
+        first="makes_worse or split_is",
+    ),
 ]

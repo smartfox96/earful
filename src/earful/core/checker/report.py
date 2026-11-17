@@ -6,13 +6,15 @@ Framework-independent: this module must never import livekit.
 from __future__ import annotations
 
 from collections.abc import Iterable
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, replace
 from typing import Any
 
 CONTRACTS = "earful.contracts/1"
 REPORT = "earful.report/1"
 
 PASS, FAIL, UNOBSERVABLE, NOT_EXERCISED = "pass", "fail", "unobservable", "not_exercised"
+_SEVERITY = {PASS: 0, UNOBSERVABLE: 1, FAIL: 2}  # a verdict's outcomes, from best to worst
+SPLIT = "reading_split"  # the flag on a verdict that another reading makes worse
 
 Event = dict[str, Any]
 
@@ -131,3 +133,29 @@ def result(
     else:
         outcome = PASS
     return ContractResult(contract, outcome, asdict(policy), tuple(verdicts), tuple(notes))
+
+
+def split(
+    reported: dict[str, ContractResult], checked: list[dict[str, ContractResult]]
+) -> dict[str, ContractResult]:
+    """``reported`` with ``reading_split`` flagged on each verdict that another reading of
+    the same ledger makes worse.
+
+    ``checked`` holds the results under every reading. A verdict is compared with the
+    verdict another reading gives the same contract and instance. Worse is a failure
+    where this one is a pass or unobservable, and unobservable where this one is a pass.
+    A reading that has no verdict for the instance says nothing about it.
+    """
+
+    def marked(v: Verdict) -> Verdict:
+        worse = any(
+            other.instance == v.instance and _SEVERITY[other.outcome] > _SEVERITY[v.outcome]
+            for results in checked
+            for other in results[v.contract].verdicts
+        )
+        return replace(v, flags=(*v.flags, SPLIT)) if worse else v
+
+    return {
+        name: replace(r, verdicts=tuple(marked(v) for v in r.verdicts))
+        for name, r in reported.items()
+    }

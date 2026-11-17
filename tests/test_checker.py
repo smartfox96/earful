@@ -12,6 +12,7 @@ import pytest
 
 from earful.core.checker import FAIL, NOT_EXERCISED, PASS, UNOBSERVABLE, PolicyError, check
 from earful.core.checker.memory import align, favourable, user_turns
+from earful.core.checker.report import ContractResult, Finding, split, verdict
 from earful.core.checker.view import Speech, Spoken, View, readings
 from earful.core.ledger import read_jsonl, run_id
 
@@ -457,9 +458,18 @@ def test_of_several_readings_of_identical_texts_the_kindest_is_taken():
     assert favourable(_said("something else"), said, lambda s, m: (0, 0)) is None
 
 
-def _synthesized(utterance, attribution, candidates, call=None):
+def _answered(*calls, t_us=0, ttft_us=0):
+    """The model's answers to ``calls``: decided at ``t_us``, first token ``ttft_us`` later."""
+    return [
+        {"kind": "llm.response", "t_us": t_us, "data": {"call": call, "ttft_us": ttft_us}}
+        for call in calls
+    ]
+
+
+def _synthesized(utterance, attribution, candidates, call=None, t_us=0):
     return {
         "kind": "tts.synthesized",
+        "t_us": t_us,
         "data": {
             "utterance": utterance,
             "attribution": attribution,
@@ -470,14 +480,26 @@ def _synthesized(utterance, attribution, candidates, call=None):
 
 
 def test_a_reading_gives_each_ambiguous_text_one_of_its_candidates_and_no_reply_twice():
-    assert readings([_synthesized(1, "unique", [1], 1)]) == [{}]
-    assert readings([_synthesized(1, "ambiguous", [2, 4])]) == [{1: 2}, {1: 4}]
+    said = _answered(1, 2, 4)
+    assert readings([*said, _synthesized(1, "unique", [1], 1)]) == [{}]
+    assert readings([*said, _synthesized(1, "ambiguous", [2, 4])]) == [{1: 2}, {1: 4}]
     both = [_synthesized(1, "ambiguous", [2, 4]), _synthesized(2, "ambiguous", [2, 4])]
-    assert readings(both) == [{1: 2, 2: 4}, {1: 4, 2: 2}]
+    assert readings([*said, *both]) == [{1: 2, 2: 4}, {1: 4, 2: 2}]
     # a reply that is attributed outright elsewhere is no candidate
-    assert readings([_synthesized(1, "ambiguous", [2, 4]), _synthesized(2, "unique", [2], 2)]) == [
-        {1: 4}
-    ]
+    one_taken = [_synthesized(1, "ambiguous", [2, 4]), _synthesized(2, "unique", [2], 2)]
+    assert readings([*said, *one_taken]) == [{1: 4}]
+
+
+def test_a_text_is_no_reply_whose_first_token_came_after_it_was_synthesized():
+    """The ledger names candidates by their words. A reply the model had decided on, with
+    no token of it out when the voice was handed the text, is none of them."""
+    text = _synthesized(1, "ambiguous", [2, 4], t_us=500)
+    early, late = _answered(2, ttft_us=500), _answered(4, t_us=100, ttft_us=401)
+    # a first token that is out the instant the text is synthesized is in time
+    assert readings([*early, *_answered(4, t_us=100, ttft_us=400), text]) == [{1: 2}, {1: 4}]
+    assert readings([*early, *late, text]) == [{1: 2}]
+    # no reply is left that the text could be: no reading fits, and it stays unattributed
+    assert readings([*_answered(2, ttft_us=501), *late, text]) == [{}]
 
 
 def _generated_twice(events):
@@ -525,6 +547,81 @@ def test_a_failure_stands_when_every_reading_fails(barge):
     history = of(events, "history.final")["data"]["items"]
     history.append(copy.deepcopy(history[-1]))
     assert rules(check(events), "M1") == ["rule 4"]
+
+
+def test_a_reading_that_is_not_causally_possible_excuses_nothing(barge):
+    """The second turn is answered only if the voice spoke the second copy. That copy's
+    first token came after the text was synthesized, so the text was the first copy and
+    the turn got no reply."""
+    events = _generated_twice(barge)
+    _forget(context(events, 2), "Stop.")
+    text, second = of(events, "tts.synthesized", 1), of(events, "llm.response", 2)
+    second["data"]["ttft_us"] = text["t_us"] - second["t_us"] + 1
+    report = check(events)
+    assert report.readings == 1 and report.reading == {2: 2}
+    (failed,) = report.failures
+    assert (failed.contract, failed.instance) == ("L1", {"speech": 1})
+    assert failed.flags == ()  # the turn's only reply was never a candidate: nothing is read
+    # a token out one microsecond sooner, as the text is synthesized, makes it a candidate
+    second["data"]["ttft_us"] -= 1
+    report = check(events)
+    assert report.readings == 2 and report.reading == {2: 3} and report.failures == ()
+
+
+def test_a_text_no_reply_could_be_stays_unattributed(barge):
+    events = _generated_twice(barge)
+    text = of(events, "tts.synthesized", 1)
+    for response in (of(events, "llm.response", 1), of(events, "llm.response", 2)):
+        response["data"]["ttft_us"] = text["t_us"] - response["t_us"] + 1
+    report = check(events)
+    assert report.readings == 1 and report.reading == {}
+    assert [v.outcome for v in report.results["M1"].verdicts[1:]] == [UNOBSERVABLE, UNOBSERVABLE]
+    assert report.failures == ()
+
+
+def _splits(report):
+    return [
+        (v.contract, v.instance)
+        for result in report.results.values()
+        for v in result.verdicts
+        if "reading_split" in v.flags
+    ]
+
+
+def test_a_verdict_another_reading_makes_worse_is_marked(barge):
+    """A pass that every reading gives and a pass that one reading gives are told apart."""
+    events = _generated_twice(barge)
+    agreed = check(events)  # whichever copy was voiced, every verdict is the same
+    assert agreed.readings == 2 and _splits(agreed) == []
+    # Now the second turn is answered only if the voice spoke the second copy.
+    _forget(context(events, 2), "Stop.")
+    report = check(events)
+    assert report.failures == () and _splits(report) == [("L1", {"speech": 1})]
+    json.dumps(report.to_json())
+
+
+def _turns(*outcomes):
+    """L1's results under one reading: a verdict per speech, none where ``None``."""
+    made = {
+        PASS: {},
+        UNOBSERVABLE: {"unobservable": "the run ended before the deadline"},
+        FAIL: {"findings": [Finding("milestone 1", "never happened")]},
+    }
+    verdicts = [
+        verdict("L1", {"speech": speech}, "", flags=["silenced_by_a_tool"], **made[outcome])
+        for speech, outcome in enumerate(outcomes)
+        if outcome is not None
+    ]
+    return {"L1": ContractResult("L1", PASS, {}, tuple(verdicts))}
+
+
+def test_a_split_is_a_worse_outcome_for_the_same_instance_under_another_reading():
+    reported = _turns(PASS, PASS, UNOBSERVABLE, UNOBSERVABLE, FAIL, PASS)
+    other = _turns(UNOBSERVABLE, FAIL, FAIL, PASS, PASS, None)  # it has no verdict for the last
+    marked = split(reported, [reported, other])["L1"].verdicts
+    kept = ("silenced_by_a_tool",)  # a flag the verdict had stays, and comes first
+    assert [v.flags for v in marked] == [(*kept, "reading_split")] * 3 + [kept] * 3
+    assert [v.outcome for v in marked] == [v.outcome for v in reported["L1"].verdicts]
 
 
 def _speech(index, text, backchannel=False):
