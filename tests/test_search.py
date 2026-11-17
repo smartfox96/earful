@@ -15,14 +15,17 @@ import pytest
 from earful.core import bundle
 from earful.core import case as cases
 from earful.core.case import Variable
-from earful.core.checker import check
+from earful.core.checker import ContractFailure, check
 from earful.core.ledger import ledger_hash, read_jsonl
 from earful.core.predicate import Predicate, failures
 from earful.core.search import (
     DEFAULT_VARIABLES,
+    Candidate,
+    Exploration,
     Handle,
     Runner,
     Transition,
+    Tried,
     Window,
     anchors,
     candidates,
@@ -1013,6 +1016,37 @@ def test_a_window_narrower_than_a_millisecond_is_located_to_the_microsecond():
         A2,
     )
     assert tie.instant and tie.width_us == 0 and tie.to_json()["instant"]
+
+
+def test_a_break_is_at_instants_only_if_nothing_else_reaches_it():
+    """The rule breaks with the question at exactly 5 s, and with a failed write. Reached
+    by the moved speech alone it is a tie between two events. Reached by the fault as
+    well, it is a failure of the system, whatever its width where a time was moved."""
+
+    def fails(case):
+        return bool(case["faults"]) or case["speeches"][1]["start_us"] == 5_000_000
+
+    start = a_case(BOOK, speech(9_000_000, 10_000_000, WINDOW["transcript"]))
+    runner = Runner(answers(fails))
+    moved = cases.with_value(start, SECOND, 5_000_000)
+    faulted = cases.with_fault(start, "backend.error", 1)
+    by_time = Tried(Candidate(moved, SECOND, 5_000_000), runner.outcome(moved))
+    by_fault = Tried(
+        Candidate(faulted, None, None, base="backend.error 1"), runner.outcome(faulted)
+    )
+
+    def found(*tried):
+        return Exploration(start, runner.outcome(start), list(tried), [], (0,), runner)
+
+    (alone,) = [b for b in found(by_time).breaks() if b.predicate == A2]
+    assert [w.instant for w in alone.windows] == [True] and alone.instants_only
+    assert "single instants only" in found(by_time).describe()
+    found(by_time).assert_contracts(allow=["M2/rule d"])  # the instant is not counted
+    (both,) = [b for b in found(by_time, by_fault).breaks() if b.predicate == A2]
+    assert [w.instant for w in both.windows] == [True] and not both.instants_only
+    assert both.what == "backend.error 1"  # the example is the case with the least changed
+    with pytest.raises(ContractFailure, match="A2/rule  in 2 case"):
+        found(by_time, by_fault).assert_contracts(allow=["M2/rule d"])
 
 
 def test_each_end_of_a_window_says_why_the_search_stopped_there():

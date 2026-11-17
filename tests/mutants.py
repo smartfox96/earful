@@ -1334,6 +1334,6 @@ MUTANTS = [
         "src/earful/core/search.py",
         "                    and not unmoved\n",
         "",
-        first="one_microsecond_is_an_instant or timed_out_write_commits",
+        first="instants_only_if_nothing_else_reaches_it",
     ),
 ]

@@ -35,6 +35,8 @@ FIX_3702 = (1, 6, 6)
 FIX_5509 = (1, 5, 7)
 
 SLOW_TO_STOP = Predicate("L2", "rule a")
+# A search of the host's reply also meets livekit/agents#5509 on the releases that have it.
+KNOWN_ON_THIS_RELEASE = ["L2/rule b"] if VERSION < FIX_5509 else []
 STOP = Variable("speech.position", 1)
 REPLY_STARTS_US = 3_200_000  # the long reply's first audio, in every release
 
@@ -236,7 +238,7 @@ def test_a_break_that_lasts_30_ms_at_a_boundary_is_found_and_its_width_measured(
     assert "L2/rule a  in 2 case(s)" in message
     assert "changed: speech.position 1 at" in message and "(as written 14.000 s)" in message
     assert f"breaks with speech.position 1 from {opens / 1e6:.3f} s" in message
-    found.assert_contracts(allow=["L2/rule a"])
+    found.assert_contracts(allow=["L2/rule a", *KNOWN_ON_THIS_RELEASE])
 
 
 def test_a_break_at_one_microsecond_is_an_instant_and_is_called_one():
@@ -247,11 +249,12 @@ def test_a_break_at_one_microsecond_is_an_instant_and_is_called_one():
     (measured,) = found.windows(SLOW_TO_STOP)
     assert measured.instant and measured.width_us == 0 and measured.resolution_us == 1
     # Such a break is reported and not counted: asserting the search does not fail.
-    (one,) = found.breaks()
+    (one,) = [b for b in found.breaks() if b.predicate == SLOW_TO_STOP]
     assert one.instants_only and "same-instant order" in found.describe()
-    found.assert_contracts()
+    found.assert_contracts(allow=KNOWN_ON_THIS_RELEASE)
     # Without its window measured, nothing says it is an instant.
-    assert not found.breaks(windows=False)[0].instants_only
+    (unmeasured,) = [b for b in found.breaks(windows=False) if b.predicate == SLOW_TO_STOP]
+    assert not unmeasured.instants_only
 
 
 def test_the_search_reaches_the_boundaries_of_a_tool_and_says_what_it_did_not_reach():
