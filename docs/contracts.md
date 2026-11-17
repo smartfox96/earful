@@ -600,11 +600,12 @@ Taken while adding the hangup, agreed 17 November 2026:
 Taken at an architecture review, 17 November 2026:
 
 29. **A reading has to be possible in time, and a verdict says when the reading decides
-    it** (section 2.5). The scripted voice names a reply as a candidate from the moment
-    the model decides its answer, which is before the first token. A reading could then
+    it** (section 2.5). The scripted voice named a reply as a candidate from the moment
+    the model decided its answer, which is before the first token. A reading could then
     have the voice speak a reply the model had not begun to give, and a run could pass
-    on it. The checker drops such a candidate itself, because a ledger may come from an
-    adapter that names candidates some other way. A pass under one reading of two also
+    on it. The scripted voice now names a reply from its first token on. The checker
+    also drops such a candidate itself, because a ledger may come from an adapter that
+    names candidates some other way. A pass under one reading of two also
     looked the same as a pass under both, so a verdict that another reading makes worse
     now carries `reading_split`. The alternative, reporting the verdicts of every
     reading, leaves the comparison to whoever reads the report.

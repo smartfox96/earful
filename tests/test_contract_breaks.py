@@ -728,3 +728,31 @@ def test_a_reply_the_framework_generates_twice_is_not_unobservable():
         assert all(v.outcome != UNOBSERVABLE for v in report.results[contract].verdicts)
     if VERSION >= FIX_3702:
         assert report.failures == ()
+
+
+def test_the_voice_names_no_reply_whose_first_token_is_not_out():
+    """The same case, with the first of the two identical replies slow to start: the other
+    is voiced before its first token. A text cannot be a reply the model has not begun to
+    give, so the scripted voice names a reply only from its first token on."""
+    events = run_case(
+        _booking(
+            _host_who_books(""),
+            agent=lambda b: _Booker(b, latency=2.0),
+            speeches=(ASK, _asks_about_the_window(3.6)),
+            drain_delay=12.0,
+            delays=[Delay("llm.ttft", 2, 1.0), Delay("llm.duration", 2, 1.2)],
+        )
+    ).ledger.events
+    replies = {e["data"]["call"]: e for e in events if e["kind"] == "llm.response"}
+    first_token = {call: e["t_us"] + e["data"]["ttft_us"] for call, e in replies.items()}
+    late = 0
+    for text in (e for e in events if e["kind"] == "tts.synthesized"):
+        d = text["data"]
+        named = d["candidates"] if d["call"] is None else [d["call"]]
+        assert all(first_token[call] <= text["t_us"] for call in named), d
+        # Replies with these words that had been decided and had no token out yet.
+        late += sum(
+            e["data"]["text"] == d["text"] and e["t_us"] <= text["t_us"] < first_token[call]
+            for call, e in replies.items()
+        )
+    assert late  # the case does put such a reply before a text with its words

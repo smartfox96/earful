@@ -925,4 +925,22 @@ MUTANTS = [
         "_SEVERITY[other.outcome] >= _SEVERITY[v.outcome]",
         first="makes_worse or split_is",
     ),
+    Mutant(
+        "model: a reply is named before its first token is out",
+        "src/earful/livekit/providers.py",
+        (
+            "        t0 = now_us()\n"
+            "        await _sleep_until(t0, ttft_us)\n"
+            "        # A text can be this reply only from its first token on.\n"
+            "        if words:\n"
+            "            model.register.replies[call] = words\n"
+        ),
+        (
+            "        t0 = now_us()\n"
+            "        if words:\n"
+            "            model.register.replies[call] = words\n"
+            "        await _sleep_until(t0, ttft_us)\n"
+        ),
+        first="names_no_reply",
+    ),
 ]
