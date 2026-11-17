@@ -15,11 +15,9 @@ refuse one that cannot, before anything runs, and say what to change.
 
 from __future__ import annotations
 
-import atexit
 import contextlib
 import logging
 from collections.abc import Iterable, Iterator
-from concurrent.futures import ProcessPoolExecutor
 from concurrent.futures.process import BrokenProcessPool
 from pathlib import Path
 from typing import Any
@@ -31,22 +29,6 @@ from ..core.shrink import nearest
 from . import scenario
 from .harness import RunResult, run_case
 from .scenario import Scenario, Source
-
-_pools: dict[int, ProcessPoolExecutor] = {}
-
-
-def _pool(workers: int) -> ProcessPoolExecutor:
-    """One pool of worker processes for each size asked for, kept for the life of the
-    process: starting one means starting interpreters that import the framework."""
-    if workers not in _pools:
-        _pools[workers] = scenario.pool(workers)
-    return _pools[workers]
-
-
-@atexit.register
-def _shutdown() -> None:
-    while _pools:
-        _pools.popitem()[1].shutdown(cancel_futures=True)
 
 
 @contextlib.contextmanager
@@ -134,10 +116,13 @@ def explore(
                 return found.run(data)
 
         return search.explore(start, quietly, **options)
+    # The workers live for this search only. Each is a fresh interpreter, so it runs the
+    # scenario's code as it is now: workers kept between searches would go on running
+    # what they first imported.
     try:
-        return search.explore(start, _run_quietly, each=_pool(workers).map, **options)
+        with scenario.pool(workers) as pool:
+            return search.explore(start, _run_quietly, each=pool.map, **options)
     except BrokenProcessPool as exc:
-        _pools.pop(workers, None)
         raise RuntimeError(
             "a worker process died before it ran a case. A worker is a fresh interpreter "
             "that imports this process's main module, so a script that searches with "

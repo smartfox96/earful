@@ -258,10 +258,11 @@ that can be imported. `explore(case, workers=4)` and `keep(...)` refuse one that
 before anything runs, and say what to change.
 
 `explore(scenario, workers=N)` runs the cases in N worker processes. On a 15-core
-machine the 860 runs above take 36 s in the process of the test and 9 s in 15 workers,
-6 s once the workers are up. Each worker is a fresh interpreter that imports the main
-module of the process that started it, so a script that searches with workers needs the
-`if __name__ == "__main__":` guard. Under pytest nothing is needed.
+machine the 860 runs above take 36 s in the process of the test and 9 s in 15 workers.
+The workers are started for the search and stopped when it ends, so each search runs the
+scenario's code as it is at that moment. Each worker is a fresh interpreter that imports
+the main module of the process that started it, so a script that searches with workers
+needs the `if __name__ == "__main__":` guard. Under pytest nothing is needed.
 
 Passed as a function, a scenario is built anew for each run. Passed as a `Case`, it is
 copied for each run: its agent is built by its own factory each time, and its policy is
