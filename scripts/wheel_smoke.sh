@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Build the wheel, install it alone in a fresh environment outside the repository, and
-# check what a release must not get wrong: the package imports with nothing but its own
+# Build the wheel and the source distribution, install the wheel alone in a fresh
+# environment outside the repository, and check what a release must not get wrong: the package imports with nothing but its own
 # dependencies, the schemas and the typing marker are in it, the command and the pytest
 # plugin are registered, and nothing in it reaches for this repository's tests/ or scripts/.
 #
@@ -14,8 +14,9 @@ root="$(cd "$(dirname "$0")/.." && pwd)"
 work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
 
-uv build -q --wheel --out-dir "$work/dist" "$root"
+uv build -q --out-dir "$work/dist" "$root"
 wheel="$(ls "$work"/dist/earful-*.whl)"
+sdist="$(ls "$work"/dist/earful-*.tar.gz)"
 
 echo "=== what the wheel holds"
 listing="$(python3 -m zipfile -l "$wheel")"
@@ -32,6 +33,30 @@ if grep -E '(^| )(tests|scripts)/' <<<"$listing"; then
   exit 1
 fi
 echo "ok"
+
+echo "=== what the source distribution holds"
+sources="$(tar tzf "$sdist")"
+for wanted in pyproject.toml README.md LICENSE NOTICE src/earful/py.typed \
+  src/earful/core/schemas/earful.ledger-1.schema.json tests/test_golden.py docs/testing.md \
+  examples/booking/agent.py; do
+  grep -q "/$wanted\$" <<<"$sources" || {
+    echo "the source distribution does not hold $wanted" >&2
+    exit 1
+  }
+done
+if grep -E '/(\.venvs|\.earful|__pycache__|\.git)/' <<<"$sources"; then
+  echo "the source distribution holds an environment or a cache" >&2
+  exit 1
+fi
+echo "ok"
+
+echo "=== the version"
+version="$(sed -n 's/^version = "\(.*\)"$/\1/p' "$root/pyproject.toml")"
+[ "$(basename "$wheel")" = "earful-$version-py3-none-any.whl" ] || {
+  echo "the wheel is $(basename "$wheel"), and pyproject.toml says $version" >&2
+  exit 1
+}
+echo "ok: $version"
 
 uv venv -q --python "${EARFUL_PYTHON:-3.13}" "$work/venv"
 VIRTUAL_ENV="$work/venv" uv pip install -q "$wheel" pytest
@@ -78,7 +103,10 @@ print("ok: earful", earful.__version__)
 PY
 
 echo "=== the command"
-venv/bin/earful --version
+[ "$(venv/bin/earful --version)" = "earful $version" ] || {
+  echo "the installed command does not say it is $version" >&2
+  exit 1
+}
 venv/bin/earful check run.jsonl >/dev/null
 status=0
 venv/bin/earful check broken.jsonl >/dev/null || status=$?

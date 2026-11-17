@@ -16,10 +16,10 @@ a small case that replays the same way every time.
 ## Quickstart
 
 Ten minutes, Python 3.10 or later. The two files below are in
-[`examples/booking`](examples/booking). The output shown is from livekit-agents 1.8.12.
+[`examples/booking`](https://github.com/smartfox96/earful/tree/main/examples/booking). The output shown is from livekit-agents 1.8.12.
 
 ```bash
-pip install "earful[livekit] @ git+https://github.com/smartfox96/earful" pytest
+pip install "earful[livekit]" pytest
 ```
 
 **1. An agent.** This one takes restaurant bookings. It is handed the service it books
@@ -175,7 +175,7 @@ open .earful/test_booking.py-test_every_timing_and_fault_near_it/search-1.bookin
 The page is a timeline of that run. On the backend lane the first write commits at 3.0 s
 (a filled diamond). A second later its caller stops waiting (a clock) and the tool raises
 (a cross). The model tries again, and a second write commits at 4.6 s. Under Verdicts, A2
-links to the two commits it rests on. [`docs/report.md`](docs/report.md) explains every
+links to the two commits it rests on. [`docs/report.md`](https://github.com/smartfox96/earful/blob/main/docs/report.md) explains every
 mark.
 
 **5. Keep it.** Reduce the failure to the smallest case that still breaks the rule, and
@@ -206,13 +206,13 @@ earful replay failures/lk-1.8.12.booking.A2-rule --expect clean    # the kept fa
 The kept failure is now a regression test: `earful replay --expect clean` fails if the
 double booking ever comes back.
 
-To test your own agent, start from [`docs/testing.md`](docs/testing.md). A tool that
+To test your own agent, start from [`docs/testing.md`](https://github.com/smartfox96/earful/blob/main/docs/testing.md). A tool that
 talks to its service directly needs no stand-in: declare it as an effect in the test, and
 the agent stays as it is.
 
 ## What is checked
 
-Each contract is decided from the ledger alone ([`docs/contracts.md`](docs/contracts.md)).
+Each contract is decided from the ledger alone ([`docs/contracts.md`](https://github.com/smartfox96/earful/blob/main/docs/contracts.md)).
 
 | | Contract | It fails when |
 | --- | --- | --- |
@@ -244,8 +244,8 @@ real clock (`earful crosscheck`).
 
 | Issue | What happens | Fails on | Passes on |
 | --- | --- | --- | --- |
-| [livekit/agents#3702](docs/cases/3702-tool-result-lost-on-interruption.md) | A tool result is lost when its reply is interrupted, and the booking is made twice | 1.5.6, 1.5.7, 1.6.5 | 1.6.6, 1.8.12 |
-| [livekit/agents#5509](docs/cases/5509-reply-starts-over-new-turn.md) | A reply starts playing after the user has begun a new turn | 1.5.6 | 1.5.7, 1.6.5, 1.6.6, 1.8.12 |
+| [livekit/agents#3702](https://github.com/smartfox96/earful/blob/main/docs/cases/3702-tool-result-lost-on-interruption.md) | A tool result is lost when its reply is interrupted, and the booking is made twice | 1.5.6, 1.5.7, 1.6.5 | 1.6.6, 1.8.12 |
+| [livekit/agents#5509](https://github.com/smartfox96/earful/blob/main/docs/cases/5509-reply-starts-over-new-turn.md) | A reply starts playing after the user has begun a new turn | 1.5.6 | 1.5.7, 1.6.5, 1.6.6, 1.8.12 |
 
 ```bash
 earful replay tests/bundles/lk-1.5.6.book_then_interrupt.A2-rule
@@ -255,20 +255,20 @@ earful report tests/bundles/lk-1.5.6.book_then_interrupt.A2-rule -o report.html
 ## Supported
 
 livekit-agents 1.5.6, 1.5.7, 1.6.5, 1.6.6 and 1.8.12, on Linux and macOS, Python 3.10
-to 3.14. [`docs/compatibility.md`](docs/compatibility.md) has the exact dependency sets
+to 3.14. [`docs/compatibility.md`](https://github.com/smartfox96/earful/blob/main/docs/compatibility.md) has the exact dependency sets
 and what CI runs for each.
 
 ## Documentation
 
 | Page | What it covers |
 | --- | --- |
-| [`docs/testing.md`](docs/testing.md) | Writing a test: the scenario, the scripted model, side effects, pytest, the command line, the real clock |
-| [`docs/report.md`](docs/report.md) | The HTML report, lane by lane |
-| [`docs/contracts.md`](docs/contracts.md) | The seven contracts, their evidence and their policies |
-| [`docs/search.md`](docs/search.md) | The search, the reduction of a failing case, and the bundle that is kept |
-| [`docs/ledger.md`](docs/ledger.md) | Every event in a ledger, and what makes a run valid |
-| [`docs/compatibility.md`](docs/compatibility.md) | Supported releases and what is tested |
-| [`docs/gate0-feasibility.md`](docs/gate0-feasibility.md), [`gate1-core.md`](docs/gate1-core.md), [`gate2-historical-proof.md`](docs/gate2-historical-proof.md) | The evidence each stage of the project rests on |
+| [`docs/testing.md`](https://github.com/smartfox96/earful/blob/main/docs/testing.md) | Writing a test: the scenario, the scripted model, side effects, pytest, the command line, the real clock |
+| [`docs/report.md`](https://github.com/smartfox96/earful/blob/main/docs/report.md) | The HTML report, lane by lane |
+| [`docs/contracts.md`](https://github.com/smartfox96/earful/blob/main/docs/contracts.md) | The seven contracts, their evidence and their policies |
+| [`docs/search.md`](https://github.com/smartfox96/earful/blob/main/docs/search.md) | The search, the reduction of a failing case, and the bundle that is kept |
+| [`docs/ledger.md`](https://github.com/smartfox96/earful/blob/main/docs/ledger.md) | Every event in a ledger, and what makes a run valid |
+| [`docs/compatibility.md`](https://github.com/smartfox96/earful/blob/main/docs/compatibility.md) | Supported releases and what is tested |
+| [`docs/gate0-feasibility.md`](https://github.com/smartfox96/earful/blob/main/docs/gate0-feasibility.md), [`gate1-core.md`](https://github.com/smartfox96/earful/blob/main/docs/gate1-core.md), [`gate2-historical-proof.md`](https://github.com/smartfox96/earful/blob/main/docs/gate2-historical-proof.md) | The evidence each stage of the project rests on |
 
 ## Layout
 
@@ -281,5 +281,5 @@ and what CI runs for each.
 
 ## Contributing
 
-[`CONTRIBUTING.md`](CONTRIBUTING.md) covers setup, the checks and the rules the code
+[`CONTRIBUTING.md`](https://github.com/smartfox96/earful/blob/main/CONTRIBUTING.md) covers setup, the checks and the rules the code
 keeps. Apache-2.0.
