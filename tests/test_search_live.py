@@ -27,6 +27,9 @@ from earful.livekit import scenario
 from earful.livekit.cases import CASES
 from earful.livekit.harness import Delay, run_case
 
+# Every test here searches by running the framework hundreds of times.
+pytestmark = pytest.mark.slow
+
 VERSION = tuple(int(part) for part in lk.__version__.split(".")[:3])
 FIX_3702 = (1, 6, 6)
 FIX_5509 = (1, 5, 7)

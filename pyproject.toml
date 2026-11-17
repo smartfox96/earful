@@ -21,6 +21,10 @@ packages = ["src/earful"]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
 testpaths = ["tests"]
+addopts = "--strict-markers"
+markers = [
+    "slow: takes over a second, mostly searches that run the framework many times (leave out with -m 'not slow')",
+]
 
 [tool.ruff]
 line-length = 100

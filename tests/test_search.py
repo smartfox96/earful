@@ -377,6 +377,7 @@ def test_exploring_runs_every_candidate_and_reports_what_broke_and_what_was_reac
     assert all(p.transition.t_us < 3_500_000 for p in found.impossible)
 
 
+@pytest.mark.slow
 def test_a_rule_that_breaks_wherever_things_are_put_is_not_about_timing():
     found = explore(
         a_case(BOOK, WINDOW),
@@ -484,6 +485,7 @@ def test_a_fault_is_data_for_one_write():
     )  # an error has no wait
 
 
+@pytest.mark.slow
 def test_a_search_adds_each_fault_to_each_write_the_run_made():
     run = answers(has_fault("backend.drop"))
     found = explore(a_case(BOOK, WINDOW), run, variables=())
@@ -546,7 +548,15 @@ def test_a_search_runs_no_case_twice():
         return failing(case)
 
     author = a_case(BOOK, WINDOW)
-    found = explore(author, run, pairs=True, profiles=2, words=False)
+    found = explore(
+        author,
+        run,
+        variables=["speech.position"],
+        moments=["interrupt"],
+        pairs=True,
+        profiles=1,
+        words=False,
+    )
     assert len(ran) == len(set(ran)) == found.runner.runs
     assert cases.canonical(author) in ran  # the case as given is one of them, once
     assert found.runner.ledger(author) is not None  # kept: asking again runs nothing
@@ -559,6 +569,7 @@ def test_a_write_that_already_has_a_fault_is_given_no_other():
     assert found.tried == []
 
 
+@pytest.mark.slow
 def test_pairs_put_faults_on_two_writes_and_move_speeches_under_each_fault():
     two_writes = answers(lambda case: True)  # the recorded failing run made two writes
     alone = explore(
@@ -615,6 +626,7 @@ def test_pairs_put_faults_on_two_writes_and_move_speeches_under_each_fault():
     assert any(not t.candidate.base and t.candidate.variable == SECOND for t in moving.tried)
 
 
+@pytest.mark.slow
 def test_profiles_redraw_every_delay_from_the_seed_and_move_speeches_under_each():
     def searched(seed=0, profiles=2):
         return explore(
@@ -657,6 +669,7 @@ def test_profiles_redraw_every_delay_from_the_seed_and_move_speeches_under_each(
     assert not any(t.candidate.base for t in searched(profiles=0).tried)
 
 
+@pytest.mark.slow
 def test_a_fault_is_a_difference_and_a_reduction_keeps_it_only_if_the_failure_needs_it():
     author = a_case(BOOK, WINDOW)
     found = cases.with_fault(
@@ -712,6 +725,7 @@ def test_a_hangup_is_a_time_in_the_case_no_earlier_than_the_end_of_the_last_spee
     assert cases.without_hangup(left) == case
 
 
+@pytest.mark.slow
 def test_a_search_moves_the_hangup_to_every_transition_after_the_last_speech():
     run = answers(left_between(7_000_000, 9_000_000))
     found = explore(a_case(BOOK, WINDOW), run, variables=["user.hangup"], faults=[], words=False)
@@ -768,6 +782,7 @@ def test_a_hangup_the_case_declares_is_moved_against_the_run_in_which_the_user_s
     )  # so it can be moved later, too
 
 
+@pytest.mark.slow
 def test_a_hangup_is_a_difference_and_a_reduction_keeps_it_only_if_the_failure_needs_it():
     author = a_case(BOOK, WINDOW)
     found = cases.with_value(cases.with_value(author, SECOND, 3_140_000), HANGUP, 8_130_000)
@@ -1001,6 +1016,7 @@ def test_a_settled_time_is_the_roundest_in_the_middle_half_of_its_window():
         assert at(lo, hi, was=at(lo, hi)) == at(lo, hi)  # settling what is settled changes nothing
 
 
+@pytest.mark.slow
 def test_shrinking_without_an_authors_scenario_removes_and_settles():
     shrunk = shrink(FOUND, answers(INTERRUPTS), A2)
     assert [s["transcript"] for s in shrunk.case["speeches"]] == [
@@ -1115,6 +1131,7 @@ def test_a_bundle_that_is_not_one_is_refused(tmp_path):
         bundle.load(tmp_path)
 
 
+@pytest.mark.slow
 def test_a_manifest_cannot_point_outside_its_bundle(tmp_path):
     """The file names are fixed. A manifest that tries to name another is not a manifest."""
     bundle.capture(tmp_path / "kept", a_case(BOOK, WINDOW), answers(INTERRUPTS), A2)
