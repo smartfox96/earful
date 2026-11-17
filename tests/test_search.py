@@ -809,6 +809,145 @@ def test_a_hangup_is_a_difference_and_a_reduction_keeps_it_only_if_the_failure_n
     assert reduced.case["hangup_us"] is None and "removed the hangup" in reduced.steps
 
 
+# --------------------------------------------------------------------------- a stretched delay
+
+SLOW_WRITE = {"of": "backend.latency", "nth": 1, "us": 1_500_000}
+
+
+def slow_write_and(fails):
+    """Fails where the first write is declared to take 1.5 s and ``fails`` holds too."""
+    return lambda case: SLOW_WRITE in case["delays"] and fails(case)
+
+
+def test_pairs_stretch_each_write_and_each_generation_shorter_than_the_stretch():
+    run = answers(lambda case: False)
+
+    def versions(**options):
+        """The label and the declared delays of each candidate, in a search that moves
+        nothing: the stretched versions of the case and no others."""
+        found = explore(a_case(BOOK, WINDOW), run, variables=(), faults=[], **options)
+        assert all(t.candidate.variable is None for t in found.tried)
+        return {t.candidate.base: t.candidate.case["delays"] for t in found.tried}
+
+    def stretched(us, *delays):
+        return {f"{of} {nth}, stretched": [{"of": of, "nth": nth, "us": us}] for of, nth in delays}
+
+    # The recorded run made one write, which commits at once, and two model calls of 0.3 s.
+    every = (("backend.latency", 1), ("llm.duration", 1), ("llm.duration", 2))
+    assert versions(pairs=True) == stretched(1_500_000, *every)
+    assert versions() == {}
+    # A delay already as long as the stretch is left as it is, and is not paired.
+    assert versions(pairs=True, stretch_us=300_000) == stretched(300_000, ("backend.latency", 1))
+    assert versions(pairs=True, stretch_us=0) == {}
+    # No delay is stretched past the limit.
+    assert versions(pairs=True, delay_limit_us=1_000_000) == stretched(1_000_000, *every)
+
+
+def test_pairs_find_a_failure_that_needs_a_slow_write_and_a_speech_during_it():
+    run = answers(slow_write_and(INTERRUPTS))
+    far = a_case(BOOK, speech(20_000_000, 21_000_000, WINDOW["transcript"]))
+    options = {
+        "variables": ["speech.position", "backend.latency"],
+        "speeches": [1],
+        "moments": ["interrupt"],
+        "faults": [],
+        "words": False,
+    }
+    # One thing at a time: the write is made slow and the question is moved, never both.
+    assert explore(far, run, **options).predicates() == []
+    found = explore(far, run, pairs=True, **options)
+    breaking = found.breaking(A2)
+    assert {t.candidate.what for t in breaking} == {
+        "backend.latency 1, stretched + speech.position 1"
+    }
+    assert all(t.candidate.case["delays"] == [SLOW_WRITE] for t in breaking)
+    # The stretched version alone passes, and is a candidate like any other.
+    (version,) = [t for t in found.tried if t.candidate.what == "backend.latency 1, stretched"]
+    assert version.candidate.case == {**far, "delays": [SLOW_WRITE]}
+    assert version.candidate.variable is None and not version.outcome.failures
+    # The window is measured along the question, with the write still slow.
+    (measured,) = found.windows(A2)
+    assert (measured.variable, measured.lo_us, measured.hi_us) == (SECOND, 3_000_000, 7_800_000)
+
+
+def test_pairs_find_a_failure_that_needs_a_slow_write_and_a_hangup_during_it():
+    run = answers(slow_write_and(left_between(7_000_000, 9_000_000)))
+    author = a_case(BOOK, WINDOW)
+    options = {"variables": ["user.hangup", "backend.latency"], "faults": [], "words": False}
+    assert explore(author, run, **options).predicates() == []
+    found = explore(author, run, pairs=True, **options)
+    breaking = found.breaking(A2)
+    assert {t.candidate.what for t in breaking} == {"backend.latency 1, stretched + user.hangup 0"}
+    assert all(t.candidate.case["delays"] == [SLOW_WRITE] for t in breaking)
+    (measured,) = found.windows(A2)
+    assert (measured.variable, measured.lo_us, measured.hi_us) == (HANGUP, 7_000_000, 9_000_000)
+
+
+def test_under_a_stretched_delay_a_handle_is_put_at_each_transition_and_at_no_word_end():
+    found = explore(
+        a_case(BOOK, WINDOW),
+        answers(lambda case: False),
+        variables=["speech.position", "user.hangup"],
+        speeches=[1],
+        moments=["interrupt"],
+        faults=[],
+        pairs=True,
+    )
+
+    def placed(base):
+        """What was moved under ``base``, at which offsets, and whether to a word end."""
+        placements = [
+            (t.candidate.variable, placement)
+            for t in found.tried
+            if t.candidate.base == base and t.candidate.variable is not None
+            for placement in t.candidate.placements
+        ]
+        return (
+            {variable for variable, _ in placements},
+            {placement.offset_us for _, placement in placements},
+            any("playout.word_end" in placement.transition.kinds for _, placement in placements),
+        )
+
+    assert placed("") == ({SECOND, HANGUP}, {-10_000, 0, 10_000}, True)
+    for label in ("backend.latency 1, stretched", "llm.duration 2, stretched"):
+        assert placed(label) == ({SECOND, HANGUP}, {0}, False)
+
+
+def test_a_case_found_under_a_stretched_delay_reduces_to_the_delay_and_the_hangup():
+    """The recorded write is requested at 3.0 s. The stand-in fails where the user hangs
+    up while a write that was declared slow is still under way."""
+
+    def left_during_the_write(case):
+        took = cases.value(case, Variable("backend.latency", 1))
+        left = case["hangup_us"]
+        return took is not None and left is not None and 3_000_000 <= left < 3_000_000 + took
+
+    author = a_case(BOOK)
+    run = answers(left_during_the_write)
+    found = explore(author, run, variables=["user.hangup"], faults=[], pairs=True, words=False)
+    assert {t.candidate.what for t in found.breaking(A2)} == {
+        "backend.latency 1, stretched + user.hangup 0"
+    }
+    case = nearest(author, [t.candidate.case for t in found.breaking(A2)])
+    padded = {**cases.with_value(case, Variable("llm.ttft", 2), 250_000), "seed": 7}
+    shrunk = shrink(padded, run, A2, author=author)
+    assert shrunk.complete
+    assert shrunk.steps[0] == "kept 2 of 4 differences from the author's scenario"
+    # Each time is settled inside its window: the write, then the hangup during it.
+    assert shrunk.case == {
+        **author,
+        "hangup_us": 3_500_000,
+        "delays": [{"of": "backend.latency", "nth": 1, "us": 1_000_000}],
+    }
+    assert shrunk.differences == [
+        "the user hangs up at 3500000 us",
+        "backend.latency 1 declared as 1000000 us",
+    ]
+    assert run(shrunk.case) == ledger("1.5.6", "book_then_interrupt")  # it still fails
+    for undone in (cases.without_hangup(shrunk.case), {**shrunk.case, "delays": []}):
+        assert run(undone) == ledger("1.8.12", "book_then_interrupt")  # and needs both
+
+
 def test_a_window_is_found_by_doubling_out_and_halving_back():
     run = answers(asked_about_the_window_between(3_000_000, 7_800_000))
     runner = Runner(run)

@@ -54,6 +54,12 @@ OFFSETS_US = (-10_000, 0, 10_000)
 # breaks things too, but that is a different scenario, not a nearby ordering of this one.
 DELAY_LIMIT_US = 10_000_000
 
+# How long a search makes a backend write or a model generation take when it pairs a slow
+# one with a speech or the hangup: longer than the default interruption threshold, so
+# that a speech can interrupt while it is under way.
+STRETCH_US = 1_500_000
+STRETCHED = ("backend.latency", "llm.duration")
+
 _NOT_TRANSITIONS = {"run.start", "run.end", "user.origin", "history.final", "fw.close"}
 
 
@@ -326,10 +332,12 @@ class Placement:
 @dataclass
 class Candidate:
     case: cases.Case
-    variable: Variable | None  # the variable that was moved; None if only a fault was added
+    variable: Variable | None  # the variable that was moved; None if nothing was
     value_us: int | None  # what it was moved to
     placements: list[Placement] = field(default_factory=list)
-    base: str = ""  # what was done to the case before anything was moved: a fault, a profile
+    # What was done to the case before anything was moved: a fault, a stretched delay, a
+    # profile.
+    base: str = ""
 
     @property
     def what(self) -> str:
@@ -626,6 +634,7 @@ def explore(
     words: bool = True,
     delay_limit_us: int = DELAY_LIMIT_US,
     wait_us: int = WAIT_US,
+    stretch_us: int = STRETCH_US,
     each: Each = map,
 ) -> Exploration:
     """Search ``case`` for the timings and faults at which it breaks a contract.
@@ -642,7 +651,11 @@ def explore(
 
     **Two things at a time**, if asked for. With ``pairs``, every speech (and the hangup,
     if it is among the variables) is moved again with each fault in place, and faults are
-    added to two writes at once. With
+    added to two writes at once. Each backend write and each model generation the run
+    made is also stretched to ``stretch_us``, one per version of the case, and every
+    speech and the hangup are moved again with that delay in place: to each transition
+    itself, the ends of played words left out. A delay that is already that long is not
+    stretched. With
     ``profiles``, every speech is moved again under that many provider-timing profiles:
     every delay the run applied, redrawn at random from a seed, so that the same search
     gives the same profiles.
@@ -692,15 +705,26 @@ def explore(
         else:
             found[key] = candidate
 
-    def place(on: cases.Case, handles: list[Handle], targets: list[Transition], base: str) -> None:
+    def place(
+        on: cases.Case, handles: list[Handle], against: list[Event], base: str, coarse: bool = False
+    ) -> None:
+        """Put each handle beside every transition of the run ``against``. A coarse
+        placing is at each transition itself, the ends of played words left out."""
         tried, cannot = candidates(
-            on, handles, targets, offsets_us=offsets, delay_limit_us=delay_limit_us, base=base
+            on,
+            handles,
+            transitions(against, words=words and not coarse),
+            offsets_us=(0,) if coarse else offsets,
+            delay_limit_us=delay_limit_us,
+            base=base,
         )
         impossible.extend(cannot)
         for candidate in tried:
             keep(candidate)
 
-    def move_speeches(on: cases.Case, produced: list[Event], base: str) -> None:
+    def move_speeches(
+        on: cases.Case, produced: list[Event], base: str, coarse: bool = False
+    ) -> None:
         """A speech races with the run it would interrupt: the one without it."""
         moved = [
             index
@@ -713,19 +737,19 @@ def explore(
             if wanted_moments is not None:
                 handles = [h for h in handles if h.moment in wanted_moments]
             if alone is not None:  # else the scenario cannot run without this speech
-                place(on, handles, transitions(alone, words=words), base)
+                place(on, handles, alone, base, coarse)
 
-    def move_hangup(on: cases.Case, produced: list[Event], base: str) -> None:
+    def move_hangup(on: cases.Case, produced: list[Event], base: str, coarse: bool = False) -> None:
         """A hangup cuts short the run in which the user stays."""
         if cases.HANGUP not in kinds:
             return
         stays = produced if on["hangup_us"] is None else runner.ledger(cases.without_hangup(on))
         if stays is not None:
-            place(on, [hangup_handle(on, stays)], transitions(stays, words=words), base)
+            place(on, [hangup_handle(on, stays)], stays, base, coarse)
 
     # One thing at a time: each delay against the run as it is, each speech against the
     # run without it, the hangup against the run in which the user stays.
-    place(case, delay_handles(events, delay_kinds), transitions(events, words=words), "")
+    place(case, delay_handles(events, delay_kinds), events, "")
     move_speeches(case, events, "")
     move_hangup(case, events, "")
 
@@ -786,13 +810,13 @@ def explore(
             handle = Handle(
                 Variable(cases.WAIT, nth), "gave_up", gave_up["t_us"], gave_up["data"]["after_us"]
             )
-            place(version, [handle], transitions(produced, words=words), label)
+            place(version, [handle], produced, label)
         if label in as_written:
             # ... and the commit of a write whose caller gives up, to every transition.
             commits = [
                 h for h in delay_handles(produced, ["backend.latency"]) if h.variable.index == nth
             ]
-            place(version, commits, transitions(produced, words=words), label)
+            place(version, commits, produced, label)
 
     if pairs:
         # A fault and a speech: every speech again, and the hangup, with each fault in place.
@@ -814,6 +838,22 @@ def explore(
                     both = cases.with_value(both, commit, later)
                 if both is not None:
                     keep(Candidate(both, None, None, base=f"{label} + {other_label}"))
+        # A slow provider and a speech: each write and each generation the run made is
+        # stretched, one per version, and every speech and the hangup are moved against
+        # the run of that version. A delay already that long is left as it is.
+        to = min(stretch_us, delay_limit_us)
+        slow: list[tuple[str, cases.Case]] = []
+        for delay in delay_handles(events, STRETCHED):
+            longer = cases.with_value(case, delay.variable, to)
+            if delay.value_us < to and longer is not None:
+                label = f"{delay.variable}, stretched"
+                slow.append((label, longer))
+                keep(Candidate(longer, None, None, base=label))
+        slowed = runner.ledgers([longer for _label, longer in slow], each)
+        for (label, longer), produced in zip(slow, slowed):
+            if produced is not None:
+                move_speeches(longer, produced, label, coarse=True)
+                move_hangup(longer, produced, label, coarse=True)
 
     # Every speech again, under provider delays redrawn from a seed.
     applied = delay_handles(events, cases.DELAY_KINDS)
@@ -841,6 +881,8 @@ __all__ = [
     "DEFAULT_VARIABLES",
     "DELAY_LIMIT_US",
     "OFFSETS_US",
+    "STRETCHED",
+    "STRETCH_US",
     "WAIT_US",
     "Candidate",
     "Each",

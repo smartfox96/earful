@@ -950,4 +950,33 @@ MUTANTS = [
         "                if True:\n",
         first="only_another_reading_judges",
     ),
+    # A stretched delay, paired with a speech or the hangup.
+    Mutant(
+        "search: speeches are not moved under a stretched delay",
+        "src/earful/core/search.py",
+        "                move_speeches(longer, produced, label, coarse=True)\n",
+        "                pass\n",
+        first="slow_write_and_a_speech",
+    ),
+    Mutant(
+        "search: the hangup is not moved under a stretched delay",
+        "src/earful/core/search.py",
+        "                move_hangup(longer, produced, label, coarse=True)\n",
+        "                pass\n",
+        first="slow_write_and_a_hangup",
+    ),
+    Mutant(
+        "search: a delay already as long as the stretch is paired",
+        "src/earful/core/search.py",
+        "            if delay.value_us < to and longer is not None:\n",
+        "            if longer is not None:\n",
+        first="shorter_than_the_stretch",
+    ),
+    Mutant(
+        "search: under a stretched delay every offset and word end is used",
+        "src/earful/core/search.py",
+        "        tried, cannot = candidates(\n            on,\n",
+        "        coarse = False\n        tried, cannot = candidates(\n            on,\n",
+        first="at_no_word_end",
+    ),
 ]

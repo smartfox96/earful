@@ -731,3 +731,96 @@ def test_a_case_found_with_a_hangup_reduces_to_the_hangup_and_replays(tmp_path):
     )
     again = bundle.replay(kept, scenario.run)
     assert again.reproduced and again.identical
+
+
+# --------------------------------------------------------------------------- a write in flight
+
+CUT_SHORT = "breaks:books_again_if_cut_short"
+SLOW_WRITE = "backend.latency 1, stretched"
+
+
+@functools.cache
+def hangups_and_writes_of(reference, pairs=False):
+    """Search a scenario by moving the moment the user hangs up and the time its write
+    takes. With ``pairs`` the hangup is moved again with each write and each generation
+    stretched. The ends of played words are left out: no assertion below needs them."""
+    return explore(
+        scenario.default(reference),
+        scenario.run,
+        variables=["user.hangup", "backend.latency"],
+        faults=[],
+        pairs=pairs,
+        words=False,
+        each=side_by_side,
+    )
+
+
+def test_the_scenarios_of_a_write_in_flight_pass_as_written():
+    for name in ("books_again_if_cut_short", "books_again_if_cut_short_with_a_key"):
+        events = scenario.run(scenario.default(f"breaks:{name}"))
+        report = check(events)
+        assert report.valid and not report.failures, (name, report.failures)
+        # The write commits at once: there is no moment at which it is under way.
+        (asked,) = [e for e in events if e["kind"] == "effect.requested"]
+        assert asked["data"]["latency_us"] == 0
+
+
+def test_moving_one_thing_at_a_time_never_hangs_up_during_a_write():
+    """A search without pairs moves the hangup, and makes the write slow, and never does
+    both. The booking made again is not found."""
+    found = hangups_and_writes_of(CUT_SHORT)
+    assert BOOKED_TWICE not in found.predicates()
+    assert all(t.outcome.ran for t in found.tried)
+    assert {t.candidate.variable.kind for t in found.tried} == {"user.hangup", "backend.latency"}
+    assert not any(
+        t.candidate.case["hangup_us"] is not None and t.candidate.case["delays"]
+        for t in found.tried
+    )
+
+
+def test_a_booking_made_again_because_the_user_left_during_a_slow_write_is_found_by_pairs():
+    """The agent books again if its reply was cut short while the write was under way.
+    With the write stretched to 1.5 s, the search finds it by moving the hangup, and
+    measures from when to when it happens."""
+    found = hangups_and_writes_of(CUT_SHORT, pairs=True)
+    assert found.original.failures == ()
+    assert found.summary()["found"]["A2/rule"]["changed"] == [f"{SLOW_WRITE} + user.hangup 0"]
+    assert all(
+        t.candidate.case["delays"] == [{"of": "backend.latency", "nth": 1, "us": 1_500_000}]
+        for t in found.breaking(BOOKED_TWICE)
+    )
+    (measured,) = found.windows(BOOKED_TWICE)
+    assert measured.variable == HANGUP and not measured.instant
+    assert (measured.lo_end, measured.hi_end) == ("passes", "passes")
+    # From the write being requested, at 3 s, until it commits 1.5 s later.
+    assert 3_000_000 <= measured.lo_us <= 3_001_000
+    assert 4_499_000 <= measured.hi_us < 4_500_000
+    # What pairs add is all they change: the rest is the search without them.
+    alone = hangups_and_writes_of(CUT_SHORT)
+    assert [cases.canonical(t.candidate.case) for t in found.tried if not t.candidate.base] == [
+        cases.canonical(t.candidate.case) for t in alone.tried
+    ]
+    # The control sends a key with both writes, so the same search finds no second booking.
+    control = hangups_and_writes_of("breaks:books_again_if_cut_short_with_a_key", pairs=True)
+    assert BOOKED_TWICE not in control.predicates()
+    assert [t.candidate.what for t in control.tried] == [t.candidate.what for t in found.tried]
+
+
+def test_a_case_found_under_a_slow_write_reduces_to_the_write_and_the_hangup_and_replays(tmp_path):
+    found = hangups_and_writes_of(CUT_SHORT, pairs=True)
+    author = scenario.default(CUT_SHORT)
+    case = nearest(author, [t.candidate.case for t in found.breaking(BOOKED_TWICE)])
+    manifest = bundle.capture(tmp_path / "kept", case, found.runner, BOOKED_TWICE, author=author)
+    kept = bundle.load(tmp_path / "kept")
+    left, (slow,) = kept.minimal["hangup_us"], kept.minimal["delays"]
+    assert {**kept.minimal, "hangup_us": None, "delays": []} == author
+    assert manifest["reduction"]["differences"] == [
+        f"the user hangs up at {left} us",
+        f"backend.latency 1 declared as {slow['us']} us",
+    ]
+    # The user leaves after the write is requested, at 3 s, and before it commits.
+    assert 3_000_000 < left < 3_000_000 + slow["us"]
+    for undone in (cases.without_hangup(kept.minimal), {**kept.minimal, "delays": []}):
+        assert not found.runner.breaks(undone, BOOKED_TWICE)
+    again = bundle.replay(kept, scenario.run)
+    assert again.reproduced and again.identical
