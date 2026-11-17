@@ -255,7 +255,9 @@ A scenario is given in one of three forms.
 Every form runs in the process of the test unless workers are asked for. A worker process
 and a saved bundle both build the scenario again from its name, so both need a scenario
 that can be imported. `explore(case, workers=4)` and `keep(...)` refuse one that cannot,
-before anything runs, and say what to change.
+before anything runs, and say what to change. A search also checks what it is asked for
+(the case, the variables, the faults) before it starts a worker, and raises
+`WorkersUnavailable` where worker processes cannot be started at all.
 
 `explore(scenario, workers=N)` runs the cases in N worker processes. On a 15-core
 machine the 860 runs above take 36 s in the process of the test and 9 s in 15 workers.
@@ -337,7 +339,7 @@ earful report failures/lk-1.8.12.booking.A3-rule -o report.html
 | --- | --- |
 | `earful check LEDGER...` | Prints the verdicts for recorded ledgers. `--measures` adds what each verdict measured, `--json` prints one report per line |
 | `earful run SCENARIO` | Runs a scenario once and prints its verdicts. `--case FILE` runs a saved case, `--ledger FILE` writes the ledger |
-| `earful search SCENARIO` | Searches a scenario, in one worker process per processor unless `--workers` says otherwise. `--keep CONTRACT/RULE --out DIR` writes a bundle for a rule that broke. `--variables`, `--faults`, `--pairs`, `--profiles`, `--no-words` and `--no-windows` narrow or widen the search |
+| `earful search SCENARIO` | Searches a scenario, in one worker process per processor unless `--workers` says otherwise. Where worker processes cannot be started, as in some sandboxes and containers, it says so and searches in its own process; with `--workers N` given it refuses. `--keep CONTRACT/RULE --out DIR` writes a bundle for a rule that broke. `--variables`, `--faults`, `--pairs`, `--profiles`, `--no-words` and `--no-windows` narrow or widen the search |
 | `earful replay BUNDLE_DIR` | Runs a bundle's reduced case again. `--expect reproduced` or `--expect clean` makes the outcome the exit status |
 | `earful crosscheck SCENARIO` or `BUNDLE_DIR` | Runs a case once on the virtual clock and `--runs` times on the real clock, and says whether the real-clock runs agree with the virtual one (section 10). `--tolerance-ms` and `--words` set how far they may differ, `--out DIR` writes every run's ledger |
 | `earful report LEDGER` or `BUNDLE_DIR` | With `-o FILE.html`, draws the run as one HTML page: a timeline, the verdicts and every event (`docs/report.md`). Without it, writes the same out as text. `--format` names one or the other |

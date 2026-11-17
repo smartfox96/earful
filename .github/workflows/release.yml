@@ -1,0 +1,53 @@
+name: release
+
+# Pushing a tag v<version> builds the wheel and the source distribution, checks them as a
+# newcomer would use them, and publishes them to PyPI. Publishing goes through a trusted
+# publisher (OpenID Connect): no token is stored in this repository. CONTRIBUTING.md,
+# "Releasing", says what has to be set up on PyPI once.
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: build and check
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - name: The tag names the version in pyproject.toml
+        run: |
+          version="$(sed -n 's/^version = "\(.*\)"$/\1/p' pyproject.toml)"
+          if [ "$GITHUB_REF_NAME" != "v$version" ]; then
+            echo "the tag is $GITHUB_REF_NAME and pyproject.toml says $version" >&2
+            exit 1
+          fi
+      - name: The wheel installs clean (scripts/wheel_smoke.sh)
+        run: scripts/wheel_smoke.sh
+      - name: The README's quickstart works from the wheel (scripts/quickstart_check.sh)
+        run: scripts/quickstart_check.sh
+      - name: Build the wheel and the source distribution
+        run: uv build --out-dir dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/earful-*
+
+  publish:
+    name: publish to PyPI
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: pypi
+    permissions:
+      id-token: write # the trusted publisher's proof of which workflow this is
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist
+      - uses: pypa/gh-action-pypi-publish@release/v1

@@ -157,17 +157,28 @@ def _search(args: argparse.Namespace) -> int:
     if keep and args.out is None:
         raise Refused("--keep needs --out, the directory to write bundles to")
     faults = () if args.faults == "none" else tuple(args.faults.split(","))
-    found = adapter.explore(
-        args.scenario,
-        case=_case(args.case),
-        seed=args.seed,
-        workers=args.workers,
-        variables=() if args.variables == "none" else tuple(args.variables.split(",")),
-        faults=faults,
-        pairs=args.pairs,
-        profiles=args.profiles,
-        words=not args.no_words,
-    )
+    case = _case(args.case)
+
+    def search(workers: int) -> Any:
+        return adapter.explore(
+            args.scenario,
+            case=case,
+            seed=args.seed,
+            workers=workers,
+            variables=() if args.variables == "none" else tuple(args.variables.split(",")),
+            faults=faults,
+            pairs=args.pairs,
+            profiles=args.profiles,
+            words=not args.no_words,
+        )
+
+    try:
+        found = search((os.cpu_count() or 1) if args.workers is None else args.workers)
+    except adapter.WorkersUnavailable as exc:
+        if args.workers is not None:  # asked for by number: say so, do not do otherwise
+            raise Refused(str(exc)) from exc
+        print(f"earful: {exc}. Searching in this process.", file=sys.stderr)
+        found = search(0)
     # A rule that is kept is measured whatever else is: its reduction starts from there.
     broken = found.breaks(windows=keep if args.no_windows else True)
     kept: dict[str, Any] = {}
@@ -411,9 +422,9 @@ def _parser() -> argparse.ArgumentParser:
     sub.add_argument(
         "--workers",
         type=int,
-        default=os.cpu_count() or 1,
         metavar="N",
-        help="worker processes (default: one per processor; 0 runs in this process)",
+        help="worker processes (default: one per processor, or this process where worker "
+        "processes cannot be started; 0 runs in this process)",
     )
     sub.add_argument("--json", action="store_true", help="the whole result as JSON")
     allow(sub)

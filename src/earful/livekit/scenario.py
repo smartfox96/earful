@@ -26,6 +26,7 @@ would only run test code you trust.
 from __future__ import annotations
 
 import copy
+import dataclasses
 import hashlib
 import importlib
 import inspect
@@ -97,6 +98,22 @@ def resolve(scenario: str) -> Callable[[], Case]:
     return target
 
 
+def _copied(case: Case) -> Case:
+    """``case`` with every container it holds copied. The agent factory, the policy and
+    the sink class are code and are shared; the values of ``session_kwargs`` are whatever
+    the caller put there and are shared too."""
+    return dataclasses.replace(
+        case,
+        speeches=list(case.speeches),
+        intents=list(case.intents),
+        effects=dict(case.effects),
+        contracts=copy.deepcopy(case.contracts),
+        delays=list(case.delays),
+        faults=list(case.faults),
+        session_kwargs=dict(case.session_kwargs),
+    )
+
+
 def _importable(make: Callable[[], Case]) -> str | None:
     """The ``module:function`` reference that gives ``make`` back, if there is one."""
     module, name = getattr(make, "__module__", None), getattr(make, "__qualname__", None)
@@ -137,14 +154,16 @@ class Scenario:
         returns a ``Case``, or a ``Case``.
 
         A function is called once for each run, so whatever it builds is fresh each time.
-        A ``Case`` is copied for each run; its agent is built anew by its own factory, and
-        its model policy is the same object in every run, which is as it should be for a
-        policy that depends on the context alone.
+        A ``Case`` is copied for each run, with its lists and dicts copied too, so that
+        nothing a run or a hook does to them reaches the caller's ``Case`` or the next
+        run. Its agent is built anew by its own factory, and its model policy is the same
+        object in every run, which is as it should be for a policy that depends on the
+        context alone.
         """
         if isinstance(source, str):
             return cls(resolve(source), source)
         if isinstance(source, Case):
-            return cls(lambda: copy.copy(source), None)
+            return cls(lambda: _copied(source), None)
         if callable(source):
             return cls(source, _importable(source))
         raise TypeError(

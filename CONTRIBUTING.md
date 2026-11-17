@@ -21,7 +21,7 @@ run the code in your checkout.
 | --- | --- | --- |
 | `.venvs/lk-1.8.12/bin/python -m pytest -m "not slow"` | Every test under a second, on one release | 20 s |
 | `scripts/lint.sh` | ruff format, ruff, mypy, and that every deliberate break still applies. `--fix` reformats first | 20 s |
-| `scripts/wheel_smoke.sh` | Builds the wheel, installs it alone outside the repository and uses it | 5 s |
+| `scripts/wheel_smoke.sh` | Builds the wheel and the source distribution, installs the wheel alone outside the repository and uses it | 5 s |
 | `scripts/quickstart_check.sh` | Follows the README's quickstart from the wheel, with livekit-agents, outside the repository | 90 s |
 | `scripts/check_all.sh` | All of the above, then on each of the five releases: every test, repeatability of the reference ledgers, the two historical cases and the replays | 8 min |
 | `.venvs/lk-1.8.12/bin/python scripts/mutate.py` | Applies each deliberate break of `tests/mutants.py` and checks that a test fails | 30 min |
@@ -83,6 +83,25 @@ uses fails one of them until the README is brought along.
 3. `scripts/check_all.sh --update` records its three reference ledgers.
 4. Read the new ledgers against those of the release before it
    (`python scripts/ledger_diff.py`). Differences in behaviour belong in the pull request.
+
+## Releasing
+
+A release is a tag. `.github/workflows/release.yml` builds the wheel and the source
+distribution from it, runs `scripts/wheel_smoke.sh` and `scripts/quickstart_check.sh`
+against them, and publishes both to PyPI.
+
+1. Set `version` in `pyproject.toml` and merge that to `main`.
+2. Run the deliberate breaks on that commit: the `mutation` workflow, from the Actions
+   page. Every one has to be caught.
+3. `git tag v<version>` on that commit of `main` and push the tag. The workflow refuses a
+   tag that does not name the version in `pyproject.toml`.
+
+Publishing uses a PyPI trusted publisher, which is set up once on pypi.org for the
+project `earful`: owner `smartfox96`, repository `earful`, workflow `release.yml`,
+environment `pypi`. No token is stored in the repository.
+
+The formats have their own versions (`docs/ledger.md`, Versioning). A release that
+changes what a recorded ledger hashes to says so in its notes.
 
 ## Reporting what Earful finds
 

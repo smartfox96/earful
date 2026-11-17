@@ -228,12 +228,8 @@ class Case:
         names = [it.intent for it in self.intents]
         if len(set(names)) != len(names):
             raise ValueError("an intent is declared more than once")
-        for speech in self.speeches:
-            undeclared = sorted(set(speech.retires) - set(names))
-            if undeclared:
-                raise ValueError(
-                    f"speech at {speech.start} s retires undeclared intents {undeclared}"
-                )
+        # Whether a speech retires an intent the scenario has is checked once the agent
+        # is built (``_header``): a tool of the agent can declare one with ``effect_tool``.
 
 
 @dataclass
@@ -380,9 +376,19 @@ def _intents(case: Case, effects: dict[str, Effect]) -> list[Intent]:
 
 
 def _header(case: Case, tools_found: dict[str, Effect | None]) -> dict[str, Any]:
-    """The scenario as declared, so the checker never has to import it."""
+    """The scenario as declared, so the checker never has to import it. Raises
+    ``ValueError`` for a scenario its agent's tools show to be wrong: an effect for a
+    tool the agent does not have, a speech that retires an intent nothing declares."""
     effects = _effects(case, tools_found)
-    header = _scenario(case, sorted(tools_found), _intents(case, effects))
+    intents = _intents(case, effects)
+    # An intent is the scenario's whether it lists it or an effect names it, in the
+    # scenario or on a tool of the agent. A speech can retire any of them.
+    declared = {it.intent for it in intents}
+    for speech in case.speeches:
+        undeclared = sorted(set(speech.retires) - declared)
+        if undeclared:
+            raise ValueError(f"speech at {speech.start} s retires undeclared intents {undeclared}")
+    header = _scenario(case, sorted(tools_found), intents)
     if effects:
         # Stated only where there are any: a tool listed here did not run its own body.
         header["effects"] = [

@@ -17,6 +17,7 @@ from earful.livekit import tools
 from earful.livekit.cases import BOOKING_INTENT
 from earful.livekit.clock import now_us, run_virtual
 from earful.livekit.harness import Case, Delay, Fault, Intent, run_case
+from earful.livekit.playbook import ScriptedModel, tool_succeeded, user_ever_said, user_said
 from earful.livekit.providers import Reply, ToolCall, UserSpeech
 from earful.livekit.tools import effect_tool, witnessed
 
@@ -375,6 +376,56 @@ def test_a_call_the_tool_cannot_take_raises_as_the_tool_would():
         return [e["kind"] for e in ledger.events]
 
     assert run_virtual(main) == ["tool.called", "tool.raised"]
+
+
+# --------------------------------------------------------------------------- retiring an intent
+
+CANCELS = (
+    ScriptedModel()
+    .when(user_said("cancel"), say="Okay, cancelled.")
+    .when(tool_succeeded(), say="Your table is booked.", claims=[BOOKING_INTENT])
+    .when(
+        user_ever_said("table"), say="One moment.", call=("create_reservation", {"party_size": 6})
+    )
+    .otherwise(say="How can I help?")
+)
+ASK = UserSpeech(start=0.5, end=2.5, transcript="Book a table for six tonight.")
+
+
+def _cancelled(agent, effects, retires=(BOOKING_INTENT,)):
+    """A booking, then "cancel that", which retires the booking's intent. The scenario
+    lists no intent: an effect declares it, in the scenario or on the agent's tool."""
+    cancel = UserSpeech(start=7.0, end=8.0, transcript="Actually cancel that.", retires=retires)
+    return Case(
+        name="cancelled", agent=agent, effects=effects, speeches=[ASK, cancel], policy=CANCELS
+    )
+
+
+@pytest.mark.parametrize(
+    ("agent", "effects"),
+    [(TalksToItsServiceItself, {"create_reservation": BOOKING}), (_DeclaresItsEffect, {})],
+    ids=["declared by the scenario", "declared at the tool"],
+)
+def test_a_speech_can_retire_an_intent_that_only_an_effect_declares(agent, effects):
+    case = _cancelled(agent, effects)
+    assert case.intents == []
+    events = run_case(case).ledger.events
+    assert validate(events) == []
+    assert _scenario(events)["speeches"][1]["retires"] == [BOOKING_INTENT]
+    report = check(events)
+    assert report.outcome("A1") == PASS and report.failures == ()
+    (judged,) = report.results["A1"].verdicts
+    assert judged.instance == {"speech": 1, "intent": BOOKING_INTENT}
+
+
+def test_a_speech_that_retires_an_intent_nothing_declares_is_refused():
+    case = _cancelled(TalksToItsServiceItself, {"create_reservation": BOOKING}, ("refund-1",))
+    with pytest.raises(
+        ValueError, match=r"speech at 7.0 s retires undeclared intents \['refund-1'\]"
+    ):
+        run_case(case)
+    with pytest.raises(ValueError, match="retires undeclared intents"):
+        run_case(_cancelled(lambda: lk.Agent(instructions="t"), {}))
 
 
 # --------------------------------------------------------------------------- from a stand-in

@@ -196,8 +196,15 @@ def test_the_readme_shows_the_example_as_it_is_in_the_repository():
 def test_every_page_and_command_the_readme_names_exists():
     from earful.cli import _parser
 
-    for target in re.findall(r"\]\(([^)#]+)\)", README):
-        assert target.startswith("https://") or (ROOT / target).exists(), target
+    # Every link is absolute, so that it also works on the package index page, and each
+    # points at a file or a directory of this repository.
+    targets = re.findall(r"\]\(([^)#]+)\)", README)
+    assert targets
+    for target in targets:
+        found = re.fullmatch(r"https://github\.com/smartfox96/earful/(blob|tree)/main/(.+)", target)
+        assert found, f"{target} is not a link into the repository"
+        path = ROOT / found.group(2)
+        assert path.is_dir() if found.group(1) == "tree" else path.is_file(), target
     commands = _parser()._subparsers._group_actions[0].choices
     named = set(re.findall(r"^earful ([a-z]+) ", README, re.MULTILINE))
     assert named and named <= set(commands), named - set(commands)
