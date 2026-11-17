@@ -114,3 +114,59 @@ def test_every_command_and_option_the_testing_page_names_exists():
     plugin = {"--earful-out", "--earful-workers"}
     options = set(re.findall(r"`(--[a-z-]+)", TESTING_DOC)) - plugin
     assert options and options <= known, options - known
+
+
+ROOT = Path(__file__).resolve().parents[1]
+
+
+def test_the_supported_releases_are_the_same_everywhere_they_are_listed():
+    """The compatibility page, the CI matrix, the full check and the lock files name the
+    same releases, each with the same date."""
+    page = (ROOT / "docs" / "compatibility.md").read_text()
+    declared = dict(re.findall(r"^\| (\d+\.\d+\.\d+) \| (\d{4}-\d\d-\d\d) \|", page, re.MULTILINE))
+    assert len(declared) == 5
+    workflow = (ROOT / ".github" / "workflows" / "ci.yml").read_text()
+    in_ci = dict(re.findall(r'version: "([\d.]+)", as_of: "([\d-]+)"', workflow))
+    assert in_ci == declared
+    script = (ROOT / "scripts" / "check_all.sh").read_text()
+    assert dict(re.findall(r'"([\d.]+) (\d{4}-\d\d-\d\d)"', script)) == declared
+    locked = {path.name[3:-9] for path in (ROOT / "compat").glob("lk-*.lock.txt")}
+    assert locked == set(declared)
+    for release in declared:
+        assert f"`compat/lk-{release}.lock.txt`" in page
+        assert (
+            f"livekit-agents=={release}\n" in (ROOT / f"compat/lk-{release}.lock.txt").read_text()
+        )
+    # The reference ledgers exist for exactly these releases.
+    golden = {path.name.split(".book")[0][3:] for path in (ROOT / "tests/golden").glob("*.book_*")}
+    assert golden == set(declared)
+
+
+def test_the_extra_accepts_the_releases_the_page_says_it_does():
+    page = (ROOT / "docs" / "compatibility.md").read_text()
+    project = (ROOT / "pyproject.toml").read_text()
+    assert 'livekit = ["livekit-agents>=1.5.6,<1.9"]' in project
+    assert "from 1.5.6 up to, and not\nincluding, 1.9" in page
+
+
+def test_the_ci_table_on_the_compatibility_page_is_what_the_workflow_runs():
+    page = (ROOT / "docs" / "compatibility.md").read_text()
+    workflow = (ROOT / ".github" / "workflows" / "ci.yml").read_text()
+    table = {
+        release: (macos, pythons.strip())
+        for release, macos, pythons in re.findall(
+            r"^\| ([\d.]+) \| every change \| (every change|nightly) \| ([\d., ]*)\|",
+            page,
+            re.MULTILINE,
+        )
+    }
+    assert len(table) == 5
+    # macOS: the releases the workflow leaves out of a pull request run nightly only.
+    left_out = set(re.findall(r"\|\| 'macos-latest' }}\n\s+lk: \{ version: \"([\d.]+)\"", workflow))
+    assert {release for release, (macos, _) in table.items() if macos == "nightly"} == left_out
+    # Every other Python, once each, with the release the workflow pairs it with.
+    extra = re.findall(r'python: "([\d.]+)"\n\s+lk: \{ version: "([\d.]+)"', workflow)
+    assert extra
+    for release, (_, pythons) in table.items():
+        expected = sorted(python for python, with_release in extra if with_release == release)
+        assert sorted(filter(None, (p.strip() for p in pythons.split(",")))) == expected
