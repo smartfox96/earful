@@ -186,6 +186,7 @@ class Playout:
     cut: int = 0  # 1 if playout stopped inside one of its words
     completed_us: dict[int, int] = field(default_factory=dict)  # word index -> completion time
     first_audible_us: int | None = None  # when it began to play; None if it never did
+    outlasted_hangup: bool = False  # the sink went on playing it after the user had left
 
 
 class View:
@@ -200,6 +201,7 @@ class View:
         self.providers = self.scenario["providers"]
         self.end = events[-1]
         self.origin: Event | None = None
+        self.hangup: Event | None = None  # the user left; nothing after it was heard
         self.calls: dict[int, ModelCall] = {}
         self.utterances: dict[int, Utterance] = {}
         self.segments: dict[int, Segment] = {}
@@ -215,6 +217,8 @@ class View:
             kind, d = e["kind"], e["data"]
             if kind == "user.origin":
                 self.origin = e
+            elif kind == "user.hangup":
+                self.hangup = e
             elif kind in ("user.vad_start", "user.vad_end", "user.transcript_final"):
                 speech_events.setdefault(d["speech"], {})[kind] = e
             elif kind == "llm.request":
@@ -458,11 +462,18 @@ class View:
     def _account(self, playout: Playout, utterance: Utterance) -> None:
         index_of = {stamp: i for i, stamp in enumerate(utterance.stamps)}
         first_stamp = utterance.stamps[0] if utterance.stamps else None
+        # What the user heard ends when they leave. A word the sink finished after that
+        # was not played to anyone, and audio that began then was never audible.
+        left = self.hangup["t_us"] if self.hangup else None
+
+        def heard(at: int | None) -> int | None:
+            return None if at is None or (left is not None and at >= left) else at
+
         for segment in self.segments.values():
             # A segment says which utterance it began with as soon as it is audible, even
             # if the run ends before it finishes.
             if segment.started is not None and segment.started["data"]["utterance"] == utterance.utterance:
-                playout.first_audible_us = segment.started["t_us"]
+                playout.first_audible_us = heard(segment.started["t_us"])
             done = segment.finished
             # What a segment played is known only once it has finished.
             if done is None or utterance.utterance not in done["data"]["utterances"]:
@@ -471,23 +482,29 @@ class View:
             d = done["data"]
             playout.interrupted = playout.interrupted or d["interrupted"]
             for stamp, at in zip(d["words_played"], d["words_completed_us"]):
-                if stamp in index_of:
-                    playout.played += 1
-                    playout.completed_us[index_of[stamp]] = at
+                if stamp not in index_of:
+                    continue
+                if left is not None and at > left:
+                    playout.outlasted_hangup = True  # the user was gone before it ended
+                    continue
+                playout.played += 1
+                playout.completed_us[index_of[stamp]] = at
             if d["word_cut"] in index_of:
                 playout.cut = 1
+            if playout.outlasted_hangup:
+                playout.cut = 1  # the word under way when the user left is the one they heard cut
             if segment.started is not None and playout.first_audible_us is None:
                 if d["utterances"][0] == utterance.utterance:
                     # First in a segment that became audible: it began when the segment did,
                     # even if less than one whole sample of it then played.
-                    playout.first_audible_us = segment.started["t_us"]
+                    playout.first_audible_us = heard(segment.started["t_us"])
                 elif first_stamp in d["words_played"]:
                     # Not first in its segment: it began when the word before it completed.
                     position = d["words_played"].index(first_stamp)
                     if position > 0:
-                        playout.first_audible_us = d["words_completed_us"][position - 1]
+                        playout.first_audible_us = heard(d["words_completed_us"][position - 1])
                 elif d["word_cut"] == first_stamp and d["words_completed_us"]:
-                    playout.first_audible_us = d["words_completed_us"][-1]
+                    playout.first_audible_us = heard(d["words_completed_us"][-1])
             if playout.settled is None or done["seq"] > playout.settled["seq"]:
                 playout.settled = done
 

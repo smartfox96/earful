@@ -128,6 +128,10 @@ sample of the word. The sink reads the stamps back from the samples it consumes.
 - The sink is **audible** from the first consumed sample of a segment until the segment
   finishes, excluding any time it is paused.
 
+If the user hangs up, nothing after that was heard. A word whose last sample was consumed
+after the hangup is unplayed, the word under way at the hangup is the cut word, and audio
+that starts at or after the hangup was never audible.
+
 This is modeled playout at the output sink. It says nothing about a network, a client
 buffer or a caller's device, and every report states that boundary.
 
@@ -143,6 +147,7 @@ The checker reads these from the ledger header; it never imports the scenario.
 | `retires` on a speech | This turn corrects or cancels the named intent | A1 |
 | Intent | A logical action the user wants done once, with its authorized effect count (default 1) and the tools that carry it out | A1, A2, A3 |
 | Claim on a scripted reply | The reply, or a span of its words, tells the user an intent succeeded | A3 |
+| Hangup | When the user leaves. The session is closed at that time | A3, M1, L1 |
 | Provider delay | How long a model call, a first audio or a backend write takes, declared as data in place of what the scenario's code would ask for | L1; and it moves what every contract judges |
 | Policy values | The tolerances, bounds and budgets named in section 6, in `run.start`'s `contracts`. Times are integer microseconds, as everywhere in Earful. A value a contract does not define is an error | all |
 
@@ -204,6 +209,7 @@ Durable effects for an intent do not exceed the count the scenario authorized.
 | Policy | None of its own. The authorized count is declared on the intent (default 1). The backend mode is declared on the scenario: `plain` (every write commits) or `keyed` (a repeated idempotency key is deduplicated and does not count) |
 | Unobservable | A tool for the intent was called and wrote nothing at all through the backend. A call that wrote for another intent is accounted for: the intent was not acted on, and has no instance |
 | Faults | A write counts if it committed, whatever its caller was told. A write the backend rejected or lost never counts |
+| Caller gone | A write counts if it committed, although the tool that asked was cancelled or the user had hung up by then |
 | Not judged | Too few effects. That is A3 when the agent claimed success, and otherwise a scenario expectation |
 | Deliberate break | A tool that writes twice for one call, on a `plain` backend |
 | Clean control | The same tool on a `keyed` backend |
@@ -220,6 +226,7 @@ The user does not hear that an action succeeded before the backend has recorded 
 | Rule | Pass if an effect for the intent was committed at or before that completion time. Fail otherwise |
 | Policy | `claim_point`: `span_end` (default) or `span_start`. Which words make the claim is declared on the claim itself |
 | Faults | Only a commit makes a claim true. A write that was rejected, lost, or had not committed when the claim was heard does not, whatever the tool returned |
+| Hangup | A claim whose last word finished playing after the user hung up was not delivered |
 | Unobservable | The reply's audio cannot be attributed to the scripted reply, or the segment never finished |
 | Deliberate break | A model policy that says the booking is done in the same reply that calls the tool, with a backend that takes longer to commit than the sentence takes to play |
 | Clean control | The same backend, with the claim made only after the tool result is in context |
@@ -252,7 +259,8 @@ length: two words can be 0.2 s or 1.2 s.
 | Rule 4 | If it never became audible, it is absent from memory. No tolerance applies. A reply that became audible and was stopped before one whole sample had played is judged by rules 2 and 3 instead: the framework was told playback had begun |
 | Rule 5 | The message is marked interrupted exactly when the playout was cut short: a word was left unplayed, or the sink was cleared before the audio ended. The second case covers an interruption in the silence after the last word. If a pause or clear reached the sink at the instant the audio ended, either mark is accepted (section 2.3) |
 | Policy | `ahead_us` (default 1 000 000). `behind_us` (default 1 000 000). `check_interrupted_flag` (default true). A scenario that needs exact agreement sets both to 0 |
-| Flags | `judged_on_final_history`: no model call followed the playout. `never_reached_the_output`: no audio of it reached the sink, so only the final history is judged. `stopped_as_it_ended`: every word played and a stop reached the sink as the audio ended, so rule 5 accepts either mark. `most_favourable_reading`: which copy of identical words was voiced or remembered is a reading (section 2.5) |
+| Flags | `judged_on_final_history`: no model call followed the playout. `never_reached_the_output`: no audio of it reached the sink, so only the final history is judged. `stopped_as_it_ended`: every word played and a stop reached the sink as the audio ended, so rule 5 accepts either mark. `most_favourable_reading`: which copy of identical words was voiced or remembered is a reading (section 2.5). `played_on_after_the_hangup`: the sink consumed audio of it after the user had left, and `P` and `C` are what the user heard |
+| Hangup | `P` and `C` count what had played when the user hung up (section 3). The judged record is the final history, read after the session has closed. An output that plays on after the hangup, with a framework that remembers what it played, fails rule 3 |
 | Always reported | The drift, `len(R) - P` and `len(R) - (P + C)`, on every instance, pass or fail. A release that drifts inside the tolerance stays visible |
 | Unobservable | The audio cannot be attributed to anything the agent was scripted to say; or the run ended, or the final history was read, before the playout finished |
 | Deliberate break | A sink that tells the framework playback has started 2.5 seconds before it begins to play, as an output with an unannounced buffer would, while recording the truth |
@@ -330,7 +338,7 @@ after it.
 | Rule | Fail if a milestone has not occurred by its deadline. The deadline is the start of the clock, plus the declared end-of-turn delay, plus the scripted provider delays on the chain so far, plus `slack_us`. A finding names the milestone that was missed (`milestone 1`, `milestone 2`, `milestone 3`), so that a failure to call the model and a reply that never plays are different failures |
 | End-of-turn delay | The scripted VAD's `min_silence_us` plus the session's `min_endpointing_delay_us`: the latest the framework can decide the turn is over |
 | Delays on the chain | For each step already taken: the model's `duration_us`; if it spoke, the `ttfb_us` of its own utterance plus the length of its audio, since the framework finishes speaking before the next step; and the backend `latency_us` of the writes its tools made |
-| Excused | The user began speaking again before the milestone was due. If that speech expects a reply it carries the obligation, and this turn has no verdict. If it is noise or a backchannel, the turn keeps the obligation and its clock restarts when that speech ends plus the false-interruption timeout |
+| Excused | The user began speaking again before the milestone was due. If that speech expects a reply it carries the obligation, and this turn has no verdict. If it is noise or a backchannel, the turn keeps the obligation and its clock restarts when that speech ends plus the false-interruption timeout. The user hung up before the milestone was due: the turn has no verdict. A milestone that was already overdue when the user left still fails |
 | Policy | `slack_us` (default 1 000 000). `max_steps` (default 4) |
 | Unobservable | The scenario ended (the final history was read) before the deadline passed; a tool the model called was not witnessed; or the reply's audio cannot be attributed |
 | Flags | `silenced_by_a_tool`: the turn got no spoken reply because its tools asked for none. `most_favourable_reading`: which of the turn's replies was voiced is a reading (section 2.5) |
@@ -398,7 +406,7 @@ documentation it was compared against.
 
 These are requirements on the ledger. `docs/ledger.md` defines each event named here.
 
-| Requirement | Needed by | Recorded in `earful.ledger/4` |
+| Requirement | Needed by | Recorded in `earful.ledger/5` |
 | --- | --- | --- |
 | Scenario declarations and policy values in the run header | all | `run.start`: `scenario`, `contracts` |
 | The framework release and the clock the run used | all | `run.start`: `framework`, `clock` |
@@ -407,6 +415,7 @@ These are requirements on the ledger. `docs/ledger.md` defines each event named 
 | True start and end of each user speech | L1, L2 | Speech offsets in `run.start`, plus `user.origin` |
 | Which speeches the VAD heard as one segment | L2 | `run.start`: the speeches and `providers.vad.min_silence_us`; `user.vad_start` and `user.vad_end` name the segment's first and last speech |
 | The provider delays the scenario declared | all | `run.start`: `scenario.delays` |
+| When the user hung up, if they did | A3, M1, L1 | `run.start`: `scenario.hangup_us`; `user.hangup` |
 | Completion time of each played word | A3, M1 | `playout.finished`: `words_completed_us` |
 | Which scripted reply each synthesized utterance belongs to | A3, M1, M2, L1 | `tts.synthesized`: `call`, `attribution` |
 | Tool witness events: called, returned, raised, cancelled, with the returned value as the model should be shown it, and whether the outcome asks for a further model call | M2, L1 | `tool.called`, `tool.returned` (`output`, `text`, `expects_reply`), `tool.raised` (`expects_reply`), `tool.cancelled` |
@@ -556,6 +565,23 @@ Taken while adding backend faults, agreed 17 November 2026:
     committed. The ledger records the outcome of a write and what its caller was told as
     separate events. A2 and A3 judge the outcome. The alternative, a tool written to fail
     in the scenario's code, cannot be added by a search or removed by a reduction.
+
+Taken while adding the hangup, agreed 17 November 2026:
+
+27. **A write's outcome does not depend on its caller.** It is scheduled when the write
+    is requested, so a tool that is cancelled while it waits has still written. Before,
+    the write was part of the tool's own task and was cancelled with it, which let the
+    framework under test change the backend's record, and made a cancelled call that
+    later commits impossible to reach. A service that has received a request carries it
+    out whether or not the client is still listening. A backend that abandons the write
+    is the `backend.drop` fault. On the five supported releases the framework lets a
+    running tool finish, both when its reply is interrupted and when the session closes.
+28. **A user who hangs up is owed nothing that was not yet due, and heard nothing
+    after.** The scenario declares when the user leaves, and the session is closed then
+    as a participant's disconnect closes it. L1 gives no verdict to a turn whose next
+    milestone was not yet due. M1 and A3 count what had played by the hangup. The
+    alternative for M1, counting everything the sink consumed, passes an output that
+    plays a confirmation to nobody and a history that records it as said.
 
 ## 10. What the reference ledgers measure
 

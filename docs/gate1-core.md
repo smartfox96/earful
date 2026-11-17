@@ -13,7 +13,7 @@ Gate 1 is complete when each of these is demonstrated.
 
 | Criterion | Where it is shown |
 | --- | --- |
-| The ledger is versioned and defined by a published schema | `docs/ledger.md`; `earful.ledger/4` |
+| The ledger is versioned and defined by a published schema | `docs/ledger.md`; `earful.ledger/5` |
 | The checker reads only the ledger and imports no framework | `docs/contracts.md`; `tests/test_core_boundary.py` |
 | Tools write to a deterministic backend that records each write apart from what the tool returns | `src/earful/core/backend.py`; `effect.*` events |
 | Every contract detects a deliberate break, and passes the same scenario without it | Mutations and controls, below |
@@ -82,7 +82,7 @@ and interruption point reach `tool.called`, `tool.returned`, `effect.requested` 
 `effect.committed`, and that the commit reaches the playout, the sink's pause and the
 user's transcript.
 
-A search of that scenario with every default variable runs 667 to 1 230 candidates,
+A search of that scenario with every default variable runs 666 to 1 229 candidates,
 depending on the release, with none refused, none raising and none invalid. A further 889
 to 1 439 placements are counted as impossible and not run: a delay cannot be negative, and
 a speech cannot overlap or pass another. It takes 10 to 20 seconds on eight cores.
@@ -129,6 +129,34 @@ not reported, because sending it again writes once.
 
 A case found with a dropped write and a moved wait reduces to the author's scenario plus
 the one fault, and replays to the same ledger (`tests/test_search_live.py`).
+
+### Hangup
+
+`docs/search.md` section 1 describes it. With `user.hangup` among the variables, the
+search makes the user leave at every transition from the end of their last speech on. The
+session is closed at that moment, as a participant's disconnect closes it.
+
+On all five releases the framework stops the output at the instant of the hangup, lets a
+tool that is running finish, and then closes. A write requested before the hangup commits
+after it.
+
+Two scenarios (`tests/breaks.py`) ask for one booking. The agent books again when the
+session ends unless it had told the user the table is booked. Each passes as written,
+where the user stays to hear it.
+
+| Agent | Candidates run | Found | Window of the hangup |
+| --- | --- | --- | --- |
+| Books again on exit; its writes carry no key | 98 | `A2/rule` in 86 | 3.001 to 9.900 s |
+| Control: the same agent sends a key, to a keyed backend | 98 | no `A2/rule` | |
+
+The figures are the same on all five releases, and every candidate was judged. The window
+runs from the tool being called to the end of "Your table is booked." The found case
+reduces in 39 runs to the author's scenario with the user hanging up at 6.000 s, and
+replays to the same ledger (`tests/test_search_live.py`).
+
+A hangup interrupts the reply that called the tool, so on the releases before 1.6.6 these
+searches also report the first known defect as `M2/rule d`. A failure of a rule that has
+not been classified is not reported here (`docs/contracts.md`, section 10).
 
 ### The search against stepping through time
 
@@ -208,7 +236,8 @@ on this gate:
   section 3).
 - **A failure with no boundary beside it is not looked for.** Stepping through time
   (`scripts/contracts_sweep.py`) covers those.
-- **Faults are the backend's.** A write can fail, time out or be lost. A provider that
-  stalls and a session that closes early cannot be declared.
+- **Faults are the backend's, and the user can leave.** A write can fail, time out or be
+  lost, and the user can hang up once their last speech is over. A hangup in the middle
+  of a speech and a provider that stalls cannot be declared.
 - **There is no package surface yet.** The search, the replay and the checks are
   scripts. There is no command-line tool, pytest plugin or report.

@@ -11,9 +11,10 @@ Status: in development. Three gates have passed:
 
 Earful runs a real LiveKit `AgentSession` deterministically and records a ledger of what
 happened ([`docs/ledger.md`](docs/ledger.md)). It checks seven contracts against the
-ledger ([`docs/contracts.md`](docs/contracts.md)). It searches a scenario for the timings
-and backend faults under which a contract breaks and measures how wide each failure is. A
-failing case is reduced to a small one that replays ([`docs/search.md`](docs/search.md)).
+ledger ([`docs/contracts.md`](docs/contracts.md)). It searches a scenario for the timings,
+the backend faults and the moment of a hangup under which a contract breaks, and measures
+how wide each failure is. A failing case is reduced to a small one that replays
+([`docs/search.md`](docs/search.md)).
 The developer-facing package (pytest plugin, command line, report) is not built yet.
 
 ```bash

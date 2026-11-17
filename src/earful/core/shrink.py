@@ -6,13 +6,14 @@ which of the changes the failure needs, and after every step runs the real syste
 a step is kept only if the run still breaks the same rule of the same contract.
 
 1. **Isolate.** List every difference between the found case and the author's scenario:
-   a speech moved, lengthened, added or dropped; a delay declared; a setting, a contract
-   policy or the seed changed. Delta debugging (Zeller and Hildebrandt's *ddmin*) over
+   a speech moved, lengthened, added or dropped; a hangup; a delay declared; a fault
+   added; a setting, a contract policy or the seed changed. Delta debugging (Zeller and Hildebrandt's *ddmin*) over
    that list gives a smallest set of differences that still fails. The result is the
    author's scenario with only those changes, and if the author's scenario fails as
    written it is the author's scenario.
-2. **Remove.** ddmin again, over the speeches, the declared delays and the faults that remain,
-   the author's own included: the fewest that still fail.
+2. **Remove.** ddmin again, over the speeches, the declared delays and the faults that
+   remain, the author's own included: the fewest that still fail. Then the hangup, if
+   the case still fails with a user who stays.
 3. **Settle.** For each time that still differs from the author's, measure the window in
    which the failure holds. If the failure has an edge along that time, put the time on
    the roundest value in the middle half of the window. A reduced case that sat on the
@@ -135,6 +136,9 @@ def differences(author: cases.Case, found: cases.Case) -> list[Difference]:
         for name in ("stt_delay_us", "expects_reply", "backchannel", "retires"):
             if theirs[name] != ours[name]:
                 out.append(Difference(f"speech {words!r} with {name} {theirs[name]!r}", ("speech", i, name), copy.deepcopy(theirs[name])))
+    if author["hangup_us"] != found["hangup_us"]:
+        to = found["hangup_us"]
+        out.append(Difference("the user stays" if to is None else f"the user hangs up at {to} us", ("hangup",), to))
     ours_delays = {(d["of"], d["nth"]): d["us"] for d in author["delays"]}
     theirs_delays = {(d["of"], d["nth"]): d["us"] for d in found["delays"]}
     for key in sorted(ours_delays.keys() | theirs_delays.keys()):
@@ -183,6 +187,8 @@ def applied(author: cases.Case, chosen: Sequence[Difference]) -> cases.Case:
             draft = drafts[target[1]]
             if draft is not None:
                 draft[{"start": "start_us"}.get(target[2], target[2])] = copy.deepcopy(to)
+        elif target[0] == "hangup":
+            out["hangup_us"] = to
         elif target[0] == "delay":
             delays.pop(target[1:], None) if to is None else delays.__setitem__(target[1:], to)
         elif target[0] == "fault":
@@ -269,6 +275,8 @@ def _moved_times(author: cases.Case | None, case: cases.Case) -> list[Variable]:
             out.append(Variable("speech.end", j))
     declared = {(d["of"], d["nth"]): d["us"] for d in (author["delays"] if author else [])}
     out += [Variable(d["of"], d["nth"]) for d in case["delays"] if declared.get((d["of"], d["nth"])) != d["us"]]
+    if case["hangup_us"] is not None and (author is None or author["hangup_us"] != case["hangup_us"]):
+        out.append(Variable(cases.HANGUP, 0))
     waits = {f["nth"]: f["us"] for f in (author["faults"] if author else [])}
     out += [Variable(cases.WAIT, f["nth"]) for f in case["faults"] if f["us"] is not None and waits.get(f["nth"]) != f["us"]]
     return out
@@ -295,8 +303,8 @@ def shrink(
     """Reduce ``case`` while running it still breaks ``predicate``.
 
     ``author`` is the scenario as its author wrote it: what the reduction measures the
-    case against. Without it differences cannot be isolated; speeches, delays and
-    faults are removed and every time is settled. ``max_runs`` bounds the work; if it is spent, the
+    case against. Without it differences cannot be isolated; speeches, delays, faults and
+    the hangup are removed and every time is settled. ``max_runs`` bounds the work; if it is spent, the
     case reduced so far is returned and ``complete`` is false.
 
     Raises ``ValueError`` if ``case`` does not break ``predicate`` to begin with.
@@ -334,6 +342,10 @@ def shrink(
             if len(kept) < len(items):
                 current = {**copy.deepcopy(current), name: [copy.deepcopy(items[i]) for i in kept]}
                 steps.append(f"removed {len(items) - len(kept)} of {len(items)} {plural}")
+
+    if current["hangup_us"] is not None and not spent() and breaks(cases.without_hangup(current)):
+        current = cases.without_hangup(current)
+        steps.append("removed the hangup")
 
     # 3. Settle: each time that is not the author's, on a round value in the middle of the
     # window in which the failure holds.

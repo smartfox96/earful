@@ -1,8 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "urn:earful:ledger:4",
+  "$id": "urn:earful:ledger:5",
   "title": "Earful ledger event",
-  "description": "One line of an earful.ledger/4 file. A ledger is one JSON object per line, in the order events happened. Rules that span lines (order, references between events) are listed in docs/ledger.md.",
+  "description": "One line of an earful.ledger/5 file. A ledger is one JSON object per line, in the order events happened. Rules that span lines (order, references between events) are listed in docs/ledger.md.",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -16,7 +16,7 @@
   ],
   "properties": {
     "schema": {
-      "const": "earful.ledger/4"
+      "const": "earful.ledger/5"
     },
     "run": {
       "description": "Identifies the run: a digest of the data of its run.start event.",
@@ -56,6 +56,7 @@
             "user.vad_start",
             "user.vad_end",
             "user.transcript_final",
+            "user.hangup",
             "tts.synthesized",
             "tool.called",
             "tool.returned",
@@ -238,6 +239,28 @@
           },
           "data": {
             "$ref": "#/$defs/user.transcript_final"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "kind": {
+            "const": "user.hangup"
+          }
+        },
+        "required": [
+          "kind"
+        ]
+      },
+      "then": {
+        "properties": {
+          "source": {
+            "const": "world"
+          },
+          "data": {
+            "$ref": "#/$defs/user.hangup"
           }
         }
       }
@@ -742,6 +765,7 @@
       "additionalProperties": false,
       "required": [
         "speeches",
+        "hangup_us",
         "intents",
         "witnessed_tools",
         "delays",
@@ -803,6 +827,17 @@
               }
             }
           }
+        },
+        "hangup_us": {
+          "description": "When the user hangs up, in microseconds from the origin, or null if they stay to the end of the scenario.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/microseconds"
+            },
+            {
+              "type": "null"
+            }
+          ]
         },
         "intents": {
           "type": "array",
@@ -2077,6 +2112,13 @@
           "description": "How long the caller had waited."
         }
       }
+    },
+    "user.hangup": {
+      "description": "The user left, at the time the scenario declared. The harness then closes the session, as a participant's disconnect does.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [],
+      "properties": {}
     }
   }
 }

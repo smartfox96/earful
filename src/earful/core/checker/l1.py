@@ -16,6 +16,7 @@ from .report import ContractResult, Finding, result, verdict
 from .view import ModelCall, Speech, View
 
 MET, MISSED, SUPERSEDED, UNOBSERVABLE = "met", "missed", "superseded", "unobservable"
+LEFT = "the user left"
 AUDIO = "the first word of a reply starts playing"
 
 Step = tuple[str, str, int | None, int]  # (milestone, status, reached, deadline)
@@ -43,6 +44,8 @@ class _Budget:
         self._used = 0
         # The scenario stops waiting when the harness reads the final history.
         self._ended = (view.history or view.end)["t_us"]
+        # A user who hangs up is owed nothing that was not yet due.
+        self._left = view.hangup["t_us"] if view.hangup else None
 
     def settle(self, reached: int | None, chain_us: int) -> tuple[str, int]:
         """Was a milestone, reached at ``reached`` (or never), on time? ``chain_us`` is the
@@ -60,6 +63,8 @@ class _Budget:
                 self._used += 1
                 self._base = max(self._base, nxt.end + self._resume)
                 continue
+            if self._left is not None and self._left < deadline and (reached is None or reached > self._left):
+                return LEFT, deadline
             if reached is None and self._ended < deadline:
                 return UNOBSERVABLE, deadline
             return MISSED, deadline
@@ -256,6 +261,8 @@ def check(view: View, policy: policies.L1) -> ContractResult:
                 f"speech {speech.index}: the user spoke again before a response was due; "
                 "the later speech carries the obligation"
             )
+        elif LEFT in statuses:
+            notes.append(f"speech {speech.index}: the user hung up before a response was due")
         elif UNOBSERVABLE in statuses:
             verdicts.append(
                 verdict("L1", instance, f"cannot tell whether the turn of speech {speech.index} progressed",

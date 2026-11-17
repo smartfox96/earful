@@ -9,9 +9,9 @@
     "python": "3.13.12"
   },
   "formats": {
-    "case": "earful.case/2",
+    "case": "earful.case/3",
     "contracts": "earful.contracts/1",
-    "ledger": "earful.ledger/4"
+    "ledger": "earful.ledger/5"
   },
   "framework": {
     "name": "livekit-agents",
@@ -23,7 +23,7 @@
     "findings": [
       "segment 1 started 250000 us after the user took the floor"
     ],
-    "hash": "09411e54a81996bbb0398527bc8bbd18fda2f6d58403e97b09270551e25e86c6",
+    "hash": "2c1df50ac6c6d4311ed4942eb446a814aba0236be0d3c5a01ac6a46b800cd855",
     "speeches": 2
   },
   "original": {
@@ -32,7 +32,7 @@
     "findings": [
       "segment 1 started 250000 us after the user took the floor"
     ],
-    "hash": "0829cafbf531acf7ec256b18f07935dcc8f272220ff6b6b9c090cdc13290e387",
+    "hash": "775b4b6bae282ef68f148e7153d8aba0cf3a773a06842541b869a3310ec28f99",
     "speeches": 2
   },
   "predicate": {

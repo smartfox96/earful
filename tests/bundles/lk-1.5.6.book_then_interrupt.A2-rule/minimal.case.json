@@ -2,8 +2,9 @@
   "contracts": {},
   "delays": [],
   "faults": [],
+  "hangup_us": null,
   "scenario": "earful.livekit.cases:book_then_interrupt",
-  "schema": "earful.case/2",
+  "schema": "earful.case/3",
   "seed": 0,
   "settings": {
     "backend_mode": "plain",

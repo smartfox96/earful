@@ -4,9 +4,9 @@ What is kept when a search finds a failing case and the shrinker has reduced it,
 anyone can run it again and see the same thing:
 
     manifest.json           what failed, on what, and how the case was reduced
-    original.case.json      the case as it was found            (earful.case/2)
+    original.case.json      the case as it was found            (earful.case/3)
     original.ledger.jsonl   the ledger of running it            (earful.ledger, normalized)
-    minimal.case.json       the reduced case                    (earful.case/2)
+    minimal.case.json       the reduced case                    (earful.case/3)
     minimal.ledger.jsonl    the ledger of running it
 
 The manifest freezes the failure: the contract rule that broke, the framework release and
@@ -172,7 +172,7 @@ class Bundle:
 
 def load(directory: Path) -> Bundle:
     """Read a bundle. Raises ``ValueError`` if its manifest is not earful.bundle/2 or a
-    case in it is not earful.case/2."""
+    case in it is not earful.case/3."""
     manifest = json.loads((directory / MANIFEST).read_text(encoding="ascii"))
     errors = validate(manifest)
     if errors:

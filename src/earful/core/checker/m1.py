@@ -153,6 +153,9 @@ def check(view: View, policy: policies.M1) -> ContractResult:
         played, cut = playout.played, playout.cut
         if played == len(item.words) and view.stopped_as_it_ended(playout):
             flags.append("stopped_as_it_ended")
+        if playout.outlasted_hangup:
+            flags.append("played_on_after_the_hangup")  # judged on what the user heard
+            base.append(view.hangup)
         chosen = item.call in view.read_calls  # its audio rests on a reading of the ledger
         findings, rows, unknown = [], [], []
         for context in contexts:

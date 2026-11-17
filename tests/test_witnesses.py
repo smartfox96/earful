@@ -292,6 +292,74 @@ def test_a_write_still_under_way_when_the_scenario_ends_has_no_outcome():
     assert run_virtual(main) == (["effect.requested", "effect.timed_out"], 0)
 
 
+def _abandoned(faults=None):
+    """One write that takes 2 s, whose caller is cancelled after 0.5 s."""
+
+    async def main():
+        ledger = Ledger(now_us, run="test")
+        backend = EffectBackend(ledger, faults=faults, latencies_us={1: 2_000_000})
+        caller = asyncio.ensure_future(backend.write("book", {}))
+        await asyncio.sleep(0.5)
+        caller.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await caller
+        await backend.settle_in_flight()
+        return [(e["kind"], e["t_us"]) for e in ledger.events], backend.commits("book")
+
+    return run_virtual(main)
+
+
+def test_a_write_commits_although_its_caller_was_cancelled():
+    """Once requested, a write is the backend's. A tool cancelled while it waits has
+    still written, as a request a real service has received is still carried out."""
+    assert _abandoned() == ([("effect.requested", 0), ("effect.committed", 2_000_000)], 1)
+
+
+def test_a_rejected_write_whose_caller_has_gone_is_still_recorded():
+    events, commits = _abandoned({1: ("backend.error", None)})
+    assert events == [("effect.requested", 0), ("effect.failed", 2_000_000)] and commits == 0
+
+
+def test_the_user_hangs_up_and_a_write_under_way_still_commits():
+    """The user leaves at 5 s, mid-reply, with a 6 s write requested at about 3 s. The
+    output stops as they leave, the write commits at its own latency, and the final
+    history is read after both."""
+    case = CASES["book_then_interrupt"]()
+    case.speeches = case.speeches[:1]
+    case.delays = [Delay("backend.latency", 1, 6.0)]
+    case.hangup = 5.0
+    case.drain_delay = 1.0  # less than the close takes on the releases that linger over it
+    events = run_case(case).ledger.events
+    (origin,), (left,) = _of(events, "user.origin"), _of(events, "user.hangup")
+    assert events[0]["data"]["scenario"]["hangup_us"] == 5_000_000
+    assert left["source"] == "world" and left["t_us"] == origin["t_us"] + 5_000_000
+    (finished,) = _of(events, "playout.finished")
+    assert finished["t_us"] == left["t_us"] and finished["data"]["interrupted"]
+    (requested,), (committed,) = _of(events, "effect.requested"), _of(events, "effect.committed")
+    assert requested["t_us"] < left["t_us"] < committed["t_us"] == requested["t_us"] + 6_000_000
+    assert not _of(events, "tool.cancelled")  # the framework lets the tool finish
+    (closed,) = _of(events, "fw.close")
+    assert _of(events, "history.final")[0]["seq"] > max(committed["seq"], closed["seq"])
+    assert check(events).valid
+
+
+def test_a_close_that_raises_at_the_hangup_is_the_runs_error(monkeypatch):
+    """The harness's own handling, so the framework is patched here: the first close raises."""
+    close, calls = lk.AgentSession.aclose, []
+
+    async def raises_once(session):
+        calls.append(1)
+        if len(calls) == 1:
+            raise RuntimeError("the close failed")
+        await close(session)
+
+    monkeypatch.setattr(lk.AgentSession, "aclose", raises_once)
+    case = CASES["barge_in_mid_word"]()
+    case.speeches, case.hangup = case.speeches[:1], 5.0
+    with pytest.raises(RuntimeError, match="the close failed"):
+        run_case(case)
+
+
 def test_a_fault_that_is_no_fault_is_refused():
     def make(*faults):
         case = CASES["book_then_interrupt"]()
@@ -425,6 +493,14 @@ def test_a_scenario_that_contradicts_itself_is_refused_before_it_runs():
     retiring.speeches = [UserSpeech(start=0.5, end=1.5, transcript="Cancel it.", retires=("nope",))]
     with pytest.raises(ValueError, match="undeclared intents"):
         run_case(retiring)
+    leaving = make()
+    leaving.speeches = [UserSpeech(0.5, 1.5, "Please do it.")]
+    leaving.hangup = 1.0
+    with pytest.raises(ValueError, match="hangs up at 1.0 s, before the speech at 0.5 s is over"):
+        run_case(leaving)
+    leaving.speeches = []
+    with pytest.raises(ValueError, match="never speaks"):
+        run_case(leaving)
 
 
 def test_speech_that_resumes_within_the_vads_silence_window_is_one_segment_to_it():

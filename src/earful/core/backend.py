@@ -12,6 +12,10 @@ A scenario can declare faults for individual writes:
   out. The write itself still commits at its own latency, before or after that.
 * ``drop``: the write is lost. Nothing commits, and the caller is told it timed out.
 
+Once a write is requested it belongs to the backend. Its outcome is scheduled on the clock
+at that moment, from its latency and its fault, and nothing that happens to the caller
+afterwards changes it: a tool that is cancelled while it waits has still written.
+
 Framework-independent: this module must never import livekit.
 """
 
@@ -70,7 +74,7 @@ class EffectBackend:
         self._receipts = 0
         self._commits: dict[str, int] = {}
         self._by_key: dict[str, str] = {}
-        self._in_flight: set[asyncio.Task[Any]] = set()
+        self._in_flight: dict[int, tuple[asyncio.TimerHandle, asyncio.Future[None]]] = {}
 
     async def write(
         self,
@@ -104,23 +108,45 @@ class EffectBackend:
             tool=current_tool.get(),
             latency_us=latency_us,
         )
+        # The outcome is the backend's from here on: scheduled now, whatever becomes of
+        # the caller. A dropped write has none.
+        outcome: asyncio.Future[str] = asyncio.get_running_loop().create_future()
+        if fault != "backend.drop":
+            self._schedule(outcome, request, intent, key, latency_us, rejected=fault == "backend.error")
         if fault in ("backend.timeout", "backend.drop"):
             assert give_up_us is not None
-            # The write goes on by itself; the caller waits only so long for it.
-            if fault == "backend.timeout":
-                task = asyncio.ensure_future(self._complete(request, intent, key, latency_us, rejected=False))
-                self._in_flight.add(task)
-                task.add_done_callback(self._in_flight.discard)
             await asyncio.sleep(to_seconds(give_up_us))
             self._ledger.append(
                 "backend", "effect.timed_out", request=request, intent=intent, key=key, after_us=give_up_us
             )
             raise BackendTimeout(f"write {request} timed out after {give_up_us} us")
-        return await self._complete(request, intent, key, latency_us, rejected=fault == "backend.error")
+        return await outcome
 
-    async def _complete(self, request: int, intent: str, key: str | None, latency_us: int, *, rejected: bool) -> str:
-        if latency_us > 0:
-            await asyncio.sleep(to_seconds(latency_us))
+    def _schedule(
+        self, outcome: asyncio.Future[str], request: int, intent: str, key: str | None, latency_us: int, *, rejected: bool
+    ) -> None:
+        """Decide the write's outcome ``latency_us`` from now: at once if that is zero."""
+
+        def settle() -> None:
+            pending = self._in_flight.pop(request, None)
+            try:
+                receipt = self._complete(request, intent, key, rejected=rejected)
+            except BackendError as exc:
+                if not outcome.done():  # a caller that has gone is told nothing
+                    outcome.set_exception(exc)
+            else:
+                if not outcome.done():
+                    outcome.set_result(receipt)
+            if pending is not None:
+                pending[1].set_result(None)
+
+        if latency_us <= 0:
+            settle()
+            return
+        loop = asyncio.get_running_loop()
+        self._in_flight[request] = (loop.call_later(to_seconds(latency_us), settle), loop.create_future())
+
+    def _complete(self, request: int, intent: str, key: str | None, *, rejected: bool) -> str:
         if rejected:
             self._ledger.append("backend", "effect.failed", request=request, intent=intent, key=key)
             raise BackendError(f"write {request} was rejected")
@@ -153,14 +179,17 @@ class EffectBackend:
         )
         return receipt
 
+    async def settle_in_flight(self) -> None:
+        """Wait until every write under way has had its outcome."""
+        while self._in_flight:
+            await next(iter(self._in_flight.values()))[1]
+
     async def cancel_in_flight(self) -> None:
         """Stop every write still under way. The harness does this when the scenario is
         over: a write that had not committed by then has no outcome in the ledger."""
-        tasks = list(self._in_flight)
-        for task in tasks:
-            task.cancel()
-        if tasks:
-            await asyncio.gather(*tasks, return_exceptions=True)
+        for timer, _done in self._in_flight.values():
+            timer.cancel()
+        self._in_flight.clear()
 
     def commits(self, intent: str) -> int:
         return self._commits.get(intent, 0)

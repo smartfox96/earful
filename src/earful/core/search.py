@@ -26,7 +26,7 @@ The search uses everything in the ledger to decide where to look, the framework'
 events included. What it finds is decided by the checker alone.
 
 Framework-independent: this module must never import livekit. The adapter supplies
-``run``, a function from a case (earful.case/2) to the ledger of running it.
+``run``, a function from a case (earful.case/3) to the ledger of running it.
 """
 
 from __future__ import annotations
@@ -262,6 +262,14 @@ def delay_handles(events: list[Event], kinds: Iterable[str]) -> list[Handle]:
             found = [("backend.latency", d["request"], d["latency_us"])]
         out += [Handle(Variable(of, nth), "done", t + us, us) for of, nth, us in found if of in wanted]
     return out
+
+
+def hangup_handle(case: cases.Case, events: list[Event]) -> Handle:
+    """The moment the user hangs up. For a user who stays it is placed from the origin,
+    so that moving it declares a hangup. ``events`` is any ledger of the scenario."""
+    origin = next((e["t_us"] for e in events if e["kind"] == "user.origin"), 0)
+    at = case["hangup_us"] or 0
+    return Handle(Variable(cases.HANGUP, 0), "hangup", origin + at, at)
 
 
 @dataclass(frozen=True)
@@ -562,14 +570,17 @@ def explore(
 
     **One thing at a time.** Each variable named by ``variables`` is moved so that its
     handles fall before, at and after every transition: by default where each speech
-    sits and every provider delay; ``speech.end`` and ``speech.stt_delay`` can be added.
+    sits and every provider delay; ``speech.end`` and ``speech.stt_delay`` can be added,
+    and so can ``user.hangup``: the user leaves, and the session is closed, at every
+    transition after their last speech.
     Each fault named by ``faults`` is added to each backend write the run made: an error,
     a timeout, a drop. For a timeout the write is tried committing before the caller
     gives up and after. The moment the caller gives up is then moved to every transition,
     and so is the commit of a write that timed out.
 
-    **Two things at a time**, if asked for. With ``pairs``, every speech is moved again
-    with each fault in place, and faults are added to two writes at once. With
+    **Two things at a time**, if asked for. With ``pairs``, every speech (and the hangup,
+    if it is among the variables) is moved again with each fault in place, and faults are
+    added to two writes at once. With
     ``profiles``, every speech is moved again under that many provider-timing profiles:
     every delay the run applied, redrawn at random from a seed, so that the same search
     gives the same profiles.
@@ -582,13 +593,13 @@ def explore(
     out: ``map`` one after another, a process pool's ``map`` side by side, provided
     ``run`` can be sent to another process.
 
-    Raises ``ValueError`` if ``case`` is not earful.case/2 or cannot be run as given.
+    Raises ``ValueError`` if ``case`` is not earful.case/3 or cannot be run as given.
     """
     errors = cases.validate(case)
     if errors:
-        raise ValueError("not an earful.case/2 document: " + "; ".join(errors))
+        raise ValueError("not an earful.case/3 document: " + "; ".join(errors))
     kinds = tuple(variables)
-    unknown = sorted(set(kinds) - set(cases.SPEECH_KINDS) - set(cases.DELAY_KINDS))
+    unknown = sorted(set(kinds) - set(cases.SPEECH_KINDS) - set(cases.DELAY_KINDS) - {cases.HANGUP})
     if unknown:
         raise ValueError(f"unknown variables {unknown}")
     fault_kinds = tuple(faults)
@@ -645,10 +656,19 @@ def explore(
             if alone is not None:  # else the scenario cannot run without this speech
                 place(on, handles, transitions(alone, words=words), base)
 
+    def move_hangup(on: cases.Case, produced: list[Event], base: str) -> None:
+        """A hangup cuts short the run in which the user stays."""
+        if cases.HANGUP not in kinds:
+            return
+        stays = produced if on["hangup_us"] is None else ledger(cases.without_hangup(on))
+        if stays is not None:
+            place(on, [hangup_handle(on, stays)], transitions(stays, words=words), base)
+
     # One thing at a time: each delay against the run as it is, each speech against the
-    # run without it.
+    # run without it, the hangup against the run in which the user stays.
     place(case, delay_handles(events, delay_kinds), transitions(events, words=words), "")
     move_speeches(case, events, "")
+    move_hangup(case, events, "")
 
     # One fault at a time, on each write the run made.
     faulted: list[tuple[str, int, cases.Case]] = []  # (label, the write, the case with the fault)
@@ -695,10 +715,11 @@ def explore(
             place(version, commit, transitions(produced, words=words), label)
 
     if pairs:
-        # A fault and a speech: every speech again, with each fault in place.
+        # A fault and a speech: every speech again, and the hangup, with each fault in place.
         for label, _nth, version in faulted:
             if label in under:
                 move_speeches(version, under[label], label)
+                move_hangup(version, under[label], label)
         # Two faults: on two different writes.
         for i, (label, nth, version) in enumerate(faulted):
             for other_label, other_nth, other in faulted[i + 1 :]:
@@ -752,6 +773,7 @@ __all__ = [
     "delay_handles",
     "evaluate",
     "explore",
+    "hangup_handle",
     "judged",
     "speech_handles",
     "transitions",
