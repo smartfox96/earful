@@ -14,9 +14,10 @@ on:
   workflow_dispatch:
 
 # A new run replaces the one in progress for the same pull request, and for main: the
-# newer commit on main contains the older one.
+# newer commit on main contains the older one. A pull request is named by its number:
+# the event that closes it does not carry the same ref as the events before it.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 permissions:
