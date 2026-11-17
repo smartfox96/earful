@@ -1,13 +1,13 @@
 # Ledger
 
-Schema: **`earful.ledger/3`**, 16 November 2026.
+Schema: **`earful.ledger/4`**, 16 November 2026.
 
 A ledger is the complete record of one run. It is the only input to the checker
 (`docs/contracts.md`), so anything a contract needs must be in it. One JSON object per
 line, append-only, in the order events happened.
 
 The shape of every event is defined by a JSON Schema (draft 2020-12) shipped with the
-package: [`src/earful/core/schemas/earful.ledger-3.schema.json`](../src/earful/core/schemas/earful.ledger-3.schema.json).
+package: [`src/earful/core/schemas/earful.ledger-4.schema.json`](../src/earful/core/schemas/earful.ledger-4.schema.json).
 That file is normative. Any JSON Schema validator, in any language, can check a ledger
 line against it. This document explains the events and lists the rules that span lines,
 which a per-line schema cannot express; `earful.core.schema.validate` applies both. A test
@@ -16,12 +16,12 @@ keeps this document and the schema in step.
 ## Envelope
 
 ```json
-{"schema": "earful.ledger/3", "run": "run-5f0c2a9be41d7c03", "seq": 17, "t_us": 3300000, "source": "sink", "kind": "playout.started", "data": {...}}
+{"schema": "earful.ledger/4", "run": "run-5f0c2a9be41d7c03", "seq": 17, "t_us": 3300000, "source": "sink", "kind": "playout.started", "data": {...}}
 ```
 
 | Field | Meaning |
 | --- | --- |
-| `schema` | Always `earful.ledger/3` |
+| `schema` | Always `earful.ledger/4` |
 | `run` | Identifies the run. A digest of the data of `run.start`, so two runs share it exactly when they declare the same case, seed, framework release, clock, scenario and contract policy. What then happened is identified by the ledger hash |
 | `seq` | Position in the ledger, from 0. The total order of the run: "before" means lower `seq` |
 | `t_us` | Virtual time in integer microseconds. Never decreases |
@@ -97,6 +97,7 @@ with ordinals; see Hashing.
 | `witnessed_tools` | The names of the function tools of the agent the run starts with. The tool witness records every call of each, so a call to one of them that leaves no `tool.called` was never made |
 | `session` | The framework options the contracts depend on: `min_interruption_duration_us`, `false_interruption_timeout_us`, `min_endpointing_delay_us`, `max_endpointing_delay_us`, `turn_detection`, and `extra_options` (any further options, by name, with their values) |
 | `delays` | Provider delays the scenario declares, each in place of what its code would ask for. Per delay: `of` (`llm.ttft`, `llm.duration`, `tts.ttfb` or `backend.latency`), `nth` (which model call, utterance or backend request, from 1) and `us`. Empty when the scenario declares none |
+| `faults` | Faults the scenario declares, each for one backend write. Per fault: `of` (`backend.error`, `backend.timeout` or `backend.drop`), `nth` (which backend request, from 1) and `us` (how long the caller waits before it is told the write timed out; null for `backend.error`). Empty when the scenario declares none |
 | `providers` | `vad` (`min_speech_us`, `min_silence_us`), `tts` (`seconds_per_letter_us`, `ttfb_us`), `sink` (`can_pause`), `backend` (`mode`: `plain` or `keyed`) |
 
 The four `session` times are declared by the scenario and cannot be set any other way.
@@ -247,11 +248,16 @@ position stopped inside, if any, and `word_cut_samples` how many of its samples 
 | `effect.requested` | `request`, `intent`, `key`, `payload`, `tool`, `latency_us` | A tool asks for a write. `tool` is the witnessed invocation that asked, if any |
 | `effect.committed` | `request`, `intent`, `key`, `receipt`, `count_for_intent` | The write becomes durable |
 | `effect.deduplicated` | `request`, `intent`, `key`, `receipt` | In `keyed` mode, the key already committed; the original receipt is returned |
+| `effect.failed` | `request`, `intent`, `key` | The backend rejected the write. Nothing was committed and the caller was told |
+| `effect.timed_out` | `request`, `intent`, `key`, `after_us` | The caller stopped waiting, `after_us` after it asked |
 
 A keyed backend decides whether a key is a repeat at the moment the write would become
 durable, not when it was requested, so two overlapping writes with one key commit once.
 
-A write that fails is not recorded yet. It arrives with backend faults.
+`effect.committed`, `effect.deduplicated` and `effect.failed` are outcomes: a request has
+at most one. `effect.timed_out` says what the caller was told and is separate from the
+outcome. A request can have both a commit and a timeout, in either order. A request with a
+timeout and no outcome was lost, or had not committed when the scenario ended.
 
 ### framework
 
@@ -278,9 +284,9 @@ They never decide a verdict.
   no call is attributed twice; its candidates fit its attribution and none is already
   attributed; there is one stamp and one sample count per word, and no utterance number or
   stamp is used twice;
-- each tool invocation and each backend request has at most one outcome, a commit or
-  deduplication carries its request's intent, and a deduplication names a receipt that was
-  committed;
+- each tool invocation and each backend request has at most one outcome, a caller gives
+  up on a request at most once, every backend event carries its request's intent, and a
+  deduplication names a receipt that was committed;
 - segments start at most once and finish at most once, pause only while playing and
   resume only while paused, `audible` matches whether the segment started, and every
   played word has a completion time, in order and no later than the event;
@@ -338,6 +344,11 @@ differ only in when the session closes.
 Adding a kind, or a field to a kind, is a new schema version, because the schema rejects
 unknown kinds and fields. Each version has its own schema file. Every version change
 regenerates the reference ledgers.
+
+## Changes from `earful.ledger/3`
+
+- The scenario states the faults it declares, in `faults`.
+- Two backend events: `effect.failed` and `effect.timed_out`.
 
 ## Changes from `earful.ledger/2`
 

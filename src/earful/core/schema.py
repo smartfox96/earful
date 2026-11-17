@@ -1,7 +1,7 @@
-"""Validation of earful.ledger/3, and the one definition of a valid run.
+"""Validation of earful.ledger/4, and the one definition of a valid run.
 
 The shape of every event is defined by a JSON Schema document shipped with this package
-(``schemas/earful.ledger-3.schema.json``), so any language can validate a ledger line
+(``schemas/earful.ledger-4.schema.json``), so any language can validate a ledger line
 with a standard validator. This module applies that schema and adds the rules a
 per-line schema cannot express: order, and references between events.
 
@@ -21,7 +21,7 @@ from .ledger import run_id
 
 Event = dict[str, Any]
 
-SCHEMA_FILE = "earful.ledger-3.schema.json"
+SCHEMA_FILE = "earful.ledger-4.schema.json"
 
 
 @lru_cache(maxsize=1)
@@ -38,6 +38,31 @@ def _validator() -> Draft202012Validator:
     return Draft202012Validator(schema)
 
 
+@lru_cache(maxsize=None)
+def _validator_for(kind: str) -> Draft202012Validator:
+    """The schema with only the rules that can apply to an event of ``kind``.
+
+    The schema has one ``if kind is K then ...`` rule per kind. For an event of one kind
+    every other such rule is skipped, so leaving them out gives the same errors, and
+    testing 27 conditions per event was most of the cost of checking a ledger.
+    """
+    schema = load_schema()
+    rules = [
+        rule
+        for rule in schema["allOf"]
+        if rule["if"]["properties"]["kind"].get("const", kind) == kind  # its own rule, and any not tied to one kind
+    ]
+    return Draft202012Validator({**schema, "allOf": rules})
+
+
+def event_errors(event: Any) -> list[Any]:
+    """The schema's errors for one event, ordered by where in the event they are."""
+    kind = event.get("kind") if isinstance(event, dict) else None
+    validator = _validator_for(kind) if isinstance(kind, str) and kind in kinds() else _validator()
+    return sorted(validator.iter_errors(event), key=lambda e: list(map(str, e.absolute_path)))
+
+
+@lru_cache(maxsize=1)
 def kinds() -> dict[str, str]:
     """Every Earful-owned event kind and the source that records it."""
     out = {}
@@ -54,14 +79,13 @@ def _where(index: int, event: Any) -> str:
 
 
 def validate(events: list[Event]) -> list[str]:
-    """Every way ``events`` departs from earful.ledger/3. An empty list means valid."""
+    """Every way ``events`` departs from earful.ledger/4. An empty list means valid."""
     if not events:
         return ["ledger is empty"]
 
     errors: list[str] = []
-    validator = _validator()
     for i, event in enumerate(events):
-        for error in sorted(validator.iter_errors(event), key=lambda e: list(map(str, e.absolute_path))):
+        for error in event_errors(event):
             path = "/".join(str(p) for p in error.absolute_path) or "event"
             errors.append(f"{_where(i, event)}: {path}: {error.message}")
     if errors:
@@ -120,6 +144,7 @@ def _check_ledger(events: list[Event], errors: list[str]) -> None:
     paused: set[int] = set()
     effect_requests: dict[int, str] = {}
     effect_outcomes: set[int] = set()
+    gave_up: set[int] = set()  # writes whose caller stopped waiting
     receipts: set[str] = set()
     started: set[int] = set()
     finished: set[int] = set()
@@ -211,7 +236,7 @@ def _check_ledger(events: list[Event], errors: list[str]) -> None:
             if d["intent"] not in declared:
                 errors.append(f"{where}: write for undeclared intent {d['intent']!r}")
             effect_requests[d["request"]] = d["intent"]
-        elif k in ("effect.committed", "effect.deduplicated"):
+        elif k in ("effect.committed", "effect.deduplicated", "effect.failed"):
             if d["request"] not in effect_requests or d["request"] in effect_outcomes:
                 errors.append(f"{where}: request {d['request']} has no open request")
             elif effect_requests[d["request"]] != d["intent"]:
@@ -219,8 +244,15 @@ def _check_ledger(events: list[Event], errors: list[str]) -> None:
             effect_outcomes.add(d["request"])
             if k == "effect.committed":
                 receipts.add(d["receipt"])
-            elif d["receipt"] not in receipts:
+            elif k == "effect.deduplicated" and d["receipt"] not in receipts:
                 errors.append(f"{where}: receipt {d['receipt']!r} was never committed")
+        elif k == "effect.timed_out":
+            # The caller gave up. The write may commit before or after, or never.
+            if d["request"] not in effect_requests or d["request"] in gave_up:
+                errors.append(f"{where}: request {d['request']} was not made, or its caller gave up twice")
+            elif effect_requests[d["request"]] != d["intent"]:
+                errors.append(f"{where}: intent differs from the request's")
+            gave_up.add(d["request"])
         elif k == "playout.started":
             if d["segment"] in started or d["segment"] in finished:
                 errors.append(f"{where}: segment {d['segment']} cannot start here")

@@ -1,8 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "urn:earful:case:1",
+  "$id": "urn:earful:case:2",
   "title": "Earful case",
-  "description": "An earful.case/1 document: everything about a scenario that is data. The agent and the model policy are code, named by `scenario`; the user's speeches, the provider delays the scenario declares, the settings, the seed and the contract policy are stated here, so a case can be moved in time, reduced and saved without touching code.",
+  "description": "An earful.case/2 document: everything about a scenario that is data. The agent and the model policy are code, named by `scenario`; the user's speeches, the provider delays and faults the scenario declares, the settings, the seed and the contract policy are stated here, so a case can be moved in time, reduced and saved without touching code.",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -11,12 +11,13 @@
     "seed",
     "speeches",
     "delays",
+    "faults",
     "settings",
     "contracts"
   ],
   "properties": {
     "schema": {
-      "const": "earful.case/1"
+      "const": "earful.case/2"
     },
     "scenario": {
       "type": "string",
@@ -108,6 +109,42 @@
           "us": {
             "$ref": "#/$defs/microseconds",
             "description": "The delay."
+          }
+        }
+      }
+    },
+    "faults": {
+      "type": "array",
+      "description": "Things declared to go wrong, each for one occurrence. At most one per occurrence.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "of",
+          "nth",
+          "us"
+        ],
+        "properties": {
+          "of": {
+            "enum": [
+              "backend.error",
+              "backend.timeout",
+              "backend.drop"
+            ],
+            "description": "backend.error: the backend rejects the write and tells the caller. backend.timeout: the caller stops waiting; the write still commits at its own latency. backend.drop: the write is lost and the caller is told it timed out."
+          },
+          "nth": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Which backend request, from 1."
+          },
+          "us": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 0,
+            "description": "How long the caller waits before it is told the write timed out. Null for backend.error."
           }
         }
       }

@@ -35,7 +35,7 @@ def check(view: View, policy: policies.A2) -> ContractResult:
             continue  # no tool call and no write: the intent was never acted on
 
         commits = [e.committed for e in effects if e.committed is not None]
-        deduplicated = sum(1 for e in effects if e.outcome and e.committed is None)
+        became = [e.outcome["kind"] if e.outcome else None for e in effects]
         authorized = declared["authorized"]
         findings = []
         if len(commits) > authorized:
@@ -57,7 +57,10 @@ def check(view: View, policy: policies.A2) -> ContractResult:
                     "committed": len(commits),
                     "authorized": authorized,
                     "requested": len(effects),
-                    "deduplicated": deduplicated,
+                    "deduplicated": became.count("effect.deduplicated"),
+                    "failed": became.count("effect.failed"),
+                    "no_outcome": became.count(None),
+                    "caller_timed_out": sum(1 for e in effects if e.timed_out),
                     "backend_mode": view.providers["backend"]["mode"],
                 },
             )

@@ -163,7 +163,8 @@ class Effect:
     request: int
     intent: str
     requested: Event
-    outcome: Event | None = None  # effect.committed or effect.deduplicated
+    outcome: Event | None = None  # effect.committed, effect.deduplicated or effect.failed
+    timed_out: Event | None = None  # the caller stopped waiting; the write may still commit
 
     @property
     def committed(self) -> Event | None:
@@ -247,8 +248,10 @@ class View:
                 self.tools[d["tool"]].outcome = e
             elif kind == "effect.requested":
                 self.effects[d["request"]] = Effect(d["request"], d["intent"], e)
-            elif kind in ("effect.committed", "effect.deduplicated"):
+            elif kind in ("effect.committed", "effect.deduplicated", "effect.failed"):
                 self.effects[d["request"]].outcome = e
+            elif kind == "effect.timed_out":
+                self.effects[d["request"]].timed_out = e
             elif kind == "history.final":
                 self.history = e
 

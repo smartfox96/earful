@@ -203,6 +203,7 @@ Durable effects for an intent do not exceed the count the scenario authorized.
 | Rule | Fail if committed effects for the intent exceed its authorized count |
 | Policy | None of its own. The authorized count is declared on the intent (default 1). The backend mode is declared on the scenario: `plain` (every write commits) or `keyed` (a repeated idempotency key is deduplicated and does not count) |
 | Unobservable | A tool for the intent was called and wrote nothing at all through the backend. A call that wrote for another intent is accounted for: the intent was simply not acted on, and has no instance |
+| Faults | A write counts if it committed, whatever its caller was told. A write the backend rejected or lost never counts |
 | Not judged | Too few effects. That is A3 when the agent claimed success, and otherwise a scenario expectation |
 | Deliberate break | A tool that writes twice for one call, on a `plain` backend |
 | Clean control | The same tool on a `keyed` backend |
@@ -218,6 +219,7 @@ The user does not hear that an action succeeded before the backend has recorded 
 | Judged record | `sink`: completion time of the claim's last word |
 | Rule | Pass if an effect for the intent was committed at or before that completion time. Fail otherwise |
 | Policy | `claim_point`: `span_end` (default) or `span_start`. Which words make the claim is declared on the claim itself |
+| Faults | Only a commit makes a claim true. A write that was rejected, lost, or had not committed when the claim was heard does not, whatever the tool returned |
 | Unobservable | The reply's audio cannot be attributed to the scripted reply, or the segment never finished |
 | Deliberate break | A model policy that says the booking is done in the same reply that calls the tool, with a backend that takes longer to commit than the sentence takes to play |
 | Clean control | The same backend, with the claim made only after the tool result is in context |
@@ -396,7 +398,7 @@ documentation it was compared against.
 
 These are requirements on the ledger. `docs/ledger.md` defines each event named here.
 
-| Requirement | Needed by | Recorded in `earful.ledger/3` |
+| Requirement | Needed by | Recorded in `earful.ledger/4` |
 | --- | --- | --- |
 | Scenario declarations and policy values in the run header | all | `run.start`: `scenario`, `contracts` |
 | The framework release and the clock the run used | all | `run.start`: `framework`, `clock` |
@@ -410,7 +412,7 @@ These are requirements on the ledger. `docs/ledger.md` defines each event named 
 | Tool witness events: called, returned, raised, cancelled, with the returned value as the model should be shown it, and whether the outcome asks for a further model call | M2, L1 | `tool.called`, `tool.returned` (`output`, `text`, `expects_reply`), `tool.raised` (`expects_reply`), `tool.cancelled` |
 | The length of each synthesized word's audio | M1, L1 | `tts.synthesized`: `word_samples`, `sample_rate` |
 | Which tools the tool witness records, so that a call that was never made can be told from one that could not be seen | M2, L1 | `run.start`: `scenario.witnessed_tools` |
-| Backend events: requested, committed, deduplicated, failed, with idempotency key | A1, A2, A3 | `effect.requested`, `effect.committed`, `effect.deduplicated`. **Failed is not yet recorded**: it arrives with backend faults |
+| Backend events: requested, committed, deduplicated, failed, with idempotency key | A1, A2, A3 | `effect.requested`, `effect.committed`, `effect.deduplicated`, `effect.failed`, `effect.timed_out` |
 | Claims on a scripted reply | A3 | `llm.response`: `claims` |
 | Delays each scripted provider applied | L1 | `llm.response`: `ttft_us`, `duration_us`; `tts.synthesized`: `ttfb_us`; `effect.requested`: `latency_us`; VAD and STT delays in `run.start` |
 | Pause, resume and clear commands as the sink received them | L2 | `sink.pause`, `sink.resume`, `sink.clear`, `sink.flush` |
@@ -545,6 +547,11 @@ Taken while building the search (`docs/search.md`), 16 November 2026:
 25. **L1 names the milestone a turn missed.** Its findings all carried one rule name, so
     a search or a reduction that follows "the same failure" could slide from a model that
     was never called to a reply that never played without noticing.
+26. **A backend fault is declared as data, for one write.** The caller is told what a
+    real client is told: an error, or a timeout that says nothing about whether the write
+    committed. The ledger records the outcome of a write and what its caller was told as
+    separate events. A2 and A3 judge the outcome. The alternative, a tool written to fail
+    in the scenario's code, cannot be added by a search or removed by a reduction.
 
 ## 10. What the reference ledgers measure
 

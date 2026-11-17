@@ -61,8 +61,8 @@ if [ "${1:-}" = "--update" ]; then
   # known defects, and replayed on every release below.
   echo "=== updating reference bundles: livekit-agents 1.5.6"
   rm -rf "$BUNDLES"
-  .venvs/lk-1.5.6/bin/python scripts/search.py earful.livekit.cases:book_then_interrupt --no-windows --keep "A2/rule" --out "$BUNDLES" | grep -E '"(directory|distinct_hashes)"'
-  .venvs/lk-1.5.6/bin/python scripts/search.py earful.livekit.cases:speak_over_new_turn --no-windows --keep "L2/rule b" --out "$BUNDLES" | grep -E '"(directory|distinct_hashes)"'
+  .venvs/lk-1.5.6/bin/python scripts/search.py earful.livekit.cases:book_then_interrupt --faults none --no-windows --keep "A2/rule" --out "$BUNDLES" | grep -E '"(directory|distinct_hashes)"'
+  .venvs/lk-1.5.6/bin/python scripts/search.py earful.livekit.cases:speak_over_new_turn --faults none --no-windows --keep "L2/rule b" --out "$BUNDLES" | grep -E '"(directory|distinct_hashes)"'
 fi
 
 side_by_side check

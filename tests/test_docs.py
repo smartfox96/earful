@@ -54,7 +54,7 @@ def test_every_field_of_a_case_and_of_a_bundle_manifest_is_documented():
     from earful.core import bundle, case
 
     missing = {}
-    for name, schema in (("earful.case/1", case.load_schema()), ("earful.bundle/1", bundle.load_schema())):
+    for name, schema in (("earful.case/2", case.load_schema()), ("earful.bundle/2", bundle.load_schema())):
         fields = _field_names(schema, schema.get("$defs", {}))
         if fields - SEARCH_MENTIONED:
             missing[name] = sorted(fields - SEARCH_MENTIONED)
