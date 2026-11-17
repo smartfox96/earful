@@ -20,6 +20,7 @@ import livekit.agents as lk
 from earful.core.backend import Effect, effect
 from earful.livekit.cases import BOOKING_ACK, BOOKING_INTENT, CASES, LONG_REPLY
 from earful.livekit.harness import Case, Intent
+from earful.livekit.playbook import ScriptedModel, user_said
 from earful.livekit.providers import Claim, Reply, ToolCall, UserSpeech, letters
 from earful.livekit.sink import ClockedSink
 
@@ -224,6 +225,14 @@ def as_written_confirms_a_failed_booking() -> Case:
 def as_written_reads_the_error() -> Case:
     """The control: the model confirms only a write that succeeded."""
     return _as_written(_reads_the_error)
+
+
+def host_with_no_rule_for_stop() -> Case:
+    """A scenario that is wrong in itself: its model has a rule for the menu and none for
+    "Stop.", so its run is not valid evidence."""
+    case = CASES["barge_in_mid_word"]()
+    case.policy = ScriptedModel().when(user_said("menu"), say="We have soup.")
+    return case
 
 
 # ----------------------------------------------------------------------------- hangup

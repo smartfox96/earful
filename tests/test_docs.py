@@ -99,3 +99,16 @@ def test_every_name_the_testing_page_imports_from_earful_exists():
     assert {"run", "explore", "keep", "replay", "ScriptedModel", "Effect", "effect"} <= set(
         imported
     )
+
+
+def test_every_command_and_option_the_testing_page_names_exists():
+    from earful.cli import _parser
+
+    parser = _parser()
+    commands = parser._subparsers._group_actions[0].choices
+    named = set(re.findall(r"`earful ([a-z]+)[ `]", TESTING_DOC))
+    assert named == set(commands), named ^ set(commands)
+    known = {option for sub in commands.values() for option in sub._option_string_actions}
+    plugin = {"--earful-out", "--earful-workers"}
+    options = set(re.findall(r"`(--[a-z-]+)", TESTING_DOC)) - plugin
+    assert options and options <= known, options - known

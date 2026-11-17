@@ -2,17 +2,18 @@
 
 A test gives Earful a scenario, runs it against a real `AgentSession` on the virtual
 clock, and asserts the seven contracts (`docs/contracts.md`). This page covers the parts
-of a scenario and the calls a test makes. `docs/search.md` covers what a search does and
-what a saved failure holds.
+of a scenario, the calls a test makes, the `earful` command and the pytest fixture.
+`docs/search.md` covers what a search does and what a saved failure holds.
+
+Everything a test of a LiveKit agent needs is imported from `earful.livekit`. What needs
+no framework (checking a recorded ledger, the `effect` call of a stand-in service) is
+imported from `earful`.
 
 ```python
 import livekit.agents as lk
 
-from earful.core.backend import Effect
-from earful.livekit.api import explore, run
-from earful.livekit.harness import Case
-from earful.livekit.playbook import ScriptedModel, tool_returned, tool_succeeded, user_ever_said
-from earful.livekit.providers import UserSpeech
+from earful.livekit import Case, Effect, ScriptedModel, UserSpeech, explore, run
+from earful.livekit import tool_returned, tool_succeeded, user_ever_said
 
 from myapp.agent import BookingAgent  # the agent as the application ships it
 
@@ -60,7 +61,7 @@ ledger.
 | `contracts` | Policy values for the contracts, where the defaults do not fit |
 
 The remaining fields set the scripted voice, the VAD and the session's turn handling.
-`earful.livekit.harness.Case` lists them with their defaults.
+The `Case` class lists them with their defaults.
 
 ## 2. The model
 
@@ -102,7 +103,7 @@ A policy can also be a plain function. It receives the context as a list of item
 summaries and returns a `Reply`:
 
 ```python
-from earful.livekit.providers import Claim, Reply, ToolCall
+from earful.livekit import Claim, Reply, ToolCall
 
 def policy(items: list[dict]) -> Reply:
     if any(item["type"] == "function_call_output" for item in items):
@@ -123,7 +124,7 @@ two ways, and neither changes how the agent is constructed.
 its arguments, its error handling and its return value are the application's.
 
 ```python
-from earful.core.backend import effect
+from earful import effect
 
 class FakeReservations:
     async def create(self, party_size: int) -> str:
@@ -172,7 +173,7 @@ The same declaration can sit on the tool, for a team that wants it beside the co
 Outside a run the decorated tool is the tool as written:
 
 ```python
-from earful.livekit.tools import effect_tool
+from earful.livekit import effect_tool
 
 class BookingAgent(lk.Agent):
     @lk.function_tool
@@ -237,8 +238,8 @@ not counted (`docs/search.md`, section 4).
 case=example)` runs that example again.
 
 The options narrow a search: `variables` (which times to move), `faults` (which faults to
-add), `speeches`, `moments`, `words`, `pairs` and `profiles`. They are those of
-`earful.core.search.explore`. A default search of a one-turn booking scenario is about
+add), `speeches`, `moments`, `words`, `pairs` and `profiles`. `docs/search.md`, section
+3, says what each does. A default search of a one-turn booking scenario is about
 860 runs.
 
 ## 6. Where a scenario lives
@@ -270,7 +271,7 @@ calls. A policy function that keeps state of its own needs the function form.
 ## 7. Keeping a failure
 
 ```python
-from earful.livekit.api import explore, keep, replay
+from earful.livekit import explore, keep, replay
 
 found = explore(book_then_interrupt)                # a top-level function
 kept = keep(found, "A2/rule", "failures/double-booking")
@@ -283,3 +284,71 @@ it gives the same ledger each time, and writes it as a bundle (`docs/search.md`,
 section 6). `replay` runs the reduced case again on whatever release is installed:
 `reproduced` says whether it still breaks the rule, and `identical` whether the ledger is
 the one recorded.
+
+## 8. With pytest
+
+Installing Earful registers a pytest plugin. Its `earful` fixture has the same `run`,
+`explore`, `keep` and `replay`, and keeps the evidence of a test that fails:
+
+```python
+def test_a_booking_is_made_once_and_confirmed_truthfully(earful):
+    earful.run(case).assert_contracts()
+    earful.explore(case).assert_contracts()
+```
+
+When the test fails, the ledger of each run it made, and an example case with its ledger
+for each rule a search of its found broken, are written under `.earful/`, in a directory
+named after the test. The failure output ends with a section that says where:
+
+```
+---------------------------------- earful ----------------------------------
+run 1 (booking) breaks A3/rule
+    ledger  .earful/test_booking.py-test_with_a_failed_write/run-1.booking.ledger.jsonl
+    report  .earful/test_booking.py-test_with_a_failed_write/run-1.booking.txt
+search 1 (booking) breaks A3/rule: backend.error 1
+    case    .earful/test_booking.py-test_searched/search-1.booking.A3-rule.case.json
+    ledger  .earful/test_booking.py-test_searched/search-1.booking.A3-rule.ledger.jsonl
+    report  .earful/test_booking.py-test_searched/search-1.booking.A3-rule.txt
+```
+
+A test that passes writes nothing. `.earful/` belongs in `.gitignore`.
+
+| Option | Meaning |
+| --- | --- |
+| `--earful-out DIR` | Where the evidence goes. Default `.earful`, under pytest's root directory |
+| `--earful-workers N` | Worker processes for a search that does not name a number. Default 0 |
+
+`earful.keep(found, "A3/rule")` without a directory writes the bundle under the test's
+evidence directory.
+
+## 9. From the command line
+
+```bash
+earful run myapp.scenarios:booking --ledger booking.ledger.jsonl
+earful check booking.ledger.jsonl
+earful search myapp.scenarios:booking --keep A3/rule --out failures
+earful replay failures/lk-1.8.12.booking.A3-rule --expect reproduced
+earful report failures/lk-1.8.12.booking.A3-rule
+```
+
+| Command | Does |
+| --- | --- |
+| `earful check LEDGER...` | Prints the verdicts for recorded ledgers. `--measures` adds what each verdict measured, `--json` prints one report per line |
+| `earful run SCENARIO` | Runs a scenario once and prints its verdicts. `--case FILE` runs a saved case, `--ledger FILE` writes the ledger |
+| `earful search SCENARIO` | Searches a scenario, in one worker process per processor unless `--workers` says otherwise. `--keep CONTRACT/RULE --out DIR` writes a bundle for a rule that broke. `--variables`, `--faults`, `--pairs`, `--profiles`, `--no-words` and `--no-windows` narrow or widen the search |
+| `earful replay BUNDLE_DIR` | Runs a bundle's reduced case again. `--expect reproduced` or `--expect clean` makes the outcome the exit status |
+| `earful report LEDGER` or `BUNDLE_DIR` | Writes the run out as text: what was run, the verdicts and every event. `-o FILE` writes it to a file |
+
+A scenario is named `module:function` on the command line, so it has to be importable
+from where the command runs. `check` and `report` read files and work without the
+framework installed. `--allow CONTRACT/RULE` on `check`, `run` and `search` lets a named
+rule break.
+
+| Exit status | Meaning |
+| --- | --- |
+| 0 | Nothing broke, or the replay did what `--expect` names. For `report`: the report was written |
+| 1 | A contract rule broke, or the replay did not do what `--expect` names |
+| 2 | The command could not be carried out: bad arguments, a file that is not what it should be, a scenario that does not exist |
+| 3 | No verdict: a run was not valid evidence, or did not repeat |
+
+A rule that broke outranks a run without a verdict.

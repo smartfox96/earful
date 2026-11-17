@@ -27,22 +27,22 @@ Requires [uv](https://docs.astral.sh/uv/).
 
 ```bash
 scripts/make_env.sh 1.5.6 2026-04-30
-.venvs/lk-1.5.6/bin/python scripts/replay.py tests/bundles/lk-1.5.6.book_then_interrupt.A2-rule --expect reproduced
+.venvs/lk-1.5.6/bin/earful replay tests/bundles/lk-1.5.6.book_then_interrupt.A2-rule --expect reproduced
 
 scripts/make_env.sh 1.6.6 2026-07-20
-.venvs/lk-1.6.6/bin/python scripts/replay.py tests/bundles/lk-1.5.6.book_then_interrupt.A2-rule --expect clean
+.venvs/lk-1.6.6/bin/earful replay tests/bundles/lk-1.5.6.book_then_interrupt.A2-rule --expect clean
 ```
 
 `make_env.sh` installs the release with its dependencies resolved as of the given date
-and writes the resulting set to `compat/lk-<version>.lock.txt`. `replay.py` runs the case
+and writes the resulting set to `compat/lk-<version>.lock.txt`. `earful replay` runs the case
 three times and exits 0 when the outcome matches `--expect`. The first command prints
-`"reproduced": true` and `"identical_to_recorded": true`. The second prints
-`"reproduced": false`.
+`breaks the rule       yes` and `the ledger recorded   yes`. The second prints
+`breaks the rule       no`.
 
 To print every verdict for the recorded run:
 
 ```bash
-.venvs/lk-1.5.6/bin/python scripts/check_ledger.py tests/bundles/lk-1.5.6.book_then_interrupt.A2-rule/minimal.ledger.jsonl
+.venvs/lk-1.5.6/bin/earful check tests/bundles/lk-1.5.6.book_then_interrupt.A2-rule/minimal.ledger.jsonl
 ```
 
 ## The case

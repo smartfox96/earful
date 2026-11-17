@@ -17,7 +17,8 @@ how wide each failure is. A failing case is reduced to a small one that replays
 ([`docs/search.md`](docs/search.md)).
 A test gives it an agent, a scripted user and a scripted model, and asserts the contracts
 ([`docs/testing.md`](docs/testing.md)).
-The command line, the pytest plugin and the report are not built yet.
+The `earful` command and the `earful` pytest fixture run it from a shell and from a test.
+The HTML report is not built yet.
 
 ```bash
 scripts/check_all.sh            # builds five pinned environments; runs tests, repeatability, historical checks and replays
@@ -25,9 +26,10 @@ scripts/check_all.sh --update   # rewrites tests/golden/ and tests/bundles/; rev
 scripts/lint.sh                 # format, lint rules, types
 .venvs/lk-1.8.12/bin/python -m pytest -m "not slow"   # the tests under a second each: about 15 s in all
 
-python scripts/check_ledger.py tests/golden/lk-1.5.6.*.jsonl           # the verdicts for a ledger file
-python scripts/search.py earful.livekit.cases:book_then_interrupt      # every time to every boundary, every fault on every write: what breaks, how wide, what was reached
-python scripts/replay.py tests/bundles/lk-1.5.6.book_then_interrupt.A2-rule   # run a reduced failing case again
+.venvs/lk-1.5.6/bin/earful check tests/golden/lk-1.5.6.*.jsonl                           # the verdicts for a ledger file
+.venvs/lk-1.5.6/bin/earful search earful.livekit.cases:book_then_interrupt                 # every time to every boundary, every fault on every write: what breaks, how wide
+.venvs/lk-1.5.6/bin/earful replay tests/bundles/lk-1.5.6.book_then_interrupt.A2-rule       # run a reduced failing case again
+.venvs/lk-1.5.6/bin/earful report tests/bundles/lk-1.5.6.book_then_interrupt.A2-rule       # the run as text: verdicts and every event
 ```
 
 Layout:

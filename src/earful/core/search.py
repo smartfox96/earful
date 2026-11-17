@@ -624,14 +624,17 @@ class Exploration:
             for name in sorted(reached)
         }
 
-    def breaks(self, *, windows: bool = True) -> list[Break]:
+    def breaks(self, *, windows: bool | Iterable[Predicate] = True) -> list[Break]:
         """Every rule the search found broken, with an example of each. ``windows``
-        measures how wide each failure is, which takes further runs; without it no
-        failure is known to be at single instants only."""
+        measures how wide each failure is, which takes further runs: for every rule, for
+        none, or for the rules named. A failure that is not measured is not known to be
+        at single instants only."""
+        wanted = None if isinstance(windows, bool) else set(windows)
         out = []
         for predicate in self.predicates():
             breaking = self.breaking(predicate)
-            measured = tuple(self.windows(predicate)) if windows else ()
+            measure = windows is True or (wanted is not None and predicate in wanted)
+            measured = tuple(self.windows(predicate)) if measure else ()
             unmoved = predicate in self.original.failures or any(
                 t.candidate.variable is None for t in breaking
             )

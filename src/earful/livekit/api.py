@@ -132,8 +132,8 @@ def keep(
     predicate = Predicate.parse(rule) if isinstance(rule, str) else rule
     reference = scenario.importable(found.case["scenario"], "keep a failure as a bundle")
     breaking = [tried.candidate.case for tried in found.breaking(predicate)]
-    if predicate in found.original.failures:
-        breaking.append(found.case)
+    if not breaking and predicate in found.original.failures:
+        breaking = [found.case]  # it breaks as given, and nowhere the search went
     if not breaking:
         raise ValueError(f"the search found no case that breaks {predicate}")
     author = scenario.default(reference, found.case["seed"])
