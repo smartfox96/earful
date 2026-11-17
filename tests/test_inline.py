@@ -200,6 +200,24 @@ def test_a_search_of_the_same_inline_case_gives_the_same_result_each_time():
     assert search() == search()
 
 
+def test_a_search_does_not_fill_the_log_with_the_frameworks_own_records(caplog):
+    """A tool that raises is logged by the framework with its traceback, in every run. A
+    single run lets that through; a search of hundreds of runs does not."""
+    import logging
+
+    failing = booking(CONFIRMS_ANYTHING, faults=[Fault("backend.error", 1)])
+    with caplog.at_level(logging.WARNING):
+        run(failing)
+        from_one_run = [r for r in caplog.records if r.name.startswith("livekit")]
+        caplog.clear()
+        found = explore(failing, variables=(), faults=())
+        found.runner.ledger(cases.with_value(found.case, cases.Variable("llm.ttft", 1), 250_000))
+        from_a_search = [r for r in caplog.records if r.name.startswith("livekit")]
+    assert from_one_run and not from_a_search
+    assert found.original.failures  # the search ran the failing case all the same
+    assert logging.getLogger("livekit").propagate  # and left logging as it found it
+
+
 def test_a_scenario_with_a_name_runs_in_this_process_unless_workers_are_asked_for():
     before = dict(api._pools)
     found = explore(

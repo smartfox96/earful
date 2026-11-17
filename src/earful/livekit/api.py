@@ -16,7 +16,9 @@ refuse one that cannot, before anything runs, and say what to change.
 from __future__ import annotations
 
 import atexit
-from collections.abc import Iterable
+import contextlib
+import logging
+from collections.abc import Iterable, Iterator
 from concurrent.futures import ProcessPoolExecutor
 from concurrent.futures.process import BrokenProcessPool
 from pathlib import Path
@@ -45,6 +47,28 @@ def _pool(workers: int) -> ProcessPoolExecutor:
 def _shutdown() -> None:
     while _pools:
         _pools.popitem()[1].shutdown(cancel_futures=True)
+
+
+@contextlib.contextmanager
+def _quiet_framework() -> Iterator[None]:
+    """Keep the framework's log records from the root logger while a search's case
+    runs. A search makes hundreds of runs, and the framework logs every tool error with
+    its traceback: under pytest that buries the failure of the test. The harness still
+    counts the warnings of each run, and a single ``run`` is left as it is."""
+    logger = logging.getLogger("livekit")
+    before = logger.propagate
+    logger.propagate = False
+    try:
+        yield
+    finally:
+        logger.propagate = before
+
+
+def _run_quietly(data: cases.Case) -> list[dict[str, Any]]:
+    """``scenario.run``, quietly. At the top level of the module, so that it can be sent
+    to a worker process."""
+    with _quiet_framework():
+        return scenario.run(data)
 
 
 def run(source: Source, *, case: cases.Case | None = None, seed: int = 0) -> RunResult:
@@ -101,10 +125,17 @@ def explore(
         "moments": moments,
         "words": words,
     }
+    # Every run a search makes is quiet: those of the search itself, and those made
+    # later from its result, to measure a window or to reduce a case.
     if workers == 0:
-        return search.explore(start, found.run, **options)
+
+        def quietly(data: cases.Case) -> list[dict[str, Any]]:
+            with _quiet_framework():
+                return found.run(data)
+
+        return search.explore(start, quietly, **options)
     try:
-        return search.explore(start, scenario.run, each=_pool(workers).map, **options)
+        return search.explore(start, _run_quietly, each=_pool(workers).map, **options)
     except BrokenProcessPool as exc:
         _pools.pop(workers, None)
         raise RuntimeError(

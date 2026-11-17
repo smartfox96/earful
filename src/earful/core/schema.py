@@ -231,7 +231,10 @@ def _check_ledger(events: list[Event], errors: list[str]) -> None:
                 if not claim["first_word"] <= claim["last_word"] < words:
                     errors.append(f"{where}: claim {claim} does not fit the reply")
                 if claim["intent"] not in declared:
-                    errors.append(f"{where}: claim names undeclared intent {claim['intent']!r}")
+                    errors.append(
+                        f"{where}: claim names undeclared intent {claim['intent']!r}; "
+                        "the scenario has to list it among its intents"
+                    )
         elif k == "tts.synthesized":
             if d["started_us"] > e["t_us"]:
                 errors.append(f"{where}: synthesis starts after it was recorded")
@@ -280,7 +283,10 @@ def _check_ledger(events: list[Event], errors: list[str]) -> None:
             if d["tool"] is not None and d["tool"] not in tools:
                 errors.append(f"{where}: tool {d['tool']} was never called")
             if d["intent"] not in declared:
-                errors.append(f"{where}: write for undeclared intent {d['intent']!r}")
+                errors.append(
+                    f"{where}: write for undeclared intent {d['intent']!r}; "
+                    "the scenario has to list it among its intents"
+                )
             effect_requests[d["request"]] = d["intent"]
         elif k in ("effect.committed", "effect.deduplicated", "effect.failed"):
             if d["request"] not in effect_requests or d["request"] in effect_outcomes:

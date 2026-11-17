@@ -1428,4 +1428,11 @@ MUTANTS = [
         '    out = Path(".earful")\n',
         first="where_the_command_line_says",
     ),
+    Mutant(
+        "api: a search lets the framework's log records through",
+        "src/earful/livekit/api.py",
+        "    logger.propagate = False\n",
+        "    pass\n",
+        first="does_not_fill_the_log",
+    ),
 ]
