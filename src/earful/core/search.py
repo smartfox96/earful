@@ -119,7 +119,9 @@ class Runner:
     def outcome(self, case: cases.Case) -> Outcome:
         return self.many([case])[0]
 
-    def many(self, wanted: list[cases.Case], each: Callable[..., Iterable[Outcome]] = map) -> list[Outcome]:
+    def many(
+        self, wanted: list[cases.Case], each: Callable[..., Iterable[Outcome]] = map
+    ) -> list[Outcome]:
         """The outcome of each case. ``each`` is how the runs are carried out: ``map`` runs
         them one after another, a process pool's ``map`` side by side."""
         keys = [cases.canonical(case) for case in wanted]
@@ -164,7 +166,9 @@ def transitions(events: list[Event], *, words: bool = True) -> list[Transition]:
         if kind not in kinds:
             kinds.append(kind)
 
-    utterances = {e["data"]["utterance"]: e["data"] for e in events if e["kind"] == "tts.synthesized"}
+    utterances = {
+        e["data"]["utterance"]: e["data"] for e in events if e["kind"] == "tts.synthesized"
+    }
     for e in events:
         kind, d, t = e["kind"], e["data"], e["t_us"]
         if kind in _NOT_TRANSITIONS:
@@ -179,7 +183,10 @@ def transitions(events: list[Event], *, words: bool = True) -> list[Transition]:
             said = utterances[d["utterance"]]
             samples, rate = said["word_samples"], said["sample_rate"]
             middle = len(samples) // 2
-            mark(t + (sum(samples[:middle]) + samples[middle] // 2) * 1_000_000 // rate, "playout.mid_word")
+            mark(
+                t + (sum(samples[:middle]) + samples[middle] // 2) * 1_000_000 // rate,
+                "playout.mid_word",
+            )
         elif kind == "playout.finished" and words:
             for done in d["words_completed_us"]:
                 mark(done, "playout.word_end")
@@ -230,7 +237,9 @@ class Handle:
         return f"{self.variable} {self.moment}"
 
 
-def speech_handles(case: cases.Case, index: int, events: list[Event], kinds: Iterable[str]) -> list[Handle]:
+def speech_handles(
+    case: cases.Case, index: int, events: list[Event], kinds: Iterable[str]
+) -> list[Handle]:
     """The handles of one speech. ``events`` is any ledger of the scenario: it supplies
     the declared delays and the origin."""
     speech = case["speeches"][index]
@@ -243,7 +252,9 @@ def speech_handles(case: cases.Case, index: int, events: list[Event], kinds: Ite
         assert current is not None
         for moment in _MOVED_BY[kind]:
             if moment in points:
-                out.append(Handle(variable, moment, origin + speech["start_us"] + points[moment], current))
+                out.append(
+                    Handle(variable, moment, origin + speech["start_us"] + points[moment], current)
+                )
     return out
 
 
@@ -255,12 +266,17 @@ def delay_handles(events: list[Event], kinds: Iterable[str]) -> list[Handle]:
         kind, d, t = e["kind"], e["data"], e["t_us"]
         found: list[tuple[str, int, int]] = []
         if kind == "llm.response":
-            found = [("llm.ttft", d["call"], d["ttft_us"]), ("llm.duration", d["call"], d["duration_us"])]
+            found = [
+                ("llm.ttft", d["call"], d["ttft_us"]),
+                ("llm.duration", d["call"], d["duration_us"]),
+            ]
         elif kind == "tts.synthesized":
             found = [("tts.ttfb", d["utterance"], d["ttfb_us"])]
         elif kind == "effect.requested":
             found = [("backend.latency", d["request"], d["latency_us"])]
-        out += [Handle(Variable(of, nth), "done", t + us, us) for of, nth, us in found if of in wanted]
+        out += [
+            Handle(Variable(of, nth), "done", t + us, us) for of, nth, us in found if of in wanted
+        ]
     return out
 
 
@@ -293,7 +309,9 @@ class Candidate:
     def what(self) -> str:
         """What was changed, for a person: ``backend.error 1``, ``speech.position 1``,
         ``backend.drop 1 + speech.position 1``."""
-        return " + ".join(part for part in (self.base, str(self.variable) if self.variable else "") if part)
+        return " + ".join(
+            part for part in (self.base, str(self.variable) if self.variable else "") if part
+        )
 
 
 def candidates(
@@ -362,7 +380,11 @@ class Window:
     def instant(self) -> bool:
         """It breaks at one value and not a microsecond either side: a matter of which of
         two same-instant events ran first, and nothing more."""
-        return self.width_us == 0 and self.resolution_us == 1 and self.lo_end == self.hi_end == "passes"
+        return (
+            self.width_us == 0
+            and self.resolution_us == 1
+            and self.lo_end == self.hi_end == "passes"
+        )
 
     def to_json(self) -> dict[str, Any]:
         return {
@@ -466,9 +488,13 @@ class Exploration:
         """Whether the rule breaks in the case as given and in every candidate that ran:
         a failure that is not about timing at all."""
         ran = [t for t in self.tried if t.outcome.ran]
-        return predicate in self.original.failures and all(predicate in t.outcome.failures for t in ran)
+        return predicate in self.original.failures and all(
+            predicate in t.outcome.failures for t in ran
+        )
 
-    def windows(self, predicate: Predicate, *, most: int = 3, resolution_us: int = 1_000) -> list[Window]:
+    def windows(
+        self, predicate: Predicate, *, most: int = 3, resolution_us: int = 1_000
+    ) -> list[Window]:
         """The windows in which the rule breaks, measured: at most ``most`` per variable
         and base, each around a breaking candidate that lies in none measured before it.
         A candidate that only added a fault moved nothing and has no window."""
@@ -476,16 +502,24 @@ class Exploration:
         measured: list[tuple[str, Window]] = []
         per_variable: dict[tuple[str, Variable], int] = {}
         moved = [t for t in self.breaking(predicate) if t.candidate.variable is not None]
-        for tried in sorted(moved, key=lambda t: (t.candidate.base, t.candidate.variable, t.candidate.value_us)):
+        for tried in sorted(
+            moved, key=lambda t: (t.candidate.base, t.candidate.variable, t.candidate.value_us)
+        ):
             variable, at = tried.candidate.variable, tried.candidate.value_us
+            assert variable is not None and at is not None
             key = (tried.candidate.base, variable)
             if per_variable.get(key, 0) >= most:
                 continue
-            if any(b == tried.candidate.base and w.variable == variable and w.lo_us <= at <= w.hi_us for b, w in measured):
+            if any(
+                b == tried.candidate.base and w.variable == variable and w.lo_us <= at <= w.hi_us
+                for b, w in measured
+            ):
                 continue
             if cases.value(tried.candidate.case, variable) is None:
                 continue
-            found = window(self.runner, tried.candidate.case, variable, predicate, resolution_us=resolution_us)
+            found = window(
+                self.runner, tried.candidate.case, variable, predicate, resolution_us=resolution_us
+            )
             measured.append((tried.candidate.base, found))
             out.append(found)
             per_variable[key] = per_variable.get(key, 0) + 1
@@ -517,7 +551,9 @@ class Exploration:
             name: {
                 "reached": sorted(reached[name]),
                 "never_reached": {
-                    kind: sorted(why) for kind, why in sorted(missed[name].items()) if kind not in reached[name]
+                    kind: sorted(why)
+                    for kind, why in sorted(missed[name].items())
+                    if kind not in reached[name]
                 },
             }
             for name in sorted(reached)
@@ -639,7 +675,9 @@ def explore(
             found[key] = candidate
 
     def place(on: cases.Case, handles: list[Handle], targets: list[Transition], base: str) -> None:
-        tried, cannot = candidates(on, handles, targets, offsets_us=offsets, delay_limit_us=delay_limit_us, base=base)
+        tried, cannot = candidates(
+            on, handles, targets, offsets_us=offsets, delay_limit_us=delay_limit_us, base=base
+        )
         impossible.extend(cannot)
         for candidate in tried:
             keep(candidate)
@@ -680,7 +718,7 @@ def explore(
             with_one = cases.with_fault(case, of, nth, None if of == "backend.error" else wait_us)
             if with_one is None:
                 continue  # the write already has a fault
-            versions = [(f"{of} {nth}", with_one)]
+            versions: list[tuple[str, cases.Case | None]] = [(f"{of} {nth}", with_one)]
             if of == "backend.timeout":
                 # The write commits at its own latency: before the caller gives up, or
                 # after. One order is the scenario's. The other is made by letting the
@@ -688,11 +726,21 @@ def explore(
                 # the write.
                 latency = request["latency_us"]
                 if latency < wait_us:
-                    other = cases.with_value(with_one, Variable("backend.latency", nth), wait_us + 1_000_000)
-                    versions = [(f"{of} {nth}, commit first", with_one), (f"{of} {nth}, commit later", other)]
+                    other = cases.with_value(
+                        with_one, Variable("backend.latency", nth), wait_us + 1_000_000
+                    )
+                    versions = [
+                        (f"{of} {nth}, commit first", with_one),
+                        (f"{of} {nth}, commit later", other),
+                    ]
                 else:
-                    other = cases.with_value(with_one, Variable(cases.WAIT, nth), latency + 1_000_000)
-                    versions = [(f"{of} {nth}, commit later", with_one), (f"{of} {nth}, commit first", other)]
+                    other = cases.with_value(
+                        with_one, Variable(cases.WAIT, nth), latency + 1_000_000
+                    )
+                    versions = [
+                        (f"{of} {nth}, commit later", with_one),
+                        (f"{of} {nth}, commit first", other),
+                    ]
                 as_written.add(versions[0][0])
             for label, version in versions:
                 if version is not None:
@@ -705,14 +753,25 @@ def explore(
         if produced is None:
             continue
         under[label] = produced
-        gave_up = next((e for e in produced if e["kind"] == "effect.timed_out" and e["data"]["request"] == nth), None)
+        gave_up = next(
+            (
+                e
+                for e in produced
+                if e["kind"] == "effect.timed_out" and e["data"]["request"] == nth
+            ),
+            None,
+        )
         if gave_up is not None:
-            handle = Handle(Variable(cases.WAIT, nth), "gave_up", gave_up["t_us"], gave_up["data"]["after_us"])
+            handle = Handle(
+                Variable(cases.WAIT, nth), "gave_up", gave_up["t_us"], gave_up["data"]["after_us"]
+            )
             place(version, [handle], transitions(produced, words=words), label)
         if label in as_written:
             # ... and the commit of a write whose caller gives up, to every transition.
-            commit = [h for h in delay_handles(produced, ["backend.latency"]) if h.variable.index == nth]
-            place(version, commit, transitions(produced, words=words), label)
+            commits = [
+                h for h in delay_handles(produced, ["backend.latency"]) if h.variable.index == nth
+            ]
+            place(version, commits, transitions(produced, words=words), label)
 
     if pairs:
         # A fault and a speech: every speech again, and the hangup, with each fault in place.
@@ -729,8 +788,9 @@ def explore(
                 both = cases.with_fault(version, extra["of"], other_nth, extra["us"])
                 # A timeout that commits later is a fault and a latency: carry both.
                 commit = Variable("backend.latency", other_nth)
-                if both is not None and cases.value(other, commit) != cases.value(case, commit):
-                    both = cases.with_value(both, commit, cases.value(other, commit))
+                later = cases.value(other, commit)
+                if both is not None and later is not None and later != cases.value(case, commit):
+                    both = cases.with_value(both, commit, later)
                 if both is not None:
                     keep(Candidate(both, None, None, base=f"{label} + {other_label}"))
 
@@ -757,8 +817,8 @@ def explore(
 __all__ = [
     "DEFAULT_VARIABLES",
     "DELAY_LIMIT_US",
-    "WAIT_US",
     "OFFSETS_US",
+    "WAIT_US",
     "Candidate",
     "Exploration",
     "Handle",

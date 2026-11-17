@@ -2,6 +2,7 @@
 
 Change them only with ``scripts/check_all.sh --update``, and review the diff.
 """
+
 from pathlib import Path
 
 import livekit.agents as lk

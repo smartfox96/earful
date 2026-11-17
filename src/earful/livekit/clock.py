@@ -26,8 +26,18 @@ import selectors
 import time
 from collections.abc import Callable, Coroutine, Iterator, Mapping
 from dataclasses import dataclass, field
-from typing import Any, TypeVar
+from typing import TYPE_CHECKING, Any, TypeVar
 from unittest import mock
+
+if TYPE_CHECKING:
+    import traceback
+    from concurrent.futures import Executor
+    from contextvars import Context
+
+    from pydantic import BaseModel
+    from typing_extensions import TypeVarTuple, Unpack
+
+    Ts = TypeVarTuple("Ts")  # ``typing`` has TypeVarTuple only from Python 3.11
 
 T = TypeVar("T")
 
@@ -64,7 +74,6 @@ class VirtualTimeStall(RuntimeError):
 
 def _tick(t: float) -> int:
     return round(t * _TICKS_PER_SECOND)
-
 
 
 # Modules whose pydantic models may capture time.time as a default_factory. Missing modules
@@ -167,6 +176,11 @@ class _OrderedTimerHandle(asyncio.TimerHandle):
 
     __slots__ = ("_order", "_tick")
 
+    if TYPE_CHECKING:
+        # TimerHandle internals that call_at sets. asyncio's stubs leave them out.
+        _scheduled: bool
+        _source_traceback: traceback.StackSummary | None
+
     def __init__(self, when: float, order: int, callback: Any, args: Any, loop: Any, context: Any):
         super().__init__(when, callback, args, loop, context)
         self._order = order
@@ -176,16 +190,28 @@ class _OrderedTimerHandle(asyncio.TimerHandle):
         return (self._tick, self._order)
 
     def __lt__(self, other: Any) -> bool:
-        return self._key() < other._key() if isinstance(other, _OrderedTimerHandle) else NotImplemented
+        return (
+            self._key() < other._key() if isinstance(other, _OrderedTimerHandle) else NotImplemented
+        )
 
     def __le__(self, other: Any) -> bool:
-        return self._key() <= other._key() if isinstance(other, _OrderedTimerHandle) else NotImplemented
+        return (
+            self._key() <= other._key()
+            if isinstance(other, _OrderedTimerHandle)
+            else NotImplemented
+        )
 
     def __gt__(self, other: Any) -> bool:
-        return self._key() > other._key() if isinstance(other, _OrderedTimerHandle) else NotImplemented
+        return (
+            self._key() > other._key() if isinstance(other, _OrderedTimerHandle) else NotImplemented
+        )
 
     def __ge__(self, other: Any) -> bool:
-        return self._key() >= other._key() if isinstance(other, _OrderedTimerHandle) else NotImplemented
+        return (
+            self._key() >= other._key()
+            if isinstance(other, _OrderedTimerHandle)
+            else NotImplemented
+        )
 
 
 class VirtualTimeLoop(asyncio.SelectorEventLoop):
@@ -194,6 +220,15 @@ class VirtualTimeLoop(asyncio.SelectorEventLoop):
     The clock jumps to the 1 us tick of the next timer. Timers due within the same
     microsecond fire in the order they were scheduled.
     """
+
+    if TYPE_CHECKING:
+        # BaseEventLoop internals that call_at uses. asyncio's stubs leave them out.
+        _debug: bool
+        _scheduled: list[asyncio.TimerHandle]
+
+        def _check_closed(self) -> None: ...
+        def _check_thread(self) -> None: ...
+        def _check_callback(self, callback: object, method: str) -> None: ...
 
     def __init__(self) -> None:
         self._virtual_clock = _VirtualClock()
@@ -213,7 +248,13 @@ class VirtualTimeLoop(asyncio.SelectorEventLoop):
     def wall_read(self) -> float:
         return self._virtual_clock.read()
 
-    def call_at(self, when: float, callback: Any, *args: Any, context: Any = None) -> Any:
+    def call_at(
+        self,
+        when: float,
+        callback: Callable[[Unpack[Ts]], object],
+        *args: Unpack[Ts],
+        context: Context | None = None,
+    ) -> asyncio.TimerHandle:
         # Same steps as BaseEventLoop.call_at, with a handle that keeps same-instant timers
         # in scheduling order.
         if when is None:
@@ -230,7 +271,9 @@ class VirtualTimeLoop(asyncio.SelectorEventLoop):
         timer._scheduled = True
         return timer
 
-    def run_in_executor(self, executor: Any, func: Any, *args: Any) -> Any:
+    def run_in_executor(
+        self, executor: Executor | None, func: Callable[[Unpack[Ts]], T], *args: Unpack[Ts]
+    ) -> asyncio.Future[T]:
         # Work handed to a thread runs in real time and escapes the virtual clock. Count it
         # so a run can report that it left the deterministic boundary.
         self.executor_calls += 1
@@ -290,7 +333,7 @@ def _model_node(schema: dict[str, Any]) -> dict[str, Any]:
     return node
 
 
-_PATCHED: dict[type, tuple[Any, Any]] = {}
+_PATCHED: dict[type[BaseModel], tuple[Any, Any]] = {}
 _REPORT = ClockPatchReport()
 _BUILT = False
 
@@ -315,7 +358,7 @@ def _build_patch_cache() -> None:
             if not (isinstance(obj, type) and issubclass(obj, BaseModel)) or obj in _PATCHED:
                 continue
             fields = {
-                name: _VIRTUAL_FOR[info.default_factory]  # type: ignore[index]
+                name: _VIRTUAL_FOR[info.default_factory]
                 for name, info in obj.model_fields.items()
                 if info.default_factory in _VIRTUAL_FOR
             }
@@ -337,11 +380,11 @@ def _patched_model_clocks() -> Iterator[None]:
     _build_patch_cache()
     try:
         for model, (patched, _original) in _PATCHED.items():
-            model.__pydantic_validator__ = patched  # type: ignore[attr-defined]
+            model.__pydantic_validator__ = patched
         yield
     finally:
         for model, (_patched, original) in _PATCHED.items():
-            model.__pydantic_validator__ = original  # type: ignore[attr-defined]
+            model.__pydantic_validator__ = original
 
 
 @contextlib.contextmanager

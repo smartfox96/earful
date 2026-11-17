@@ -11,19 +11,27 @@ from .view import View
 def check(view: View, policy: policies.A3) -> ContractResult:
     verdicts, notes = [], []
     for reply in view.replies:
-        assert reply.response is not None
         playout = view.playout(reply.call)
-        for claim in reply.response["data"]["claims"]:
+        for claim in reply.answer["data"]["claims"]:
             intent = claim["intent"]
-            instance = {"reply": reply.call, "intent": intent, "words": [claim["first_word"], claim["last_word"]]}
-            base = [reply.response, playout.utterance.event if playout.utterance else None]
+            instance = {
+                "reply": reply.call,
+                "intent": intent,
+                "words": [claim["first_word"], claim["last_word"]],
+            }
+            base = [reply.answer, playout.utterance.event if playout.utterance else None]
             missing = playout.unattributable or (
                 "the run ended before the reply's playout finished" if playout.pending else None
             )
             if missing:
                 verdicts.append(
-                    verdict("A3", instance, f"cannot tell whether the claim about {intent!r} was heard",
-                            events=base, unobservable=missing)
+                    verdict(
+                        "A3",
+                        instance,
+                        f"cannot tell whether the claim about {intent!r} was heard",
+                        events=base,
+                        unobservable=missing,
+                    )
                 )
                 continue
             if claim["last_word"] not in playout.completed_us:
@@ -34,15 +42,19 @@ def check(view: View, policy: policies.A3) -> ContractResult:
                 continue
 
             if policy.claim_point == "span_end":
-                heard_at = playout.completed_us[claim["last_word"]]
+                heard_at: int | None = playout.completed_us[claim["last_word"]]
             else:
                 heard_at = view.word_start_us(playout, claim["first_word"])
             finishes = [s.finished for s in playout.segments]
             if heard_at is None:
                 verdicts.append(
-                    verdict("A3", instance, f"cannot time the start of the claim about {intent!r}",
-                            events=[*base, *finishes],
-                            unobservable="the start of the claim's first word cannot be derived")
+                    verdict(
+                        "A3",
+                        instance,
+                        f"cannot time the start of the claim about {intent!r}",
+                        events=[*base, *finishes],
+                        unobservable="the start of the claim's first word cannot be derived",
+                    )
                 )
                 continue
 
@@ -56,7 +68,11 @@ def check(view: View, policy: policies.A3) -> ContractResult:
                 later = commits[0]["t_us"] - heard_at if commits else None
                 detail = (
                     f"the claim was heard at {heard_at} us; the first effect for {intent!r} "
-                    + (f"committed {later} us later" if later is not None else "was never committed")
+                    + (
+                        f"committed {later} us later"
+                        if later is not None
+                        else "was never committed"
+                    )
                 )
                 findings.append(Finding("rule", detail, tuple(c["seq"] for c in commits[:1])))
             verdicts.append(
@@ -72,7 +88,9 @@ def check(view: View, policy: policies.A3) -> ContractResult:
                     measures={
                         "claim_heard_us": heard_at,
                         "first_commit_us": commits[0]["t_us"] if commits else None,
-                        "commit_before_claim_us": heard_at - in_time[0]["t_us"] if in_time else None,
+                        "commit_before_claim_us": heard_at - in_time[0]["t_us"]
+                        if in_time
+                        else None,
                     },
                 )
             )

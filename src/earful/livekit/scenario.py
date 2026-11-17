@@ -51,7 +51,10 @@ _TIMES = {
     "drain_timeout_us": "drain_timeout",
 }
 # Setting name -> the Case field that holds it as it is, and the kind of value it takes.
-_PLAIN: dict[str, tuple[str, type]] = {"backend_mode": ("backend_mode", str), "sink_can_pause": ("sink_can_pause", bool)}
+_PLAIN: dict[str, tuple[str, type]] = {
+    "backend_mode": ("backend_mode", str),
+    "sink_can_pause": ("sink_can_pause", bool),
+}
 
 SETTINGS = (*_TIMES, *_PLAIN)
 
@@ -67,7 +70,8 @@ def resolve(scenario: str) -> Callable[[], Case]:
     except (ImportError, AttributeError) as exc:
         raise ValueError(f"no scenario {scenario!r}: {exc}") from exc
     if not callable(target):
-        raise ValueError(f"scenario {scenario!r} is not a function")
+        # ValueError like every other bad reference: callers handle one kind of refusal.
+        raise ValueError(f"scenario {scenario!r} is not a function")  # noqa: TRY004
     return target
 
 
@@ -107,7 +111,11 @@ def describe(case: Case, scenario: str, seed: int = 0) -> dict[str, Any]:
             for delay in sorted(case.delays, key=lambda d: (d.of, d.nth))
         ],
         "faults": [
-            {"of": fault.of, "nth": fault.nth, "us": None if fault.seconds is None else to_us(fault.seconds)}
+            {
+                "of": fault.of,
+                "nth": fault.nth,
+                "us": None if fault.seconds is None else to_us(fault.seconds),
+            }
             for fault in sorted(case.faults, key=lambda f: (f.of, f.nth))
         ],
         "settings": {
@@ -125,9 +133,9 @@ def default(scenario: str, seed: int = 0) -> dict[str, Any]:
 
 def build(data: dict[str, Any]) -> Case:
     """The ``Case`` that ``data`` describes: the scenario's code, with the data's
-    speeches, hangup, delays, faults, settings and contract policy. Raises ``ValueError`` on data that is
-    not earful.case/3, names a setting this adapter does not have or gives one the wrong
-    kind of value, or names a scenario that does not exist."""
+    speeches, hangup, delays, faults, settings and contract policy. Raises ``ValueError``
+    on data that is not earful.case/3, names a setting this adapter does not have or gives
+    one the wrong kind of value, or names a scenario that does not exist."""
     errors = case_format.validate(data)
     if errors:
         raise ValueError("not an earful.case/3 document: " + "; ".join(errors))
@@ -135,8 +143,13 @@ def build(data: dict[str, Any]) -> Case:
         if name not in SETTINGS:
             raise ValueError(f"unknown setting {name!r}; this adapter has {sorted(SETTINGS)}")
         wanted = int if name in _TIMES else _PLAIN[name][1]
-        if not isinstance(value, wanted) or (wanted is int and (isinstance(value, bool) or value < 0)):
-            raise ValueError(f"setting {name!r} takes a {'time in microseconds' if wanted is int else wanted.__name__}, not {value!r}")
+        if wanted is int:
+            ok = isinstance(value, int) and not isinstance(value, bool) and value >= 0
+        else:
+            ok = isinstance(value, wanted)
+        if not ok:
+            kind = "time in microseconds" if wanted is int else wanted.__name__
+            raise ValueError(f"setting {name!r} takes a {kind}, not {value!r}")
     case = resolve(data["scenario"])()
     case.speeches = [
         UserSpeech(
@@ -153,7 +166,8 @@ def build(data: dict[str, Any]) -> Case:
     case.hangup = None if data["hangup_us"] is None else to_seconds(data["hangup_us"])
     case.delays = [Delay(d["of"], d["nth"], to_seconds(d["us"])) for d in data["delays"]]
     case.faults = [
-        Fault(f["of"], f["nth"], None if f["us"] is None else to_seconds(f["us"])) for f in data["faults"]
+        Fault(f["of"], f["nth"], None if f["us"] is None else to_seconds(f["us"]))
+        for f in data["faults"]
     ]
     for name, value in data["settings"].items():
         if name in _TIMES:
@@ -181,7 +195,9 @@ def pool(workers: int | None = None) -> ProcessPoolExecutor:
 def environment() -> dict[str, str]:
     """What a saved case was run with: the framework, Earful, the interpreter, the
     platform, and a digest of every installed distribution and its version."""
-    installed = sorted(f"{d.metadata['Name']}=={d.version}" for d in metadata.distributions() if d.metadata["Name"])
+    installed = sorted(
+        f"{d.metadata['Name']}=={d.version}" for d in metadata.distributions() if d.metadata["Name"]
+    )
     return {
         "livekit-agents": lk.__version__,
         "livekit": rtc.__version__,

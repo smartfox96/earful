@@ -13,7 +13,7 @@ from __future__ import annotations
 from . import policy as policies
 from .memory import user_turns
 from .report import ContractResult, Finding, result, verdict
-from .view import ModelCall, Speech, View
+from .view import Event, ModelCall, Speech, View
 
 MET, MISSED, SUPERSEDED, UNOBSERVABLE = "met", "missed", "superseded", "unobservable"
 LEFT = "the user left"
@@ -33,14 +33,15 @@ class _Budget:
     """The deadline for a milestone, and what excuses missing it."""
 
     def __init__(self, view: View, policy: policies.L1, speech: Speech) -> None:
-        assert speech.final is not None
-        self.clock = max(speech.end, speech.final["t_us"])  # the later of the two, both world
+        self.clock = max(speech.end, speech.delivery["t_us"])  # the later of the two, both world
         self._base = self.clock
         # End of turn can be no later than the VAD's silence plus the endpointing delay.
         self._end_of_turn = view.end_of_turn_us
         self._slack = policy.slack_us
         self._resume = view.session["false_interruption_timeout_us"] or 0
-        self._later = sorted((s for s in view.speeches if s.start > speech.start), key=lambda s: s.start)
+        self._later = sorted(
+            (s for s in view.speeches if s.start > speech.start), key=lambda s: s.start
+        )
         self._used = 0
         # The scenario stops waiting when the harness reads the final history.
         self._ended = (view.history or view.end)["t_us"]
@@ -55,7 +56,11 @@ class _Budget:
             if reached is not None and reached <= deadline:
                 return MET, deadline
             nxt = self._later[self._used] if self._used < len(self._later) else None
-            if nxt is not None and nxt.start < deadline and (reached is None or nxt.start < reached):
+            if (
+                nxt is not None
+                and nxt.start < deadline
+                and (reached is None or nxt.start < reached)
+            ):
                 if nxt.expects_reply:
                     return SUPERSEDED, deadline  # the later speech carries the obligation
                 # Noise or a backchannel holds the agent up without taking the turn: the
@@ -63,25 +68,36 @@ class _Budget:
                 self._used += 1
                 self._base = max(self._base, nxt.end + self._resume)
                 continue
-            if self._left is not None and self._left < deadline and (reached is None or reached > self._left):
+            if (
+                self._left is not None
+                and self._left < deadline
+                and (reached is None or reached > self._left)
+            ):
                 return LEFT, deadline
             if reached is None and self._ended < deadline:
                 return UNOBSERVABLE, deadline
             return MISSED, deadline
 
 
-def _judge(view: View, policy: policies.L1, speech: Speech, chain: list[ModelCall], calls: list[ModelCall]):
+def _judge(
+    view: View, policy: policies.L1, speech: Speech, chain: list[ModelCall], calls: list[ModelCall]
+) -> tuple[_Budget, list[Step], list[Event | None], bool]:
     """Time the milestones of one turn. Returns the budget, the steps, the events used and
     whether the turn's tools asked for silence."""
     budget = _Budget(view, policy, speech)
     steps: list[Step] = []
-    used = [speech.final]
+    used: list[Event | None] = [speech.delivery]
     by_call_id = {t.call_id: t for t in view.tools.values() if t.call_id is not None}
+
     def ttfb_of(call: ModelCall | None) -> int:
         """The voice's time to first audio for a reply: as applied when it was
         synthesized, or as the scenario declared for the voice if it never was."""
-        said = next((u for u in view.utterances.values() if call is not None and u.call == call.call), None)
-        return said.event["data"]["ttfb_us"] if said is not None else view.providers["tts"]["ttfb_us"]
+        said = next(
+            (u for u in view.utterances.values() if call is not None and u.call == call.call), None
+        )
+        return (
+            said.event["data"]["ttfb_us"] if said is not None else view.providers["tts"]["ttfb_us"]
+        )
 
     def record(name: str, reached: int | None, chain_us: int) -> bool:
         status, deadline = budget.settle(reached, chain_us)
@@ -117,7 +133,9 @@ def _judge(view: View, policy: policies.L1, speech: Speech, chain: list[ModelCal
         # A refusal has no event of its own; it happened when the model finished asking,
         # and the context that first shows it is the call that follows it.
         asked = current.response["t_us"] + data["duration_us"]
-        ran = [by_call_id[tc["call_id"]] for tc in data["tool_calls"] if tc["call_id"] in by_call_id]
+        ran = [
+            by_call_id[tc["call_id"]] for tc in data["tool_calls"] if tc["call_id"] in by_call_id
+        ]
         rest = [tc for tc in data["tool_calls"] if tc["call_id"] not in by_call_id]
         refused = [r for r in (view.refusal(tc["call_id"]) for tc in rest) if r is not None]
         never = [tc["name"] for tc in rest if view.refusal(tc["call_id"]) is None]
@@ -126,8 +144,12 @@ def _judge(view: View, policy: policies.L1, speech: Speech, chain: list[ModelCal
             steps.append((f"round {rounds}: every tool call is made", UNOBSERVABLE, None, 0))
             on_track = False
             break
-        made = max([t.called["t_us"] for t in ran] + [asked for _ in refused]) if not never else None
-        if not record(f"round {rounds}: every tool call is made", made, elapsed + data["duration_us"]):
+        made = (
+            max([t.called["t_us"] for t in ran] + [asked for _ in refused]) if not never else None
+        )
+        if not record(
+            f"round {rounds}: every tool call is made", made, elapsed + data["duration_us"]
+        ):
             on_track = False
             break
         used += [t.called for t in ran] + refused
@@ -143,8 +165,8 @@ def _judge(view: View, policy: policies.L1, speech: Speech, chain: list[ModelCal
         audio = ttfb_of(current) + view.audio_us(current) if current.words else 0
         elapsed += data["duration_us"] + audio + latency
         # A tool cancelled when the scenario ended never finished.
-        outcomes = [t.outcome for t in ran]
-        done = all(o is not None and o["kind"] != "tool.cancelled" for o in outcomes)
+        outcomes = [t.outcome for t in ran if t.outcome is not None]
+        done = len(outcomes) == len(ran) and all(o["kind"] != "tool.cancelled" for o in outcomes)
         finished = max([o["t_us"] for o in outcomes] + [asked for _ in refused]) if done else None
         if not record(f"round {rounds}: every tool call finishes", finished, elapsed):
             on_track = False
@@ -179,7 +201,7 @@ def _judge(view: View, policy: policies.L1, speech: Speech, chain: list[ModelCal
     # The first word of a reply in the chain starts playing. Any reply of the chain will
     # do: the one whose audio started first is the one that counts.
     def budget_of(call: ModelCall, before: int) -> int:
-        return before + call.response["data"]["duration_us"] + ttfb_of(call)
+        return before + call.answer["data"]["duration_us"] + ttfb_of(call)
 
     unknown = False
     heard: list[tuple[int, ModelCall, int]] = []
@@ -216,7 +238,9 @@ def check(view: View, policy: policies.L1) -> ContractResult:
     # backchannel or other speech that expects none does not take the call over.
     latest_turn: dict[int, int | None] = {}
     for call in calls:
-        seen = user_turns(call.items, [s for s in view.delivered if s.final["seq"] < call.request["seq"]])
+        seen = user_turns(
+            call.items, [s for s in view.delivered if s.delivery["seq"] < call.request["seq"]]
+        )
         owed = [s.index for s in seen.present if s.expects_reply]
         latest_turn[call.call] = owed[-1] if owed else None
 
@@ -230,10 +254,17 @@ def check(view: View, policy: policies.L1) -> ContractResult:
         audio = next((s for s in steps if s[0] == AUDIO and s[2] is not None), None)
         measures = {
             "clock_start_us": budget.clock,
-            "time_to_first_model_call_us": chain[0].request["t_us"] - budget.clock if chain else None,
+            "time_to_first_model_call_us": chain[0].request["t_us"] - budget.clock
+            if chain
+            else None,
             "time_to_first_audio_us": audio[2] - budget.clock if audio else None,
             "milestones": [
-                {"milestone": name, "status": status, "reached_us": reached, "deadline_us": deadline}
+                {
+                    "milestone": name,
+                    "status": status,
+                    "reached_us": reached,
+                    "deadline_us": deadline,
+                }
                 for name, status, reached, deadline in steps
             ],
         }
@@ -247,14 +278,25 @@ def check(view: View, policy: policies.L1) -> ContractResult:
                 Finding(
                     _milestone(name),
                     f"{name}: "
-                    + (f"happened {reached - deadline} us after its deadline" if reached is not None else "never happened")
+                    + (
+                        f"happened {reached - deadline} us after its deadline"
+                        if reached is not None
+                        else "never happened"
+                    )
                     + f" (deadline {deadline} us)",
                 )
                 for name, _status, reached, deadline in missed
             ]
             verdicts.append(
-                verdict("L1", instance, f"the turn of speech {speech.index} did not progress in time",
-                        events=used, findings=findings, measures=measures, flags=flags)
+                verdict(
+                    "L1",
+                    instance,
+                    f"the turn of speech {speech.index} did not progress in time",
+                    events=used,
+                    findings=findings,
+                    measures=measures,
+                    flags=flags,
+                )
             )
         elif SUPERSEDED in statuses:
             notes.append(
@@ -265,15 +307,29 @@ def check(view: View, policy: policies.L1) -> ContractResult:
             notes.append(f"speech {speech.index}: the user hung up before a response was due")
         elif UNOBSERVABLE in statuses:
             verdicts.append(
-                verdict("L1", instance, f"cannot tell whether the turn of speech {speech.index} progressed",
-                        events=used, measures=measures, flags=flags,
-                        unobservable="the run ended before a deadline passed, a tool was not "
-                        "witnessed, or the reply's audio cannot be attributed")
+                verdict(
+                    "L1",
+                    instance,
+                    f"cannot tell whether the turn of speech {speech.index} progressed",
+                    events=used,
+                    measures=measures,
+                    flags=flags,
+                    unobservable="the run ended before a deadline passed, a tool was not "
+                    "witnessed, or the reply's audio cannot be attributed",
+                )
             )
         else:
             verdicts.append(
-                verdict("L1", instance, f"the turn of speech {speech.index} got its response in time"
-                        if not silenced else f"the turn of speech {speech.index} progressed; its tool asked for silence",
-                        events=used, measures=measures, flags=flags)
+                verdict(
+                    "L1",
+                    instance,
+                    f"the turn of speech {speech.index} got its response in time"
+                    if not silenced
+                    else f"the turn of speech {speech.index} progressed; "
+                    "its tool asked for silence",
+                    events=used,
+                    measures=measures,
+                    flags=flags,
+                )
             )
     return result("L1", policy, verdicts, notes)

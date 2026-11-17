@@ -10,6 +10,7 @@ repaired the defect.
 
 Replaying imports and runs the scenario the bundle names. Replay only bundles you trust.
 """
+
 import json
 import sys
 from pathlib import Path
@@ -34,16 +35,21 @@ def main(argv: list[str]) -> int:
 
     kept = bundle.load(Path(args[0]))
     result = bundle.replay(kept, scenario.run, repeats=repeats, fingerprint=scenario.fingerprint)
-    print(json.dumps({
-        "predicate": str(kept.predicate),
-        "made_on": kept.manifest["framework"],
-        "replayed_on": result.framework,
-        "reproduced": result.reproduced,
-        "repeatable": result.repeatable,
-        "identical_to_recorded": result.identical,
-        "scenario_code_changed": result.scenario_changed,
-        "invalid": list(result.invalid),
-    }, indent=2))
+    print(
+        json.dumps(
+            {
+                "predicate": str(kept.predicate),
+                "made_on": kept.manifest["framework"],
+                "replayed_on": result.framework,
+                "reproduced": result.reproduced,
+                "repeatable": result.repeatable,
+                "identical_to_recorded": result.identical,
+                "scenario_code_changed": result.scenario_changed,
+                "invalid": list(result.invalid),
+            },
+            indent=2,
+        )
+    )
     if result.invalid or not result.repeatable:
         return 1
     if expect is None:

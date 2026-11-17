@@ -1,4 +1,5 @@
 """Print a ledger file in readable form. Optional second argument: start time in seconds."""
+
 import json
 import sys
 from pathlib import Path
@@ -9,4 +10,4 @@ for line in Path(sys.argv[1]).read_text().splitlines():
     if e["t_us"] / 1e6 < start:
         continue
     data = json.dumps(e["data"], sort_keys=True)
-    print(f'{e["seq"]:>3} {e["t_us"] / 1e6:>10.6f} {e["source"]:<9} {e["kind"]:<27} {data[:175]}')
+    print(f"{e['seq']:>3} {e['t_us'] / 1e6:>10.6f} {e['source']:<9} {e['kind']:<27} {data[:175]}")

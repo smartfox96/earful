@@ -1,4 +1,5 @@
 """The clocked sink on its own: sample accounting, validity counters, pause semantics."""
+
 import asyncio
 from array import array
 
@@ -87,7 +88,11 @@ def test_a_cleared_output_stays_paused_until_it_is_resumed():
 
     waiting, events = run_virtual(main)
     assert waiting == [
-        "playout.started", "sink.pause", "playout.paused", "sink.clear", "playout.finished",
+        "playout.started",
+        "sink.pause",
+        "playout.paused",
+        "sink.clear",
+        "playout.finished",
     ]
     assert [e["kind"] for e in events[5:]] == ["sink.resume", "playout.started"]
     assert events[-1]["data"]["segment"] == 2

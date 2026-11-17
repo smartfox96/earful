@@ -169,10 +169,11 @@ def favourable(
     # best[i][j]: the least cost of placing messages i.. on speech j.., and whether message
     # i is given to speech j there. None: it cannot be done.
     best: list[list[tuple[Cost, bool] | None]] = [[None] * (b + 1) for _ in range(a + 1)]
-    best[a][b] = ((0, 0), False)
+    rest: Cost = (0, 0)
+    best[a][b] = (rest, False)
     for j in range(b - 1, -1, -1):
-        rest = best[a][j + 1][0]  # type: ignore[index]
-        best[a][j] = ((rest[0] + absent[j][0], rest[1] + absent[j][1]), False)
+        rest = (rest[0] + absent[j][0], rest[1] + absent[j][1])
+        best[a][j] = (rest, False)
     for i in range(a - 1, -1, -1):
         index, words = messages[i]
         for j in range(b - 1, -1, -1):
@@ -183,7 +184,9 @@ def favourable(
                 options.append(((here[0] + after[0][0], here[1] + after[0][1]), True))
             skipped = best[i][j + 1]
             if skipped is not None:
-                options.append(((absent[j][0] + skipped[0][0], absent[j][1] + skipped[0][1]), False))
+                options.append(
+                    ((absent[j][0] + skipped[0][0], absent[j][1] + skipped[0][1]), False)
+                )
             if options:
                 best[i][j] = min(options, key=lambda option: (option[0], not option[1]))
     if best[0][0] is None:

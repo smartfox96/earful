@@ -190,7 +190,8 @@ def witnessed(fn: Callable[..., Any], *, name: str | None = None) -> Callable[..
     if inspect.isfunction(fn) and not inspect.iscoroutinefunction(fn):
         raise TypeError("witnessed tools must be async functions")
 
-    tool_name = name or getattr(fn, "__name__", type(fn).__name__)
+    # Written with ``if``: mypy reads ``name or getattr(...)`` as a name that may be None.
+    tool_name = name if name else getattr(fn, "__name__", type(fn).__name__)
     signature = inspect.signature(fn)
     hints = _hints(fn)
     declared = next((n for n in signature.parameters if _is_run_context(hints.get(n))), None)
@@ -214,7 +215,8 @@ def witnessed(fn: Callable[..., Any], *, name: str | None = None) -> Callable[..
         except TypeError:
             bound = {}  # the call itself will raise; record it with what is known
         context = bound.pop(declared, None) if declared is not None else injected
-        bound.pop(receiver, None)
+        if receiver is not None:
+            bound.pop(receiver, None)
         call = getattr(context, "function_call", None)
         tool = witness.called(tool_name, getattr(call, "call_id", None), bound)
         token = current_tool.set(tool)
@@ -238,11 +240,14 @@ def witnessed(fn: Callable[..., Any], *, name: str | None = None) -> Callable[..
         )
         tail = [p for p in params if p.kind == inspect.Parameter.VAR_KEYWORD]
         head = [p for p in params if p.kind != inspect.Parameter.VAR_KEYWORD]
-        wrapper.__signature__ = signature.replace(parameters=[*head, extra, *tail])  # type: ignore[attr-defined]
+        shown = signature.replace(parameters=[*head, extra, *tail])
         annotations = {**hints, _CONTEXT_PARAM: lk.RunContext}
     else:
-        wrapper.__signature__ = signature  # type: ignore[attr-defined]
+        shown = signature
         annotations = dict(hints)
+    # ``inspect.signature`` reads ``__signature__``. The stubs of ``functools.wraps`` declare
+    # neither it nor ``__annotate__`` on the function returned, hence the two ignores.
+    wrapper.__signature__ = shown  # type: ignore[attr-defined]
     # Python 3.14 (PEP 649) reads a function's annotations through ``__annotate__``, and
     # ``functools`` copies that instead of ``__annotations__``. Set both, in this order:
     # assigning ``__annotations__`` clears ``__annotate__`` on 3.14.
@@ -259,8 +264,10 @@ def witness_tool(tool: Any) -> Any:
     if getattr(tool, _MARK, False):
         return tool
     # The same constructor ``function_tool`` uses, so the copy keeps the tool's own info
-    # (name, description, schema, flags) on every supported release.
-    return type(tool)(witnessed(tool, name=tool.info.name), tool.info)
+    # (name, description, schema, flags) on every supported release. mypy cannot tell that
+    # ``type(tool)`` and ``tool.info`` are of the same kind of tool, and checks each
+    # constructor against the other's info.
+    return type(tool)(witnessed(tool, name=tool.info.name), tool.info)  # type: ignore[arg-type]
 
 
 async def witness_agent_tools(agent: lk.Agent) -> list[str]:
@@ -269,7 +276,9 @@ async def witness_agent_tools(agent: lk.Agent) -> list[str]:
     originals = list(agent.tools)
     await agent.update_tools([witness_tool(t) for t in originals])
     return sorted(
-        t.info.name for t in originals if isinstance(t, (lk_llm.FunctionTool, lk_llm.RawFunctionTool))
+        t.info.name
+        for t in originals
+        if isinstance(t, (lk_llm.FunctionTool, lk_llm.RawFunctionTool))
     )
 
 

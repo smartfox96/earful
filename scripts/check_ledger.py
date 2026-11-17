@@ -4,6 +4,7 @@
 
 Exit code 1 if any contract fails or any ledger is not a valid run.
 """
+
 import json
 import sys
 from pathlib import Path

@@ -9,7 +9,7 @@ import logging
 import random
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import livekit.agents as lk
 from livekit import rtc
@@ -35,6 +35,9 @@ from .providers import (
     summarize_item,
 )
 from .sink import ClockedSink
+
+if TYPE_CHECKING:
+    from livekit.agents.voice.events import EventTypes
 
 # A real-clock control run that has not finished after this many seconds has hung.
 REAL_CLOCK_TIMEOUT = 120.0
@@ -163,7 +166,10 @@ class Case:
             if delay.of not in DELAYS:
                 raise ValueError(f"unknown delay {delay.of!r}; choose from {list(DELAYS)}")
             if delay.nth < 1 or delay.seconds < 0:
-                raise ValueError(f"delay {delay.of} #{delay.nth}: nth counts from 1 and a delay cannot be negative")
+                raise ValueError(
+                    f"delay {delay.of} #{delay.nth}: "
+                    "nth counts from 1 and a delay cannot be negative"
+                )
             if (delay.of, delay.nth) in seen:
                 raise ValueError(f"delay {delay.of} #{delay.nth} is declared more than once")
             seen.add((delay.of, delay.nth))
@@ -172,7 +178,11 @@ class Case:
             if fault.of not in FAULTS:
                 raise ValueError(f"unknown fault {fault.of!r}; choose from {list(FAULTS)}")
             waits = fault.of != "backend.error"
-            if fault.nth < 1 or (waits and (fault.seconds is None or fault.seconds < 0)) or (not waits and fault.seconds is not None):
+            if (
+                fault.nth < 1
+                or (waits and (fault.seconds is None or fault.seconds < 0))
+                or (not waits and fault.seconds is not None)
+            ):
                 raise ValueError(
                     f"fault {fault.of} #{fault.nth}: nth counts from 1; a timeout or a drop says "
                     "how long the caller waits, and an error does not"
@@ -182,17 +192,24 @@ class Case:
             faulted.add(fault.nth)
         if self.hangup is not None:
             if self.hangup < 0 or not self.speeches:
-                raise ValueError("the user hangs up after their last speech; a user who never speaks cannot")
+                raise ValueError(
+                    "the user hangs up after their last speech; a user who never speaks cannot"
+                )
             late = [speech.start for speech in self.speeches if speech.end_us > to_us(self.hangup)]
             if late:
-                raise ValueError(f"the user hangs up at {self.hangup} s, before the speech at {late[0]} s is over")
+                raise ValueError(
+                    f"the user hangs up at {self.hangup} s, "
+                    f"before the speech at {late[0]} s is over"
+                )
         names = [it.intent for it in self.intents]
         if len(set(names)) != len(names):
             raise ValueError("an intent is declared more than once")
         for speech in self.speeches:
             undeclared = sorted(set(speech.retires) - set(names))
             if undeclared:
-                raise ValueError(f"speech at {speech.start} s retires undeclared intents {undeclared}")
+                raise ValueError(
+                    f"speech at {speech.start} s retires undeclared intents {undeclared}"
+                )
 
 
 @dataclass
@@ -276,7 +293,7 @@ def _declared_session(case: Case) -> dict[str, int | None]:
     }
 
 
-def _effective_session(session: lk.AgentSession) -> dict[str, int | None]:
+def _effective_session(session: lk.AgentSession[Any]) -> dict[str, int | None]:
     """The same options as the constructed session holds them, read through its public
     ``options``. The header states what was declared; this is how Earful knows the
     framework took it."""
@@ -328,7 +345,11 @@ def _header(case: Case, witnessed_tools: list[str]) -> dict[str, Any]:
             },
         },
         "faults": [
-            {"of": fault.of, "nth": fault.nth, "us": None if fault.seconds is None else to_us(fault.seconds)}
+            {
+                "of": fault.of,
+                "nth": fault.nth,
+                "us": None if fault.seconds is None else to_us(fault.seconds),
+            }
             for fault in sorted(case.faults, key=lambda f: (f.of, f.nth))
         ],
         "providers": {
@@ -351,14 +372,14 @@ def _created_us(ev: Any) -> int | None:
     return round((created - WALL_CLOCK_EPOCH) * 1_000_000) if created is not None else None
 
 
-def _tap(session: lk.AgentSession, ledger: Ledger, errors: list[str]) -> None:
+def _tap(session: lk.AgentSession[Any], ledger: Ledger, errors: list[str]) -> None:
     """Record public session events. Explanatory evidence, never ground truth.
 
     A handler must never raise into the framework: an exception here would change the
     behavior under test. Failures are collected and fail the run afterwards.
     """
 
-    def on(name: str, fields: Callable[[Any], dict[str, Any]]) -> None:
+    def on(name: EventTypes, fields: Callable[[Any], dict[str, Any]]) -> None:
         def handler(ev: Any) -> None:
             try:
                 ledger.append("framework", f"fw.{name}", created_us=_created_us(ev), **fields(ev))
@@ -393,7 +414,7 @@ def _tap(session: lk.AgentSession, ledger: Ledger, errors: list[str]) -> None:
 
 async def _hang_up(
     case: Case,
-    session: lk.AgentSession,
+    session: lk.AgentSession[Any],
     origin: WorldOrigin,
     ledger: Ledger,
     witness: tools.ToolWitness,
@@ -457,19 +478,24 @@ async def _run(case: Case, seed: int) -> RunResult:
     world_origin = WorldOrigin(
         ledger, harness_errors, tolerance_us=0 if virtual else REAL_CLOCK_ORIGIN_TOLERANCE_US
     )
-    def declared(of: str) -> dict[int, int]:
+
+    def declared_us(of: str) -> dict[int, int]:
         return {delay.nth: to_us(delay.seconds) for delay in case.delays if delay.of == of}
 
     stt = ScriptedSTT(ledger, case.speeches, world_origin)
     model = ScriptedLLM(
-        ledger, case.policy, harness_errors, ttft_us=declared("llm.ttft"), duration_us=declared("llm.duration")
+        ledger,
+        case.policy,
+        harness_errors,
+        ttft_us=declared_us("llm.ttft"),
+        duration_us=declared_us("llm.duration"),
     )
     tts = StampedTTS(
         ledger,
         model.register,
         seconds_per_letter=case.seconds_per_letter,
         ttfb=case.tts_ttfb,
-        ttfb_us=declared("tts.ttfb"),
+        ttfb_us=declared_us("tts.ttfb"),
     )
     session = lk.AgentSession(
         vad=ScriptedVAD(
@@ -497,8 +523,10 @@ async def _run(case: Case, seed: int) -> RunResult:
     backend = EffectBackend(
         ledger,
         mode=case.backend_mode,
-        latencies_us=declared("backend.latency"),
-        faults={f.nth: (f.of, None if f.seconds is None else to_us(f.seconds)) for f in case.faults},
+        latencies_us=declared_us("backend.latency"),
+        faults={
+            f.nth: (f.of, None if f.seconds is None else to_us(f.seconds)) for f in case.faults
+        },
     )
     agent = case.agent(backend)
     witnessed_tools = await tools.witness_agent_tools(agent)
@@ -551,7 +579,7 @@ async def _run(case: Case, seed: int) -> RunResult:
         lk_logger.removeHandler(warnings)
         tools.uninstall(witness_token)
 
-    executor_calls = loop.executor_calls if virtual else None
+    executor_calls = loop.executor_calls if isinstance(loop, VirtualTimeLoop) else None
     ledger.append(
         "harness",
         "run.end",

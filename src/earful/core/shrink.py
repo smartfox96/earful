@@ -7,10 +7,10 @@ a step is kept only if the run still breaks the same rule of the same contract.
 
 1. **Isolate.** List every difference between the found case and the author's scenario:
    a speech moved, lengthened, added or dropped; a hangup; a delay declared; a fault
-   added; a setting, a contract policy or the seed changed. Delta debugging (Zeller and Hildebrandt's *ddmin*) over
-   that list gives a smallest set of differences that still fails. The result is the
-   author's scenario with only those changes, and if the author's scenario fails as
-   written it is the author's scenario.
+   added; a setting, a contract policy or the seed changed. Delta debugging (Zeller and
+   Hildebrandt's *ddmin*) over that list gives a smallest set of differences that still
+   fails. The result is the author's scenario with only those changes, and if the
+   author's scenario fails as written it is the author's scenario.
 2. **Remove.** ddmin again, over the speeches, the declared delays and the faults that
    remain, the author's own included: the fewest that still fail. Then the hangup, if
    the case still fails with a user who stays.
@@ -49,6 +49,11 @@ T = TypeVar("T")
 GRIDS_US = (1_000_000, 500_000, 100_000, 50_000, 10_000, 1_000)
 # How far from the one known edge of a half-open window a settled time stays: one VAD tick.
 MARGIN_US = 50_000
+
+
+def _keeping(case: cases.Case, name: str, keep: Sequence[int]) -> cases.Case:
+    """A copy of ``case`` with only the items of its list ``name`` at the positions ``keep``."""
+    return {**copy.deepcopy(case), name: [copy.deepcopy(case[name][i]) for i in keep]}
 
 
 def ddmin(items: Sequence[T], fails: Callable[[list[T]], bool]) -> list[T]:
@@ -104,7 +109,11 @@ def _pairs(author: cases.Case, found: cases.Case) -> list[tuple[int | None, int 
     out: list[tuple[int | None, int | None]] = []
     for j, theirs in enumerate(found["speeches"]):
         match = next(
-            (i for i, ours in enumerate(author["speeches"]) if i not in taken and ours["transcript"] == theirs["transcript"]),
+            (
+                i
+                for i, ours in enumerate(author["speeches"])
+                if i not in taken and ours["transcript"] == theirs["transcript"]
+            ),
             None,
         )
         if match is not None:
@@ -120,31 +129,62 @@ def differences(author: cases.Case, found: cases.Case) -> list[Difference]:
     out: list[Difference] = []
     for i, j in _pairs(author, found):
         if j is None:
-            out.append(Difference(f"speech {author['speeches'][i]['transcript']!r} dropped", ("speech", i, "dropped")))
+            out.append(
+                Difference(
+                    f"speech {author['speeches'][i]['transcript']!r} dropped",
+                    ("speech", i, "dropped"),
+                )
+            )
             continue
         theirs = found["speeches"][j]
         words = theirs["transcript"] or "(noise)"
         if i is None:
-            out.append(Difference(f"speech {words!r} added at {theirs['start_us']} us", ("added", j), copy.deepcopy(theirs)))
+            out.append(
+                Difference(
+                    f"speech {words!r} added at {theirs['start_us']} us",
+                    ("added", j),
+                    copy.deepcopy(theirs),
+                )
+            )
             continue
         ours = author["speeches"][i]
         if theirs["start_us"] != ours["start_us"]:
-            out.append(Difference(f"speech {words!r} moved to {theirs['start_us']} us", ("speech", i, "start"), theirs["start_us"]))
+            out.append(
+                Difference(
+                    f"speech {words!r} moved to {theirs['start_us']} us",
+                    ("speech", i, "start"),
+                    theirs["start_us"],
+                )
+            )
         length = theirs["end_us"] - theirs["start_us"]
         if length != ours["end_us"] - ours["start_us"]:
-            out.append(Difference(f"speech {words!r} lasting {length} us", ("speech", i, "length"), length))
+            out.append(
+                Difference(f"speech {words!r} lasting {length} us", ("speech", i, "length"), length)
+            )
         for name in ("stt_delay_us", "expects_reply", "backchannel", "retires"):
             if theirs[name] != ours[name]:
-                out.append(Difference(f"speech {words!r} with {name} {theirs[name]!r}", ("speech", i, name), copy.deepcopy(theirs[name])))
+                out.append(
+                    Difference(
+                        f"speech {words!r} with {name} {theirs[name]!r}",
+                        ("speech", i, name),
+                        copy.deepcopy(theirs[name]),
+                    )
+                )
     if author["hangup_us"] != found["hangup_us"]:
         to = found["hangup_us"]
-        out.append(Difference("the user stays" if to is None else f"the user hangs up at {to} us", ("hangup",), to))
+        out.append(
+            Difference(
+                "the user stays" if to is None else f"the user hangs up at {to} us", ("hangup",), to
+            )
+        )
     ours_delays = {(d["of"], d["nth"]): d["us"] for d in author["delays"]}
     theirs_delays = {(d["of"], d["nth"]): d["us"] for d in found["delays"]}
     for key in sorted(ours_delays.keys() | theirs_delays.keys()):
         if ours_delays.get(key) != theirs_delays.get(key):
             to = theirs_delays.get(key)
-            label = f"{key[0]} {key[1]} " + ("left to the scenario's code" if to is None else f"declared as {to} us")
+            label = f"{key[0]} {key[1]} " + (
+                "left to the scenario's code" if to is None else f"declared as {to} us"
+            )
             out.append(Difference(label, ("delay", *key), to))
     ours_faults = {f["nth"]: (f["of"], f["us"]) for f in author["faults"]}
     theirs_faults = {f["nth"]: (f["of"], f["us"]) for f in found["faults"]}
@@ -154,14 +194,28 @@ def differences(author: cases.Case, found: cases.Case) -> list[Difference]:
             if to is None:
                 label = f"backend write {nth} without its fault"
             else:
-                label = f"{to[0]} on backend write {nth}" + ("" if to[1] is None else f", the caller waiting {to[1]} us")
+                label = f"{to[0]} on backend write {nth}" + (
+                    "" if to[1] is None else f", the caller waiting {to[1]} us"
+                )
             out.append(Difference(label, ("fault", nth), to))
     for name in sorted(author["settings"].keys() | found["settings"].keys()):
         if author["settings"].get(name) != found["settings"].get(name):
-            out.append(Difference(f"setting {name} = {found['settings'].get(name)!r}", ("setting", name), found["settings"].get(name)))
+            out.append(
+                Difference(
+                    f"setting {name} = {found['settings'].get(name)!r}",
+                    ("setting", name),
+                    found["settings"].get(name),
+                )
+            )
     for contract in sorted(author["contracts"].keys() | found["contracts"].keys()):
         if author["contracts"].get(contract) != found["contracts"].get(contract):
-            out.append(Difference(f"contract policy of {contract} changed", ("contract", contract), copy.deepcopy(found["contracts"].get(contract))))
+            out.append(
+                Difference(
+                    f"contract policy of {contract} changed",
+                    ("contract", contract),
+                    copy.deepcopy(found["contracts"].get(contract)),
+                )
+            )
     if author["seed"] != found["seed"]:
         out.append(Difference(f"seed {found['seed']}", ("seed",), found["seed"]))
     return out
@@ -194,9 +248,13 @@ def applied(author: cases.Case, chosen: Sequence[Difference]) -> cases.Case:
         elif target[0] == "fault":
             faults.pop(target[1], None) if to is None else faults.__setitem__(target[1], tuple(to))
         elif target[0] == "setting":
-            out["settings"].pop(target[1], None) if to is None else out["settings"].__setitem__(target[1], to)
+            out["settings"].pop(target[1], None) if to is None else out["settings"].__setitem__(
+                target[1], to
+            )
         elif target[0] == "contract":
-            out["contracts"].pop(target[1], None) if to is None else out["contracts"].__setitem__(target[1], copy.deepcopy(to))
+            out["contracts"].pop(target[1], None) if to is None else out["contracts"].__setitem__(
+                target[1], copy.deepcopy(to)
+            )
         elif target[0] == "seed":
             out["seed"] = to
     speeches = list(added)
@@ -207,7 +265,8 @@ def applied(author: cases.Case, chosen: Sequence[Difference]) -> cases.Case:
     out["speeches"] = sorted(speeches, key=lambda s: s["start_us"])
     out["delays"] = [{"of": of, "nth": nth, "us": us} for (of, nth), us in sorted(delays.items())]
     out["faults"] = sorted(
-        ({"of": of, "nth": nth, "us": us} for nth, (of, us) in faults.items()), key=lambda f: (f["of"], f["nth"])
+        ({"of": of, "nth": nth, "us": us} for nth, (of, us) in faults.items()),
+        key=lambda f: (f["of"], f["nth"]),
     )
     return out
 
@@ -219,8 +278,11 @@ def nearest(author: cases.Case, found: Sequence[cases.Case]) -> cases.Case:
     there."""
 
     def distance(case: cases.Case) -> tuple[int, int]:
-        moved = sum(abs(d.value - cases.value(author, Variable("speech.position", d.target[1])))
-                    for d in differences(author, case) if d.target[0] == "speech" and d.target[2] == "start")
+        moved = sum(
+            abs(d.value - cases.value(author, Variable("speech.position", d.target[1])))
+            for d in differences(author, case)
+            if d.target[0] == "speech" and d.target[2] == "start"
+        )
         return len(differences(author, case)), moved
 
     return min(found, key=distance)
@@ -256,7 +318,10 @@ def settled(found: Window, at: int) -> int | None:
         if first <= hi:
             below = aim // grid * grid
             last = hi // grid * grid
-            return min((p for p in (below, below + grid, first, last) if lo <= p <= hi), key=lambda p: (abs(p - aim), p))
+            return min(
+                (p for p in (below, below + grid, first, last) if lo <= p <= hi),
+                key=lambda p: (abs(p - aim), p),
+            )
     return None
 
 
@@ -271,14 +336,27 @@ def _moved_times(author: cases.Case | None, case: cases.Case) -> list[Variable]:
         ours = author["speeches"][i] if author is not None and i is not None else None
         if ours is None or theirs["start_us"] != ours["start_us"]:
             out.append(Variable("speech.position", j))
-        if ours is None or theirs["end_us"] - theirs["start_us"] != ours["end_us"] - ours["start_us"]:
+        if (
+            ours is None
+            or theirs["end_us"] - theirs["start_us"] != ours["end_us"] - ours["start_us"]
+        ):
             out.append(Variable("speech.end", j))
     declared = {(d["of"], d["nth"]): d["us"] for d in (author["delays"] if author else [])}
-    out += [Variable(d["of"], d["nth"]) for d in case["delays"] if declared.get((d["of"], d["nth"])) != d["us"]]
-    if case["hangup_us"] is not None and (author is None or author["hangup_us"] != case["hangup_us"]):
+    out += [
+        Variable(d["of"], d["nth"])
+        for d in case["delays"]
+        if declared.get((d["of"], d["nth"])) != d["us"]
+    ]
+    if case["hangup_us"] is not None and (
+        author is None or author["hangup_us"] != case["hangup_us"]
+    ):
         out.append(Variable(cases.HANGUP, 0))
     waits = {f["nth"]: f["us"] for f in (author["faults"] if author else [])}
-    out += [Variable(cases.WAIT, f["nth"]) for f in case["faults"] if f["us"] is not None and waits.get(f["nth"]) != f["us"]]
+    out += [
+        Variable(cases.WAIT, f["nth"])
+        for f in case["faults"]
+        if f["us"] is not None and waits.get(f["nth"]) != f["us"]
+    ]
     return out
 
 
@@ -288,8 +366,12 @@ class Shrunk:
     steps: list[str] = field(default_factory=list)  # what was done, in order
     runs: int = 0  # how many times the system was run
     complete: bool = True  # false: the run budget was spent before nothing more could go
-    differences: list[str] = field(default_factory=list)  # how the reduced case differs from the author's
-    windows: list[Window] = field(default_factory=list)  # how far each speech and each settled time can move
+    differences: list[str] = field(
+        default_factory=list
+    )  # how the reduced case differs from the author's
+    windows: list[Window] = field(
+        default_factory=list
+    )  # how far each speech and each settled time can move
 
 
 def shrink(
@@ -304,8 +386,8 @@ def shrink(
 
     ``author`` is the scenario as its author wrote it: what the reduction measures the
     case against. Without it differences cannot be isolated; speeches, delays, faults and
-    the hangup are removed and every time is settled. ``max_runs`` bounds the work; if it is spent, the
-    case reduced so far is returned and ``complete`` is false.
+    the hangup are removed and every time is settled. ``max_runs`` bounds the work; if it
+    is spent, the case reduced so far is returned and ``complete`` is false.
 
     Raises ``ValueError`` if ``case`` does not break ``predicate`` to begin with.
     """
@@ -329,18 +411,26 @@ def shrink(
             needed = ddmin(all_of_them, lambda chosen: breaks(applied(author, chosen)))
             if len(needed) < len(all_of_them):
                 current = applied(author, needed)
-                steps.append(f"kept {len(needed)} of {len(all_of_them)} differences from the author's scenario")
+                steps.append(
+                    f"kept {len(needed)} of {len(all_of_them)} differences "
+                    "from the author's scenario"
+                )
 
     # 2. Remove: the fewest speeches, declared delays and faults, the author's own included.
-    for name, plural in (("speeches", "speeches"), ("delays", "declared delays"), ("faults", "faults")):
+    for name, plural in (
+        ("speeches", "speeches"),
+        ("delays", "declared delays"),
+        ("faults", "faults"),
+    ):
         items = current[name]
         if items and not spent():
-            kept = ddmin(
-                range(len(items)),
-                lambda keep, n=name, its=items: breaks({**copy.deepcopy(current), n: [copy.deepcopy(its[i]) for i in keep]}),
-            )
+
+            def fails(keep: list[int], whole: dict[str, Any] = current, name: str = name) -> bool:
+                return breaks(_keeping(whole, name, keep))
+
+            kept = ddmin(range(len(items)), fails)
             if len(kept) < len(items):
-                current = {**copy.deepcopy(current), name: [copy.deepcopy(items[i]) for i in kept]}
+                current = _keeping(current, name, kept)
                 steps.append(f"removed {len(items) - len(kept)} of {len(items)} {plural}")
 
     if current["hangup_us"] is not None and not spent() and breaks(cases.without_hangup(current)):
@@ -376,4 +466,15 @@ def shrink(
     return Shrunk(current, steps, runner.runs - start, not spent(), remaining, windows)
 
 
-__all__ = ["GRIDS_US", "MARGIN_US", "Difference", "Shrunk", "applied", "ddmin", "differences", "nearest", "settled", "shrink"]
+__all__ = [
+    "GRIDS_US",
+    "MARGIN_US",
+    "Difference",
+    "Shrunk",
+    "applied",
+    "ddmin",
+    "differences",
+    "nearest",
+    "settled",
+    "shrink",
+]

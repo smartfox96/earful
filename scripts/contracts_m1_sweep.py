@@ -6,6 +6,7 @@ audio time, and in words. The result sets M1's default tolerances in docs/contra
 
     python scripts/contracts_m1_sweep.py [seconds_per_letter]
 """
+
 import json
 import sys
 from collections import Counter
@@ -24,7 +25,9 @@ SENTENCES = {
         "Unfortunately the reservation system is temporarily unavailable so I cannot "
         "confirm availability for Saturday evening right now"
     ),
-    "short words": "So if you can be at the bar by six or so we can put you at a big table by the door",
+    "short words": (
+        "So if you can be at the bar by six or so we can put you at a big table by the door"
+    ),
 }
 seconds_per_letter = float(sys.argv[1]) if len(sys.argv) > 1 else 0.06
 STEP = 0.05
@@ -32,8 +35,14 @@ STEP = 0.05
 
 def policy_for(text):
     def policy(items):
-        last = next(i for i in reversed(items) if i["type"] == "message" and i.get("role") == "user")
-        return Reply(text="Okay, stopping.") if "Stop" in (last.get("text") or "") else Reply(text=text, ttft=0.1, duration=0.4)
+        last = next(
+            i for i in reversed(items) if i["type"] == "message" and i.get("role") == "user"
+        )
+        return (
+            Reply(text="Okay, stopping.")
+            if "Stop" in (last.get("text") or "")
+            else Reply(text=text, ttft=0.1, duration=0.4)
+        )
 
     return policy
 
@@ -77,4 +86,13 @@ for name, text in SENTENCES.items():
         }
     )
 
-print(json.dumps({"livekit-agents": lk.__version__, "seconds_per_letter": seconds_per_letter, "sentences": rows}, indent=2))
+print(
+    json.dumps(
+        {
+            "livekit-agents": lk.__version__,
+            "seconds_per_letter": seconds_per_letter,
+            "sentences": rows,
+        },
+        indent=2,
+    )
+)

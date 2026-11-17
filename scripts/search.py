@@ -1,14 +1,13 @@
 """Search a scenario for timing failures, and reduce what is found to a case worth keeping.
 
 Moves each time the scenario controls (where a speech sits; how long a model call, a first
-audio or a backend write takes; when the user hangs up) so that it falls just before, at and just after every
-moment the system changes state. Checks every run and prints which contract rules broke,
-how wide the window is in which each breaks (a rule that breaks only at single instants
-turns on same-instant order and is marked `instants_only`), and which boundaries were
-never reached. For
-each rule named with --keep, a failing case is reduced to the smallest one that fails the
-same way, settled inside its window, run again to confirm it repeats, and written as a
-bundle.
+audio or a backend write takes; when the user hangs up) so that it falls just before, at
+and just after every moment the system changes state. Checks every run and prints which
+contract rules broke, how wide the window is in which each breaks (a rule that breaks only
+at single instants turns on same-instant order and is marked `instants_only`), and which
+boundaries were never reached. For each rule named with --keep, a failing case is reduced
+to the smallest one that fails the same way, settled inside its window, run again to
+confirm it repeats, and written as a bundle.
 
     python scripts/search.py SCENARIO [options]
 
@@ -16,18 +15,22 @@ bundle.
 
 SCENARIO is module:function. Running it imports and calls that function.
 
-    --case FILE          start from a saved case (earful.case/3) instead of the scenario as written
-    --variables A,B      kinds of time to move (default: speech.position, every provider delay and
-                         user.hangup; speech.end and speech.stt_delay can be added)
-    --faults A,B         faults to add to each backend write (default: backend.error, backend.timeout,
-                         backend.drop; "none" for no faults)
-    --pairs              also move every speech with each fault in place, and add faults to two writes at once
+    --case FILE          start from a saved case (earful.case/3) instead of the scenario as
+                         written
+    --variables A,B      kinds of time to move (default: speech.position, every provider
+                         delay and user.hangup; speech.end and speech.stt_delay can be added)
+    --faults A,B         faults to add to each backend write (default: backend.error,
+                         backend.timeout, backend.drop; "none" for no faults)
+    --pairs              also move every speech with each fault in place, and add faults to
+                         two writes at once
     --profiles N         also move every speech under N seeded provider-timing profiles
     --no-words           do not treat the end of every played word as a boundary
-    --no-windows         do not measure the window of every rule found (those kept are still measured)
+    --no-windows         do not measure the window of every rule found (those kept are still
+                         measured)
     --keep CONTRACT/RULE reduce a case that breaks this rule and write a bundle (repeatable)
     --out DIR            where bundles go
 """
+
 import json
 import sys
 from pathlib import Path
@@ -42,7 +45,8 @@ from earful.livekit import scenario
 def main(argv: list[str]) -> int:
     args, keep, out, case_file, variables = [], [], None, None, None
     words, windows = True, True
-    faults, pairs, profiles = cases.FAULT_KINDS, False, 0
+    faults: tuple[str, ...] = cases.FAULT_KINDS
+    pairs, profiles = False, 0
     it = iter(argv)
     for arg in it:
         if arg == "--keep":
@@ -85,7 +89,13 @@ def main(argv: list[str]) -> int:
             words=words,
             each=pool.map,
         )
-    summary = {"scenario": reference, **scenario.environment(), **found.summary(), "coverage": found.coverage(), "bundles": {}}
+    summary = {
+        "scenario": reference,
+        **scenario.environment(),
+        **found.summary(),
+        "coverage": found.coverage(),
+        "bundles": {},
+    }
     for predicate in found.predicates():
         if windows or predicate in keep:
             measured = found.windows(predicate)
@@ -101,6 +111,7 @@ def main(argv: list[str]) -> int:
         if not breaking:
             continue
         rule = f"{predicate.contract}-{predicate.rule}".replace(" ", "-")
+        assert out is not None
         directory = out / f"lk-{summary['livekit-agents']}.{reference.rpartition(':')[2]}.{rule}"
         manifest = bundle.capture(
             directory,

@@ -8,9 +8,9 @@ contract policy.
 
 Every time in a case is a **variable**: something that can be moved on its own. Where a
 speech sits, when it ends, how long its transcript takes; when the user hangs up; how long
-a model call, a first audio or a backend write takes. The boundary scheduler moves variables, the shrinker
-moves them back, and both do it through the functions here, so neither needs to know what
-a speech or a delay is.
+a model call, a first audio or a backend write takes. The boundary scheduler moves
+variables, the shrinker moves them back, and both do it through the functions here, so
+neither needs to know what a speech or a delay is.
 
 The shape is defined by a JSON Schema document shipped with this package
 (``schemas/earful.case-3.schema.json``).
@@ -37,7 +37,7 @@ Case = dict[str, Any]
 
 @lru_cache(maxsize=1)
 def load_schema() -> dict[str, Any]:
-    text = resources.files(__package__).joinpath("schemas", SCHEMA_FILE).read_text("utf-8")
+    text = resources.files(__package__).joinpath("schemas").joinpath(SCHEMA_FILE).read_text("utf-8")
     return json.loads(text)
 
 
@@ -52,7 +52,9 @@ def validate(case: Any) -> list[str]:
     """Every way ``case`` departs from earful.case/3. An empty list means valid."""
     errors = [
         f"{'/'.join(str(p) for p in error.absolute_path) or 'case'}: {error.message}"
-        for error in sorted(_validator().iter_errors(case), key=lambda e: list(map(str, e.absolute_path)))
+        for error in sorted(
+            _validator().iter_errors(case), key=lambda e: list(map(str, e.absolute_path))
+        )
     ]
     if errors:
         return errors
@@ -76,7 +78,9 @@ def validate(case: Any) -> list[str]:
         errors.append("faults: a backend write has more than one fault")
     for n, fault in enumerate(case["faults"]):
         if (fault["us"] is None) != (fault["of"] == "backend.error"):
-            errors.append(f"faults/{n}: a timeout or a drop says how long the caller waits; an error does not")
+            errors.append(
+                f"faults/{n}: a timeout or a drop says how long the caller waits; an error does not"
+            )
     return errors
 
 
@@ -139,7 +143,8 @@ def value(case: Case, variable: Variable) -> int | None:
     if variable.kind == WAIT:
         return next((f["us"] for f in case["faults"] if f["nth"] == variable.index), None)
     return next(
-        (d["us"] for d in case["delays"] if (d["of"], d["nth"]) == (variable.kind, variable.index)), None
+        (d["us"] for d in case["delays"] if (d["of"], d["nth"]) == (variable.kind, variable.index)),
+        None,
     )
 
 
@@ -159,13 +164,17 @@ def with_value(case: Case, variable: Variable, us: int) -> Case | None:
         out["hangup_us"] = us
         return None if validate(out) else out
     if variable.kind == WAIT:
-        fault = next((f for f in out["faults"] if f["nth"] == variable.index and f["us"] is not None), None)
+        fault = next(
+            (f for f in out["faults"] if f["nth"] == variable.index and f["us"] is not None), None
+        )
         if fault is None:
             return None  # the write has no fault with a wait to move
         fault["us"] = us
         return out
     if variable.kind in DELAY_KINDS:
-        out["delays"] = [d for d in out["delays"] if (d["of"], d["nth"]) != (variable.kind, variable.index)]
+        out["delays"] = [
+            d for d in out["delays"] if (d["of"], d["nth"]) != (variable.kind, variable.index)
+        ]
         out["delays"].append({"of": variable.kind, "nth": variable.index, "us": us})
         out["delays"].sort(key=lambda d: (d["of"], d["nth"]))
         return out
@@ -182,7 +191,9 @@ def with_value(case: Case, variable: Variable, us: int) -> Case | None:
 def without_delay(case: Case, variable: Variable) -> Case:
     """``case`` with a declared delay dropped: the scenario's code chooses it again."""
     out = copy.deepcopy(case)
-    out["delays"] = [d for d in out["delays"] if (d["of"], d["nth"]) != (variable.kind, variable.index)]
+    out["delays"] = [
+        d for d in out["delays"] if (d["of"], d["nth"]) != (variable.kind, variable.index)
+    ]
     return out
 
 

@@ -57,6 +57,18 @@ jobs:
       - name: Tests that read docs/
         run: .venvs/lk-1.8.12/bin/python -m pytest -q tests/test_docs.py
 
+  lint:
+    name: format, lint, types
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - name: ruff format, ruff check, mypy (scripts/lint.sh)
+        run: scripts/lint.sh
+
   determinism:
     name: lk ${{ matrix.lk.version }} / ${{ matrix.os }} / py${{ matrix.python }}
     needs: changes
@@ -120,7 +132,7 @@ jobs:
   # require on main: a skipped job passes, a failed or cancelled one does not.
   result:
     name: ci result
-    needs: [changes, docs, determinism]
+    needs: [changes, docs, lint, determinism]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -129,7 +141,7 @@ jobs:
         env:
           RESULTS: ${{ join(needs.*.result, ' ') }}
         run: |
-          echo "changes, docs, determinism: $RESULTS"
+          echo "changes, docs, lint, determinism: $RESULTS"
           case " $RESULTS " in
             *" failure "* | *" cancelled "*) exit 1 ;;
           esac

@@ -301,7 +301,11 @@ class ClockedSink(io.AudioOutput):
             if not self._paused:
                 return  # resumed before the pause was obeyed
             self._cancel_finish()
-            if segment is not None and segment.started_us is not None and segment.pause_began_us is None:
+            if (
+                segment is not None
+                and segment.started_us is not None
+                and segment.pause_began_us is None
+            ):
                 segment.pause_began_us = self._ledger.now_us()
                 self._ledger.append(
                     "sink",
