@@ -167,8 +167,8 @@ MUTANTS = [
     Mutant(
         "search: a refused case counts as run",
         "src/earful/core/search.py",
-        "        return Outcome(case, refused=str(exc))\n",
-        "        return Outcome(case)\n",
+        "        return Outcome(case, refused=str(exc)), None\n",
+        "        return Outcome(case), None\n",
     ),
     Mutant(
         "shrink: ddmin stops early",
@@ -211,9 +211,12 @@ MUTANTS = [
         "src/earful/core/search.py",
         (
             "    except Exception as exc:  # noqa: BLE001\n"
-            '        return Outcome(case, error=f"{type(exc).__name__}: {exc}")\n'
+            '        return Outcome(case, error=f"{type(exc).__name__}: {exc}"), None\n'
         ),
-        ("    except KeyboardInterrupt as exc:\n        return Outcome(case, error=str(exc))\n"),
+        (
+            "    except KeyboardInterrupt as exc:\n"
+            "        return Outcome(case, error=str(exc)), None\n"
+        ),
     ),
     Mutant(
         "search: runner forgets",
@@ -508,7 +511,7 @@ MUTANTS = [
     Mutant(
         "search: speeches are not moved under a profile",
         "src/earful/core/search.py",
-        '            move_speeches(redrawn, produced, f"profile {number}")\n',
+        '            move_speeches(profile, produced, f"profile {number}")\n',
         "            pass\n",
     ),
     Mutant(
@@ -791,7 +794,7 @@ MUTANTS = [
     Mutant(
         "search: a declared hangup is moved against its own run",
         "src/earful/core/search.py",
-        '        stays = produced if on["hangup_us"] is None else ledger(cases.without_hangup(on))\n',
+        '        stays = produced if on["hangup_us"] is None else runner.ledger(cases.without_hangup(on))\n',
         "        stays = produced\n",
     ),
     Mutant(
@@ -857,5 +860,20 @@ MUTANTS = [
         "src/earful/livekit/harness.py",
         "        closing.result()  # a close that raises is the run's error, as at the end of a scenario\n",
         "        pass\n",
+    ),
+    # The runner's ledgers and the clock patch.
+    Mutant(
+        "search: a case run for its ledger is run again for its verdict",
+        "src/earful/core/search.py",
+        "            self._seen.setdefault(key, outcome)\n",
+        "            pass\n",
+        first="runs_no_case_twice",
+    ),
+    Mutant(
+        "search: a ledger asked for again is run again",
+        "src/earful/core/search.py",
+        "        todo = {key: case for key, case in zip(keys, wanted) if key not in self._ledgers}\n",
+        "        todo = {key: case for key, case in zip(keys, wanted)}\n",
+        first="runs_no_case_twice",
     ),
 ]

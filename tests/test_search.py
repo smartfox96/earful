@@ -534,6 +534,25 @@ def test_a_search_adds_each_fault_to_each_write_the_run_made():
         explore(a_case(BOOK, WINDOW), run, faults=["backend.explode"])
 
 
+def test_a_search_runs_no_case_twice():
+    """The case as given, the runs that candidates are placed against (the case without
+    each speech, with each fault, under each profile) and the candidates all go through
+    one runner, which runs each distinct case once and keeps the ledgers a search needs."""
+    failing = answers(has_fault("backend.drop"))
+    ran = []
+
+    def run(case):
+        ran.append(cases.canonical(case))
+        return failing(case)
+
+    author = a_case(BOOK, WINDOW)
+    found = explore(author, run, pairs=True, profiles=2, words=False)
+    assert len(ran) == len(set(ran)) == found.runner.runs
+    assert cases.canonical(author) in ran  # the case as given is one of them, once
+    assert found.runner.ledger(author) is not None  # kept: asking again runs nothing
+    assert len(ran) == len(set(ran)) == found.runner.runs
+
+
 def test_a_write_that_already_has_a_fault_is_given_no_other():
     run = answers(lambda case: False)
     found = explore(a_case(BOOK, WINDOW, faults=[fault("backend.error")]), run, variables=())

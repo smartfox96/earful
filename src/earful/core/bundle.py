@@ -113,7 +113,9 @@ def capture(
     """
     runner = run if isinstance(run, Runner) else Runner(run)
     shrunk = shrink(case, runner, predicate, author=author, max_runs=max_runs)
-    found_events = runner.run(case)
+    found_events = runner.ledger(case)
+    if found_events is None:  # shrink has checked that the case breaks the rule
+        raise ValueError("the case cannot be judged")
     runs = [runner.run(shrunk.case) for _ in range(repeats)]
     distinct = len({ledger_hash(events) for events in runs})
     if distinct != 1:
