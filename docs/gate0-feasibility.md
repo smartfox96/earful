@@ -13,7 +13,7 @@ the full repeat and with CI asserting the recorded hashes.
 
 ## Exit criteria
 
-Gate 0 is complete only when each of these is demonstrated.
+Gate 0 is complete when each of these is demonstrated.
 
 | Criterion | Where it is shown |
 | --- | --- |
@@ -48,11 +48,11 @@ was recorded on macOS arm64. All 12 jobs pass.
 
 Negative control: the same case on the real clock, with nothing patched, gave 3 distinct
 hashes in 3 runs, with the same 43 events in the same order. The hash is sensitive to
-timing; the virtual clock is what makes it stable. CI runs this control on one job and
+timing, and the virtual clock makes it stable. CI runs this control on one job and
 fails if the real clock does not change the hash.
 
-One thing went beyond the gate's requirement. Two historical LiveKit defects already
-reproduce, using scripted timing alone:
+Beyond the gate's requirement, two historical LiveKit defects already reproduce with
+scripted timing alone:
 
 | Case | Affected release | Repaired release | Evidence |
 | --- | --- | --- | --- |
@@ -120,8 +120,8 @@ Selected events (time in virtual seconds, then who observed it):
 ```
 
 The sink consumed seven whole words and one third of the eighth ("to"). The framework's
-chat history kept all eight. That one-word difference is exactly what contract M1 (played
-vs. remembered) has to rule on, so the tolerance and cut-word rule need to be explicit.
+chat history kept all eight. Contract M1 (played vs. remembered) rules on that one-word
+difference, so its tolerance and cut-word rule need to be explicit.
 
 ## How it works
 
@@ -135,7 +135,7 @@ vs. remembered) has to rule on, so the tolerance and cut-word rule need to be ex
   classes. The LLM is a pure function of the context it is shown and records that context.
 - **Audio.** The TTS writes each word's stamp into every PCM sample of that word. The sink
   reads stamps back from the frames it consumes. Across all runs, zero frames arrived
-  altered, so the audio path carries ground truth end to end.
+  altered.
 - **Sink.** An `AudioOutput` subclass assigned to `session.output.audio`. It models
   playout on the virtual clock, including pause, resume, flush and clear.
 - **Ledger.** One JSON object per event, tagged with its observer: `world`, `llm`, `sink`,
@@ -172,18 +172,20 @@ deterministic.
 - **Two platforms.** macOS arm64 and Linux x86_64. Windows has not been run.
 - **Three short cases.** Determinism of longer or more concurrent conversations is not
   established.
-- **The sink is a model.** Its playout semantics follow LiveKit's test sink, not the real
-  room output. Verdicts that depend on pause or clear timing need a real-time cross-check.
+- **The sink is a model.** Its playout semantics follow LiveKit's test sink. The real
+  room output may differ, so verdicts that depend on pause or clear timing need a
+  real-time cross-check.
 - **The TTS is not incremental.** It emits a whole reply once the model has finished,
   where real providers stream.
-- **Same-instant ordering is fixed, not explored.** Timers due at one instant fire in
-  scheduling order. Nothing here permutes them.
+- **Same-instant ordering is fixed.** Timers due at one instant fire in scheduling order.
+  Nothing here permutes them.
 - **Ledgers are not comparable across releases at full precision.** Framework timestamps
   differ by a few microseconds between releases because each release reads the clock a
   different number of times per step. Within a release they are exact. Cross-release
   comparison needs a coarser projection.
-- **The spike checks are queries, not the contract checker.** They show the evidence each
-  case turns on. Policies, tolerances and the `unobservable` verdict do not exist yet.
+- **The spike checks are ledger queries.** They show the evidence each case turns on. The
+  contract checker, with its policies, tolerances and `unobservable` verdict, does not
+  exist yet.
 - **A duplicate booking depends on the model policy.** The scripted model books whenever
   it sees a booking request and no tool result. The missing tool result is unconditional;
   the second booking follows only under that policy.
@@ -192,7 +194,7 @@ deterministic.
 
 1. **The #5509 repair only protects outputs that can pause.** With a sink that reports
    `pause=False`, the stale reply still starts on 1.5.7 and on 1.8.12. LiveKit's avatar
-   outputs declare `pause=False`. This is a lead, not a finding: it has not been run
+   outputs declare `pause=False`. This is an unverified lead: it has not been run
    against those real output classes, and it may be an accepted limitation.
 2. **Session close takes 2.0 virtual seconds longer on 1.5.x and 1.8.12 than on 1.6.x.**
    Conversation events are the same. Unexplained, low priority.

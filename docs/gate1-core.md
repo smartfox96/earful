@@ -3,13 +3,13 @@
 Status: **passed.** 16 November 2026.
 
 Gate 0 showed that a real LiveKit `AgentSession` can be run deterministically
-(`docs/gate0-feasibility.md`). Gate 1 asks whether the core that sits on top of that is
-whole: a record of what happened, a checker that judges it, a way to look for the timing
-at which a scenario fails, and a way to reduce a failure to something worth keeping.
+(`docs/gate0-feasibility.md`). Gate 1 covers the core built on that: the ledger, the
+checker, the search for the timings and faults at which a scenario fails, and the
+reduction of a failing case to one that is kept and replayed.
 
 ## Exit criteria
 
-Gate 1 is complete only when each of these is demonstrated.
+Gate 1 is complete when each of these is demonstrated.
 
 | Criterion | Where it is shown |
 | --- | --- |
@@ -28,10 +28,10 @@ replay of the reference bundles on each, side by side.
 ## Mutations and controls
 
 Each contract has a deliberate break and a clean control
-(`tests/test_contract_breaks.py`). The break is reached through a seam any application
-has; nothing inside the framework is patched, and the checker sees only the ledger. The
-same checker, with no special cases, fails the break and passes the control on all five
-releases.
+(`tests/test_contract_breaks.py`). The break is made in the application's own code: the
+model policy, a tool, the backend, an agent hook, a session option or the sink. Nothing
+inside the framework is patched, and the checker sees only the ledger. The same checker
+fails the break and passes the control on all five releases.
 
 | Contract | Break | Control |
 | --- | --- | --- |
@@ -65,11 +65,11 @@ audio, the end of every word, the last word (`tests/test_search_live.py`).
 | The same, only in the 30 ms after the seventh word ends | 99 | 2 | 29 ms wide, located to a millisecond | 0 |
 | The same, only at the very microsecond that word ends | 99 | 1 | an instant: no width, a passing run a microsecond either side | 0 |
 
-The figures are the same on all five releases except where noted. The second row is what
-the boundary search is for: a fixed step of 50 ms lands inside 30 ms by luck, and the
-search goes to the end of the word and finds it there and 10 ms after. The third row is
-what the window is for. A candidate that fails exactly at a boundary may be a real
-failure with little room or a tie between two events; only measuring tells them apart.
+The figures are the same on all five releases except where noted. In the second row a
+fixed step of 50 ms would land inside the 30 ms only by luck. The search puts "Stop." at
+the end of the word and 10 ms after it, and both candidates fail. In the third row the one
+failing candidate has a passing run a microsecond either side of it, so the search
+reports an instant: a tie between two events, with no timing room.
 
 ### The boundaries that matter are reached
 
@@ -136,9 +136,8 @@ the one fault, and replays to the same ledger (`tests/test_search_live.py`).
 increments, 3 441 runs per release (`docs/contracts.md`, section 10). On 22 of those
 shapes, on releases 1.5.6, 1.6.6 and 1.8.12, the boundary search with its default
 variables was compared with the sweep: 14 847 candidates per release. Every rule the
-sweep found broken in a shape, the search found broken in that shape. The comparison is
-one of recall. It cannot show that the search finds what neither method looks for, and
-`docs/search.md` section 7 says what that is.
+sweep found broken in a shape, the search found broken in that shape. This compares
+recall only. What neither method looks for is listed in `docs/search.md` section 7.
 
 As in `docs/contracts.md` section 10, a failure of a rule that has not been classified is
 not reported here.
@@ -191,7 +190,7 @@ macOS, five releases, Python 3.10 to 3.14.
 python scripts/replay.py tests/bundles/lk-1.5.6.book_then_interrupt.A2-rule
 ```
 
-## The tests have teeth
+## Mutation checks
 
 Thirty-three parts of the search, the shrinker, the bundle and what they rest on were
 each broken in turn: the offsets ignored, the delay limit removed, a window's ends
@@ -207,9 +206,9 @@ on this gate:
 - **Two moved times at once are not explored.** A fault can be combined with a moved
   speech, and speeches can be moved under redrawn provider delays (`docs/search.md`,
   section 3).
-- **A failure with no boundary beside it is not looked for.** Stepping through time is
-  the complement.
+- **A failure with no boundary beside it is not looked for.** Stepping through time
+  (`scripts/contracts_sweep.py`) covers those.
 - **Faults are the backend's.** A write can fail, time out or be lost. A provider that
   stalls and a session that closes early cannot be declared.
-- **Scripts, not a package surface.** There is no command-line tool, pytest plugin or
-  report yet.
+- **There is no package surface yet.** The search, the replay and the checks are
+  scripts. There is no command-line tool, pytest plugin or report.

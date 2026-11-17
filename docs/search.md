@@ -55,7 +55,7 @@ The shape is a JSON Schema document shipped with the package
 after they start and not overlap; a delay is declared at most once, and a write has at
 most one fault.
 
-Which settings exist is the adapter's business. The LiveKit adapter has
+The adapter defines which settings exist. The LiveKit adapter has
 `seconds_per_letter_us`, `tts_ttfb_us`, `vad_min_speech_us`, `vad_min_silence_us`,
 `min_interruption_duration_us`, `false_interruption_timeout_us`,
 `min_endpointing_delay_us`, `max_endpointing_delay_us`, `drain_delay_us`,
@@ -110,8 +110,8 @@ resumes within its silence window as one segment, and so does the scripted one
 
 A failure is named by the contract and the rule of it that broke: `A2/rule`,
 `L2/rule b`, `L1/milestone 2`. The instance (which speech, which reply, which context) is
-left out on purpose. A search moves speeches and a reduction removes them, so instances
-are renumbered while the failure stays the same failure.
+left out: a search moves speeches and a reduction removes them, so instances are
+renumbered while the failure stays the same.
 
 A run **breaks a predicate** when its report has a failed verdict of that contract with a
 finding of that rule. Three kinds of run break nothing, because nothing can be concluded
@@ -120,10 +120,10 @@ raises. Each is counted and reported; none ends a search.
 
 ## 3. The boundary scheduler
 
-A timing defect lives at a boundary: the user interrupts as the first audio arrives, a
-tool returns as the turn is being committed. Stepping one thing through time in fixed
-increments finds such a place only if a step happens to land on it. The scheduler asks
-the ledger where the boundaries are and goes to them.
+Timing defects occur at boundaries: the user interrupts as the first audio arrives, or a
+tool returns as the turn is being committed. Stepping a time in fixed increments finds
+one only if a step lands on it. The scheduler reads the boundaries from the ledger and
+places events at them.
 
 **Transitions.** Run the case. Every instant at which the run recorded an event is a
 transition. So are the instants the ledger states and no event marks: the model's first
@@ -131,7 +131,8 @@ token and its last, the voice's first audio, the middle of a word, the end of ev
 word, and the moment a user turn can be committed.
 
 **Handles.** Moving a variable moves one or more handles, the moments at which it acts on
-the system. They follow from what the run declared, never from what the framework did.
+the system. They are computed from what the run declared. What the framework did is not
+used.
 
 | Handle | When, and which variables move it |
 | --- | --- |
@@ -149,8 +150,8 @@ Cases that coincide are one candidate. Each candidate is run and checked.
 
 A delay is placed against the transitions of the case as it is. A speech is placed against
 the transitions of the run without that speech: the timeline it would interrupt. No delay
-is made longer than a limit, 10 s by default. A model that answers after a minute breaks
-things too, but that is another scenario, not a nearby ordering of this one.
+is made longer than a limit, 10 s by default. A model that answers after a minute is a
+different scenario and is outside the search.
 
 By default the search moves where every speech sits and every provider delay.
 `speech.end` and `speech.stt_delay` can be added, and the search can be limited to some
@@ -189,18 +190,18 @@ events included. What it finds is decided by the checker alone.
 - **What broke.** Per predicate: how many candidates break it and what they changed, for
   example `speech.position 1`, `backend.error 1` or `backend.drop 1 + backend.wait 1`. A
   rule that breaks in the case as given and in every candidate that ran is marked
-  `everywhere`: it is not about timing.
+  `everywhere`: it does not depend on timing.
 - **How wide.** Section 4.
 - **What was reached.** For each handle, the kinds of transition it was put beside in a
   run that could be judged, and the kinds it never was, with the reason: no such case
   exists (`impossible`), the adapter refused it, the run raised, or the run was not valid
-  evidence. "Nothing found" means something only next to this.
+  evidence. A search that found nothing is read together with this list.
 
 ## 4. Windows
 
-A candidate that fails says a failure exists near a boundary. It does not say how much
-room the failure has. A **window** does: along one variable, every value from `lo_us` to
-`hi_us` breaks the predicate, with no passing run between.
+A failing candidate shows that a failure exists near a boundary. A **window** measures
+how much room the failure has: along one variable, every value from `lo_us` to `hi_us`
+breaks the predicate, with no passing run between.
 
 Each end is found by doubling the step away from a breaking case until a run does not
 break the rule, then halving back, to within a millisecond. A window narrower than a
@@ -213,23 +214,23 @@ millisecond is located again to the microsecond. Each end says why the search st
 | `reach` | The search gave up, 30 s out by default. The failure may hold further |
 
 A window with no width, located to the microsecond, with a passing run on each side is an
-**instant**. The run breaks the rule at one value and not a microsecond either side: it
-turns on which of two same-instant events ran first, which nothing in the scenario decides
-(`docs/contracts.md`, section 2.3). It is repeatable on a virtual clock and says nothing
-about the system. Any wider window, however narrow, is a real one.
+**instant**. The run breaks the rule at one value and passes a microsecond either side.
+The outcome depends on which of two same-instant events ran first, which nothing in the
+scenario decides (`docs/contracts.md`, section 2.3). An instant is repeatable on a virtual
+clock and says nothing about the system. A window of any width is a real failure.
 
 ## 5. The shrinker
 
-A case found by a search is the scenario its author wrote, changed. The shrinker asks
-which of the changes the failure needs. After every step it runs the real system again,
-and keeps the step only if the run still breaks the same predicate.
+A case found by a search is the author's scenario with changes. The shrinker finds which
+of the changes the failure needs. After every step it runs the real system again, and
+keeps the step only if the run still breaks the same predicate.
 
 1. **Isolate.** List every difference between the found case and the author's scenario:
    a speech moved, lengthened, added or dropped; a delay declared; a fault added; a
-   setting, a contract policy or the seed changed. Delta debugging (Zeller and Hildebrandt's *ddmin*) over
-   that list gives a smallest set of differences that still fails. The result is the
-   author's scenario with only those changes. If the author's scenario fails as written,
-   it is the author's scenario.
+   setting, a contract policy or the seed changed. Delta debugging (Zeller and
+   Hildebrandt's *ddmin*) over that list gives a smallest set of differences that still
+   fails. The result is the author's scenario with only those changes. If the author's
+   scenario fails as written, it is the author's scenario.
 2. **Remove.** ddmin again, over the speeches, then the declared delays, then the faults
    that remain, the author's own included.
 3. **Settle.** For each time that still differs from the author's, measure its window. If
@@ -243,22 +244,22 @@ failing case there is. A reduction can only undo differences, so of several fail
 candidates the one to reduce is the one nearest the author's scenario
 (`earful.core.shrink.nearest`).
 
-Settling is what makes the result worth keeping. A search finds failures at boundaries,
-which is to say at the edges of their windows, and a case left on an edge stops failing at
-the smallest change to the system or to Earful, for no reason anyone could read from it.
+Settling keeps the reduced case stable. A search finds failures at boundaries, which are
+the edges of their windows. A case left on an edge stops failing after a small change to
+the system or to Earful.
 
 Every run is remembered, so no case is run twice. A budget (`max_runs`, 600 by default)
 bounds the work; if it is spent, the case reduced so far is returned and marked
 incomplete.
 
-Two things a reduction cannot promise. It cannot reduce the scenario's code. And it
-follows a rule, not a mechanism: if the same rule can be broken two ways, a reduction may
+A reduction has two limits. It cannot reduce the scenario's code. It follows a rule and
+knows nothing of the mechanism: if the same rule can be broken two ways, a reduction may
 end at the other one. The bundle keeps what the checker said of the case as found and of
-the case as reduced, side by side, so that this can be seen.
+the case as reduced, so the two can be compared.
 
 ## 6. The bundle: `earful.bundle/2`
 
-What is kept when a failing case has been reduced. The file names are fixed.
+A bundle is what is kept when a failing case has been reduced. The file names are fixed.
 
 | File | Contents |
 | --- | --- |
@@ -286,8 +287,7 @@ The manifest freezes the failure. Its shape is
 | `replay` | `repeats`: how many times the reduced case was run when the bundle was made. `distinct_hashes`: how many different ledgers that gave, always 1 |
 
 The seed and the contract policy are in the case files. A bundle holds no timestamp and
-no path. A reduced case that does not give the same ledger every time is not written at
-all.
+no path. A reduced case that does not give the same ledger every time is not written.
 
 **Replaying** runs the reduced case again and says:
 
@@ -302,9 +302,8 @@ On the release it was found on, a bundle is reproduced, repeatable and identical
 platform. On a release that repaired the defect it is repeatable and not reproduced. That
 pair is the regression test.
 
-**Trust.** A bundle names the code of its scenario; it does not contain it. Replaying one
-imports and runs that code. Replay only bundles you trust, as you would only run test code
-you trust.
+**Trust.** A bundle names the code of its scenario and does not contain it. Replaying one
+imports and runs that code, so replay only bundles you trust.
 
 `tests/bundles/` holds two reference bundles, made on livekit-agents 1.5.6: the lost tool
 result (`A2/rule`) and the reply that starts over a new turn (`L2/rule b`). Every
@@ -319,17 +318,17 @@ the one way they change.
   explored, and neither are three changes of any kind.
 - **The boundaries are those of one run.** Once a moved event falls somewhere new it
   changes what follows, so a handle aimed at a later transition may meet a timeline that
-  has moved. The search is a way of choosing where to look, not a proof that every
-  ordering was tried.
+  has moved. The search chooses where to look. It does not prove that every ordering was
+  tried.
 - **A failure with no boundary beside it is not looked for.** A window that opens and
   closes between two transitions, more than 10 ms from each, has no candidate inside it.
-  Stepping a variable in fixed increments (`scripts/contracts_sweep.py`) is the
-  complement, and found nothing the boundary search missed on the supported releases
+  Stepping a variable in fixed increments (`scripts/contracts_sweep.py`) covers those,
+  and found nothing the boundary search missed on the supported releases
   (`docs/gate1-core.md`).
 - **A window is one stretch.** It is measured outwards from one breaking case until a run
   passes. A failure that stops and starts again is several windows, found from several
   candidates.
-- **The reduced case is 1-minimal**, not the global minimum.
+- **The reduced case is 1-minimal.** A smaller failing case may exist.
 - **Faults are the backend's.** A write can fail, time out or be lost. A provider that
   stalls, a caller that sends a write twice and a session that closes early cannot be
   declared yet.

@@ -39,8 +39,9 @@ Time in Earful is an integer count of microseconds. Scenario authors write secon
 Earful converts once and does all of its own arithmetic in integers: the clock, the
 scripted providers, the sink and the ledger. A float appears only where a framework API
 requires one, as a single division of an exact integer. A scripted speech that has lasted
-500 000 µs is therefore reported to the framework as exactly 0.5 s, and a framework
-threshold is decided by the scripted times, never by accumulated rounding.
+500 000 µs is therefore reported to the framework as exactly 0.5 s, so a framework
+threshold is decided by the scripted times and accumulated rounding cannot change the
+result.
 
 The virtual clock moves in 1 µs ticks. Timers due within the same microsecond fire in the
 order they were scheduled. Time starts at 0 when the run's event loop starts.
@@ -103,7 +104,7 @@ with ordinals; see Hashing.
 The four `session` times are declared by the scenario and cannot be set any other way.
 After constructing the session, the harness reads the same options back from it; a
 difference is a harness error and the run is invalid. The header therefore states what
-the framework was actually configured with.
+the framework was configured with.
 
 Scripted speeches may be as close together as an author likes, short of overlapping. A
 VAD reports the end of speech only after `min_silence_us` of silence, so speech that
@@ -152,10 +153,10 @@ matches in full and exactly one starts with it. `ambiguous`: more than one fits.
 nothing fits. `call` is set exactly when attribution is `unique` or `prefix`.
 
 `candidates` lists every reply the text could be: one for `unique` and `prefix`, several
-for `ambiguous`, none for `none`. The scripted voice is handed a text, not the model call
-it came from, so when a framework generates a reply again and the scripted model gives
-the same words, the ledger cannot say which copy was voiced. It does not choose: it names
-them all. The checker then reads the ledger every way the candidates allow
+for `ambiguous`, none for `none`. The scripted voice is handed a text with no reference
+to the model call it came from. When a framework generates a reply again and the scripted
+model gives the same words, the ledger cannot say which copy was voiced, so it names them
+all. The checker then reads the ledger every way the candidates allow
 (`docs/contracts.md`, section 2.5).
 
 A text with attribution `none` is something the application spoke itself, such as a
@@ -175,9 +176,9 @@ therefore cannot hang a run, and the ledger shows that it never finished.
 
 A tool's result is recorded twice. `output` is the returned value itself, as JSON. `text`
 is that value as the framework presents it to the model (for livekit-agents, `str(value)`,
-and the empty string for a tool that returns nothing), computed by Earful from the value
-the tool returned and not read from the framework. A contract compares what the model was
-shown with `text`. A value JSON cannot hold, such as an object or an agent handoff, is
+and the empty string for a tool that returns nothing). Earful computes it from the value
+the tool returned and never reads it from the framework. A contract compares what the
+model was shown with `text`. A value JSON cannot hold, such as an object or an agent handoff, is
 recorded as `{"unrepresentable": "<type name>"}` and its `text` is null: its default text
 form would put a memory address in the ledger.
 
@@ -220,7 +221,7 @@ the fields contracts use. Every item has `type` and `id`.
 
 `segment` is null when no segment has audio.
 
-Pause belongs to the output, not to a segment, as in livekit-agents' room output. Once
+Pause belongs to the output as a whole, as in livekit-agents' room output. Once
 paused, the output plays nothing, including a segment that arrives later, until it is
 resumed; clearing a segment does not resume it. The framework repeats pause on every VAD
 update. Because pausing a paused output changes nothing, only changes of the requested
@@ -252,7 +253,7 @@ position stopped inside, if any, and `word_cut_samples` how many of its samples 
 | `effect.timed_out` | `request`, `intent`, `key`, `after_us` | The caller stopped waiting, `after_us` after it asked |
 
 A keyed backend decides whether a key is a repeat at the moment the write would become
-durable, not when it was requested, so two overlapping writes with one key commit once.
+durable. Two overlapping writes with one key therefore commit once.
 
 `effect.committed`, `effect.deduplicated` and `effect.failed` are outcomes: a request has
 at most one. `effect.timed_out` says what the caller was told and is separate from the
@@ -277,7 +278,7 @@ They never decide a verdict.
   events name a declared speech, come after the origin, and occur at most once per
   speech; a VAD report names the first or the last speech of a segment;
 - every intent named by a write, a claim or a speech's `retires` is declared, once. A
-  misspelt intent is an error; it cannot quietly leave a contract with nothing to check;
+  misspelt intent is an error, so it cannot leave a contract with nothing to check;
 - each model call is requested once and answered once; a claim fits inside its reply; no
   two tool calls share a call id, since the id is what links a call to its result;
 - an attributed synthesis names a call that has answered and has at least one word, and
