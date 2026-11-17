@@ -14,7 +14,7 @@ finds to a small case that replays the same way every time.
 ## Quickstart
 
 Ten minutes, Python 3.10 or later. The two files below are in
-[`examples/booking`](examples/booking).
+[`examples/booking`](examples/booking). The output shown is from livekit-agents 1.8.12.
 
 ```bash
 pip install "earful[livekit] @ git+https://github.com/smartfox96/earful" pytest
