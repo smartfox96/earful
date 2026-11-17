@@ -375,9 +375,9 @@ assert checked.agrees
 book_then_interrupt on livekit-agents 1.5.6
 on the virtual clock it breaks A2/rule, M2/rule d
 3 of 3 real-clock runs agree with the virtual run, within 100 ms and 1 word(s)
-run 1: agrees; breaks A2/rule, M2/rule d; largest drift 35.1 ms
-run 2: agrees; breaks A2/rule, M2/rule d; largest drift 31.4 ms
-run 3: agrees; breaks A2/rule, M2/rule d; largest drift 33.0 ms
+run 1: agrees; breaks A2/rule, M2/rule d; largest drift 19.4 ms
+run 2: agrees; breaks A2/rule, M2/rule d; largest drift 19.4 ms
+run 3: agrees; breaks A2/rule, M2/rule d; largest drift 42.9 ms
 ```
 
 A real-clock run agrees with the virtual run if it matches on six things.
