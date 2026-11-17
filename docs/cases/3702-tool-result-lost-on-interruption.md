@@ -107,7 +107,7 @@ first speech can start anywhere from 0 s to 2.5 s. Both ranges are in the bundle
   run: the scripted user, the framework's own events, the sink and the backend.
   `manifest.json` holds the frozen rule, the windows and the environment it was made in.
 - Recorded ledger hash on 1.5.6:
-  `88f88e2206045549de38d0850751f045c5bb8382688be51f32dc3b5daab67792`. A replay on 1.5.6
+  `d98bea3d4e91137dd35cb01dd0760a0d8fd73c4c7d84ffa93ffb0b9447622dd3`. A replay on 1.5.6
   gives this hash. CI checks that on Linux and macOS.
 - Tests: `tests/test_historical_cases.py`, `tests/test_search_live.py`. CI runs both and
   replays the bundle on all five releases.

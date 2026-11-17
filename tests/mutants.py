@@ -897,4 +897,11 @@ MUTANTS = [
         "    if False:\n        harness_errors += [\n",
         first="cannot_be_patched",
     ),
+    Mutant(
+        "vad: declares an interval it does not report at",
+        "src/earful/livekit/providers.py",
+        "        capabilities = lk_vad.VADCapabilities(update_interval=min_speech_duration)\n",
+        "        capabilities = lk_vad.VADCapabilities(update_interval=0.1)\n",
+        first="declares_the_interval",
+    ),
 ]

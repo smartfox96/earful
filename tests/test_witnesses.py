@@ -15,7 +15,15 @@ from earful.livekit import tools
 from earful.livekit.cases import CASES, LONG_REPLY, _barge_in_policy
 from earful.livekit.clock import now_us, run_virtual
 from earful.livekit.harness import Case, Delay, Fault, Intent, InvalidRun, run_case
-from earful.livekit.providers import Claim, Reply, ReplyRegister, ToolCall, UserSpeech
+from earful.livekit.providers import (
+    Claim,
+    Reply,
+    ReplyRegister,
+    ScriptedVAD,
+    ToolCall,
+    UserSpeech,
+    WorldOrigin,
+)
 from earful.livekit.tools import witnessed
 
 
@@ -559,6 +567,15 @@ def test_a_scenario_that_contradicts_itself_is_refused_before_it_runs():
     leaving.speeches = []
     with pytest.raises(ValueError, match="never speaks"):
         run_case(leaving)
+
+
+def test_the_scripted_vad_declares_the_interval_it_reports_at():
+    """While the user speaks the scripted VAD reports once every ``min_speech_duration``.
+    The interval it declares to the framework is that one."""
+    ledger = Ledger(lambda: 0)
+    for seconds in (0.05, 0.2):
+        vad = ScriptedVAD(ledger, [], WorldOrigin(ledger, []), min_speech_duration=seconds)
+        assert vad.capabilities.update_interval == seconds
 
 
 def test_speech_that_resumes_within_the_vads_silence_window_is_one_segment_to_it():
