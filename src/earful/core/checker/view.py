@@ -33,7 +33,11 @@ def readings(events: list[Event]) -> list[Reading]:
     there are more than ``MAX_READINGS``, or none fits, it is the empty one too, and the
     ambiguous texts stay unattributed.
     """
-    taken = {e["data"]["call"] for e in events if e["kind"] == "tts.synthesized" and e["data"]["call"] is not None}
+    taken = {
+        e["data"]["call"]
+        for e in events
+        if e["kind"] == "tts.synthesized" and e["data"]["call"] is not None
+    }
     open_ = [
         (e["data"]["utterance"], [c for c in e["data"]["candidates"] if c not in taken])
         for e in events
@@ -209,7 +213,9 @@ class View:
         self.effects: dict[int, Effect] = {}
         self.commands: list[Event] = []  # sink.pause, sink.resume, sink.clear, sink.flush
         self.history: Event | None = None
-        self.intents: dict[str, dict[str, Any]] = {it["intent"]: it for it in self.scenario["intents"]}
+        self.intents: dict[str, dict[str, Any]] = {
+            it["intent"]: it for it in self.scenario["intents"]
+        }
         self.request_of: dict[str, ModelCall] = {}  # tool call id -> the model call that asked
 
         speech_events: dict[int, dict[str, Event]] = {}
@@ -442,11 +448,15 @@ class View:
                 if utterance is None and any(u.event["seq"] > item.born["seq"] for u in loose):
                     # Its text may have been altered on the way to the voice. Earful does
                     # not guess whether a later unattributed text was this reply.
-                    unattributable = "a synthesized text that was not attributed could be this reply"
+                    unattributable = (
+                        "a synthesized text that was not attributed could be this reply"
+                    )
             else:
                 utterance = self.utterances[item.instance["utterance"]]
                 if any(r.response["seq"] < item.born["seq"] for r in unsynthesized):
-                    unattributable = "this text could be a model reply altered before it was synthesized"
+                    unattributable = (
+                        "this text could be a model reply altered before it was synthesized"
+                    )
             playout = Playout(item.key, utterance, unattributable)
             if utterance is not None:
                 self._account(playout, utterance)
@@ -472,7 +482,10 @@ class View:
         for segment in self.segments.values():
             # A segment says which utterance it began with as soon as it is audible, even
             # if the run ends before it finishes.
-            if segment.started is not None and segment.started["data"]["utterance"] == utterance.utterance:
+            if (
+                segment.started is not None
+                and segment.started["data"]["utterance"] == utterance.utterance
+            ):
                 playout.first_audible_us = heard(segment.started["t_us"])
             done = segment.finished
             # What a segment played is known only once it has finished.
@@ -512,7 +525,9 @@ class View:
         """Segments the sink had begun that had not finished when the run ended."""
         seen = {e["data"]["segment"] for e in self.commands if e["data"]["segment"] is not None}
         seen |= set(self.segments)
-        return sorted(n for n in seen if n not in self.segments or self.segments[n].finished is None)
+        return sorted(
+            n for n in seen if n not in self.segments or self.segments[n].finished is None
+        )
 
     def word_start_us(self, playout: Playout, index: int) -> int | None:
         """When word ``index`` of a reply started playing, if it completed."""

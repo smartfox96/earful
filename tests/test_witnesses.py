@@ -1,4 +1,5 @@
 """What each witness records: tools, backend, sink word times, TTS attribution."""
+
 import asyncio
 import contextlib
 import dataclasses
@@ -51,9 +52,13 @@ def test_an_agent_needs_no_changes_for_its_tools_to_be_witnessed():
     called = _of(events, "tool.called")
     assert model_ids and [e["data"]["call_id"] for e in called] == model_ids
     assert [e["data"]["arguments"] for e in called] == [{"party_size": 6}] * len(called)
-    assert [e["data"]["tool"] for e in _of(events, "tool.returned")] == [e["data"]["tool"] for e in called]
+    assert [e["data"]["tool"] for e in _of(events, "tool.returned")] == [
+        e["data"]["tool"] for e in called
+    ]
     # each backend write names the tool invocation that made it
-    assert [e["data"]["tool"] for e in _of(events, "effect.requested")] == [e["data"]["tool"] for e in called]
+    assert [e["data"]["tool"] for e in _of(events, "effect.requested")] == [
+        e["data"]["tool"] for e in called
+    ]
 
 
 class _ContextAgent(lk.Agent):
@@ -114,7 +119,11 @@ class _DecoratedAgent(lk.Agent):
 
 def test_a_decorated_tool_is_witnessed_once_and_its_error_recorded():
     events = run_case(
-        _one_turn("raising_tool", _DecoratedAgent, _tool_policy("lookup", '{"code": "X1"}', done="That failed."))
+        _one_turn(
+            "raising_tool",
+            _DecoratedAgent,
+            _tool_policy("lookup", '{"code": "X1"}', done="That failed."),
+        )
     ).ledger.events
     assert validate(events) == []
     assert len(_of(events, "tool.called")) == 1  # not wrapped a second time by the harness
@@ -152,7 +161,12 @@ def test_a_cancelled_tool_is_recorded_as_cancelled():
 
     events = run_virtual(main)
     assert [e["kind"] for e in events] == ["tool.called", "tool.cancelled"]
-    assert events[0]["data"] == {"tool": 1, "name": "slow", "call_id": None, "arguments": {"seconds": 30}}
+    assert events[0]["data"] == {
+        "tool": 1,
+        "name": "slow",
+        "call_id": None,
+        "arguments": {"seconds": 30},
+    }
     assert events[1]["t_us"] == 1_000_000
 
 
@@ -164,7 +178,10 @@ def test_values_json_cannot_hold_are_named_not_printed():
     class Opaque:
         pass
 
-    assert tools.json_value({"seat": Seat(3), "tags": ("a", "b")}) == {"seat": {"row": 3}, "tags": ["a", "b"]}
+    assert tools.json_value({"seat": Seat(3), "tags": ("a", "b")}) == {
+        "seat": {"row": 3},
+        "tags": ["a", "b"],
+    }
     assert tools.json_value(Opaque()) == {"unrepresentable": "Opaque"}  # no memory address
     assert tools.model_text("ok") == "ok" and tools.model_text({"a": 1}) == "{'a': 1}"
     assert tools.model_text(Opaque()) is None
@@ -192,10 +209,14 @@ def test_keyed_backend_deduplicates():
     assert receipts == ["R1", "R1", "R2", "R3"]
     assert commits == 3
     assert [e["kind"] for e in events] == [
-        "effect.requested", "effect.committed",
-        "effect.requested", "effect.deduplicated",
-        "effect.requested", "effect.committed",
-        "effect.requested", "effect.committed",
+        "effect.requested",
+        "effect.committed",
+        "effect.requested",
+        "effect.deduplicated",
+        "effect.requested",
+        "effect.committed",
+        "effect.requested",
+        "effect.committed",
     ]
     assert {e["data"]["tool"] for e in events if e["kind"] == "effect.requested"} == {4}
 
@@ -235,7 +256,12 @@ def _faulty(faults, latencies_us=None, mode="plain"):
             said = type(error).__name__
         await asyncio.sleep(10)  # long enough for a write still under way to finish
         await backend.cancel_in_flight()
-        return [(e["kind"], e["t_us"]) for e in ledger.events], said, backend.commits("book"), validate_effects(ledger.events)
+        return (
+            [(e["kind"], e["t_us"]) for e in ledger.events],
+            said,
+            backend.commits("book"),
+            validate_effects(ledger.events),
+        )
 
     return run_virtual(main)
 
@@ -252,14 +278,26 @@ def test_a_rejected_write_commits_nothing_and_the_caller_is_told():
 
 
 def test_a_caller_that_times_out_first_is_told_so_and_the_write_still_commits():
-    events, said, commits, _ = _faulty({1: ("backend.timeout", 500_000)}, latencies_us={1: 2_000_000})
-    assert events == [("effect.requested", 0), ("effect.timed_out", 500_000), ("effect.committed", 2_000_000)]
+    events, said, commits, _ = _faulty(
+        {1: ("backend.timeout", 500_000)}, latencies_us={1: 2_000_000}
+    )
+    assert events == [
+        ("effect.requested", 0),
+        ("effect.timed_out", 500_000),
+        ("effect.committed", 2_000_000),
+    ]
     assert said == "BackendTimeout" and commits == 1
 
 
 def test_a_write_that_commits_first_is_still_reported_as_timed_out():
-    events, said, commits, _ = _faulty({1: ("backend.timeout", 2_000_000)}, latencies_us={1: 500_000})
-    assert events == [("effect.requested", 0), ("effect.committed", 500_000), ("effect.timed_out", 2_000_000)]
+    events, said, commits, _ = _faulty(
+        {1: ("backend.timeout", 2_000_000)}, latencies_us={1: 500_000}
+    )
+    assert events == [
+        ("effect.requested", 0),
+        ("effect.committed", 500_000),
+        ("effect.timed_out", 2_000_000),
+    ]
     assert said == "BackendTimeout" and commits == 1
 
 
@@ -283,7 +321,9 @@ def test_a_fault_belongs_to_one_write_and_the_next_is_untouched():
 def test_a_write_still_under_way_when_the_scenario_ends_has_no_outcome():
     async def main():
         ledger = Ledger(now_us, run="test")
-        backend = EffectBackend(ledger, faults={1: ("backend.timeout", 100_000)}, latencies_us={1: 60_000_000})
+        backend = EffectBackend(
+            ledger, faults={1: ("backend.timeout", 100_000)}, latencies_us={1: 60_000_000}
+        )
         with pytest.raises(BackendTimeout):
             await backend.write("book", {})
         await backend.cancel_in_flight()
@@ -383,14 +423,22 @@ def test_declared_faults_are_in_the_header_and_the_run_is_valid():
     case.faults = [Fault("backend.timeout", 1, 0.5)]
     case.delays = [Delay("backend.latency", 1, 2.0)]
     events = run_case(case).ledger.events
-    assert events[0]["data"]["scenario"]["faults"] == [{"of": "backend.timeout", "nth": 1, "us": 500_000}]
+    assert events[0]["data"]["scenario"]["faults"] == [
+        {"of": "backend.timeout", "nth": 1, "us": 500_000}
+    ]
     assert validate(events) == []
     gave_up, committed = _of(events, "effect.timed_out")[0], _of(events, "effect.committed")[0]
-    assert gave_up["data"]["after_us"] == 500_000 and committed["t_us"] - gave_up["t_us"] == 1_500_000
+    assert (
+        gave_up["data"]["after_us"] == 500_000 and committed["t_us"] - gave_up["t_us"] == 1_500_000
+    )
     # The tool was told; the model was shown an error for that call.
     raised = _of(events, "tool.raised")[0]
     assert raised["t_us"] == gave_up["t_us"]
-    shown = [i for i in _of(events, "llm.request")[1]["data"]["items"] if i["type"] == "function_call_output"]
+    shown = [
+        i
+        for i in _of(events, "llm.request")[1]["data"]["items"]
+        if i["type"] == "function_call_output"
+    ]
     assert [i["is_error"] for i in shown] == [True]
 
 
@@ -472,21 +520,31 @@ def test_a_claim_that_does_not_fit_its_reply_is_a_harness_error():
     def policy(items):
         return Reply(text="All booked.", claims=(Claim("book-table", first_word=0, last_word=5),))
 
-    case = _one_turn("bad_claim", lambda backend: lk.Agent(instructions="t"), policy, intents=[Intent("book-table")])
+    case = _one_turn(
+        "bad_claim",
+        lambda backend: lk.Agent(instructions="t"),
+        policy,
+        intents=[Intent("book-table")],
+    )
     with pytest.raises(InvalidRun, match="does not fit reply"):
         run_case(case)
 
 
 def test_a_scenario_that_contradicts_itself_is_refused_before_it_runs():
     def make(**kwargs):
-        return _one_turn("bad", lambda backend: lk.Agent(instructions="t"), _barge_in_policy, **kwargs)
+        return _one_turn(
+            "bad", lambda backend: lk.Agent(instructions="t"), _barge_in_policy, **kwargs
+        )
 
     with pytest.raises(ValueError, match="use the Case fields"):
         run_case(make(session_kwargs={"min_interruption_duration": 0.1}))
     with pytest.raises(ValueError, match="unknown contracts"):
         run_case(make(contracts={"M9": {}}))
     overlapping = make()
-    overlapping.speeches = [UserSpeech(0.5, 1.5, "Please do it."), UserSpeech(1.4, 2.5, "Right now.")]
+    overlapping.speeches = [
+        UserSpeech(0.5, 1.5, "Please do it."),
+        UserSpeech(1.4, 2.5, "Right now."),
+    ]
     with pytest.raises(ValueError, match="overlap"):
         run_case(overlapping)
     retiring = make()
@@ -508,11 +566,21 @@ def test_speech_that_resumes_within_the_vads_silence_window_is_one_segment_to_it
     0.5 s of silence, so it reports one segment: its start with the first speech, its end
     after the second. The recognizer still delivers two transcripts."""
     case = CASES["barge_in_mid_word"]()
-    case.speeches = [UserSpeech(0.5, 1.5, "Tell me about"), UserSpeech(1.8, 2.8, "the menu please.")]
+    case.speeches = [
+        UserSpeech(0.5, 1.5, "Tell me about"),
+        UserSpeech(1.8, 2.8, "the menu please."),
+    ]
     events = run_case(case).ledger.events
-    reports = [(e["kind"], e["data"]["speech"], e["t_us"]) for e in events if e["kind"].startswith("user.vad")]
+    reports = [
+        (e["kind"], e["data"]["speech"], e["t_us"])
+        for e in events
+        if e["kind"].startswith("user.vad")
+    ]
     assert reports == [("user.vad_start", 0, 550_000), ("user.vad_end", 1, 3_300_000)]
-    assert [e["data"]["text"] for e in _of(events, "user.transcript_final")] == ["Tell me about", "the menu please."]
+    assert [e["data"]["text"] for e in _of(events, "user.transcript_final")] == [
+        "Tell me about",
+        "the menu please.",
+    ]
     report = check(events)
     assert report.failures == () and report.outcome("L2") == PASS
     assert [v.instance for v in report.results["L2"].verdicts] == [{"speech": 0}, {"speech": 1}]
@@ -523,10 +591,18 @@ def test_speech_that_resumes_within_the_vads_silence_window_is_one_segment_to_it
 
 def test_speech_a_full_silence_window_later_is_a_segment_of_its_own():
     case = CASES["barge_in_mid_word"]()
-    case.speeches = [UserSpeech(0.5, 1.5, "Tell me about"), UserSpeech(2.0, 3.0, "the menu please.")]
+    case.speeches = [
+        UserSpeech(0.5, 1.5, "Tell me about"),
+        UserSpeech(2.0, 3.0, "the menu please."),
+    ]
     events = run_case(case).ledger.events
-    assert [(e["kind"], e["data"]["speech"]) for e in events if e["kind"].startswith("user.vad")] == [
-        ("user.vad_start", 0), ("user.vad_end", 0), ("user.vad_start", 1), ("user.vad_end", 1),
+    assert [
+        (e["kind"], e["data"]["speech"]) for e in events if e["kind"].startswith("user.vad")
+    ] == [
+        ("user.vad_start", 0),
+        ("user.vad_end", 0),
+        ("user.vad_start", 1),
+        ("user.vad_end", 1),
     ]
 
 
@@ -616,7 +692,11 @@ def test_tts_attribution_is_unique_in_every_case():
 
 def test_attribution_names_every_candidate_and_chooses_none():
     register = ReplyRegister()
-    register.replies = {1: ["one", "moment", "please"], 2: ["one", "moment", "please"], 3: ["all", "done"]}
+    register.replies = {
+        1: ["one", "moment", "please"],
+        2: ["one", "moment", "please"],
+        3: ["all", "done"],
+    }
     assert register.attribute("all done") == (3, "unique", [3])
     assert register.attribute("all done") == (None, "none", [])  # reply 3 is already synthesized
     assert register.attribute("one moment please") == (None, "ambiguous", [1, 2])

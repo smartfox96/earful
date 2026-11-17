@@ -9,6 +9,7 @@ timed-out write badly; each passes as written, where every write commits. The ha
 break is an agent that books again when the session ends unless it had told the user the
 table is booked; it passes as written, where the user stays to hear it.
 """
+
 import asyncio
 
 import livekit.agents as lk
@@ -79,16 +80,22 @@ def interrupted_and_slow_to_stop() -> Case:
     return case
 
 
-
 # ----------------------------------------------------------------------------- faults
 
 
 def _asked_to_book(items) -> bool:
-    return any(i["type"] == "message" and i.get("role") == "user" and "table" in (i.get("text") or "").lower() for i in items)
+    return any(
+        i["type"] == "message"
+        and i.get("role") == "user"
+        and "table" in (i.get("text") or "").lower()
+        for i in items
+    )
 
 
 def _book() -> Reply:
-    return Reply(text=BOOKING_ACK, tool_calls=(ToolCall("create_reservation", '{"party_size": 6}'),))
+    return Reply(
+        text=BOOKING_ACK, tool_calls=(ToolCall("create_reservation", '{"party_size": 6}'),)
+    )
 
 
 def _confirms_whatever_came_back(items) -> Reply:
@@ -134,7 +141,9 @@ class _KeyedBookingAgent(lk.Agent):
         Args:
             party_size: Number of guests
         """
-        receipt = await self._backend.write(BOOKING_INTENT, {"party_size": party_size}, key=f"table-for-{party_size}")
+        receipt = await self._backend.write(
+            BOOKING_INTENT, {"party_size": party_size}, key=f"table-for-{party_size}"
+        )
         return f"Reservation {receipt} confirmed for {party_size} guests."
 
 
@@ -187,12 +196,17 @@ class _BooksAgainOnExit(lk.Agent):
             party_size: Number of guests
         """
         self._asked = True
-        receipt = await self._backend.write(BOOKING_INTENT, {"party_size": party_size}, key=self._key)
+        receipt = await self._backend.write(
+            BOOKING_INTENT, {"party_size": party_size}, key=self._key
+        )
         return f"Reservation {receipt} confirmed for {party_size} guests."
 
     async def on_exit(self) -> None:
         told = any(
-            item.type == "message" and item.role == "assistant" and not item.interrupted and "booked" in (item.text_content or "")
+            item.type == "message"
+            and item.role == "assistant"
+            and not item.interrupted
+            and "booked" in (item.text_content or "")
             for item in self.session.history.items
         )
         if self._asked and not told:
@@ -207,4 +221,8 @@ def books_again_if_the_user_left() -> Case:
 
 def books_again_with_a_key() -> Case:
     """The control: the same agent sends a key with both writes, to a backend that honours it."""
-    return _booking(_reads_the_error, agent=lambda backend: _BooksAgainOnExit(backend, key="table-for-6"), backend_mode="keyed")
+    return _booking(
+        _reads_the_error,
+        agent=lambda backend: _BooksAgainOnExit(backend, key="table-for-6"),
+        backend_mode="keyed",
+    )

@@ -1,4 +1,5 @@
 """Every ledger Earful writes validates, and the validator rejects broken ones."""
+
 import copy
 
 import pytest
@@ -66,21 +67,51 @@ def _edit_header(edit):
         (lambda ev: ev[0]["data"].update(seed=7), "not the digest of run.start"),
         (lambda ev: ev[4].pop("run"), "'run' is a required property"),
         (lambda ev: _first(ev, "tool.called").update(source="framework"), "'world' was expected"),
-        (lambda ev: _first(ev, "llm.response").update(kind="llm.reply"), "kind: 'llm.reply' is not valid"),
+        (
+            lambda ev: _first(ev, "llm.response").update(kind="llm.reply"),
+            "kind: 'llm.reply' is not valid",
+        ),
         # the fields of each kind
-        (lambda ev: _data(ev, "playout.finished").pop("word_cut"), "'word_cut' is a required property"),
+        (
+            lambda ev: _data(ev, "playout.finished").pop("word_cut"),
+            "'word_cut' is a required property",
+        ),
         (lambda ev: _data(ev, "llm.request").update(extra=1), "'extra' was unexpected"),
-        (lambda ev: _data(ev, "effect.committed").update(request=True), "True is not of type 'integer'"),
+        (
+            lambda ev: _data(ev, "effect.committed").update(request=True),
+            "True is not of type 'integer'",
+        ),
         (lambda ev: _data(ev, "user.origin").update(by="llm"), "'llm' is not one of"),
-        (lambda ev: _data(ev, "tts.synthesized")["stamps"].append("x"), "'x' is not of type 'integer'"),
+        (
+            lambda ev: _data(ev, "tts.synthesized")["stamps"].append("x"),
+            "'x' is not of type 'integer'",
+        ),
         # nested records: the context a model was shown, tool calls, the scenario
-        (lambda ev: _data(ev, "llm.request")["items"][0].pop("role"), "'role' is a required property"),
+        (
+            lambda ev: _data(ev, "llm.request")["items"][0].pop("role"),
+            "'role' is a required property",
+        ),
         (lambda ev: _data(ev, "llm.request")["items"][0].update(text=3), "3 is not of type"),
-        (lambda ev: _data(ev, "history.final")["items"][0].update(extra=1), "'extra' was unexpected"),
-        (lambda ev: _data(ev, "llm.response")["tool_calls"][0].pop("call_id"), "'call_id' is a required property"),
-        (_edit_header(lambda h: h["scenario"]["session"].pop("min_interruption_duration_us")), "is a required property"),
-        (_edit_header(lambda h: h["scenario"]["providers"]["backend"].update(mode="fast")), "'fast' is not one of"),
-        (_edit_header(lambda h: h["scenario"]["speeches"][0].update(start_us=0.5)), "0.5 is not of type 'integer'"),
+        (
+            lambda ev: _data(ev, "history.final")["items"][0].update(extra=1),
+            "'extra' was unexpected",
+        ),
+        (
+            lambda ev: _data(ev, "llm.response")["tool_calls"][0].pop("call_id"),
+            "'call_id' is a required property",
+        ),
+        (
+            _edit_header(lambda h: h["scenario"]["session"].pop("min_interruption_duration_us")),
+            "is a required property",
+        ),
+        (
+            _edit_header(lambda h: h["scenario"]["providers"]["backend"].update(mode="fast")),
+            "'fast' is not one of",
+        ),
+        (
+            _edit_header(lambda h: h["scenario"]["speeches"][0].update(start_us=0.5)),
+            "0.5 is not of type 'integer'",
+        ),
         (_edit_header(lambda h: h.update(contracts={"Z9": {}})), "does not match"),
         (_edit_header(lambda h: h.update(clock="fast")), "'fast' is not one of"),
         # references between events
@@ -88,31 +119,86 @@ def _edit_header(edit):
         (lambda ev: _data(ev, "tool.returned").update(tool=7), "no open call"),
         (lambda ev: _data(ev, "effect.committed").update(request=7), "no open request"),
         (lambda ev: _data(ev, "tts.synthesized").update(attribution="none"), "call must be set"),
-        (lambda ev: _data(ev, "playout.finished")["words_completed_us"].pop(), "one completion time"),
+        (
+            lambda ev: _data(ev, "playout.finished")["words_completed_us"].pop(),
+            "one completion time",
+        ),
         (lambda ev: ev.append({**copy.deepcopy(ev[-1]), "seq": len(ev)}), "only run.end"),
         # things a real run cannot produce, which the checker need not survive
-        (lambda ev: _first(ev, "playout.paused").update(kind="playout.resumed"), "pauses while playing and resumes while paused"),
+        (
+            lambda ev: _first(ev, "playout.paused").update(kind="playout.resumed"),
+            "pauses while playing and resumes while paused",
+        ),
         (lambda ev: _data(ev, "user.transcript_final").update(text=""), "should be non-empty"),
-        (lambda ev: _first(ev, "llm.response")["data"]["tool_calls"].append(
-            dict(_first(ev, "llm.response")["data"]["tool_calls"][0])), "is used twice"),
-        (lambda ev: _data(ev, "tts.synthesized")["word_samples"].pop(), "one stamp and one sample count per word"),
-        (lambda ev: _data(ev, "tool.returned").pop("expects_reply"), "'expects_reply' is a required property"),
-        (lambda ev: _data(ev, "tts.synthesized").update(text="", stamps=[], word_samples=[]), "cannot be attributed to a reply"),
-        (lambda ev: _data(ev, "playout.finished").update(utterances=[99]), "utterance 99 was never synthesized"),
-        (lambda ev: _data(ev, "playout.started").update(utterance=99), "utterance 99 was never synthesized"),
-        (lambda ev: _data(ev, "playout.finished")["words_played"].__setitem__(0, 9999), "belongs to none of the segment's utterances"),
-        (lambda ev: ev.insert(5, {**copy.deepcopy(_first(ev, "user.vad_start")), "seq": 5}), "recorded twice for speech 0"),
-        (_edit_header(lambda h: h["scenario"].pop("witnessed_tools")), "'witnessed_tools' is a required property"),
+        (
+            lambda ev: _first(ev, "llm.response")["data"]["tool_calls"].append(
+                dict(_first(ev, "llm.response")["data"]["tool_calls"][0])
+            ),
+            "is used twice",
+        ),
+        (
+            lambda ev: _data(ev, "tts.synthesized")["word_samples"].pop(),
+            "one stamp and one sample count per word",
+        ),
+        (
+            lambda ev: _data(ev, "tool.returned").pop("expects_reply"),
+            "'expects_reply' is a required property",
+        ),
+        (
+            lambda ev: _data(ev, "tts.synthesized").update(text="", stamps=[], word_samples=[]),
+            "cannot be attributed to a reply",
+        ),
+        (
+            lambda ev: _data(ev, "playout.finished").update(utterances=[99]),
+            "utterance 99 was never synthesized",
+        ),
+        (
+            lambda ev: _data(ev, "playout.started").update(utterance=99),
+            "utterance 99 was never synthesized",
+        ),
+        (
+            lambda ev: _data(ev, "playout.finished")["words_played"].__setitem__(0, 9999),
+            "belongs to none of the segment's utterances",
+        ),
+        (
+            lambda ev: ev.insert(5, {**copy.deepcopy(_first(ev, "user.vad_start")), "seq": 5}),
+            "recorded twice for speech 0",
+        ),
+        (
+            _edit_header(lambda h: h["scenario"].pop("witnessed_tools")),
+            "'witnessed_tools' is a required property",
+        ),
         (_edit_header(lambda h: h["scenario"].pop("delays")), "'delays' is a required property"),
-        (_edit_header(lambda h: h["scenario"]["delays"].append({"of": "llm.speed", "nth": 1, "us": 0})), "is not one of"),
+        (
+            _edit_header(
+                lambda h: h["scenario"]["delays"].append({"of": "llm.speed", "nth": 1, "us": 0})
+            ),
+            "is not one of",
+        ),
         # the two speeches are 2.5 s apart: each is a segment of its own to the VAD
-        (lambda ev: [e for e in ev if e["kind"] == "user.vad_end"][0]["data"].update(speech=1), "recorded twice for speech 1"),
-        (_edit_header(lambda h: h["scenario"]["speeches"][1].update(start_us=2_700_000)), "speech 1 does not open a segment the VAD would hear"),
+        (
+            lambda ev: [e for e in ev if e["kind"] == "user.vad_end"][0]["data"].update(speech=1),
+            "recorded twice for speech 1",
+        ),
+        (
+            _edit_header(lambda h: h["scenario"]["speeches"][1].update(start_us=2_700_000)),
+            "speech 1 does not open a segment the VAD would hear",
+        ),
         # intents must be declared
-        (lambda ev: _data(ev, "effect.requested").update(intent="book-tabel-1"), "undeclared intent"),
-        (lambda ev: _first(ev, "llm.response")["data"]["claims"].append(
-            {"intent": "nope", "first_word": 0, "last_word": 0}), "undeclared intent"),
-        (_edit_header(lambda h: h["scenario"]["speeches"][0]["retires"].append("nope")), "retires undeclared intent"),
+        (
+            lambda ev: _data(ev, "effect.requested").update(intent="book-tabel-1"),
+            "undeclared intent",
+        ),
+        (
+            lambda ev: _first(ev, "llm.response")["data"]["claims"].append(
+                {"intent": "nope", "first_word": 0, "last_word": 0}
+            ),
+            "undeclared intent",
+        ),
+        (
+            _edit_header(lambda h: h["scenario"]["speeches"][0]["retires"].append("nope")),
+            "retires undeclared intent",
+        ),
     ],
 )
 def test_validator_rejects(booking, mutate, expected):
@@ -133,6 +219,7 @@ def timed_out():
 def _again(kind, as_kind=None, keep=None):
     """Record the first event of ``kind`` a second time, right after it: as another kind,
     with only the fields in ``keep``, if given."""
+
     def mutate(events):
         at = next(i for i, e in enumerate(events) if e["kind"] == kind)
         again = copy.deepcopy(events[at])
@@ -150,11 +237,20 @@ def _again(kind, as_kind=None, keep=None):
     "mutate, expected",
     [
         (_again("effect.timed_out"), "its caller gave up twice"),
-        (_again("effect.committed", as_kind="effect.failed", keep=("request", "intent", "key")), "no open request"),
+        (
+            _again("effect.committed", as_kind="effect.failed", keep=("request", "intent", "key")),
+            "no open request",
+        ),
         (lambda ev: _data(ev, "effect.timed_out").update(request=9), "was not made"),
         (lambda ev: _data(ev, "effect.timed_out").update(intent="book-table-2"), "intent differs"),
-        (lambda ev: _data(ev, "effect.timed_out").pop("after_us"), "'after_us' is a required property"),
-        (_edit_header(lambda h: h["scenario"]["faults"][0].update(of="backend.explode")), "is not one of"),
+        (
+            lambda ev: _data(ev, "effect.timed_out").pop("after_us"),
+            "'after_us' is a required property",
+        ),
+        (
+            _edit_header(lambda h: h["scenario"]["faults"][0].update(of="backend.explode")),
+            "is not one of",
+        ),
         (_edit_header(lambda h: h["scenario"].pop("faults")), "'faults' is a required property"),
     ],
 )
@@ -177,12 +273,27 @@ def hung_up():
     "mutate, expected",
     [
         (_again("user.hangup"), "user.hangup recorded more than once"),
-        (_edit_header(lambda h: h["scenario"].update(hangup_us=None)), "the scenario declares no hangup"),
-        (_edit_header(lambda h: h["scenario"].update(hangup_us=4_000_000)), "not at the declared time"),
-        (_edit_header(lambda h: h["scenario"].update(hangup_us=1_000_000)), "hangs up before a speech is over"),
-        (_edit_header(lambda h: h["scenario"].pop("hangup_us")), "'hangup_us' is a required property"),
+        (
+            _edit_header(lambda h: h["scenario"].update(hangup_us=None)),
+            "the scenario declares no hangup",
+        ),
+        (
+            _edit_header(lambda h: h["scenario"].update(hangup_us=4_000_000)),
+            "not at the declared time",
+        ),
+        (
+            _edit_header(lambda h: h["scenario"].update(hangup_us=1_000_000)),
+            "hangs up before a speech is over",
+        ),
+        (
+            _edit_header(lambda h: h["scenario"].pop("hangup_us")),
+            "'hangup_us' is a required property",
+        ),
         (lambda ev: _first(ev, "user.hangup").update(source="harness"), "'world' was expected"),
-        (lambda ev: _data(ev, "user.hangup").update(reason="bored"), "Additional properties are not allowed"),
+        (
+            lambda ev: _data(ev, "user.hangup").update(reason="bored"),
+            "Additional properties are not allowed",
+        ),
     ],
 )
 def test_validator_rejects_a_hangup_that_cannot_have_happened(hung_up, mutate, expected):
@@ -198,12 +309,21 @@ def _spoiled(event):
         yield f"without {name}", {k: v for k, v in event.items() if k != name}
     for kind in [*kinds(), "fw.made_up", "made.up", 7]:
         yield f"as {kind}", {**event, "kind": kind}
-    yield "from another source", {**event, "source": "sink" if event["source"] == "world" else "world"}
+    yield (
+        "from another source",
+        {**event, "source": "sink" if event["source"] == "world" else "world"},
+    )
     data = event["data"]
     yield "with a field nobody defined", {**event, "data": {**data, "made_up": 1}}
     for name, value in data.items():
-        yield f"without data.{name}", {**event, "data": {k: v for k, v in data.items() if k != name}}
-        yield f"with data.{name} of another type", {**event, "data": {**data, name: 0 if isinstance(value, str) else "wrong"}}
+        yield (
+            f"without data.{name}",
+            {**event, "data": {k: v for k, v in data.items() if k != name}},
+        )
+        yield (
+            f"with data.{name} of another type",
+            {**event, "data": {**data, name: 0 if isinstance(value, str) else "wrong"}},
+        )
     for other in (None, [], "event"):
         yield f"as {other!r} in place of an object", other
 
@@ -220,7 +340,11 @@ def test_an_event_checked_by_its_kind_gets_the_whole_schemas_errors(booking, tim
     for events in (booking, timed_out, hung_up):
         for event in {e["kind"]: e for e in events}.values():  # one event of each kind
             for what, spoiled in _spoiled(event):
-                expected = said(sorted(whole.iter_errors(spoiled), key=lambda e: list(map(str, e.absolute_path))))
+                expected = said(
+                    sorted(
+                        whole.iter_errors(spoiled), key=lambda e: list(map(str, e.absolute_path))
+                    )
+                )
                 assert said(event_errors(spoiled)) == expected, (event["kind"], what)
                 if what == "as recorded":
                     assert not expected, event["kind"]
@@ -248,7 +372,10 @@ def test_every_kind_has_one_source():
         (lambda ev: ev[-1]["data"].update(stamp_errors=2), "reached the sink altered"),
         (lambda ev: ev[-1]["data"].update(executor_calls=1), "left the virtual clock"),
         (lambda ev: ev[-1]["data"].update(underruns=1), "ran ahead of its audio"),
-        (lambda ev: ev[-1]["data"].update(harness_errors=["tap broke"]), "harness error: tap broke"),
+        (
+            lambda ev: ev[-1]["data"].update(harness_errors=["tap broke"]),
+            "harness error: tap broke",
+        ),
         (_edit_header(lambda h: h.update(clock="real")), "real clock"),
         (lambda ev: ev.pop(), "schema:"),
     ],

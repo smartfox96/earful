@@ -50,7 +50,8 @@ def _validator_for(kind: str) -> Draft202012Validator:
     rules = [
         rule
         for rule in schema["allOf"]
-        if rule["if"]["properties"]["kind"].get("const", kind) == kind  # its own rule, and any not tied to one kind
+        if rule["if"]["properties"]["kind"].get("const", kind)
+        == kind  # its own rule, and any not tied to one kind
     ]
     return Draft202012Validator({**schema, "allOf": rules})
 
@@ -145,8 +146,12 @@ def _check_ledger(events: list[Event], errors: list[str]) -> None:
         elif not origins or origins[0]["seq"] > e["seq"]:
             errors.append(f"{where}: comes before user.origin")
         elif e["t_us"] != origins[0]["t_us"] + scenario["hangup_us"]:
-            errors.append(f"{where}: not at the declared time, {scenario['hangup_us']} us after the origin")
-    if scenario["hangup_us"] is not None and any(s["end_us"] > scenario["hangup_us"] for s in speeches):
+            errors.append(
+                f"{where}: not at the declared time, {scenario['hangup_us']} us after the origin"
+            )
+    if scenario["hangup_us"] is not None and any(
+        s["end_us"] > scenario["hangup_us"] for s in speeches
+    ):
         errors.append("run.start: the user hangs up before a speech is over")
     requests: set[int] = set()
     responses: set[int] = set()
@@ -179,8 +184,12 @@ def _check_ledger(events: list[Event], errors: list[str]) -> None:
         if k in ("user.vad_start", "user.vad_end", "user.transcript_final"):
             if d["speech"] >= len(speeches):
                 errors.append(f"{where}: speech {d['speech']} is not declared")
-            elif (k == "user.vad_start" and d["speech"] not in opens) or (k == "user.vad_end" and d["speech"] not in closes):
-                errors.append(f"{where}: speech {d['speech']} does not {'open' if k == 'user.vad_start' else 'close'} a segment the VAD would hear")
+            elif (k == "user.vad_start" and d["speech"] not in opens) or (
+                k == "user.vad_end" and d["speech"] not in closes
+            ):
+                errors.append(
+                    f"{where}: speech {d['speech']} does not {'open' if k == 'user.vad_start' else 'close'} a segment the VAD would hear"
+                )
             if not origins or origins[0]["seq"] > e["seq"]:
                 errors.append(f"{where}: comes before user.origin")
             if (k, d["speech"]) in speech_events:
@@ -206,7 +215,9 @@ def _check_ledger(events: list[Event], errors: list[str]) -> None:
                     errors.append(f"{where}: claim names undeclared intent {claim['intent']!r}")
         elif k == "tts.synthesized":
             if (d["call"] is None) != (d["attribution"] in ("ambiguous", "none")):
-                errors.append(f"{where}: call must be set exactly when attribution is unique or prefix")
+                errors.append(
+                    f"{where}: call must be set exactly when attribution is unique or prefix"
+                )
             if d["call"] is not None:
                 if d["call"] not in responses:
                     errors.append(f"{where}: call {d['call']} has no response")
@@ -262,7 +273,9 @@ def _check_ledger(events: list[Event], errors: list[str]) -> None:
         elif k == "effect.timed_out":
             # The caller gave up. The write may commit before or after, or never.
             if d["request"] not in effect_requests or d["request"] in gave_up:
-                errors.append(f"{where}: request {d['request']} was not made, or its caller gave up twice")
+                errors.append(
+                    f"{where}: request {d['request']} was not made, or its caller gave up twice"
+                )
             elif effect_requests[d["request"]] != d["intent"]:
                 errors.append(f"{where}: intent differs from the request's")
             gave_up.add(d["request"])
@@ -289,12 +302,16 @@ def _check_ledger(events: list[Event], errors: list[str]) -> None:
                     errors.append(f"{where}: utterance {utterance} was never synthesized")
             stamps = [*d["words_played"], *([d["word_cut"]] if d["word_cut"] is not None else [])]
             if any(stamp_owner.get(stamp) not in d["utterances"] for stamp in stamps):
-                errors.append(f"{where}: a word played or cut belongs to none of the segment's utterances")
+                errors.append(
+                    f"{where}: a word played or cut belongs to none of the segment's utterances"
+                )
             done = d["words_completed_us"]
             if len(done) != len(d["words_played"]):
                 errors.append(f"{where}: one completion time per played word expected")
             if any(t > e["t_us"] for t in done) or done != sorted(done):
-                errors.append(f"{where}: completion times must be in order and no later than the event")
+                errors.append(
+                    f"{where}: completion times must be in order and no later than the event"
+                )
 
 
 def validity(events: list[Event]) -> list[str]:
@@ -315,7 +332,9 @@ def validity(events: list[Event]) -> list[str]:
     if end["stamp_errors"]:
         reasons.append(f"{end['stamp_errors']} audio samples reached the sink altered")
     if end["executor_calls"]:
-        reasons.append(f"{end['executor_calls']} pieces of work left the virtual clock for a thread")
+        reasons.append(
+            f"{end['executor_calls']} pieces of work left the virtual clock for a thread"
+        )
     if end["underruns"]:
         reasons.append(f"playout ran ahead of its audio {end['underruns']} times")
     reasons += [f"harness error: {e}" for e in end["harness_errors"]]

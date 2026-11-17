@@ -6,6 +6,7 @@ defect: the same checker judges every release.
 
     python scripts/spike_5509.py [OUT_DIR] [--no-pause]
 """
+
 import json
 import sys
 from pathlib import Path

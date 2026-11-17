@@ -68,7 +68,10 @@ def validate(manifest: Any) -> list[str]:
     Draft202012Validator.check_schema(schema)
     return [
         f"{'/'.join(str(p) for p in error.absolute_path) or 'manifest'}: {error.message}"
-        for error in sorted(Draft202012Validator(schema).iter_errors(manifest), key=lambda e: list(map(str, e.absolute_path)))
+        for error in sorted(
+            Draft202012Validator(schema).iter_errors(manifest),
+            key=lambda e: list(map(str, e.absolute_path)),
+        )
     ]
 
 
@@ -193,7 +196,9 @@ class Replay:
     hashes: list[str]  # the ledger hash of each run
     recorded: str  # the hash the bundle recorded for the reduced case
     framework: dict[str, str]  # what it was replayed on
-    scenario_changed: bool | None  # the scenario's code is not what the bundle was made with; None if unknown
+    scenario_changed: (
+        bool | None
+    )  # the scenario's code is not what the bundle was made with; None if unknown
     invalid: tuple[str, ...] = ()  # why the runs are not valid evidence, if they are not
 
     @property
@@ -233,4 +238,15 @@ def replay(
     )
 
 
-__all__ = ["FILES", "MANIFEST", "SCHEMA", "Bundle", "Replay", "capture", "load", "load_schema", "replay", "validate"]
+__all__ = [
+    "FILES",
+    "MANIFEST",
+    "SCHEMA",
+    "Bundle",
+    "Replay",
+    "capture",
+    "load",
+    "load_schema",
+    "replay",
+    "validate",
+]

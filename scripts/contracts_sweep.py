@@ -13,6 +13,7 @@ is worth reading either way.
 Prints, per family, every verdict that is not a plain pass, grouped by contract, outcome
 and rule, with the timings it appeared at. ``--dump`` writes the ledger of each such run.
 """
+
 import json
 import sys
 from collections import defaultdict
@@ -32,7 +33,10 @@ LOOKUP = "check-availability"
 BOOK = '{"party_size": 6}'
 ASK_MENU = UserSpeech(start=0.5, end=2.5, transcript="Tell me about the menu.")
 ASK_BOOK = UserSpeech(start=0.5, end=2.5, transcript="Book a table for six tonight.")
-INTENTS = [Intent(INTENT, tools=("create_reservation",)), Intent(LOOKUP, tools=("check_availability",))]
+INTENTS = [
+    Intent(INTENT, tools=("create_reservation",)),
+    Intent(LOOKUP, tools=("check_availability",)),
+]
 
 
 def last_user(items):
@@ -79,7 +83,9 @@ class Booker(lk.Agent):
         Args:
             party_size: Number of guests
         """
-        receipt = await self._backend.write(INTENT, {"party_size": party_size}, latency=self._latency)
+        receipt = await self._backend.write(
+            INTENT, {"party_size": party_size}, latency=self._latency
+        )
         if self._fail:
             raise ValueError("the reservation system is down")
         if self._returns == "dict":
@@ -131,7 +137,11 @@ def two_rounds(items):
     """Checks availability, then books, then confirms."""
     text = last_user(items)
     names = [i["name"] for i in outputs(items)]
-    if after_a_tool(items) and names[-1] == "check_availability" and "create_reservation" not in names:
+    if (
+        after_a_tool(items)
+        and names[-1] == "check_availability"
+        and "create_reservation" not in names
+    ):
         return Reply(
             text="There is a table at eight so I will book it now.",
             tool_calls=(ToolCall("create_reservation", BOOK),),
@@ -187,7 +197,13 @@ def booker(policy, at, **kwargs):
     agent_kwargs = {k: kwargs.pop(k) for k in ("latency", "fail", "returns") if k in kwargs}
     kwargs.setdefault("speeches", [ASK_BOOK, window(at)])
     kwargs.setdefault("drain_delay", 14.0)
-    return Case(name="sweep", agent=lambda b: Booker(b, **agent_kwargs), policy=policy, intents=INTENTS, **kwargs)
+    return Case(
+        name="sweep",
+        agent=lambda b: Booker(b, **agent_kwargs),
+        policy=policy,
+        intents=INTENTS,
+        **kwargs,
+    )
 
 
 def hosted(at, second, **kwargs):
@@ -206,22 +222,46 @@ FAMILIES = {
     # The model calls the tool without saying anything.
     "silent_tool_call": (2.5, 8.0, lambda at: booker(booking(ack=""), at, latency=2.0)),
     # The tool raises an ordinary error; the model apologizes.
-    "tool_raises": (2.5, 8.0, lambda at: booker(booking(ack="One moment please."), at, latency=1.0, fail=True)),
+    "tool_raises": (
+        2.5,
+        8.0,
+        lambda at: booker(booking(ack="One moment please."), at, latency=1.0, fail=True),
+    ),
     # The tool returns a dict.
     "tool_returns_dict": (2.5, 8.0, lambda at: booker(booking(), at, latency=0.5, returns="dict")),
     # The model asks for a tool with an argument the tool cannot take.
-    "refused_call": (2.5, 8.0, lambda at: booker(
-        booking(ack="One moment please.", call=ToolCall("create_reservation", '{"party_size": "six"}')), at)),
+    "refused_call": (
+        2.5,
+        8.0,
+        lambda at: booker(
+            booking(
+                ack="One moment please.",
+                call=ToolCall("create_reservation", '{"party_size": "six"}'),
+            ),
+            at,
+        ),
+    ),
     # Two rounds of tools, then a confirmation.
     "two_rounds": (2.5, 12.0, lambda at: booker(two_rounds, at, latency=1.0)),
     # Two tools called in one reply.
     "parallel_tools": (2.5, 8.0, lambda at: booker(parallel_tools, at, latency=1.5)),
     # The user corrects the booking while it is being made.
-    "retire": (2.5, 11.0, lambda at: booker(
-        booking(), at, latency=2.0,
-        speeches=[ASK_BOOK, speech(at, 1.0, "Actually stop that.", retires=(INTENT,))])),
+    "retire": (
+        2.5,
+        11.0,
+        lambda at: booker(
+            booking(),
+            at,
+            latency=2.0,
+            speeches=[ASK_BOOK, speech(at, 1.0, "Actually stop that.", retires=(INTENT,))],
+        ),
+    ),
     # The endpointing delay is long, so the next speech arrives before the turn is over.
-    "long_endpointing": (2.5, 8.0, lambda at: booker(booking(ack=""), at, latency=2.0, min_endpointing_delay=2.0)),
+    "long_endpointing": (
+        2.5,
+        8.0,
+        lambda at: booker(booking(ack=""), at, latency=2.0, min_endpointing_delay=2.0),
+    ),
     # A backchannel while the agent speaks.
     "backchannel": (2.5, 12.0, lambda at: hosted(at, speech(at, 0.6, "Uh huh.", backchannel=True))),
     # Noise (the VAD fires, nothing is transcribed) while the agent speaks.
@@ -231,31 +271,90 @@ FAMILIES = {
     # An output that cannot pause: the framework has to clear it.
     "no_pause": (2.5, 12.0, lambda at: hosted(at, speech(at, 1.0, "Stop."), sink_can_pause=False)),
     # A recognizer that takes 1.2 s to deliver a transcript.
-    "slow_stt": (2.5, 12.0, lambda at: Case(
-        name="sweep", agent=plain_host, policy=host, drain_delay=10.0,
-        speeches=[speech(0.5, 2.0, "Tell me about the menu.", stt_delay=1.2), speech(at, 1.0, "Stop.", stt_delay=1.2)])),
+    "slow_stt": (
+        2.5,
+        12.0,
+        lambda at: Case(
+            name="sweep",
+            agent=plain_host,
+            policy=host,
+            drain_delay=10.0,
+            speeches=[
+                speech(0.5, 2.0, "Tell me about the menu.", stt_delay=1.2),
+                speech(at, 1.0, "Stop.", stt_delay=1.2),
+            ],
+        ),
+    ),
     # Other interruption thresholds.
-    "quick_interrupt": (2.5, 12.0, lambda at: hosted(
-        at, speech(at, 1.0, "Stop."), min_interruption_duration=0.2, min_endpointing_delay=1.0)),
-    "slow_interrupt": (2.5, 12.0, lambda at: hosted(at, speech(at, 1.5, "Stop."), min_interruption_duration=1.0)),
+    "quick_interrupt": (
+        2.5,
+        12.0,
+        lambda at: hosted(
+            at, speech(at, 1.0, "Stop."), min_interruption_duration=0.2, min_endpointing_delay=1.0
+        ),
+    ),
+    "slow_interrupt": (
+        2.5,
+        12.0,
+        lambda at: hosted(at, speech(at, 1.5, "Stop."), min_interruption_duration=1.0),
+    ),
     # A greeting the application speaks itself, interrupted.
-    "greeting": (0.1, 7.0, lambda at: Case(
-        name="sweep", agent=Greeter, policy=host, drain_delay=12.0,
-        speeches=[speech(at, 1.5, "Tell me about the menu.")])),
+    "greeting": (
+        0.1,
+        7.0,
+        lambda at: Case(
+            name="sweep",
+            agent=Greeter,
+            policy=host,
+            drain_delay=12.0,
+            speeches=[speech(at, 1.5, "Tell me about the menu.")],
+        ),
+    ),
     # Three turns: the third moves across the reply to the second.
-    "three_turns": (6.0, 14.0, lambda at: Case(
-        name="sweep", agent=plain_host, policy=host, drain_delay=8.0,
-        speeches=[ASK_MENU, speech(5.0, 1.0, "Stop."), speech(at, 1.2, "Actually what about dessert?")])),
+    "three_turns": (
+        6.0,
+        14.0,
+        lambda at: Case(
+            name="sweep",
+            agent=plain_host,
+            policy=host,
+            drain_delay=8.0,
+            speeches=[
+                ASK_MENU,
+                speech(5.0, 1.0, "Stop."),
+                speech(at, 1.2, "Actually what about dessert?"),
+            ],
+        ),
+    ),
     # The user pauses mid-sentence: the second half moves from right after the first to
     # well after it. Under half a second apart, a VAD hears the two as one.
-    "pauses_mid_sentence": (1.5, 5.0, lambda at: Case(
-        name="sweep", agent=plain_host, policy=host, drain_delay=14.0,
-        speeches=[speech(0.5, 1.0, "Tell me about"), speech(at, 1.0, "the menu please.")])),
+    "pauses_mid_sentence": (
+        1.5,
+        5.0,
+        lambda at: Case(
+            name="sweep",
+            agent=plain_host,
+            policy=host,
+            drain_delay=14.0,
+            speeches=[speech(0.5, 1.0, "Tell me about"), speech(at, 1.0, "the menu please.")],
+        ),
+    ),
     # The user goes on speaking, in three parts, while a slow tool returns.
-    "goes_on_speaking": (5.0, 9.0, lambda at: booker(
-        booking(ack=""), at, latency=4.0,
-        speeches=[ASK_BOOK, window(at), speech(round(at + 1.6, 3), 0.8, "And is it quiet?"),
-                  speech(round(at + 3.0, 3), 0.8, "We have a baby with us.")])),
+    "goes_on_speaking": (
+        5.0,
+        9.0,
+        lambda at: booker(
+            booking(ack=""),
+            at,
+            latency=4.0,
+            speeches=[
+                ASK_BOOK,
+                window(at),
+                speech(round(at + 1.6, 3), 0.8, "And is it quiet?"),
+                speech(round(at + 3.0, 3), 0.8, "We have a baby with us."),
+            ],
+        ),
+    ),
 }
 
 
@@ -281,7 +380,11 @@ def run_one(job):
     ]
     if dump and rows:
         write_jsonl(events, Path(dump) / f"{family}.{at:.3f}.jsonl")
-    drift = [abs(c["drift_us"]) for v in report.results["M1"].verdicts for c in v.measures.get("contexts", [])]
+    drift = [
+        abs(c["drift_us"])
+        for v in report.results["M1"].verdicts
+        for c in v.measures.get("contexts", [])
+    ]
     return family, at, {"rows": rows, "drift_us": max(drift, default=0)}
 
 
@@ -313,16 +416,26 @@ if __name__ == "__main__":
     jobs = []
     for family in families:
         first, last, _build = FAMILIES[family]
-        jobs += [(family, round(first + k * step, 3), dump) for k in range(int(round((last - first) / step)) + 1)]
+        jobs += [
+            (family, round(first + k * step, 3), dump)
+            for k in range(int(round((last - first) / step)) + 1)
+        ]
     results = defaultdict(list)
     with scenario.pool() as pool:
         for family, at, res in pool.map(run_one, jobs, chunksize=4):
             results[family].append((at, res))
 
     runs = sum(len(r) for r in results.values())
-    clean = sum(1 for r in results.values() for _at, res in r if not res.get("rows") and "invalid" not in res)
-    print(f"livekit-agents {lk.__version__}: {runs} runs in {len(families)} families, step {step} s; "
-          f"{clean} with every verdict a pass")
+    clean = sum(
+        1
+        for r in results.values()
+        for _at, res in r
+        if not res.get("rows") and "invalid" not in res
+    )
+    print(
+        f"livekit-agents {lk.__version__}: {runs} runs in {len(families)} families, step {step} s; "
+        f"{clean} with every verdict a pass"
+    )
     # How many runs, and how many families, each kind of non-pass verdict appeared in.
     kinds = defaultdict(set)
     for family, family_runs in results.items():
@@ -331,7 +444,9 @@ if __name__ == "__main__":
                 what = "/".join(row["rules"]) if row["outcome"] == "fail" else ""
                 kinds[(row["outcome"], row["contract"], what)].add((family, at))
     for (outcome, contract, what), where in sorted(kinds.items()):
-        print(f"   {outcome:12} {contract} {what:10} {len(where):5} runs in {len({f for f, _at in where})} families")
+        print(
+            f"   {outcome:12} {contract} {what:10} {len(where):5} runs in {len({f for f, _at in where})} families"
+        )
     for family in families:
         groups, example = defaultdict(list), {}
         drift = 0
@@ -342,7 +457,12 @@ if __name__ == "__main__":
                 continue
             drift = max(drift, res["drift_us"])
             for row in res["rows"]:
-                key = (row["contract"], row["outcome"], "/".join(row["rules"]), json.dumps(row["instance"], sort_keys=True))
+                key = (
+                    row["contract"],
+                    row["outcome"],
+                    "/".join(row["rules"]),
+                    json.dumps(row["instance"], sort_keys=True),
+                )
                 groups[key].append(at)
                 example.setdefault(key, row["detail"])
         print(f"\n{family}: {len(results[family])} runs, largest M1 drift {drift} us")

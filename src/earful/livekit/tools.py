@@ -269,7 +269,9 @@ async def witness_agent_tools(agent: lk.Agent) -> list[str]:
     originals = list(agent.tools)
     await agent.update_tools([witness_tool(t) for t in originals])
     return sorted(
-        t.info.name for t in originals if isinstance(t, (lk_llm.FunctionTool, lk_llm.RawFunctionTool))
+        t.info.name
+        for t in originals
+        if isinstance(t, (lk_llm.FunctionTool, lk_llm.RawFunctionTool))
     )
 
 

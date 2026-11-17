@@ -172,7 +172,9 @@ def _repeat(case: str, args: argparse.Namespace) -> bool:
         if summary["identical"]:
             write_jsonl(reference.ledger.events, args.update / ledger_name, normalized=True)
         else:
-            print(f"not updating {args.update / ledger_name}: the runs did not agree", file=sys.stderr)
+            print(
+                f"not updating {args.update / ledger_name}: the runs did not agree", file=sys.stderr
+            )
     return bool(summary["identical"])
 
 

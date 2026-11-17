@@ -1,4 +1,5 @@
 """The portable core must never import livekit, directly or through Earful's adapter."""
+
 import ast
 import subprocess
 import sys

@@ -220,9 +220,7 @@ def _speech_data(text: str) -> lk_stt.SpeechData:
 
 class ScriptedSTT(lk_stt.STT):
     def __init__(self, ledger: Ledger, speeches: list[UserSpeech], origin: WorldOrigin) -> None:
-        super().__init__(
-            capabilities=lk_stt.STTCapabilities(streaming=True, interim_results=False)
-        )
+        super().__init__(capabilities=lk_stt.STTCapabilities(streaming=True, interim_results=False))
         self._ledger = ledger
         self._origin = origin
         self._speeches = _check_speeches(speeches)
@@ -402,7 +400,9 @@ class ScriptedLLM(lk_llm.LLM):
         conn_options: APIConnectOptions = DEFAULT_API_CONNECT_OPTIONS,
         **kwargs: Any,
     ) -> lk_llm.LLMStream:
-        return _ScriptedLLMStream(self, chat_ctx=chat_ctx, tools=tools or [], conn_options=conn_options)
+        return _ScriptedLLMStream(
+            self, chat_ctx=chat_ctx, tools=tools or [], conn_options=conn_options
+        )
 
 
 class _ScriptedLLMStream(lk_llm.LLMStream):
@@ -425,9 +425,13 @@ class _ScriptedLLMStream(lk_llm.LLMStream):
         for claim in reply.claims:
             last = len(words) - 1 if claim.last_word is None else claim.last_word
             if not 0 <= claim.first_word <= last < len(words):
-                model._errors.append(f"call {call}: claim {claim} does not fit reply {reply.text!r}")
+                model._errors.append(
+                    f"call {call}: claim {claim} does not fit reply {reply.text!r}"
+                )
                 continue
-            claims.append({"intent": claim.intent, "first_word": claim.first_word, "last_word": last})
+            claims.append(
+                {"intent": claim.intent, "first_word": claim.first_word, "last_word": last}
+            )
         tool_calls = [
             t if t.call_id is not None else dataclasses.replace(t, call_id=f"call-{call}-{n}")
             for n, t in enumerate(reply.tool_calls, 1)
@@ -435,7 +439,9 @@ class _ScriptedLLMStream(lk_llm.LLMStream):
         for tool_call in tool_calls:
             # A call id links a tool invocation to its result; a model never repeats one.
             if tool_call.call_id in model._call_ids:
-                model._errors.append(f"call {call}: the policy reused tool call id {tool_call.call_id!r}")
+                model._errors.append(
+                    f"call {call}: the policy reused tool call id {tool_call.call_id!r}"
+                )
             model._call_ids.add(tool_call.call_id)
         ttft_us = model._ttft_us.get(call, to_us(reply.ttft))
         # Generation cannot end before its first token.
@@ -495,7 +501,12 @@ class StampTable:
         stamp = len(self.words) + 1
         if stamp > MAX_STAMP:
             raise OverflowError("more than 32767 words synthesized in one run")
-        self.words[stamp] = {"utterance": utterance, "index": index, "text": text, "samples": samples}
+        self.words[stamp] = {
+            "utterance": utterance,
+            "index": index,
+            "text": text,
+            "samples": samples,
+        }
         return stamp
 
 
@@ -542,7 +553,9 @@ class StampedTTS(lk_tts.TTS):
         self._utterances = 0
         self.table = StampTable(sample_rate=sample_rate)
 
-    def synthesize(self, text: str, *, conn_options: APIConnectOptions = DEFAULT_API_CONNECT_OPTIONS) -> Any:
+    def synthesize(
+        self, text: str, *, conn_options: APIConnectOptions = DEFAULT_API_CONNECT_OPTIONS
+    ) -> Any:
         return _StampedChunkedStream(tts=self, input_text=text, conn_options=conn_options)
 
     def stream(self, *, conn_options: APIConnectOptions = DEFAULT_API_CONNECT_OPTIONS) -> Any:

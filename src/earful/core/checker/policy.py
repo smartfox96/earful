@@ -74,7 +74,9 @@ def parse(contract: str, declared: dict[str, Any] | None) -> Any:
     known = {f.name: f for f in fields(cls)}
     unknown = sorted(declared.keys() - known.keys())
     if unknown:
-        raise PolicyError(f"{contract}: unknown policy values {unknown}; it defines {sorted(known)}")
+        raise PolicyError(
+            f"{contract}: unknown policy values {unknown}; it defines {sorted(known)}"
+        )
     values: dict[str, Any] = {}
     for name, value in declared.items():
         default = known[name].default

@@ -21,13 +21,15 @@ def _judged_in(view: View, playout: Playout) -> tuple[list[Context], list[str]]:
     settled = playout.settled
     flags = [] if settled is not None else ["never_reached_the_output"]
     contexts = [
-        c for c in view.contexts
+        c
+        for c in view.contexts
         if settled is not None and c[1]["kind"] == "llm.request" and c[1]["seq"] > settled["seq"]
     ]
     if not contexts:
         # The final history counts only if it was read after the playout finished.
         contexts = [
-            c for c in view.contexts
+            c
+            for c in view.contexts
             if c[1]["kind"] == "history.final" and (settled is None or c[1]["seq"] > settled["seq"])
         ]
         flags.append("judged_on_final_history")
@@ -50,9 +52,13 @@ def _judge(
     # playout stopped inside may be remembered or not, so memory that stops on either side
     # of it agrees exactly. Positive: memory is ahead.
     if remembered > played + cut:
-        drift = view.end_us(item, playout.utterance, remembered) - view.end_us(item, playout.utterance, played + cut)
+        drift = view.end_us(item, playout.utterance, remembered) - view.end_us(
+            item, playout.utterance, played + cut
+        )
     elif remembered < played:
-        drift = view.end_us(item, playout.utterance, remembered) - view.end_us(item, playout.utterance, played)
+        drift = view.end_us(item, playout.utterance, remembered) - view.end_us(
+            item, playout.utterance, played
+        )
     else:
         drift = 0
     row = {
@@ -67,19 +73,34 @@ def _judge(
     seqs = (event["seq"],)
     if playout.first_audible_us is None:
         if message is not None:
-            findings.append(Finding(
-                "rule 4", f"{label}: it never became audible, yet {remembered} "
-                "word(s) of it are remembered", seqs))
+            findings.append(
+                Finding(
+                    "rule 4",
+                    f"{label}: it never became audible, yet {remembered} "
+                    "word(s) of it are remembered",
+                    seqs,
+                )
+            )
         return row, findings
     if -drift > policy.behind_us:
-        findings.append(Finding(
-            "rule 2", f"{label}: {played} word(s) were played but only {remembered} "
-            f"are remembered: {-drift} us of played audio is forgotten", seqs))
+        findings.append(
+            Finding(
+                "rule 2",
+                f"{label}: {played} word(s) were played but only {remembered} "
+                f"are remembered: {-drift} us of played audio is forgotten",
+                seqs,
+            )
+        )
     if drift > policy.ahead_us:
-        findings.append(Finding(
-            "rule 3", f"{label}: {remembered} word(s) are remembered but only {played} "
-            f"were played{' and one cut' if cut else ''}: memory is {drift} us of "
-            "audio ahead", seqs))
+        findings.append(
+            Finding(
+                "rule 3",
+                f"{label}: {remembered} word(s) are remembered but only {played} "
+                f"were played{' and one cut' if cut else ''}: memory is {drift} us of "
+                "audio ahead",
+                seqs,
+            )
+        )
     # Cut short: a word was left unplayed, or the sink was cleared before the audio ended
     # (which can happen in the silence after the last word). A stop that reached the sink
     # at the instant the last word ended leaves the audio whole and the reply interrupted,
@@ -92,11 +113,16 @@ def _judge(
         and not either_mark
         and message["interrupted"] != cut_short
     ):
-        findings.append(Finding(
-            "rule 5", f"{label}: the message is marked "
-            f"{'interrupted' if message['interrupted'] else 'complete'}, but "
-            f"{played} of {len(words)} words were played and the playout was "
-            f"{'cut short' if cut_short else 'not cut short'}", seqs))
+        findings.append(
+            Finding(
+                "rule 5",
+                f"{label}: the message is marked "
+                f"{'interrupted' if message['interrupted'] else 'complete'}, but "
+                f"{played} of {len(words)} words were played and the playout was "
+                f"{'cut short' if cut_short else 'not cut short'}",
+                seqs,
+            )
+        )
     return row, findings
 
 
@@ -143,8 +169,13 @@ def check(view: View, policy: policies.M1) -> ContractResult:
         )
         if missing:
             verdicts.append(
-                verdict("M1", instance, "cannot tell how much of it was played",
-                        events=base, unobservable=missing)
+                verdict(
+                    "M1",
+                    instance,
+                    "cannot tell how much of it was played",
+                    events=base,
+                    unobservable=missing,
+                )
             )
             continue
 
@@ -162,11 +193,15 @@ def check(view: View, policy: policies.M1) -> ContractResult:
             label, _event, items = context
             matched, ambiguous = reading_of(context)
             if matched is None:
-                unknown.append(f"{label}: its assistant messages do not line up with what was said (see M2)")
+                unknown.append(
+                    f"{label}: its assistant messages do not line up with what was said (see M2)"
+                )
                 continue
             chosen = chosen or item.key in ambiguous
             at = matched.get(item.key)
-            row, found = _judge(view, policy, item, playout, items[at] if at is not None else None, context)
+            row, found = _judge(
+                view, policy, item, playout, items[at] if at is not None else None, context
+            )
             rows.append(row)
             findings += found
         if chosen:
@@ -181,8 +216,15 @@ def check(view: View, policy: policies.M1) -> ContractResult:
                 else "no model context or final history follows it"
             )
             verdicts.append(
-                verdict("M1", instance, "cannot tell what is remembered of it",
-                        events=events, measures=measures, flags=flags, unobservable=reason)
+                verdict(
+                    "M1",
+                    instance,
+                    "cannot tell what is remembered of it",
+                    events=events,
+                    measures=measures,
+                    flags=flags,
+                    unobservable=reason,
+                )
             )
             continue
         verdicts.append(

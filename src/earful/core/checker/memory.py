@@ -183,7 +183,9 @@ def favourable(
                 options.append(((here[0] + after[0][0], here[1] + after[0][1]), True))
             skipped = best[i][j + 1]
             if skipped is not None:
-                options.append(((absent[j][0] + skipped[0][0], absent[j][1] + skipped[0][1]), False))
+                options.append(
+                    ((absent[j][0] + skipped[0][0], absent[j][1] + skipped[0][1]), False)
+                )
             if options:
                 best[i][j] = min(options, key=lambda option: (option[0], not option[1]))
     if best[0][0] is None:

@@ -115,7 +115,9 @@ def verdict(
     )
 
 
-def result(contract: str, policy: Any, verdicts: list[Verdict], notes: list[str] = ()) -> ContractResult:  # type: ignore[assignment]
+def result(
+    contract: str, policy: Any, verdicts: list[Verdict], notes: list[str] = ()
+) -> ContractResult:  # type: ignore[assignment]
     """A contract fails if any instance failed, is otherwise unobservable if any instance
     was, otherwise passes; with no instances it was not exercised, which is not a pass."""
     outcomes = {v.outcome for v in verdicts}

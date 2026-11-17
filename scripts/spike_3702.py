@@ -6,6 +6,7 @@ judges every release.
 
     python scripts/spike_3702.py [OUT_DIR]
 """
+
 import json
 import sys
 from pathlib import Path
@@ -26,7 +27,10 @@ summary = {
     "verdict_one_logical_effect": a2.outcome,
     "verdict_turn_integrity": m2.outcome,
     "turn_integrity_failures": [
-        {"context": v.instance["context"], "findings": [f"{f.rule}: {f.detail}" for f in v.findings]}
+        {
+            "context": v.instance["context"],
+            "findings": [f"{f.rule}: {f.detail}" for f in v.findings],
+        }
         for v in m2.failures
     ],
     "repeat_runs": len(runs),

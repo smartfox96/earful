@@ -4,6 +4,7 @@ The expectation is derived from the installed livekit-agents version. The case, 
 contracts and the checker are identical on both sides of each fix: nothing here knows
 which defect it is looking for.
 """
+
 import livekit.agents as lk
 
 from earful.core.checker import FAIL, PASS, check

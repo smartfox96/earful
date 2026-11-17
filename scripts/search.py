@@ -28,6 +28,7 @@ SCENARIO is module:function. Running it imports and calls that function.
     --keep CONTRACT/RULE reduce a case that breaks this rule and write a bundle (repeatable)
     --out DIR            where bundles go
 """
+
 import json
 import sys
 from pathlib import Path
@@ -85,7 +86,13 @@ def main(argv: list[str]) -> int:
             words=words,
             each=pool.map,
         )
-    summary = {"scenario": reference, **scenario.environment(), **found.summary(), "coverage": found.coverage(), "bundles": {}}
+    summary = {
+        "scenario": reference,
+        **scenario.environment(),
+        **found.summary(),
+        "coverage": found.coverage(),
+        "bundles": {},
+    }
     for predicate in found.predicates():
         if windows or predicate in keep:
             measured = found.windows(predicate)

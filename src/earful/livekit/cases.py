@@ -87,7 +87,9 @@ def _booking_policy(items: list[dict[str, Any]]) -> Reply:
     if booked:
         return Reply(text="Your table is booked.", claims=(Claim(BOOKING_INTENT),))
     wants_booking = any(
-        i["type"] == "message" and i.get("role") == "user" and "table" in (i.get("text") or "").lower()
+        i["type"] == "message"
+        and i.get("role") == "user"
+        and "table" in (i.get("text") or "").lower()
         for i in items
     )
     if wants_booking:

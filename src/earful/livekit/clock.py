@@ -66,7 +66,6 @@ def _tick(t: float) -> int:
     return round(t * _TICKS_PER_SECOND)
 
 
-
 # Modules whose pydantic models may capture time.time as a default_factory. Missing modules
 # are skipped: the list is a superset across supported livekit-agents releases.
 _MODEL_MODULES = (
@@ -176,16 +175,28 @@ class _OrderedTimerHandle(asyncio.TimerHandle):
         return (self._tick, self._order)
 
     def __lt__(self, other: Any) -> bool:
-        return self._key() < other._key() if isinstance(other, _OrderedTimerHandle) else NotImplemented
+        return (
+            self._key() < other._key() if isinstance(other, _OrderedTimerHandle) else NotImplemented
+        )
 
     def __le__(self, other: Any) -> bool:
-        return self._key() <= other._key() if isinstance(other, _OrderedTimerHandle) else NotImplemented
+        return (
+            self._key() <= other._key()
+            if isinstance(other, _OrderedTimerHandle)
+            else NotImplemented
+        )
 
     def __gt__(self, other: Any) -> bool:
-        return self._key() > other._key() if isinstance(other, _OrderedTimerHandle) else NotImplemented
+        return (
+            self._key() > other._key() if isinstance(other, _OrderedTimerHandle) else NotImplemented
+        )
 
     def __ge__(self, other: Any) -> bool:
-        return self._key() >= other._key() if isinstance(other, _OrderedTimerHandle) else NotImplemented
+        return (
+            self._key() >= other._key()
+            if isinstance(other, _OrderedTimerHandle)
+            else NotImplemented
+        )
 
 
 class VirtualTimeLoop(asyncio.SelectorEventLoop):

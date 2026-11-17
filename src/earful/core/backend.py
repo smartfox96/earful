@@ -112,18 +112,32 @@ class EffectBackend:
         # the caller. A dropped write has none.
         outcome: asyncio.Future[str] = asyncio.get_running_loop().create_future()
         if fault != "backend.drop":
-            self._schedule(outcome, request, intent, key, latency_us, rejected=fault == "backend.error")
+            self._schedule(
+                outcome, request, intent, key, latency_us, rejected=fault == "backend.error"
+            )
         if fault in ("backend.timeout", "backend.drop"):
             assert give_up_us is not None
             await asyncio.sleep(to_seconds(give_up_us))
             self._ledger.append(
-                "backend", "effect.timed_out", request=request, intent=intent, key=key, after_us=give_up_us
+                "backend",
+                "effect.timed_out",
+                request=request,
+                intent=intent,
+                key=key,
+                after_us=give_up_us,
             )
             raise BackendTimeout(f"write {request} timed out after {give_up_us} us")
         return await outcome
 
     def _schedule(
-        self, outcome: asyncio.Future[str], request: int, intent: str, key: str | None, latency_us: int, *, rejected: bool
+        self,
+        outcome: asyncio.Future[str],
+        request: int,
+        intent: str,
+        key: str | None,
+        latency_us: int,
+        *,
+        rejected: bool,
     ) -> None:
         """Decide the write's outcome ``latency_us`` from now: at once if that is zero."""
 
@@ -144,7 +158,10 @@ class EffectBackend:
             settle()
             return
         loop = asyncio.get_running_loop()
-        self._in_flight[request] = (loop.call_later(to_seconds(latency_us), settle), loop.create_future())
+        self._in_flight[request] = (
+            loop.call_later(to_seconds(latency_us), settle),
+            loop.create_future(),
+        )
 
     def _complete(self, request: int, intent: str, key: str | None, *, rejected: bool) -> str:
         if rejected:

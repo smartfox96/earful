@@ -1,4 +1,5 @@
 """Every case must produce the same normalized ledger on every run."""
+
 import pytest
 
 from earful.livekit.cases import CASES

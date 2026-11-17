@@ -51,7 +51,10 @@ _TIMES = {
     "drain_timeout_us": "drain_timeout",
 }
 # Setting name -> the Case field that holds it as it is, and the kind of value it takes.
-_PLAIN: dict[str, tuple[str, type]] = {"backend_mode": ("backend_mode", str), "sink_can_pause": ("sink_can_pause", bool)}
+_PLAIN: dict[str, tuple[str, type]] = {
+    "backend_mode": ("backend_mode", str),
+    "sink_can_pause": ("sink_can_pause", bool),
+}
 
 SETTINGS = (*_TIMES, *_PLAIN)
 
@@ -107,7 +110,11 @@ def describe(case: Case, scenario: str, seed: int = 0) -> dict[str, Any]:
             for delay in sorted(case.delays, key=lambda d: (d.of, d.nth))
         ],
         "faults": [
-            {"of": fault.of, "nth": fault.nth, "us": None if fault.seconds is None else to_us(fault.seconds)}
+            {
+                "of": fault.of,
+                "nth": fault.nth,
+                "us": None if fault.seconds is None else to_us(fault.seconds),
+            }
             for fault in sorted(case.faults, key=lambda f: (f.of, f.nth))
         ],
         "settings": {
@@ -135,8 +142,12 @@ def build(data: dict[str, Any]) -> Case:
         if name not in SETTINGS:
             raise ValueError(f"unknown setting {name!r}; this adapter has {sorted(SETTINGS)}")
         wanted = int if name in _TIMES else _PLAIN[name][1]
-        if not isinstance(value, wanted) or (wanted is int and (isinstance(value, bool) or value < 0)):
-            raise ValueError(f"setting {name!r} takes a {'time in microseconds' if wanted is int else wanted.__name__}, not {value!r}")
+        if not isinstance(value, wanted) or (
+            wanted is int and (isinstance(value, bool) or value < 0)
+        ):
+            raise ValueError(
+                f"setting {name!r} takes a {'time in microseconds' if wanted is int else wanted.__name__}, not {value!r}"
+            )
     case = resolve(data["scenario"])()
     case.speeches = [
         UserSpeech(
@@ -153,7 +164,8 @@ def build(data: dict[str, Any]) -> Case:
     case.hangup = None if data["hangup_us"] is None else to_seconds(data["hangup_us"])
     case.delays = [Delay(d["of"], d["nth"], to_seconds(d["us"])) for d in data["delays"]]
     case.faults = [
-        Fault(f["of"], f["nth"], None if f["us"] is None else to_seconds(f["us"])) for f in data["faults"]
+        Fault(f["of"], f["nth"], None if f["us"] is None else to_seconds(f["us"]))
+        for f in data["faults"]
     ]
     for name, value in data["settings"].items():
         if name in _TIMES:
@@ -181,7 +193,9 @@ def pool(workers: int | None = None) -> ProcessPoolExecutor:
 def environment() -> dict[str, str]:
     """What a saved case was run with: the framework, Earful, the interpreter, the
     platform, and a digest of every installed distribution and its version."""
-    installed = sorted(f"{d.metadata['Name']}=={d.version}" for d in metadata.distributions() if d.metadata["Name"])
+    installed = sorted(
+        f"{d.metadata['Name']}=={d.version}" for d in metadata.distributions() if d.metadata["Name"]
+    )
     return {
         "livekit-agents": lk.__version__,
         "livekit": rtc.__version__,

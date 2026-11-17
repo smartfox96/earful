@@ -25,3 +25,7 @@ testpaths = ["tests"]
 [tool.ruff]
 line-length = 100
 target-version = "py310"
+
+[tool.ruff.format]
+# Code blocks in the Markdown pages are laid out by hand, with their comments aligned.
+exclude = ["*.md"]

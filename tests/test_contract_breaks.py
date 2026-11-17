@@ -4,6 +4,7 @@ Every break is reached through a seam any application has: the model policy, a t
 backend, a public agent hook, an agent option or the audio output. Nothing inside the
 framework is patched, and the checker sees only the ledger.
 """
+
 import asyncio
 import copy
 
@@ -76,7 +77,9 @@ def _booking(policy, *, agent=_Booker, speeches=(ASK,), **kwargs):
 def _book_then_confirm(items):
     if _outputs(items):
         return Reply(text="Your table is booked.", claims=(Claim(INTENT),))
-    return Reply(text="One moment please.", tool_calls=(ToolCall("create_reservation", BOOK, "c1"),))
+    return Reply(
+        text="One moment please.", tool_calls=(ToolCall("create_reservation", BOOK, "c1"),)
+    )
 
 
 # --------------------------------------------------------------------------- A1
@@ -86,7 +89,10 @@ def _correction(honours: bool):
     def policy(items):
         if "cancel" in _last_user_text(items).lower():
             if not honours and _outputs(items) < 2:  # books again although told to cancel
-                return Reply(text="Booking it again.", tool_calls=(ToolCall("create_reservation", BOOK, "c2"),))
+                return Reply(
+                    text="Booking it again.",
+                    tool_calls=(ToolCall("create_reservation", BOOK, "c2"),),
+                )
             return Reply(text="Okay, cancelled.")
         return _book_then_confirm(items)
 
@@ -120,7 +126,9 @@ def test_a2_fails_when_a_tool_writes_twice_on_a_plain_backend():
 
 def test_a2_passes_for_the_same_tool_on_a_keyed_backend():
     report = _report(
-        _booking(_book_then_confirm, agent=lambda b: _Booker(b, writes=2, key="k1"), backend_mode="keyed")
+        _booking(
+            _book_then_confirm, agent=lambda b: _Booker(b, writes=2, key="k1"), backend_mode="keyed"
+        )
     )
     assert report.outcome("A2") == PASS
     measures = report.results["A2"].verdicts[0].measures
@@ -219,7 +227,9 @@ class _ForgetsToolResults(_Booker):
     """A public agent hook that drops tool calls and results before the model sees them."""
 
     async def llm_node(self, chat_ctx, tools, model_settings):
-        kept = [i for i in chat_ctx.items if i.type not in ("function_call", "function_call_output")]
+        kept = [
+            i for i in chat_ctx.items if i.type not in ("function_call", "function_call_output")
+        ]
         ctx = lk.llm.ChatContext(items=kept)
         async for chunk in lk.Agent.default.llm_node(self, ctx, tools, model_settings):
             yield chunk
@@ -263,7 +273,9 @@ def test_l1_fails_when_a_tool_never_returns():
     assert report.outcome("L1") == FAIL
     (failed,) = report.results["L1"].failures
     assert "every tool call finishes: never happened" in failed.findings[0].detail
-    assert _rules(report, "L1") == ["milestone 2"]  # the finding names the milestone that was missed
+    assert _rules(report, "L1") == [
+        "milestone 2"
+    ]  # the finding names the milestone that was missed
 
 
 def test_l1_passes_when_the_same_tool_returns():
@@ -271,7 +283,9 @@ def test_l1_passes_when_the_same_tool_returns():
 
 
 def _stuck(**kwargs):
-    return _booking(_book_then_confirm, agent=lambda b: _Booker(b, hang=True), drain_timeout=5.0, **kwargs)
+    return _booking(
+        _book_then_confirm, agent=lambda b: _Booker(b, hang=True), drain_timeout=5.0, **kwargs
+    )
 
 
 def test_l1_owes_nothing_to_a_user_who_hung_up_before_it_was_due():
@@ -297,8 +311,14 @@ def test_l1_budgets_a_reply_with_the_delays_declared_for_it():
     assert next(e for e in events if e["kind"] == "playout.started")["t_us"] >= 6_000_000
     report = check(events)
     assert report.outcome("L1") == PASS
-    first_audio = next(m for m in report.results["L1"].verdicts[0].measures["milestones"] if m["milestone"].startswith("the first word"))
-    assert first_audio["deadline_us"] - first_audio["reached_us"] >= 1_000_000  # the slack is still all there
+    first_audio = next(
+        m
+        for m in report.results["L1"].verdicts[0].measures["milestones"]
+        if m["milestone"].startswith("the first word")
+    )
+    assert (
+        first_audio["deadline_us"] - first_audio["reached_us"] >= 1_000_000
+    )  # the slack is still all there
 
 
 def _silent(items):
@@ -309,7 +329,10 @@ def test_l1_fails_when_the_model_returns_nothing():
     report = _report(_booking(_silent))
     assert report.outcome("L1") == FAIL
     assert _rules(report, "L1") == ["milestone 3"]
-    assert "the first word of a reply starts playing: never happened" in report.results["L1"].failures[0].findings[0].detail
+    assert (
+        "the first word of a reply starts playing: never happened"
+        in report.results["L1"].failures[0].findings[0].detail
+    )
 
 
 def test_l1_a_backchannel_does_not_take_the_obligation_away():
@@ -325,7 +348,9 @@ def test_l1_a_backchannel_does_not_take_the_obligation_away():
 
     ack = UserSpeech(start=4.0, end=4.5, transcript="Uh huh.", backchannel=True)
     report = _report(
-        _booking(policy, agent=lambda b: _Booker(b, latency=3.0), speeches=(ASK, ack), drain_delay=14.0)
+        _booking(
+            policy, agent=lambda b: _Booker(b, latency=3.0), speeches=(ASK, ack), drain_delay=14.0
+        )
     )
     assert report.outcome("L1") == FAIL
     (failed,) = report.results["L1"].failures
@@ -341,7 +366,9 @@ def test_l1_is_unobservable_when_the_run_ends_before_the_deadline():
 
 
 def test_l1_does_not_apply_to_a_turn_that_expects_no_reply():
-    quiet = UserSpeech(start=0.5, end=2.5, transcript="Book a table for six tonight.", expects_reply=False)
+    quiet = UserSpeech(
+        start=0.5, end=2.5, transcript="Book a table for six tonight.", expects_reply=False
+    )
     assert _report(_booking(_silent, speeches=(quiet,))).outcome("L1") == NOT_EXERCISED
 
 
@@ -401,7 +428,9 @@ def test_a3_a_claim_that_finished_playing_after_the_user_left_was_not_delivered(
     origin = next(e["t_us"] for e in stays if e["kind"] == "user.origin")
     claim_starts = [e["t_us"] for e in stays if e["kind"] == "playout.started"][-1] - origin
     # The user leaves 0.3 s into "Your table is booked."; the output plays the rest to no one.
-    report = _report(_booking(_book_then_confirm, sink=_PlaysOn, hangup=(claim_starts + 300_000) / 1_000_000))
+    report = _report(
+        _booking(_book_then_confirm, sink=_PlaysOn, hangup=(claim_starts + 300_000) / 1_000_000)
+    )
     result = report.results["A3"]
     assert result.outcome == NOT_EXERCISED
     assert any("was not delivered" in note for note in result.notes)
@@ -515,10 +544,14 @@ def _book_silently(items):
 
 @pytest.mark.parametrize("stop", [False, True], ids=["returns nothing", "raises StopResponse"])
 def test_a_tool_that_asks_for_silence_is_not_a_stalled_turn(stop):
-    events = run_case(_booking(_book_silently, agent=lambda b: _QuietTool(b, stop=stop))).ledger.events
+    events = run_case(
+        _booking(_book_silently, agent=lambda b: _QuietTool(b, stop=stop))
+    ).ledger.events
     outcome = next(e for e in events if e["kind"] in ("tool.returned", "tool.raised"))
     assert outcome["data"]["expects_reply"] is False
-    assert len([e for e in events if e["kind"] == "llm.request"]) == 1  # the framework did not reply
+    assert (
+        len([e for e in events if e["kind"] == "llm.request"]) == 1
+    )  # the framework did not reply
     report = check(events)
     assert report.failures == ()
     (turn,) = report.results["L1"].verdicts
@@ -541,8 +574,10 @@ def test_l1_fails_when_tool_rounds_run_out_and_nothing_was_said():
     case.intents = [Intent(INTENT, tools=("create_reservation",), authorized=2)]
     report = _report(case)
     assert report.outcome("L1") == FAIL
-    assert "the first word of a reply starts playing: never happened" in report.results["L1"].failures[0].findings[-1].detail
-
+    assert (
+        "the first word of a reply starts playing: never happened"
+        in report.results["L1"].failures[0].findings[-1].detail
+    )
 
 
 WINDOW = "Is the table by the window?"
@@ -644,7 +679,10 @@ def test_a_call_the_framework_refuses_is_progress_and_not_a_lost_result():
     def policy(items):
         if _outputs(items):
             return Reply(text="I am sorry something went wrong.")
-        return Reply(text="One moment please.", tool_calls=(ToolCall("create_reservation", '{"party_size": "six"}', "c1"),))
+        return Reply(
+            text="One moment please.",
+            tool_calls=(ToolCall("create_reservation", '{"party_size": "six"}', "c1"),),
+        )
 
     events = run_case(_booking(policy)).ledger.events
     assert not [e for e in events if e["kind"] == "tool.called"]
@@ -689,4 +727,3 @@ def test_a_reply_the_framework_generates_twice_is_not_unobservable():
         assert all(v.outcome != UNOBSERVABLE for v in report.results[contract].verdicts)
     if VERSION >= FIX_3702:
         assert report.failures == ()
-

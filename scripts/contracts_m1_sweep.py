@@ -6,6 +6,7 @@ audio time, and in words. The result sets M1's default tolerances in docs/contra
 
     python scripts/contracts_m1_sweep.py [seconds_per_letter]
 """
+
 import json
 import sys
 from collections import Counter
@@ -32,8 +33,14 @@ STEP = 0.05
 
 def policy_for(text):
     def policy(items):
-        last = next(i for i in reversed(items) if i["type"] == "message" and i.get("role") == "user")
-        return Reply(text="Okay, stopping.") if "Stop" in (last.get("text") or "") else Reply(text=text, ttft=0.1, duration=0.4)
+        last = next(
+            i for i in reversed(items) if i["type"] == "message" and i.get("role") == "user"
+        )
+        return (
+            Reply(text="Okay, stopping.")
+            if "Stop" in (last.get("text") or "")
+            else Reply(text=text, ttft=0.1, duration=0.4)
+        )
 
     return policy
 
@@ -77,4 +84,13 @@ for name, text in SENTENCES.items():
         }
     )
 
-print(json.dumps({"livekit-agents": lk.__version__, "seconds_per_letter": seconds_per_letter, "sentences": rows}, indent=2))
+print(
+    json.dumps(
+        {
+            "livekit-agents": lk.__version__,
+            "seconds_per_letter": seconds_per_letter,
+            "sentences": rows,
+        },
+        indent=2,
+    )
+)

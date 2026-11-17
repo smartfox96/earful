@@ -31,7 +31,15 @@ from .report import (
 )
 from .view import Reading, View, readings
 
-_CHECKS = {"A1": a1.check, "A2": a2.check, "A3": a3.check, "M1": m1.check, "M2": m2.check, "L1": l1.check, "L2": l2.check}
+_CHECKS = {
+    "A1": a1.check,
+    "A2": a2.check,
+    "A3": a3.check,
+    "M1": m1.check,
+    "M2": m2.check,
+    "L1": l1.check,
+    "L2": l2.check,
+}
 
 
 def check(events: list[dict[str, Any]]) -> Report:
@@ -63,7 +71,9 @@ def check(events: list[dict[str, Any]]) -> Report:
             best = (score, reading, results)
     assert best is not None
     _score, reading, results = best
-    return Report(run=run, valid=True, invalid=(), results=results, reading=reading, readings=len(possible))
+    return Report(
+        run=run, valid=True, invalid=(), results=results, reading=reading, readings=len(possible)
+    )
 
 
 __all__ = [
