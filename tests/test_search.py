@@ -536,6 +536,7 @@ def test_a_search_adds_each_fault_to_each_write_the_run_made():
         explore(a_case(BOOK, WINDOW), run, faults=["backend.explode"])
 
 
+@pytest.mark.slow
 def test_a_search_runs_no_case_twice():
     """The case as given, the runs that candidates are placed against (the case without
     each speech, with each fault, under each profile) and the candidates all go through
@@ -556,6 +557,7 @@ def test_a_search_runs_no_case_twice():
         pairs=True,
         profiles=1,
         words=False,
+        stretch_us=0,
     )
     assert len(ran) == len(set(ran)) == found.runner.runs
     assert cases.canonical(author) in ran  # the case as given is one of them, once
@@ -843,6 +845,7 @@ def test_pairs_stretch_each_write_and_each_generation_shorter_than_the_stretch()
     assert versions(pairs=True, delay_limit_us=1_000_000) == stretched(1_000_000, *every)
 
 
+@pytest.mark.slow
 def test_pairs_find_a_failure_that_needs_a_slow_write_and_a_speech_during_it():
     run = answers(slow_write_and(INTERRUPTS))
     far = a_case(BOOK, speech(20_000_000, 21_000_000, WINDOW["transcript"]))
@@ -870,6 +873,7 @@ def test_pairs_find_a_failure_that_needs_a_slow_write_and_a_speech_during_it():
     assert (measured.variable, measured.lo_us, measured.hi_us) == (SECOND, 3_000_000, 7_800_000)
 
 
+@pytest.mark.slow
 def test_pairs_find_a_failure_that_needs_a_slow_write_and_a_hangup_during_it():
     run = answers(slow_write_and(left_between(7_000_000, 9_000_000)))
     author = a_case(BOOK, WINDOW)
@@ -883,6 +887,7 @@ def test_pairs_find_a_failure_that_needs_a_slow_write_and_a_hangup_during_it():
     assert (measured.variable, measured.lo_us, measured.hi_us) == (HANGUP, 7_000_000, 9_000_000)
 
 
+@pytest.mark.slow
 def test_under_a_stretched_delay_a_handle_is_put_at_each_transition_and_at_no_word_end():
     found = explore(
         a_case(BOOK, WINDOW),
@@ -913,6 +918,7 @@ def test_under_a_stretched_delay_a_handle_is_put_at_each_transition_and_at_no_wo
         assert placed(label) == ({SECOND, HANGUP}, {0}, False)
 
 
+@pytest.mark.slow
 def test_a_case_found_under_a_stretched_delay_reduces_to_the_delay_and_the_hangup():
     """The recorded write is requested at 3.0 s. The stand-in fails where the user hangs
     up while a write that was declared slow is still under way."""
@@ -1191,6 +1197,7 @@ def test_the_case_to_reduce_is_the_one_nearest_the_authors():
 # --------------------------------------------------------------------------- keeping
 
 
+@pytest.mark.slow
 def test_a_bundle_holds_the_failure_and_replays(tmp_path):
     run = answers(INTERRUPTS)
     manifest = bundle.capture(

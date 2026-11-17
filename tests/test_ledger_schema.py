@@ -328,6 +328,7 @@ def _spoiled(event):
         yield f"as {other!r} in place of an object", other
 
 
+@pytest.mark.slow
 def test_an_event_checked_by_its_kind_gets_the_whole_schemas_errors(booking, timed_out, hung_up):
     """``event_errors`` leaves out the rules of every other kind. That must change nothing:
     the same errors, in the same order, as the whole schema gives."""
