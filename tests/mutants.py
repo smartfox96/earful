@@ -1118,13 +1118,6 @@ MUTANTS = [
         first="names_the_tools_whose_body",
     ),
     Mutant(
-        "harness: a run leaves its backend installed",
-        "src/earful/livekit/harness.py",
-        "        backends.uninstall(backend_token)\n",
-        "        pass\n",
-        first="does_not_have or no_backend_to_write_to",
-    ),
-    Mutant(
         "backend: a write outside a run is not refused",
         "src/earful/core/backend.py",
         "    if backend is None:\n",

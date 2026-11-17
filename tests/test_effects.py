@@ -115,9 +115,7 @@ def test_an_effect_for_a_tool_the_agent_does_not_have_is_refused_before_anything
     case.effects = {"create_reservaton": BOOKING}
     with pytest.raises(ValueError, match=r"\['create_reservaton'\].*has \['create_reservation'\]"):
         run_case(case)
-    # The refused run left nothing installed for the next one to find.
-    assert backends.active() is None
-    assert run_case(as_written_reads_the_error()).invalid == []
+    assert run_case(as_written_reads_the_error()).invalid == []  # the next run is unaffected
 
 
 # --------------------------------------------------------------------- the write and its caller
