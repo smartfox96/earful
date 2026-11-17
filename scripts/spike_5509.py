@@ -45,7 +45,8 @@ summary = {
 }
 print(json.dumps(summary, indent=2))
 if out_dir:
-    tag = f"lk-{result.versions['livekit-agents']}.speak_over_new_turn{'' if can_pause else '.no_pause'}"
+    release = result.versions["livekit-agents"]
+    tag = f"lk-{release}.speak_over_new_turn{'' if can_pause else '.no_pause'}"
     out = Path(out_dir)
     out.mkdir(parents=True, exist_ok=True)
     (out / f"{tag}.summary.json").write_text(json.dumps(summary, indent=2) + "\n")

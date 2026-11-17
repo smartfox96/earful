@@ -25,7 +25,9 @@ SENTENCES = {
         "Unfortunately the reservation system is temporarily unavailable so I cannot "
         "confirm availability for Saturday evening right now"
     ),
-    "short words": "So if you can be at the bar by six or so we can put you at a big table by the door",
+    "short words": (
+        "So if you can be at the bar by six or so we can put you at a big table by the door"
+    ),
 }
 seconds_per_letter = float(sys.argv[1]) if len(sys.argv) > 1 else 0.06
 STEP = 0.05

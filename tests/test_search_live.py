@@ -13,9 +13,10 @@ from pathlib import Path
 
 import livekit.agents as lk
 import pytest
-
 from breaks import SEVENTH_WORD_ENDS_US
-from earful.core import bundle, case as cases
+
+from earful.core import bundle
+from earful.core import case as cases
 from earful.core.case import Variable
 from earful.core.checker import check
 from earful.core.ledger import ledger_hash
@@ -136,7 +137,7 @@ def test_a_declared_delay_takes_the_place_of_what_the_code_asks_for():
         {"of": "llm.ttft", "nth": 2, "us": 250_000},
         {"of": "tts.ttfb", "nth": 2, "us": 350_000},
     ]
-    of = lambda kind, n=0: [e for e in events if e["kind"] == kind][n]  # noqa: E731
+    of = lambda kind, n=0: [e for e in events if e["kind"] == kind][n]
     assert of("llm.response")["data"]["duration_us"] == 700_000
     assert of("llm.response", 1)["data"]["ttft_us"] == 250_000
     assert of("tts.synthesized", 1)["data"]["ttfb_us"] == 350_000

@@ -815,8 +815,8 @@ def explore(
 __all__ = [
     "DEFAULT_VARIABLES",
     "DELAY_LIMIT_US",
-    "WAIT_US",
     "OFFSETS_US",
+    "WAIT_US",
     "Candidate",
     "Exploration",
     "Handle",

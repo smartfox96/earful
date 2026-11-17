@@ -326,7 +326,8 @@ def check(view: View, policy: policies.L1) -> ContractResult:
                     instance,
                     f"the turn of speech {speech.index} got its response in time"
                     if not silenced
-                    else f"the turn of speech {speech.index} progressed; its tool asked for silence",
+                    else f"the turn of speech {speech.index} progressed; "
+                    "its tool asked for silence",
                     events=used,
                     measures=measures,
                     flags=flags,

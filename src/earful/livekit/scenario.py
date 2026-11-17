@@ -70,7 +70,8 @@ def resolve(scenario: str) -> Callable[[], Case]:
     except (ImportError, AttributeError) as exc:
         raise ValueError(f"no scenario {scenario!r}: {exc}") from exc
     if not callable(target):
-        raise ValueError(f"scenario {scenario!r} is not a function")
+        # ValueError like every other bad reference: callers handle one kind of refusal.
+        raise ValueError(f"scenario {scenario!r} is not a function")  # noqa: TRY004
     return target
 
 
@@ -132,9 +133,9 @@ def default(scenario: str, seed: int = 0) -> dict[str, Any]:
 
 def build(data: dict[str, Any]) -> Case:
     """The ``Case`` that ``data`` describes: the scenario's code, with the data's
-    speeches, hangup, delays, faults, settings and contract policy. Raises ``ValueError`` on data that is
-    not earful.case/3, names a setting this adapter does not have or gives one the wrong
-    kind of value, or names a scenario that does not exist."""
+    speeches, hangup, delays, faults, settings and contract policy. Raises ``ValueError``
+    on data that is not earful.case/3, names a setting this adapter does not have or gives
+    one the wrong kind of value, or names a scenario that does not exist."""
     errors = case_format.validate(data)
     if errors:
         raise ValueError("not an earful.case/3 document: " + "; ".join(errors))
@@ -145,9 +146,8 @@ def build(data: dict[str, Any]) -> Case:
         if not isinstance(value, wanted) or (
             wanted is int and (isinstance(value, bool) or value < 0)
         ):
-            raise ValueError(
-                f"setting {name!r} takes a {'time in microseconds' if wanted is int else wanted.__name__}, not {value!r}"
-            )
+            kind = "time in microseconds" if wanted is int else wanted.__name__
+            raise ValueError(f"setting {name!r} takes a {kind}, not {value!r}")
     case = resolve(data["scenario"])()
     case.speeches = [
         UserSpeech(

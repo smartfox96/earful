@@ -29,7 +29,9 @@ def check(view: View, policy: policies.A2) -> ContractResult:
                         instance,
                         f"cannot count effects for {intent!r}",
                         events=calls,
-                        unobservable="a tool for the intent was called but nothing reached the backend",
+                        unobservable=(
+                            "a tool for the intent was called but nothing reached the backend"
+                        ),
                     )
                 )
             continue  # no tool call and no write: the intent was never acted on
@@ -42,7 +44,8 @@ def check(view: View, policy: policies.A2) -> ContractResult:
             findings.append(
                 Finding(
                     "rule",
-                    f"{len(commits)} durable effects for {intent!r}; the scenario authorized {authorized}",
+                    f"{len(commits)} durable effects for {intent!r}; "
+                    f"the scenario authorized {authorized}",
                     tuple(c["seq"] for c in commits),
                 )
             )

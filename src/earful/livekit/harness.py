@@ -164,7 +164,8 @@ class Case:
                 raise ValueError(f"unknown delay {delay.of!r}; choose from {list(DELAYS)}")
             if delay.nth < 1 or delay.seconds < 0:
                 raise ValueError(
-                    f"delay {delay.of} #{delay.nth}: nth counts from 1 and a delay cannot be negative"
+                    f"delay {delay.of} #{delay.nth}: "
+                    "nth counts from 1 and a delay cannot be negative"
                 )
             if (delay.of, delay.nth) in seen:
                 raise ValueError(f"delay {delay.of} #{delay.nth} is declared more than once")
@@ -194,7 +195,8 @@ class Case:
             late = [speech.start for speech in self.speeches if speech.end_us > to_us(self.hangup)]
             if late:
                 raise ValueError(
-                    f"the user hangs up at {self.hangup} s, before the speech at {late[0]} s is over"
+                    f"the user hangs up at {self.hangup} s, "
+                    f"before the speech at {late[0]} s is over"
                 )
         names = [it.intent for it in self.intents]
         if len(set(names)) != len(names):

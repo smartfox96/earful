@@ -32,7 +32,9 @@ def check(view: View, policy: policies.A1) -> ContractResult:
                         instance,
                         f"cannot tell whether {intent!r} was written again",
                         events=[point, *called_after],
-                        unobservable="the intent's tool was called but does not write through the backend",
+                        unobservable=(
+                            "the intent's tool was called but does not write through the backend"
+                        ),
                     )
                 )
                 continue
@@ -50,7 +52,8 @@ def check(view: View, policy: policies.A1) -> ContractResult:
                 findings.append(
                     Finding(
                         "rule",
-                        f"{len(new)} write(s) for {intent!r} were requested after the user retired it",
+                        f"{len(new)} write(s) for {intent!r} were requested "
+                        "after the user retired it",
                         tuple(e.requested["seq"] for e in new),
                     )
                 )

@@ -11,7 +11,7 @@ Framework-independent: this module must never import livekit.
 from __future__ import annotations
 
 import json
-from functools import lru_cache
+from functools import cache, lru_cache
 from importlib import resources
 from typing import Any
 
@@ -38,7 +38,7 @@ def _validator() -> Draft202012Validator:
     return Draft202012Validator(schema)
 
 
-@lru_cache(maxsize=None)
+@cache
 def _validator_for(kind: str) -> Draft202012Validator:
     """The schema with only the rules that can apply to an event of ``kind``.
 
@@ -187,8 +187,9 @@ def _check_ledger(events: list[Event], errors: list[str]) -> None:
             elif (k == "user.vad_start" and d["speech"] not in opens) or (
                 k == "user.vad_end" and d["speech"] not in closes
             ):
+                does = "open" if k == "user.vad_start" else "close"
                 errors.append(
-                    f"{where}: speech {d['speech']} does not {'open' if k == 'user.vad_start' else 'close'} a segment the VAD would hear"
+                    f"{where}: speech {d['speech']} does not {does} a segment the VAD would hear"
                 )
             if not origins or origins[0]["seq"] > e["seq"]:
                 errors.append(f"{where}: comes before user.origin")

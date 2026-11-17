@@ -12,7 +12,8 @@ from pathlib import Path
 
 import pytest
 
-from earful.core import bundle, case as cases
+from earful.core import bundle
+from earful.core import case as cases
 from earful.core.case import Variable
 from earful.core.checker import check
 from earful.core.ledger import ledger_hash, read_jsonl
@@ -211,7 +212,8 @@ def test_transitions_are_the_events_of_a_run_and_the_moments_the_ledger_states()
     kinds = {kind for t in found for kind in t.kinds}
     assert {"playout.mid_word", "playout.word_end", "sink.pause", "fw.agent_state_changed"} <= kinds
     assert not kinds & {"run.start", "run.end", "history.final", "user.origin"}
-    # one per word that played: eight of the long reply before the interruption, two of the short one
+    # one per word that played: eight of the long reply before the interruption, two of the
+    # short one
     assert sum("playout.word_end" in t.kinds for t in found) == 10
     assert not any("playout.word_end" in t.kinds for t in transitions(events, words=False))
 
@@ -500,7 +502,8 @@ def test_a_search_adds_each_fault_to_each_write_the_run_made():
     )
     assert by_base["backend.error 1"]["faults"] == [fault("backend.error")]
     assert by_base["backend.drop 1"]["faults"] == [fault("backend.drop", 1, 1_000_000)]
-    # A timeout in both orders: the write as the scenario has it, and committing after the caller gave up.
+    # A timeout in both orders: the write as the scenario has it, and committing after the
+    # caller gave up.
     assert by_base["backend.timeout 1, commit first"]["delays"] == []
     assert by_base["backend.timeout 1, commit later"]["delays"] == [
         {"of": "backend.latency", "nth": 1, "us": 2_000_000}
@@ -510,7 +513,8 @@ def test_a_search_adds_each_fault_to_each_write_the_run_made():
     # A break that moved nothing has no window to measure.
     assert found.windows(Predicate("A2", "rule")) == []
 
-    # A write as slow as the wait commits later as written. The other order has the caller wait longer.
+    # A write as slow as the wait commits later as written. The other order has the caller
+    # wait longer.
     slow = explore(a_case(BOOK, WINDOW), run, variables=(), faults=["backend.timeout"], wait_us=0)
     orders = {
         t.candidate.base: t.candidate.case for t in slow.tried if t.candidate.variable is None
@@ -647,7 +651,7 @@ def test_a_fault_is_a_difference_and_a_reduction_keeps_it_only_if_the_failure_ne
     assert applied(author, listed) == found
     assert applied(author, [d for d in listed if d.target[0] != "fault"])["faults"] == []
 
-    needs_both = lambda case: has_fault("backend.drop")(case) and len(case["speeches"]) == 2  # noqa: E731
+    needs_both = lambda case: has_fault("backend.drop")(case) and len(case["speeches"]) == 2
     shrunk = shrink(found, answers(needs_both), Predicate("A2", "rule"), author=author)
     assert shrunk.case == {**author, "faults": [fault("backend.drop", 1, 700_000)]}
     assert shrunk.differences == ["backend.drop on backend write 1, the caller waiting 700000 us"]
@@ -755,7 +759,7 @@ def test_a_hangup_is_a_difference_and_a_reduction_keeps_it_only_if_the_failure_n
     # Needed: kept, and settled on a whole second in the middle of its window.
     needs_both = lambda case: (
         left_between(7_000_000, 9_000_000)(case) and len(case["speeches"]) == 2
-    )  # noqa: E731
+    )
     shrunk = shrink(found, answers(needs_both), A2, author=author)
     assert shrunk.case == {**author, "hangup_us": 8_000_000}
     assert shrunk.differences == ["the user hangs up at 8000000 us"]

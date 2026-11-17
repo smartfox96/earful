@@ -418,7 +418,7 @@ if __name__ == "__main__":
         first, last, _build = FAMILIES[family]
         jobs += [
             (family, round(first + k * step, 3), dump)
-            for k in range(int(round((last - first) / step)) + 1)
+            for k in range(round((last - first) / step) + 1)
         ]
     results = defaultdict(list)
     with scenario.pool() as pool:
@@ -444,8 +444,9 @@ if __name__ == "__main__":
                 what = "/".join(row["rules"]) if row["outcome"] == "fail" else ""
                 kinds[(row["outcome"], row["contract"], what)].add((family, at))
     for (outcome, contract, what), where in sorted(kinds.items()):
+        families_hit = len({f for f, _at in where})
         print(
-            f"   {outcome:12} {contract} {what:10} {len(where):5} runs in {len({f for f, _at in where})} families"
+            f"   {outcome:12} {contract} {what:10} {len(where):5} runs in {families_hit} families"
         )
     for family in families:
         groups, example = defaultdict(list), {}

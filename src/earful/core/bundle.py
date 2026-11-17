@@ -40,7 +40,8 @@ from jsonschema import Draft202012Validator
 
 from . import case as cases
 from .checker import CONTRACTS, check
-from .ledger import SCHEMA as LEDGER, ledger_hash, read_jsonl, write_jsonl
+from .ledger import SCHEMA as LEDGER
+from .ledger import ledger_hash, read_jsonl, write_jsonl
 from .predicate import Predicate
 from .search import Run, Runner, judged
 from .shrink import shrink

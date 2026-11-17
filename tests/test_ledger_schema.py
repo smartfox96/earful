@@ -177,7 +177,7 @@ def _edit_header(edit):
         ),
         # the two speeches are 2.5 s apart: each is a segment of its own to the VAD
         (
-            lambda ev: [e for e in ev if e["kind"] == "user.vad_end"][0]["data"].update(speech=1),
+            lambda ev: next(e for e in ev if e["kind"] == "user.vad_end")["data"].update(speech=1),
             "recorded twice for speech 1",
         ),
         (

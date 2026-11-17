@@ -7,10 +7,10 @@ a step is kept only if the run still breaks the same rule of the same contract.
 
 1. **Isolate.** List every difference between the found case and the author's scenario:
    a speech moved, lengthened, added or dropped; a hangup; a delay declared; a fault
-   added; a setting, a contract policy or the seed changed. Delta debugging (Zeller and Hildebrandt's *ddmin*) over
-   that list gives a smallest set of differences that still fails. The result is the
-   author's scenario with only those changes, and if the author's scenario fails as
-   written it is the author's scenario.
+   added; a setting, a contract policy or the seed changed. Delta debugging (Zeller and
+   Hildebrandt's *ddmin*) over that list gives a smallest set of differences that still
+   fails. The result is the author's scenario with only those changes, and if the
+   author's scenario fails as written it is the author's scenario.
 2. **Remove.** ddmin again, over the speeches, the declared delays and the faults that
    remain, the author's own included: the fewest that still fail. Then the hangup, if
    the case still fails with a user who stays.
@@ -49,6 +49,11 @@ T = TypeVar("T")
 GRIDS_US = (1_000_000, 500_000, 100_000, 50_000, 10_000, 1_000)
 # How far from the one known edge of a half-open window a settled time stays: one VAD tick.
 MARGIN_US = 50_000
+
+
+def _keeping(case: cases.Case, name: str, keep: Sequence[int]) -> cases.Case:
+    """A copy of ``case`` with only the items of its list ``name`` at the positions ``keep``."""
+    return {**copy.deepcopy(case), name: [copy.deepcopy(case[name][i]) for i in keep]}
 
 
 def ddmin(items: Sequence[T], fails: Callable[[list[T]], bool]) -> list[T]:
@@ -381,8 +386,8 @@ def shrink(
 
     ``author`` is the scenario as its author wrote it: what the reduction measures the
     case against. Without it differences cannot be isolated; speeches, delays, faults and
-    the hangup are removed and every time is settled. ``max_runs`` bounds the work; if it is spent, the
-    case reduced so far is returned and ``complete`` is false.
+    the hangup are removed and every time is settled. ``max_runs`` bounds the work; if it
+    is spent, the case reduced so far is returned and ``complete`` is false.
 
     Raises ``ValueError`` if ``case`` does not break ``predicate`` to begin with.
     """
@@ -407,7 +412,8 @@ def shrink(
             if len(needed) < len(all_of_them):
                 current = applied(author, needed)
                 steps.append(
-                    f"kept {len(needed)} of {len(all_of_them)} differences from the author's scenario"
+                    f"kept {len(needed)} of {len(all_of_them)} differences "
+                    "from the author's scenario"
                 )
 
     # 2. Remove: the fewest speeches, declared delays and faults, the author's own included.
@@ -418,14 +424,13 @@ def shrink(
     ):
         items = current[name]
         if items and not spent():
-            kept = ddmin(
-                range(len(items)),
-                lambda keep, n=name, its=items: breaks(
-                    {**copy.deepcopy(current), n: [copy.deepcopy(its[i]) for i in keep]}
-                ),
-            )
+
+            def fails(keep: list[int], whole: dict[str, Any] = current, name: str = name) -> bool:
+                return breaks(_keeping(whole, name, keep))
+
+            kept = ddmin(range(len(items)), fails)
             if len(kept) < len(items):
-                current = {**copy.deepcopy(current), name: [copy.deepcopy(items[i]) for i in kept]}
+                current = _keeping(current, name, kept)
                 steps.append(f"removed {len(items) - len(kept)} of {len(items)} {plural}")
 
     if current["hangup_us"] is not None and not spent() and breaks(cases.without_hangup(current)):

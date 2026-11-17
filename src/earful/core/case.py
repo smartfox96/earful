@@ -8,9 +8,9 @@ contract policy.
 
 Every time in a case is a **variable**: something that can be moved on its own. Where a
 speech sits, when it ends, how long its transcript takes; when the user hangs up; how long
-a model call, a first audio or a backend write takes. The boundary scheduler moves variables, the shrinker
-moves them back, and both do it through the functions here, so neither needs to know what
-a speech or a delay is.
+a model call, a first audio or a backend write takes. The boundary scheduler moves
+variables, the shrinker moves them back, and both do it through the functions here, so
+neither needs to know what a speech or a delay is.
 
 The shape is defined by a JSON Schema document shipped with this package
 (``schemas/earful.case-3.schema.json``).

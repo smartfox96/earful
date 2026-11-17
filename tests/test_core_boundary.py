@@ -51,7 +51,8 @@ def test_core_imports_with_livekit_unavailable():
         "sys.modules['livekit'] = None\n"  # any 'import livekit' now raises ImportError
         f"for name in {modules!r}:\n"
         "    importlib.import_module(name)\n"
-        "assert not any(m == 'earful.livekit' or m.startswith('earful.livekit.') for m in sys.modules)\n"
+        "adapter = [m for m in sys.modules if m.split('.')[:2] == ['earful', 'livekit']]\n"
+        "assert not adapter, adapter\n"
     )
     done = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, check=False)
     assert done.returncode == 0, done.stderr

@@ -29,3 +29,10 @@ target-version = "py310"
 [tool.ruff.format]
 # Code blocks in the Markdown pages are laid out by hand, with their comments aligned.
 exclude = ["*.md"]
+
+[tool.ruff.lint]
+# Ruff's default rules, and the line length for what the formatter cannot wrap.
+extend-select = ["E501"]
+
+[dependency-groups]
+lint = ["ruff==0.17.5", "mypy==2.4.1", "types-jsonschema"]

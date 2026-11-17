@@ -164,7 +164,8 @@ def check(view: View, policy: policies.M2) -> ContractResult:
                 refused += 1
             elif tool is None and item.get("name") not in view.witnessed_tools:
                 unknown.append(
-                    f"the tool behind result {item['call_id']!r} was not witnessed, or cannot be linked to it"
+                    f"the tool behind result {item['call_id']!r} was not witnessed, "
+                    "or cannot be linked to it"
                 )
             else:
                 findings.append(
