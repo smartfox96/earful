@@ -102,6 +102,16 @@ jobs:
           - { version: "1.6.5", as_of: "2026-07-20" }
           - { version: "1.6.6", as_of: "2026-07-20" }
           - { version: "1.8.12", as_of: "2026-11-14" }
+        # macOS runs the oldest and the newest release on a pull request and on a push.
+        # The nightly and manual runs add the three between: there the name below is one
+        # no job has, so nothing is left out.
+        exclude:
+          - os: ${{ (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && 'every release' || 'macos-latest' }}
+            lk: { version: "1.5.7", as_of: "2026-05-06" }
+          - os: ${{ (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && 'every release' || 'macos-latest' }}
+            lk: { version: "1.6.5", as_of: "2026-07-20" }
+          - os: ${{ (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && 'every release' || 'macos-latest' }}
+            lk: { version: "1.6.6", as_of: "2026-07-20" }
         # Every other supported Python, once each, spread across releases.
         include:
           - os: ubuntu-latest
