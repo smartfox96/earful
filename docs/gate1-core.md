@@ -82,10 +82,11 @@ and interruption point reach `tool.called`, `tool.returned`, `effect.requested` 
 `effect.committed`, and that the commit reaches the playout, the sink's pause and the
 user's transcript.
 
-A search of that scenario with every default variable runs 666 to 1 229 candidates,
-depending on the release, with none refused, none raising and none invalid. A further 889
-to 1 439 placements are counted as impossible and not run: a delay cannot be negative, and
-a speech cannot overlap or pass another. It takes 10 to 20 seconds on eight cores.
+A search of that scenario with every default variable runs 700 to 1 330 candidates,
+depending on the release, with none refused, none raising and none invalid. A further 946
+to 1 496 placements are counted as impossible and not run: a delay cannot be negative, a
+speech cannot overlap or pass another, and the user cannot hang up before their last
+speech is over. It takes 9 to 19 seconds on eight cores.
 
 ### The two known defects are found on the releases that have them and on no other
 
@@ -132,9 +133,9 @@ the one fault, and replays to the same ledger (`tests/test_search_live.py`).
 
 ### Hangup
 
-`docs/search.md` section 1 describes it. With `user.hangup` among the variables, the
-search makes the user leave at every transition from the end of their last speech on. The
-session is closed at that moment, as a participant's disconnect closes it.
+`docs/search.md` section 1 describes it. The search makes the user leave at every
+transition from the end of their last speech on: `user.hangup` is one of the default
+variables. The session is closed at that moment, as a participant's disconnect closes it.
 
 On all five releases the framework stops the output at the instant of the hangup, lets a
 tool that is running finish, and then closes. A write requested before the hangup commits
@@ -162,10 +163,11 @@ not been classified is not reported here (`docs/contracts.md`, section 10).
 
 `scripts/contracts_sweep.py` steps one speech through 23 scenario shapes in 50 ms
 increments, 3 441 runs per release (`docs/contracts.md`, section 10). On 22 of those
-shapes, on releases 1.5.6, 1.6.6 and 1.8.12, the boundary search with its default
-variables was compared with the sweep: 14 847 candidates per release. Every rule the
-sweep found broken in a shape, the search found broken in that shape. This compares
-recall only. What neither method looks for is listed in `docs/search.md` section 7.
+shapes, on releases 1.5.6, 1.6.6 and 1.8.12, the boundary search was compared with the
+sweep, moving where each speech sits and every provider delay: 14 847 candidates per
+release. Every rule the sweep found broken in a shape, the search found broken in that
+shape. This compares recall only. What neither method looks for is listed in
+`docs/search.md` section 7.
 
 As in `docs/contracts.md` section 10, a failure of a rule that has not been classified is
 not reported here.

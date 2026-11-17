@@ -173,10 +173,10 @@ is placed against the transitions of the run in which the user stays. No delay
 is made longer than a limit, 10 s by default. A model that answers after a minute is a
 different scenario and is outside the search.
 
-By default the search moves where every speech sits and every provider delay.
-`speech.end`, `speech.stt_delay` and `user.hangup` can be added, and the search can be
-limited to some speeches, some handles, or the boundaries other than word ends. With
-`user.hangup` the user leaves at every transition from the end of their last speech on.
+By default the search moves where every speech sits, every provider delay and the
+hangup: the user leaves at every transition from the end of their last speech on.
+`speech.end` and `speech.stt_delay` can be added, and the search can be limited to some
+variables, some speeches, some handles, or the boundaries other than word ends.
 
 **Faults.** The search adds each fault to each backend write the run made, one fault per
 candidate. The caller waits 1 s unless told otherwise (`wait_us`). A timeout is run in
@@ -355,5 +355,3 @@ the one way they change.
   lost, and the user can hang up once their last speech is over. A hangup in the middle
   of a speech, a provider that stalls and a caller that sends a write twice cannot be
   declared yet.
-- **The hangup is moved only when asked for.** `user.hangup` is not among the default
-  variables.

@@ -1,7 +1,7 @@
 """Search a scenario for timing failures, and reduce what is found to a case worth keeping.
 
 Moves each time the scenario controls (where a speech sits; how long a model call, a first
-audio or a backend write takes; when the user hangs up, if asked) so that it falls just before, at and just after every
+audio or a backend write takes; when the user hangs up) so that it falls just before, at and just after every
 moment the system changes state. Checks every run and prints which contract rules broke,
 how wide the window is in which each breaks (a rule that breaks only at single instants
 turns on same-instant order and is marked `instants_only`), and which boundaries were
@@ -17,9 +17,8 @@ bundle.
 SCENARIO is module:function. Running it imports and calls that function.
 
     --case FILE          start from a saved case (earful.case/3) instead of the scenario as written
-    --variables A,B      kinds of time to move (default: speech.position and every provider delay;
-                         speech.end, speech.stt_delay and user.hangup can be added)
-    --hangup             also move the moment the user hangs up: the same as adding user.hangup
+    --variables A,B      kinds of time to move (default: speech.position, every provider delay and
+                         user.hangup; speech.end and speech.stt_delay can be added)
     --faults A,B         faults to add to each backend write (default: backend.error, backend.timeout,
                          backend.drop; "none" for no faults)
     --pairs              also move every speech with each fault in place, and add faults to two writes at once
@@ -43,7 +42,7 @@ from earful.livekit import scenario
 def main(argv: list[str]) -> int:
     args, keep, out, case_file, variables = [], [], None, None, None
     words, windows = True, True
-    faults, pairs, profiles, hangup = cases.FAULT_KINDS, False, 0, False
+    faults, pairs, profiles = cases.FAULT_KINDS, False, 0
     it = iter(argv)
     for arg in it:
         if arg == "--keep":
@@ -59,8 +58,6 @@ def main(argv: list[str]) -> int:
             faults = () if named == "none" else tuple(named.split(","))
         elif arg == "--pairs":
             pairs = True
-        elif arg == "--hangup":
-            hangup = True
         elif arg == "--profiles":
             profiles = int(next(it))
         elif arg == "--no-words":
@@ -81,7 +78,7 @@ def main(argv: list[str]) -> int:
         found = search.explore(
             case,
             scenario.run,
-            variables=(*(variables or search.DEFAULT_VARIABLES), *((cases.HANGUP,) if hangup and cases.HANGUP not in (variables or ()) else ())),
+            variables=variables or search.DEFAULT_VARIABLES,
             faults=faults,
             pairs=pairs,
             profiles=profiles,
