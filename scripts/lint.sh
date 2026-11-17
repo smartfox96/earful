@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# The static checks: formatting, lint rules and types. The lint job in CI runs this.
+# The static checks: formatting, lint rules, types, and that every deliberate break in
+# tests/mutants.py still applies to the code. The lint job in CI runs this.
 #
 #   scripts/lint.sh          check; changes nothing
 #   scripts/lint.sh --fix    reformat and apply ruff's safe fixes first, then check
@@ -31,4 +32,5 @@ step() {
 step "ruff format" "$env_dir/bin/ruff" format --check .
 step "ruff check" "$env_dir/bin/ruff" check .
 step "mypy" "$env_dir/bin/mypy"
+step "mutants apply" "$env_dir/bin/python" scripts/mutate.py --verify
 exit "$failed"
