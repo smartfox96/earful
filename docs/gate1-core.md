@@ -21,9 +21,18 @@ Gate 1 is complete when each of these is demonstrated.
 | It finds a deliberate break from a scenario that passes as written, however narrow, and tells a real failure from a same-instant tie | The same |
 | A failing case is reduced by re-running the real framework, and the reduced case replays to the same ledger every time | Reduction and replay, below |
 
-Everything below is reproduced by `scripts/check_all.sh`, which builds the five pinned
-environments and runs the tests, the repeatability check, the historical cases and the
-replay of the reference bundles on each, side by side.
+`scripts/check_all.sh` builds the five pinned environments and runs the tests, the
+repeatability check, the historical cases and the replay of the reference bundles on
+each, side by side. The figures in the tables below are measured by
+`scripts/gate1_figures.py`, which prints them for the release it is run with:
+
+```bash
+.venvs/lk-1.5.6/bin/python scripts/gate1_figures.py
+```
+
+Two sets of figures come from elsewhere. Those of the reference bundles are recorded in
+their manifests (`tests/bundles/`). The comparison with stepping through time is made by
+`scripts/search_vs_sweep.py`.
 
 ## Mutations and controls
 
@@ -86,7 +95,7 @@ A search of that scenario with every default variable runs 700 to 1 330 candidat
 depending on the release, with none refused, none raising and none invalid. A further 946
 to 1 496 placements are counted as impossible and not run: a delay cannot be negative, a
 speech cannot overlap or pass another, and the user cannot hang up before their last
-speech is over. It takes 9 to 19 seconds on eight cores.
+speech is over. It takes 4 to 12 seconds on fifteen cores.
 
 ### The two known defects are found on the releases that have them and on no other
 
@@ -162,12 +171,19 @@ not been classified is not reported here (`docs/contracts.md`, section 10).
 ### The search against stepping through time
 
 `scripts/contracts_sweep.py` steps one speech through 23 scenario shapes in 50 ms
-increments, 3 441 runs per release (`docs/contracts.md`, section 10). On 22 of those
-shapes, on releases 1.5.6, 1.6.6 and 1.8.12, the boundary search was compared with the
-sweep, moving where each speech sits and every provider delay: 14 847 candidates per
-release. Every rule the sweep found broken in a shape, the search found broken in that
-shape. This compares recall only. What neither method looks for is listed in
-`docs/search.md` section 7.
+increments, 3 441 runs per release (`docs/contracts.md`, section 10).
+`scripts/search_vs_sweep.py` makes those runs and then searches each shape. The search
+starts with the moving speech at the last position of its sweep and moves where each
+speech sits and every provider delay: 18 827 candidates on 1.5.6 and 18 716 on each later
+release.
+
+```bash
+.venvs/lk-1.5.6/bin/python scripts/search_vs_sweep.py
+```
+
+On all five releases, every rule the sweep found broken in a shape, the search found
+broken in that shape. This compares recall only. What neither method looks for is listed
+in `docs/search.md` section 7.
 
 As in `docs/contracts.md` section 10, a failure of a rule that has not been classified is
 not reported here.
@@ -222,11 +238,22 @@ python scripts/replay.py tests/bundles/lk-1.5.6.book_then_interrupt.A2-rule
 
 ## Mutation checks
 
-Thirty-three parts of the search, the shrinker, the bundle and what they rest on were
-each broken in turn: the offsets ignored, the delay limit removed, a window's ends
-mislabelled, a reduction kept without the failure it needs, a bundle written for a case
-that does not repeat, the VAD never merging, L1 naming one rule for every milestone. Each
-broken version fails at least one test.
+`tests/mutants.py` lists 117 deliberate breaks of the code. Each is one piece of source
+text and what replaces it: the offsets of a search ignored, the delay limit removed, a
+window's ends mislabelled, a reduction kept without the failure it needs, a timed-out
+write that never commits, a hangup that excuses a turn already overdue.
+`scripts/mutate.py` runs the unbroken code as a control, then applies each break in a
+copy of the repository and runs the tests there.
+
+```bash
+.venvs/lk-1.8.12/bin/python scripts/mutate.py
+```
+
+On livekit-agents 1.8.12 the control passes and each of the 117 broken versions fails at
+least one test. The run takes about 20 minutes with five copies side by side and is not
+part of CI. The lint job does check, on every change, that the text of each break is
+still found exactly once in its file (`scripts/mutate.py --verify`), so a change that
+moves the code under a break fails until the break is brought along.
 
 ## Limits
 
