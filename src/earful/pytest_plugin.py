@@ -7,7 +7,8 @@
 The fixture's ``run``, ``explore``, ``keep`` and ``replay`` are those of the framework
 adapter (``earful.livekit``). What the fixture adds: when the test fails, the ledger of
 each run it made, and an example of each rule a search of its found broken, are written
-under ``--earful-out`` (``.earful`` by default), and the failure says where.
+under ``--earful-out`` (``.earful`` by default), each with a report to open in a
+browser, and the failure says where.
 
     --earful-out DIR       where the evidence of failing tests goes
     --earful-workers N     worker processes for searches that do not say (default 0)
@@ -26,7 +27,7 @@ from typing import TYPE_CHECKING, Any
 
 import pytest
 
-from .core import timeline
+from .core import html
 from .core.ledger import write_jsonl
 
 if TYPE_CHECKING:
@@ -112,9 +113,12 @@ class Earful:
         lines: list[str] = []
 
         def write(name: str, events: list[dict[str, Any]]) -> None:
-            ledger, report = self.directory / f"{name}.ledger.jsonl", self.directory / f"{name}.txt"
+            ledger, report = (
+                self.directory / f"{name}.ledger.jsonl",
+                self.directory / f"{name}.html",
+            )
             write_jsonl(events, ledger, normalized=True)
-            report.write_text(timeline.text(events), encoding="utf-8")
+            report.write_text(html.render(events, title=name), encoding="utf-8")
             lines.append(f"    ledger  {_shown(ledger)}")
             lines.append(f"    report  {_shown(report)}")
 

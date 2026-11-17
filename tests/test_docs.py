@@ -78,15 +78,16 @@ def test_every_setting_the_livekit_adapter_has_is_documented():
 
 
 TESTING_DOC = (Path(__file__).resolve().parents[1] / "docs" / "testing.md").read_text()
+REPORT_DOC = (Path(__file__).resolve().parents[1] / "docs" / "report.md").read_text()
 
 
 def test_every_name_the_testing_page_imports_from_earful_exists():
-    """The examples on the page are read as Python, and each name they import from the
-    package is looked up."""
+    """The examples on the testing and report pages are read as Python, and each name
+    they import from the package is looked up."""
     import ast
     import importlib
 
-    blocks = re.findall(r"```python\n(.*?)```", TESTING_DOC, flags=re.DOTALL)
+    blocks = re.findall(r"```python\n(.*?)```", TESTING_DOC + REPORT_DOC, flags=re.DOTALL)
     assert blocks
     imported = []
     for block in blocks:
@@ -99,6 +100,7 @@ def test_every_name_the_testing_page_imports_from_earful_exists():
     assert {"run", "explore", "keep", "replay", "ScriptedModel", "Effect", "effect"} <= set(
         imported
     )
+    assert {"render", "render_bundle"} <= set(imported)
 
 
 def test_every_command_and_option_the_testing_page_names_exists():

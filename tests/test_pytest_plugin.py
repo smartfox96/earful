@@ -93,12 +93,14 @@ def test_a_failing_test_leaves_its_ledgers_and_cases_and_says_where(project):
     ran = out / "test_booking.py-test_with_a_failed_write"
     ledger = ran / "run-1.booking.ledger.jsonl"
     assert validate(read_jsonl(ledger)) == []
-    assert "A3  fail" in (ran / "run-1.booking.txt").read_text()
+    page = (ran / "run-1.booking.html").read_text(encoding="utf-8")
+    assert "<svg" in page and "A3" in page and "://" not in page
     result.stdout.fnmatch_lines(
         [
             "*- earful -*",
             "run 1 (booking) breaks A3/rule",
             f"    ledger  {ledger.relative_to(project.path)}",
+            f"    report  {(ran / 'run-1.booking.html').relative_to(project.path)}",
             "search 1 (booking) breaks A3/rule: backend.error 1",
         ]
     )

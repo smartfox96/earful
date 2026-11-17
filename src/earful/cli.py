@@ -4,7 +4,7 @@
     earful run SCENARIO            run a scenario once and print its verdicts
     earful search SCENARIO         search a scenario for the timings and faults that break it
     earful replay BUNDLE           run a kept failure again
-    earful report LEDGER|BUNDLE    a run, written out for a person
+    earful report LEDGER|BUNDLE    a run, drawn as one HTML page or written out as text
 
 A SCENARIO is ``module:function``: a function that takes no arguments and returns the
 case. Running one imports and calls it, and replaying a bundle imports and runs the
@@ -34,7 +34,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from . import __version__
-from .core import bundle, timeline
+from .core import bundle, html, timeline
 from .core import case as cases
 from .core.checker import Report, check
 from .core.checker.report import allowed
@@ -253,14 +253,26 @@ def _replay(args: argparse.Namespace) -> int:
 
 
 def _report(args: argparse.Namespace) -> int:
-    if args.source.is_dir():
+    kept = args.source.is_dir()
+    if kept:
         try:
             events = bundle.load(args.source).ledger(args.which)
         except OSError as exc:
             raise Refused(f"cannot read the bundle in {args.source}: {exc.strerror}") from exc
     else:
         events = _ledger(args.source)
-    written = timeline.text(events)
+    # A page where the output is a page, text where it is a terminal or a text file.
+    as_page = args.format == "html" or (
+        args.format is None
+        and args.output is not None
+        and args.output.suffix.lower() in (".html", ".htm")
+    )
+    if not as_page:
+        written = timeline.text(events)
+    elif kept:  # with what the bundle froze beside its ledger
+        written = html.render_bundle(args.source, args.which)
+    else:
+        written = html.render(events, title=args.source.name)
     if args.output is None:
         sys.stdout.write(written)
     else:
@@ -374,7 +386,12 @@ def _parser() -> argparse.ArgumentParser:
     )
     sub.add_argument("--json", action="store_true", help="the outcome as JSON")
 
-    sub = command("report", _report, "Write a run out for a person: verdicts and every event.")
+    sub = command(
+        "report",
+        _report,
+        "Draw a run as one HTML page (a timeline, the verdicts and every event), or write "
+        "it out as text.",
+    )
     sub.add_argument("source", type=Path, metavar="LEDGER|BUNDLE_DIR")
     sub.add_argument(
         "--which",
@@ -383,6 +400,11 @@ def _parser() -> argparse.ArgumentParser:
         help="for a bundle: the reduced case or the one first found (default minimal)",
     )
     sub.add_argument("-o", "--output", type=Path, metavar="FILE", help="write here, not stdout")
+    sub.add_argument(
+        "--format",
+        choices=("html", "text"),
+        help="default: html for an output file named .html, text otherwise",
+    )
     return parser
 
 

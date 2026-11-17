@@ -220,6 +220,27 @@ def test_replay_of_what_is_not_a_bundle_is_refused(capsys, tmp_path):
 # --------------------------------------------------------------------------- report
 
 
+def test_report_draws_a_page_where_the_output_is_one_and_text_elsewhere(capsys, tmp_path):
+    page = tmp_path / "out" / "run.html"
+    status, out, _ = earful(capsys, "report", BOOKED_TWICE, "-o", page)
+    assert status == OK and out == f"report     {page}\n"
+    drawn = page.read_text(encoding="utf-8")
+    assert drawn.startswith("<!DOCTYPE html>") or drawn.lstrip().lower().startswith(
+        "<!doctype html>"
+    )
+    assert "book_then_interrupt" in drawn and "A2" in drawn and "://" not in drawn
+    # A bundle's page says what the bundle froze.
+    kept = tmp_path / "kept.html"
+    assert earful(capsys, "report", KEPT_3702, "-o", kept)[0] == OK
+    assert "A2/rule" in kept.read_text(encoding="utf-8")
+    # The format can be named: a page to standard output, text to a file named .html.
+    status, out, _ = earful(capsys, "report", CLEAN, "--format", "html")
+    assert status == OK and "<svg" in out
+    named = tmp_path / "plain.html"
+    assert earful(capsys, "report", CLEAN, "--format", "text", "-o", named)[0] == OK
+    assert named.read_text().startswith("case       book_then_interrupt")
+
+
 def test_report_writes_a_run_out_as_text_and_exits_0_whatever_it_says(capsys, tmp_path):
     status, out, _ = earful(capsys, "report", BOOKED_TWICE)
     assert status == OK

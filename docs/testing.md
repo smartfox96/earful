@@ -299,17 +299,18 @@ def test_a_booking_is_made_once_and_confirmed_truthfully(earful):
 
 When the test fails, the ledger of each run it made, and an example case with its ledger
 for each rule a search of its found broken, are written under `.earful/`, in a directory
-named after the test. The failure output ends with a section that says where:
+named after the test. Each ledger has a report beside it, one HTML page to open in a
+browser (`docs/report.md`). The failure output ends with a section that says where:
 
 ```
 ---------------------------------- earful ----------------------------------
 run 1 (booking) breaks A3/rule
     ledger  .earful/test_booking.py-test_with_a_failed_write/run-1.booking.ledger.jsonl
-    report  .earful/test_booking.py-test_with_a_failed_write/run-1.booking.txt
+    report  .earful/test_booking.py-test_with_a_failed_write/run-1.booking.html
 search 1 (booking) breaks A3/rule: backend.error 1
     case    .earful/test_booking.py-test_searched/search-1.booking.A3-rule.case.json
     ledger  .earful/test_booking.py-test_searched/search-1.booking.A3-rule.ledger.jsonl
-    report  .earful/test_booking.py-test_searched/search-1.booking.A3-rule.txt
+    report  .earful/test_booking.py-test_searched/search-1.booking.A3-rule.html
 ```
 
 A test that passes writes nothing. `.earful/` belongs in `.gitignore`.
@@ -329,7 +330,7 @@ earful run myapp.scenarios:booking --ledger booking.ledger.jsonl
 earful check booking.ledger.jsonl
 earful search myapp.scenarios:booking --keep A3/rule --out failures
 earful replay failures/lk-1.8.12.booking.A3-rule --expect reproduced
-earful report failures/lk-1.8.12.booking.A3-rule
+earful report failures/lk-1.8.12.booking.A3-rule -o report.html
 ```
 
 | Command | Does |
@@ -338,7 +339,7 @@ earful report failures/lk-1.8.12.booking.A3-rule
 | `earful run SCENARIO` | Runs a scenario once and prints its verdicts. `--case FILE` runs a saved case, `--ledger FILE` writes the ledger |
 | `earful search SCENARIO` | Searches a scenario, in one worker process per processor unless `--workers` says otherwise. `--keep CONTRACT/RULE --out DIR` writes a bundle for a rule that broke. `--variables`, `--faults`, `--pairs`, `--profiles`, `--no-words` and `--no-windows` narrow or widen the search |
 | `earful replay BUNDLE_DIR` | Runs a bundle's reduced case again. `--expect reproduced` or `--expect clean` makes the outcome the exit status |
-| `earful report LEDGER` or `BUNDLE_DIR` | Writes the run out as text: what was run, the verdicts and every event. `-o FILE` writes it to a file |
+| `earful report LEDGER` or `BUNDLE_DIR` | With `-o FILE.html`, draws the run as one HTML page: a timeline, the verdicts and every event (`docs/report.md`). Without it, writes the same out as text. `--format` names one or the other |
 
 A scenario is named `module:function` on the command line, so it has to be importable
 from where the command runs. `check` and `report` read files and work without the
