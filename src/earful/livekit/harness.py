@@ -14,8 +14,6 @@ from typing import TYPE_CHECKING, Any
 import livekit.agents as lk
 from livekit import rtc
 from livekit.agents import utils
-from livekit.agents.voice import io
-from livekit.agents.voice.transcription.synchronizer import TranscriptSynchronizer
 
 from ..core.backend import FAULTS, BackendMode, EffectBackend
 from ..core.checker.policy import parse_all
@@ -23,7 +21,15 @@ from ..core.ledger import Ledger, ledger_hash
 from ..core.schema import validity
 from ..core.timebase import to_seconds, to_us
 from . import tools
-from .clock import WALL_CLOCK_EPOCH, ClockPatchReport, VirtualTimeLoop, now_us, run_virtual
+from ._compat import TranscriptSynchronizer, io
+from .clock import (
+    WALL_CLOCK_EPOCH,
+    ClockPatchReport,
+    VirtualTimeLoop,
+    now_us,
+    patch_report,
+    run_virtual,
+)
 from .providers import (
     Policy,
     ScriptedLLM,
@@ -469,6 +475,11 @@ async def _run(case: Case, seed: int) -> RunResult:
 
     # Errors in Earful's own simulation or recording. Any of them makes the run invalid.
     harness_errors: list[str] = []
+    if virtual:
+        harness_errors += [
+            f"{name} reads the wall clock and could not be given the virtual one"
+            for name in patch_report().unpatched
+        ]
     warnings = _WarningCollector()
     lk_logger = logging.getLogger("livekit.agents")
     lk_logger.addHandler(warnings)
@@ -589,15 +600,13 @@ async def _run(case: Case, seed: int) -> RunResult:
         harness_errors=harness_errors,
         framework_warnings=len(warnings.messages),
     )
-    from .clock import _REPORT
-
     return RunResult(
         case=case.name,
         seed=seed,
         ledger=ledger,
         hash=ledger_hash(ledger.events),
         versions=versions(),
-        clock=_REPORT,
+        clock=patch_report(),
         stamp_errors=sink.stamp_errors,
         executor_calls=executor_calls,
         underruns=sink.underruns,

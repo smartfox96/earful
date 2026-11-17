@@ -25,10 +25,10 @@ from livekit.agents import stt as lk_stt
 from livekit.agents import tts as lk_tts
 from livekit.agents import utils
 from livekit.agents import vad as lk_vad
-from livekit.agents.types import DEFAULT_API_CONNECT_OPTIONS, APIConnectOptions
 
 from ..core.ledger import Ledger
 from ..core.timebase import to_seconds, to_us
+from ._compat import DEFAULT_API_CONNECT_OPTIONS, APIConnectOptions
 from .clock import now_us
 
 

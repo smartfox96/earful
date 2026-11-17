@@ -876,4 +876,25 @@ MUTANTS = [
         "        todo = {key: case for key, case in zip(keys, wanted)}\n",
         first="runs_no_case_twice",
     ),
+    Mutant(
+        "clock: only the first run looks for models",
+        "src/earful/livekit/clock.py",
+        "    for model in _models():\n",
+        "    for model in [] if _LOOKED_AT else _models():\n",
+        first="defined_after_the_first_run",
+    ),
+    Mutant(
+        "clock: a model that cannot be patched is not reported",
+        "src/earful/livekit/clock.py",
+        "                unpatched += names\n",
+        "                pass\n",
+        first="cannot_be_patched",
+    ),
+    Mutant(
+        "harness: a run with an unpatched clock is valid",
+        "src/earful/livekit/harness.py",
+        "    if virtual:\n        harness_errors += [\n",
+        "    if False:\n        harness_errors += [\n",
+        first="cannot_be_patched",
+    ),
 ]

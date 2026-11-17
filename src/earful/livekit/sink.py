@@ -32,10 +32,10 @@ from collections.abc import Callable
 from typing import Any
 
 from livekit import rtc
-from livekit.agents.voice import io
 
 from ..core.ledger import Ledger
 from ..core.timebase import US_PER_SECOND, to_seconds
+from ._compat import io
 from .providers import StampTable
 
 

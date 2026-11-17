@@ -129,7 +129,9 @@ difference, so its tolerance and cut-word rule need to be explicit.
   jumps to the next timer instead of sleeping. It points `time.time`, `time.perf_counter`
   and `time.time_ns` at that clock for the duration of a run, and rewrites the pydantic
   validators of event and chat-context models whose `created_at` captured `time.time` at
-  import (19 fields on 1.5.x, 23 on 1.6.x, 24 on 1.8.12). Adapted from LiveKit's own
+  import (19 fields on 1.5.x, 23 on 1.6.x, 24 on 1.8.12). Every model class in the
+  process is checked at the start of every run, and a run with a model that reads the
+  real clock and cannot be rewritten is invalid. Adapted from LiveKit's own
   `tests/virtual_time.py`, which exists only from 1.6.0 and is not shipped in the wheel.
 - **Providers.** Scripted VAD, STT, LLM and TTS subclass LiveKit's public plugin base
   classes. The LLM is a pure function of the context it is shown and records that context.

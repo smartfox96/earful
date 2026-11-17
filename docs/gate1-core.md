@@ -238,7 +238,7 @@ python scripts/replay.py tests/bundles/lk-1.5.6.book_then_interrupt.A2-rule
 
 ## Mutation checks
 
-`tests/mutants.py` lists 119 deliberate breaks of the code. Each is one piece of source
+`tests/mutants.py` lists 122 deliberate breaks of the code. Each is one piece of source
 text and what replaces it: the offsets of a search ignored, the delay limit removed, a
 window's ends mislabelled, a reduction kept without the failure it needs, a timed-out
 write that never commits, a hangup that excuses a turn already overdue.
@@ -249,7 +249,7 @@ copy of the repository and runs the tests there.
 .venvs/lk-1.8.12/bin/python scripts/mutate.py
 ```
 
-On livekit-agents 1.8.12 the control passes and each of the 119 broken versions fails at
+On livekit-agents 1.8.12 the control passes and each of the 122 broken versions fails at
 least one test. The run takes about 20 minutes with five copies side by side and is not
 part of CI. The lint job does check, on every change, that the text of each break is
 still found exactly once in its file (`scripts/mutate.py --verify`), so a change that
