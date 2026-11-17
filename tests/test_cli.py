@@ -245,6 +245,26 @@ def test_the_command_runs_as_a_module_and_says_its_version():
     assert done.returncode == 0 and done.stdout.startswith("earful ")
 
 
+def test_a_scenario_in_the_directory_the_command_is_run_from_is_found(tmp_path):
+    """The installed script does not have the working directory on its import path, as
+    ``python -m`` does. A scenario module beside the user is found all the same."""
+    (tmp_path / "my_scenarios.py").write_text(
+        "from earful.livekit.cases import barge_in_mid_word\n\n\n"
+        "def host():\n    return barge_in_mid_word()\n"
+    )
+    code = (
+        "import sys\n"
+        "sys.path[:] = [entry for entry in sys.path if entry not in ('', '.')]\n"
+        "from earful.cli import main\n"
+        "sys.exit(main(['run', 'my_scenarios:host']))\n"
+    )
+    done = subprocess.run(
+        [sys.executable, "-c", code], capture_output=True, text=True, check=False, cwd=tmp_path
+    )
+    assert done.returncode == 0, done.stderr
+    assert "case       barge_in_mid_word" in done.stdout
+
+
 def test_without_the_framework_ledgers_are_checked_and_a_run_is_refused_with_what_to_install():
     """The commands that read files need nothing but the core. Those that run an agent
     say what is missing."""

@@ -52,7 +52,15 @@ class Refused(Exception):
 
 
 def _adapter() -> ModuleType:
-    """The LiveKit adapter, imported only by the commands that run an agent."""
+    """The LiveKit adapter, imported only by the commands that run an agent.
+
+    Those commands name a scenario as ``module:function``, so the directory the command
+    is run from is put on the import path, as ``python -m`` and pytest put it there. The
+    installed ``earful`` script would otherwise not find a module beside it.
+    """
+    here = os.getcwd()
+    if here not in sys.path:
+        sys.path.insert(0, here)
     try:
         from . import livekit
     except ImportError as exc:

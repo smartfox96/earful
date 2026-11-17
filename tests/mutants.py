@@ -1435,4 +1435,11 @@ MUTANTS = [
         "    pass\n",
         first="does_not_fill_the_log",
     ),
+    Mutant(
+        "cli: a scenario beside the user is not found",
+        "src/earful/cli.py",
+        "    if here not in sys.path:\n",
+        "    if False:\n",
+        first="directory_the_command_is_run_from",
+    ),
 ]
