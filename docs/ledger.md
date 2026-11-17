@@ -103,6 +103,7 @@ with ordinals; see Hashing.
 | `hangup_us` | When the user hangs up, as an offset from the origin. Null when the user stays to the end of the scenario |
 | `intents` | Per intent: `intent`, `tools`, `authorized` (durable effects allowed) |
 | `witnessed_tools` | The names of the function tools of the agent the run starts with. The tool witness records every call of each, so a call to one of them that leaves no `tool.called` was never made |
+| `effects` | Tools that stand for one durable write. Per tool: `tool` and `intent`. In this run a call of such a tool made the write and did not run the tool's own body. Absent when there are none |
 | `session` | The framework options the contracts depend on: `min_interruption_duration_us`, `false_interruption_timeout_us`, `min_endpointing_delay_us`, `max_endpointing_delay_us`, `turn_detection`, and `extra_options` (any further options, by name, with their values) |
 | `delays` | Provider delays the scenario declares, each in place of what its code would ask for. Per delay: `of` (`llm.ttft`, `llm.duration`, `tts.ttfb` or `backend.latency`), `nth` (which model call, utterance or backend request, from 1) and `us`. Empty when the scenario declares none |
 | `faults` | Faults the scenario declares, each for one backend write. Per fault: `of` (`backend.error`, `backend.timeout` or `backend.drop`), `nth` (which backend request, from 1) and `us` (how long the caller waits before it is told the write timed out; null for `backend.error`). Empty when the scenario declares none |
@@ -197,6 +198,15 @@ of the agent it is given with a recording copy, through the agent's public `tool
 the run) is witnessed only if it is wrapped with `earful.livekit.tools.witnessed`. Each
 `tool.called` is followed by at most one of the other three.
 
+A tool can stand for one durable write. The scenario declares it by tool name
+(`Case.effects`), or the tool's definition does (`earful.livekit.tools.effect_tool`); the
+scenario's declaration is used where both exist. A call of such a tool is recorded like
+any other, and in place of the tool's body the witness makes the write: `payload` is the
+call's arguments unless the declaration maps them, and the tool returns the receipt
+unless the declaration maps that. The header lists these tools in `effects`, so a reader
+knows which tool bodies did not run. A scenario that declares an effect for a tool the
+agent does not have is refused before it runs.
+
 A tool still running when the scenario is over is cut off by the harness, after the final
 history has been read, and recorded as `tool.cancelled`. A tool that never returns
 therefore cannot hang a run, and the ledger shows that it never finished.
@@ -279,6 +289,11 @@ position stopped inside, if any, and `word_cut_samples` how many of its samples 
 | `effect.failed` | `request`, `intent`, `key` | The backend rejected the write. Nothing was committed and the caller was told |
 | `effect.timed_out` | `request`, `intent`, `key`, `after_us` | The caller stopped waiting, `after_us` after it asked |
 
+A write reaches the backend from code the agent runs: `earful.core.backend.effect`,
+called where the real service would make the write durable, usually by the stand-in the
+test gives the agent for that service. The agent is built as it is built anywhere and is
+handed no backend. A tool declared as an effect (above) makes the same call.
+
 A keyed backend decides whether a key is a repeat at the moment the write would become
 durable. Two overlapping writes with one key therefore commit once.
 
@@ -312,6 +327,8 @@ They never decide a verdict.
   time after the origin, and no declared speech ends after it;
 - every intent named by a write, a claim or a speech's `retires` is declared, once. A
   misspelt intent is an error, so it cannot leave a contract with nothing to check;
+- a tool listed in `effects` is listed once, is one of `witnessed_tools`, and is among the
+  tools of the intent it names;
 - each model call is requested once and answered once; a claim fits inside its reply; no
   two tool calls share a call id, since the id is what links a call to its result;
 - an attributed synthesis names a call that has answered and has at least one word, and
@@ -398,6 +415,7 @@ not `earful.ledger/1`.
   of its own audio.
 - `playout.paused` is also recorded when a streaming buffer runs empty while audible.
 - Events can carry `schema_minor`, and fields the schema does not name are accepted.
+- The scenario can state `effects`: tools that stand for one durable write.
 
 ### Changes in development version 5
 

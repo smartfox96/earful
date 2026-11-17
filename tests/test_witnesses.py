@@ -7,7 +7,13 @@ import dataclasses
 import livekit.agents as lk
 import pytest
 
-from earful.core.backend import BackendError, BackendTimeout, EffectBackend, current_tool
+from earful.core.backend import (
+    BackendError,
+    BackendTimeout,
+    EffectBackend,
+    current_tool,
+    effect,
+)
 from earful.core.checker import PASS, check
 from earful.core.ledger import Ledger
 from earful.core.schema import validate
@@ -72,7 +78,7 @@ def test_an_agent_needs_no_changes_for_its_tools_to_be_witnessed():
 class _ContextAgent(lk.Agent):
     """A tool that asks for the framework's RunContext itself and returns a structure."""
 
-    def __init__(self, backend):
+    def __init__(self):
         super().__init__(instructions="test")
 
     @lk.function_tool
@@ -111,7 +117,7 @@ def test_a_structured_result_is_recorded_as_a_value_and_as_the_text_the_model_is
 
 
 class _DecoratedAgent(lk.Agent):
-    def __init__(self, backend):
+    def __init__(self):
         super().__init__(instructions="test")
 
     @lk.function_tool
@@ -142,7 +148,7 @@ def test_a_decorated_tool_is_witnessed_once_and_its_error_recorded():
 
 
 def test_witnessed_tool_outside_a_run_passes_through():
-    agent = _DecoratedAgent(None)
+    agent = _DecoratedAgent()
     (tool,) = agent.tools
     with pytest.raises(lk.ToolError):
         asyncio.run(tool(code="Z"))
@@ -484,14 +490,13 @@ def test_data_a_ledger_file_cannot_hold_is_refused_when_recorded():
 
 
 class _TypoAgent(lk.Agent):
-    def __init__(self, backend):
+    def __init__(self):
         super().__init__(instructions="test")
-        self._backend = backend
 
     @lk.function_tool
     async def book(self) -> str:
         """Book a table."""
-        return await self._backend.write("book-tabel", {})
+        return await effect("book-tabel", {})
 
 
 def test_a_write_for_an_undeclared_intent_makes_the_run_invalid():
@@ -530,7 +535,7 @@ def test_a_claim_that_does_not_fit_its_reply_is_a_harness_error():
 
     case = _one_turn(
         "bad_claim",
-        lambda backend: lk.Agent(instructions="t"),
+        lambda: lk.Agent(instructions="t"),
         policy,
         intents=[Intent("book-table")],
     )
@@ -540,9 +545,7 @@ def test_a_claim_that_does_not_fit_its_reply_is_a_harness_error():
 
 def test_a_scenario_that_contradicts_itself_is_refused_before_it_runs():
     def make(**kwargs):
-        return _one_turn(
-            "bad", lambda backend: lk.Agent(instructions="t"), _barge_in_policy, **kwargs
-        )
+        return _one_turn("bad", lambda: lk.Agent(instructions="t"), _barge_in_policy, **kwargs)
 
     with pytest.raises(ValueError, match="use the Case fields"):
         run_case(make(session_kwargs={"min_interruption_duration": 0.1}))
@@ -681,7 +684,7 @@ def test_word_completion_times_skip_a_pause():
     Words after the pause complete later by exactly the length of the pause."""
     case = Case(
         name="false_interruption",
-        agent=lambda backend: lk.Agent(instructions="You are a restaurant host."),
+        agent=lambda: lk.Agent(instructions="You are a restaurant host."),
         speeches=[
             UserSpeech(start=0.5, end=2.5, transcript="Tell me about the menu."),
             UserSpeech(start=4.0, end=4.8, transcript=""),

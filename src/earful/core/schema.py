@@ -134,6 +134,20 @@ def _check_ledger(events: list[Event], errors: list[str]) -> None:
         for intent in speech["retires"]:
             if intent not in declared:
                 errors.append(f"run.start speech {n}: retires undeclared intent {intent!r}")
+    replaced = [effect["tool"] for effect in scenario.get("effects", [])]
+    if len(set(replaced)) != len(replaced):
+        errors.append("run.start: a tool has more than one effect")
+    for effect in scenario.get("effects", []):
+        tool, intent = effect["tool"], effect["intent"]
+        if tool not in scenario["witnessed_tools"]:
+            errors.append(f"run.start: an effect is declared for {tool!r}, which is not witnessed")
+        carried_out_by = next(
+            (it["tools"] for it in scenario["intents"] if it["intent"] == intent), None
+        )
+        if carried_out_by is None:
+            errors.append(f"run.start: the effect of {tool!r} is for undeclared intent {intent!r}")
+        elif tool not in carried_out_by:
+            errors.append(f"run.start: {tool!r} is not among the tools of its intent {intent!r}")
 
     origins = [e for e in events if e["kind"] == "user.origin"]
     if len(origins) > 1:

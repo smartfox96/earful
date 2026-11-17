@@ -5,6 +5,7 @@ Framework-independent: this module must never import livekit.
 
 from __future__ import annotations
 
+import dataclasses
 import hashlib
 import json
 import re
@@ -25,6 +26,23 @@ DEFAULT_ID_PATTERN = re.compile(r"\b([A-Za-z][A-Za-z_]*_)[0-9a-f]{12}\b")
 
 def _canonical(value: Any) -> str:
     return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
+
+
+def json_value(value: Any) -> Any:
+    """``value`` as JSON can hold it. Anything else becomes ``{"unrepresentable": <type>}``:
+    a default ``repr`` would put a memory address in the ledger."""
+    if value is None or isinstance(value, (bool, int, float, str)):
+        return value
+    if isinstance(value, dict):
+        return {str(k): json_value(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [json_value(v) for v in value]
+    if dataclasses.is_dataclass(value) and not isinstance(value, type):
+        return json_value(dataclasses.asdict(value))
+    dump = getattr(value, "model_dump", None)  # pydantic models
+    if callable(dump):
+        return json_value(dump(mode="json"))
+    return {"unrepresentable": type(value).__name__}
 
 
 def run_id(header: dict[str, Any]) -> str:

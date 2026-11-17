@@ -16,6 +16,18 @@ wrapped where they are defined:
         @witnessed
         async def create_reservation(self, party_size: int) -> str: ...
 
+A tool can also stand for one durable write (``earful.core.backend.Effect``). In a run, a
+call of such a tool makes the write in place of the tool's body; outside a run the tool is
+untouched. The write is declared by the scenario, by tool name, or where the tool is
+defined:
+
+    class BookingAgent(lk.Agent):
+        @lk.function_tool
+        @effect_tool("book-table-1", key=lambda args: f"table-for-{args['party_size']}")
+        async def create_reservation(self, party_size: int) -> str: ...
+
+Where both declare one for the same tool, the scenario's is used.
+
 The call id comes from the public ``RunContext`` the framework injects into tools that ask
 for one. If the tool does not declare a ``RunContext`` parameter, the wrapper declares a
 keyword-only one and removes it before calling the tool: the technique livekit-agents
@@ -25,39 +37,22 @@ itself uses to add a parameter to a tool. Nothing in the framework is patched.
 from __future__ import annotations
 
 import asyncio
-import dataclasses
 import functools
 import inspect
 import typing
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from contextvars import ContextVar
 from typing import Any
 
 import livekit.agents as lk
 from livekit.agents import llm as lk_llm
 
-from ..core.backend import current_tool
-from ..core.ledger import Ledger
+from ..core.backend import Arguments, Effect, current_tool
+from ..core.ledger import Ledger, json_value
 
 _CONTEXT_PARAM = "earful_run_context"
 _MARK = "__earful_witnessed__"
-
-
-def json_value(value: Any) -> Any:
-    """``value`` as JSON can hold it. Anything else becomes ``{"unrepresentable": <type>}``:
-    a default ``repr`` would put a memory address in the ledger."""
-    if value is None or isinstance(value, (bool, int, float, str)):
-        return value
-    if isinstance(value, dict):
-        return {str(k): json_value(v) for k, v in value.items()}
-    if isinstance(value, (list, tuple)):
-        return [json_value(v) for v in value]
-    if dataclasses.is_dataclass(value) and not isinstance(value, type):
-        return json_value(dataclasses.asdict(value))
-    dump = getattr(value, "model_dump", None)  # pydantic models
-    if callable(dump):
-        return json_value(dump(mode="json"))
-    return {"unrepresentable": type(value).__name__}
+_EFFECT = "__earful_effect__"
 
 
 def _plain(value: Any) -> bool:
@@ -100,10 +95,14 @@ def expects_reply(outcome: Any) -> bool:
 
 
 class ToolWitness:
-    """Per-run record of tool invocations. The harness installs one for each run."""
+    """Per-run record of tool invocations. The harness installs one for each run.
 
-    def __init__(self, ledger: Ledger) -> None:
+    ``effects`` maps a tool name to the write the scenario declares for that tool.
+    """
+
+    def __init__(self, ledger: Ledger, effects: Mapping[str, Effect] | None = None) -> None:
         self._ledger = ledger
+        self.effects = dict(effects or {})
         self._invocations = 0
         self._running: dict[int, asyncio.Task[Any] | None] = {}
 
@@ -183,8 +182,14 @@ def _hints(fn: Callable[..., Any]) -> dict[str, Any]:
         return dict(getattr(fn, "__annotations__", {}))
 
 
-def witnessed(fn: Callable[..., Any], *, name: str | None = None) -> Callable[..., Any]:
-    """Wrap an async tool so that each call is recorded. Wrapping twice is a no-op."""
+def witnessed(
+    fn: Callable[..., Any], *, name: str | None = None, effect: Effect | None = None
+) -> Callable[..., Any]:
+    """Wrap an async tool so that each call is recorded. Wrapping twice is a no-op.
+
+    With ``effect``, or where the scenario declares one for a tool of this name, a call in
+    a run makes that write in place of calling ``fn``.
+    """
     if getattr(fn, _MARK, False):
         return fn
     if inspect.isfunction(fn) and not inspect.iscoroutinefunction(fn):
@@ -209,28 +214,37 @@ def witnessed(fn: Callable[..., Any], *, name: str | None = None) -> Callable[..
         if witness is None:
             return await fn(*args, **kwargs)
 
+        arguments: Arguments | None
         try:
             # However the framework passed them, by position or by name.
-            bound = dict(signature.bind_partial(*args, **kwargs).arguments)
+            arguments = dict(signature.bind_partial(*args, **kwargs).arguments)
         except TypeError:
-            bound = {}  # the call itself will raise; record it with what is known
+            arguments = None  # the call itself will raise; record it with what is known
+        bound = dict(arguments or {})
         context = bound.pop(declared, None) if declared is not None else injected
         if receiver is not None:
             bound.pop(receiver, None)
         call = getattr(context, "function_call", None)
-        tool = witness.called(tool_name, getattr(call, "call_id", None), bound)
+        # The name the model called the tool by, which is the name the scenario and the
+        # header use. A tool registered under another name than its function's has both.
+        called_as = getattr(call, "name", None) or tool_name
+        tool = witness.called(called_as, getattr(call, "call_id", None), bound)
+        write = witness.effects.get(called_as, effect)
         token = current_tool.set(tool)
         try:
-            result = await fn(*args, **kwargs)
+            if write is None or arguments is None:
+                result = await fn(*args, **kwargs)
+            else:
+                result = await write.make(bound)
         except asyncio.CancelledError:
-            witness.cancelled(tool, tool_name)
+            witness.cancelled(tool, called_as)
             raise
         except BaseException as exc:
-            witness.raised(tool, tool_name, exc)
+            witness.raised(tool, called_as, exc)
             raise
         finally:
             current_tool.reset(token)
-        witness.returned(tool, tool_name, result)
+        witness.returned(tool, called_as, result)
         return result
 
     if declared is None:
@@ -254,7 +268,41 @@ def witnessed(fn: Callable[..., Any], *, name: str | None = None) -> Callable[..
     wrapper.__annotations__ = annotations
     wrapper.__annotate__ = lambda _format=1: dict(annotations)  # type: ignore[attr-defined]
     setattr(wrapper, _MARK, True)
+    setattr(wrapper, _EFFECT, effect)
     return wrapper
+
+
+def effect_tool(
+    intent: str,
+    *,
+    payload: Callable[[Arguments], dict[str, Any]] | None = None,
+    key: str | Callable[[Arguments], str | None] | None = None,
+    result: Callable[[str, Arguments], Any] | None = None,
+    latency: float = 0.0,
+) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
+    """Declare, where a tool is defined, that a call of it is one durable write for
+    ``intent``. The arguments are those of ``earful.core.backend.Effect``.
+
+    In a run the tool is witnessed and the write is made in place of its body. Outside a
+    run the decorated function is the tool as written.
+    """
+    declared = Effect(intent, payload=payload, key=key, result=result, latency=latency)
+
+    def decorate(fn: Callable[..., Any]) -> Callable[..., Any]:
+        if getattr(fn, _MARK, False):
+            raise TypeError(
+                f"{getattr(fn, '__name__', fn)!r} is already witnessed: "
+                "effect_tool witnesses the tool itself, so it replaces @witnessed"
+            )
+        return witnessed(fn, effect=declared)
+
+    return decorate
+
+
+def declared_effect(tool: Any) -> Effect | None:
+    """The write ``effect_tool`` declared for a framework function tool, if it did."""
+    found = getattr(tool, _EFFECT, None)
+    return found if isinstance(found, Effect) else None
 
 
 def witness_tool(tool: Any) -> Any:
@@ -270,20 +318,23 @@ def witness_tool(tool: Any) -> Any:
     return type(tool)(witnessed(tool, name=tool.info.name), tool.info)  # type: ignore[arg-type]
 
 
-async def witness_agent_tools(agent: lk.Agent) -> list[str]:
+async def witness_agent_tools(agent: lk.Agent) -> dict[str, Effect | None]:
     """Replace each of ``agent``'s function tools with a recording copy. Returns the names
-    of the tools now witnessed, sorted."""
+    of the tools now witnessed, each with the write ``effect_tool`` declared for it where
+    the tool is defined, if it did."""
     originals = list(agent.tools)
     await agent.update_tools([witness_tool(t) for t in originals])
-    return sorted(
-        t.info.name
+    return {
+        t.info.name: declared_effect(t)
         for t in originals
         if isinstance(t, (lk_llm.FunctionTool, lk_llm.RawFunctionTool))
-    )
+    }
 
 
 __all__ = [
     "ToolWitness",
+    "declared_effect",
+    "effect_tool",
     "install",
     "json_value",
     "model_text",

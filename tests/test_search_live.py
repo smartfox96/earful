@@ -494,6 +494,8 @@ def test_the_fault_scenarios_pass_as_written():
         "reads_the_error",
         "retries_without_a_key",
         "retries_with_a_key",
+        "as_written_confirms_a_failed_booking",
+        "as_written_reads_the_error",
     ):
         report = check(scenario.run(scenario.default(f"breaks:{name}")))
         assert report.valid and not report.failures, (name, report.failures)
@@ -523,6 +525,25 @@ def test_a_confirmation_of_a_write_that_failed_is_found_and_the_control_is_clean
     assert "backend.timeout 1, commit later" not in under
     # The control makes no claim after an error, so word ends cannot matter to it.
     assert faults_of("breaks:reads_the_error", words=False).predicates() == []
+
+
+def test_faults_are_searched_on_a_write_the_scenario_declares_for_a_tool():
+    """The agent has nothing of Earful in it; its booking is an effect the scenario
+    declares. The search treats that write as any other: every fault, and the same
+    failure, under the same faults, as for the agent that writes through a stand-in."""
+    found = faults_of("breaks:as_written_confirms_a_failed_booking")
+    assert {tried.candidate.base for tried in found.tried} == {
+        "backend.error 1",
+        "backend.drop 1",
+        "backend.timeout 1, commit first",
+        "backend.timeout 1, commit later",
+    }
+    assert all(tried.outcome.ran for tried in found.tried)
+    assert found.predicates() == [CONFIRMED_BUT_NOT_DONE]
+    assert bases(found, CONFIRMED_BUT_NOT_DONE) == bases(
+        faults_of("breaks:confirms_a_failed_booking"), CONFIRMED_BUT_NOT_DONE
+    )
+    assert faults_of("breaks:as_written_reads_the_error", words=False).predicates() == []
 
 
 def test_a_claim_heard_before_a_timed_out_write_commits_is_found_with_its_window():

@@ -23,7 +23,7 @@ def test_conversion_is_exact_for_decimal_seconds():
 def test_interruption_lands_exactly_on_the_declared_threshold(start):
     case = Case(
         name="threshold",
-        agent=lambda backend: lk.Agent(instructions="You are a restaurant host."),
+        agent=lambda: lk.Agent(instructions="You are a restaurant host."),
         speeches=[
             UserSpeech(start=0.5, end=2.5, transcript="Tell me about the menu."),
             UserSpeech(start=start, end=start + 1.0, transcript="Stop."),

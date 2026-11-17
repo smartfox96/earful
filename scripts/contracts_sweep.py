@@ -21,6 +21,7 @@ from pathlib import Path
 
 import livekit.agents as lk
 
+from earful.core.backend import effect
 from earful.core.checker import check
 from earful.core.ledger import write_jsonl
 from earful.livekit import scenario
@@ -67,14 +68,14 @@ def host(items):
     return Reply(text="Sorry, could you repeat that?")
 
 
-def plain_host(backend):
+def plain_host():
     return lk.Agent(instructions="You are a restaurant host.")
 
 
 class Booker(lk.Agent):
-    def __init__(self, backend, *, latency=0.0, fail=False, returns="text"):
+    def __init__(self, *, latency=0.0, fail=False, returns="text"):
         super().__init__(instructions="You take restaurant reservations.")
-        self._backend, self._latency, self._fail, self._returns = backend, latency, fail, returns
+        self._latency, self._fail, self._returns = latency, fail, returns
 
     @lk.function_tool
     async def create_reservation(self, party_size: int):
@@ -83,9 +84,7 @@ class Booker(lk.Agent):
         Args:
             party_size: Number of guests
         """
-        receipt = await self._backend.write(
-            INTENT, {"party_size": party_size}, latency=self._latency
-        )
+        receipt = await effect(INTENT, {"party_size": party_size}, latency=self._latency)
         if self._fail:
             raise ValueError("the reservation system is down")
         if self._returns == "dict":
@@ -99,12 +98,12 @@ class Booker(lk.Agent):
         Args:
             party_size: Number of guests
         """
-        await self._backend.write(LOOKUP, {"party_size": party_size}, latency=self._latency)
+        await effect(LOOKUP, {"party_size": party_size}, latency=self._latency)
         return "A table is free at eight."
 
 
 class Greeter(lk.Agent):
-    def __init__(self, backend):
+    def __init__(self):
         super().__init__(instructions="You are a restaurant host.")
 
     async def on_enter(self):
@@ -199,7 +198,7 @@ def booker(policy, at, **kwargs):
     kwargs.setdefault("drain_delay", 14.0)
     return Case(
         name="sweep",
-        agent=lambda b: Booker(b, **agent_kwargs),
+        agent=lambda: Booker(**agent_kwargs),
         policy=policy,
         intents=INTENTS,
         **kwargs,

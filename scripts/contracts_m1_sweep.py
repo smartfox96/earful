@@ -57,7 +57,7 @@ for name, text in SENTENCES.items():
     while at < 3.3 + audio:
         case = Case(
             name="m1_sweep",
-            agent=lambda backend: lk.Agent(instructions="You are a restaurant host."),
+            agent=lambda: lk.Agent(instructions="You are a restaurant host."),
             speeches=[
                 UserSpeech(start=0.5, end=2.5, transcript="Tell me more."),
                 UserSpeech(start=round(at, 3), end=round(at + 1.0, 3), transcript="Stop."),

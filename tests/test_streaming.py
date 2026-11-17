@@ -123,7 +123,7 @@ def test_cancelled_voice_records_one_prefix_and_drops_the_incomplete_word(cancel
 def _slow_case(**kwargs):
     return Case(
         name="streaming",
-        agent=lambda backend: lk.Agent(instructions="Answer briefly."),
+        agent=lambda: lk.Agent(instructions="Answer briefly."),
         speeches=[UserSpeech(0.5, 1.5, "Please speak.")],
         policy=lambda items: Reply(text="I a I a I a I a.", duration=4),
         **kwargs,

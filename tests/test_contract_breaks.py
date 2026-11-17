@@ -11,6 +11,7 @@ import copy
 import livekit.agents as lk
 import pytest
 
+from earful.core.backend import effect
 from earful.core.checker import FAIL, NOT_EXERCISED, PASS, UNOBSERVABLE, check
 from earful.core.checker.view import View
 from earful.livekit.cases import CASES, _last_user_text
@@ -41,9 +42,9 @@ def _outputs(items):
 class _Booker(lk.Agent):
     """Books through the backend; how it writes is the seam under test."""
 
-    def __init__(self, backend, *, writes=1, key=None, latency=0.0, hang=False):
+    def __init__(self, *, writes=1, key=None, latency=0.0, hang=False):
         super().__init__(instructions="You take restaurant reservations.")
-        self._backend, self._writes, self._key = backend, writes, key
+        self._writes, self._key = writes, key
         self._latency, self._hang = latency, hang
 
     @lk.function_tool
@@ -57,7 +58,7 @@ class _Booker(lk.Agent):
             await asyncio.get_running_loop().create_future()  # never returns, no timeout
         receipt = ""
         for _ in range(self._writes):
-            receipt = await self._backend.write(
+            receipt = await effect(
                 INTENT, {"party_size": party_size}, key=self._key, latency=self._latency
             )
         return f"Reservation {receipt} confirmed."
@@ -119,7 +120,7 @@ def test_a1_passes_when_the_correction_is_honoured():
 
 
 def test_a2_fails_when_a_tool_writes_twice_on_a_plain_backend():
-    report = _report(_booking(_book_then_confirm, agent=lambda b: _Booker(b, writes=2, key="k1")))
+    report = _report(_booking(_book_then_confirm, agent=lambda: _Booker(writes=2, key="k1")))
     assert report.outcome("A2") == FAIL
     assert report.results["A2"].failures[0].measures["committed"] == 2
 
@@ -127,7 +128,7 @@ def test_a2_fails_when_a_tool_writes_twice_on_a_plain_backend():
 def test_a2_passes_for_the_same_tool_on_a_keyed_backend():
     report = _report(
         _booking(
-            _book_then_confirm, agent=lambda b: _Booker(b, writes=2, key="k1"), backend_mode="keyed"
+            _book_then_confirm, agent=lambda: _Booker(writes=2, key="k1"), backend_mode="keyed"
         )
     )
     assert report.outcome("A2") == PASS
@@ -151,7 +152,7 @@ def _claims_while_calling(items):
 def test_a3_fails_when_success_is_spoken_before_the_backend_commits():
     """The backend takes 5 s to commit; the sentence takes 1.2 s to play."""
     report = _report(
-        _booking(_claims_while_calling, agent=lambda b: _Booker(b, latency=5.0), drain_delay=10.0)
+        _booking(_claims_while_calling, agent=lambda: _Booker(latency=5.0), drain_delay=10.0)
     )
     assert report.outcome("A3") == FAIL
     measures = report.results["A3"].failures[0].measures
@@ -160,7 +161,7 @@ def test_a3_fails_when_success_is_spoken_before_the_backend_commits():
 
 def test_a3_passes_when_the_claim_waits_for_the_tool_result():
     report = _report(
-        _booking(_book_then_confirm, agent=lambda b: _Booker(b, latency=5.0), drain_delay=10.0)
+        _booking(_book_then_confirm, agent=lambda: _Booker(latency=5.0), drain_delay=10.0)
     )
     assert report.outcome("A3") == PASS
     assert report.results["A3"].verdicts[0].measures["commit_before_claim_us"] > 0
@@ -268,7 +269,7 @@ def test_m2_passes_with_the_unmodified_agent():
 
 def test_l1_fails_when_a_tool_never_returns():
     report = _report(
-        _booking(_book_then_confirm, agent=lambda b: _Booker(b, hang=True), drain_timeout=5.0)
+        _booking(_book_then_confirm, agent=lambda: _Booker(hang=True), drain_timeout=5.0)
     )
     assert report.outcome("L1") == FAIL
     (failed,) = report.results["L1"].failures
@@ -284,7 +285,7 @@ def test_l1_passes_when_the_same_tool_returns():
 
 def _stuck(**kwargs):
     return _booking(
-        _book_then_confirm, agent=lambda b: _Booker(b, hang=True), drain_timeout=5.0, **kwargs
+        _book_then_confirm, agent=lambda: _Booker(hang=True), drain_timeout=5.0, **kwargs
     )
 
 
@@ -348,9 +349,7 @@ def test_l1_a_backchannel_does_not_take_the_obligation_away():
 
     ack = UserSpeech(start=4.0, end=4.5, transcript="Uh huh.", backchannel=True)
     report = _report(
-        _booking(
-            policy, agent=lambda b: _Booker(b, latency=3.0), speeches=(ASK, ack), drain_delay=14.0
-        )
+        _booking(policy, agent=lambda: _Booker(latency=3.0), speeches=(ASK, ack), drain_delay=14.0)
     )
     assert report.outcome("L1") == FAIL
     (failed,) = report.results["L1"].failures
@@ -461,7 +460,7 @@ def test_l2_fails_when_the_output_is_slow_to_stop():
     assert failed.flags == ()  # so Earful's model of the threshold is not in doubt
 
 
-def _deaf_host(backend):
+def _deaf_host():
     return lk.Agent(instructions="You are a restaurant host.", allow_interruptions=False)
 
 
@@ -494,7 +493,7 @@ def test_l2_passes_with_the_unmodified_output():
 class _Greeter(lk.Agent):
     """Speaks a fixed greeting itself, not through the model."""
 
-    def __init__(self, backend):
+    def __init__(self):
         super().__init__(instructions="You are a restaurant host.")
 
     async def on_enter(self):
@@ -522,8 +521,8 @@ class _QuietTool(_Booker):
     """Books, then asks the framework not to reply: by returning nothing, or by raising
     the framework's own signal for it."""
 
-    def __init__(self, backend, *, stop):
-        super().__init__(backend)
+    def __init__(self, *, stop):
+        super().__init__()
         self._stop = stop
 
     # Returns nothing where the tool it overrides returns a string. That is what is tested.
@@ -534,7 +533,7 @@ class _QuietTool(_Booker):
         Args:
             party_size: Number of guests
         """
-        await self._backend.write(INTENT, {"party_size": party_size})
+        await effect(INTENT, {"party_size": party_size})
         if self._stop:
             raise lk.StopResponse()
 
@@ -545,9 +544,7 @@ def _book_silently(items):
 
 @pytest.mark.parametrize("stop", [False, True], ids=["returns nothing", "raises StopResponse"])
 def test_a_tool_that_asks_for_silence_is_not_a_stalled_turn(stop):
-    events = run_case(
-        _booking(_book_silently, agent=lambda b: _QuietTool(b, stop=stop))
-    ).ledger.events
+    events = run_case(_booking(_book_silently, agent=lambda: _QuietTool(stop=stop))).ledger.events
     outcome = next(e for e in events if e["kind"] in ("tool.returned", "tool.raised"))
     assert outcome["data"]["expects_reply"] is False
     assert (
@@ -617,7 +614,7 @@ def test_a_slow_tool_interrupted_while_it_runs_is_not_a_failure():
     report = _report(
         _booking(
             _host_who_books("One moment while I book that table for you."),
-            agent=lambda b: _Booker(b, latency=3.0),
+            agent=lambda: _Booker(latency=3.0),
             speeches=(ASK, _asks_about_the_window(3.4)),
             drain_delay=14.0,
         )
@@ -634,7 +631,7 @@ def test_a_reply_made_ahead_of_time_does_not_make_a_later_call_lose_the_turn():
     report = _report(
         _booking(
             _host_who_books(""),
-            agent=lambda b: _Booker(b, latency=2.0),
+            agent=lambda: _Booker(latency=2.0),
             speeches=(ASK, _asks_about_the_window(3.6)),
             drain_delay=12.0,
         )
@@ -648,7 +645,7 @@ def test_a_tool_that_returns_as_the_next_turn_is_answered_is_not_a_lost_result()
     report = _report(
         _booking(
             _host_who_books(""),
-            agent=lambda b: _Booker(b, latency=2.0),
+            agent=lambda: _Booker(latency=2.0),
             speeches=(ASK, _asks_about_the_window(3.8)),
             drain_delay=12.0,
         )
@@ -718,7 +715,7 @@ def test_a_reply_the_framework_generates_twice_is_not_unobservable():
     report = _report(
         _booking(
             _host_who_books(""),
-            agent=lambda b: _Booker(b, latency=2.0),
+            agent=lambda: _Booker(latency=2.0),
             speeches=(ASK, _asks_about_the_window(3.6)),
             drain_delay=12.0,
         )
@@ -737,7 +734,7 @@ def test_the_voice_names_no_reply_whose_first_token_is_not_out():
     events = run_case(
         _booking(
             _host_who_books(""),
-            agent=lambda b: _Booker(b, latency=2.0),
+            agent=lambda: _Booker(latency=2.0),
             speeches=(ASK, _asks_about_the_window(3.6)),
             drain_delay=12.0,
             delays=[Delay("llm.ttft", 2, 1.0), Delay("llm.duration", 2, 1.2)],

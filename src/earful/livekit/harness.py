@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import dataclasses
 import itertools
 import logging
 import random
@@ -15,7 +16,8 @@ import livekit.agents as lk
 from livekit import rtc
 from livekit.agents import utils
 
-from ..core.backend import FAULTS, BackendMode, EffectBackend
+from ..core import backend as backends
+from ..core.backend import FAULTS, BackendMode, Effect, EffectBackend
 from ..core.checker.policy import parse_all
 from ..core.ledger import Ledger, ledger_hash
 from ..core.schema import validity
@@ -125,13 +127,27 @@ class Fault:
 
 @dataclass
 class Case:
-    """Everything that defines a run. Same case + same seed must give the same ledger."""
+    """Everything that defines a run. Same case + same seed must give the same ledger.
+
+    ``agent`` builds the agent under test and takes no arguments: an agent class, or a
+    function that constructs one with whatever stands in for the services it uses. It is
+    called once for each run, so no state is carried from one run to the next.
+
+    A durable side effect reaches the backend in one of two ways. Code the agent calls,
+    usually the stand-in for a service, calls ``earful.core.backend.effect`` where the
+    real service would make a write durable. Or ``effects`` declares the write for a tool
+    as a whole, by tool name: a call of that tool then makes the write in place of the
+    tool's body, which suits a tool that talks to its service directly. The intent of a
+    declared effect need not be listed in ``intents``; it is one, carried out by that tool.
+    """
 
     name: str
-    agent: Callable[[EffectBackend], lk.Agent]
+    agent: Callable[[], lk.Agent]
     speeches: list[UserSpeech]
     policy: Policy
     intents: list[Intent] = field(default_factory=list)
+    # Tool name -> the durable write a call of that tool makes, in place of its body.
+    effects: dict[str, Effect] = field(default_factory=dict)
     contracts: dict[str, dict[str, Any]] = field(default_factory=dict)  # id -> policy values
     delays: list[Delay] = field(default_factory=list)  # provider delays declared as data
     faults: list[Fault] = field(default_factory=list)  # things declared to go wrong
@@ -316,8 +332,45 @@ def _effective_session(session: lk.AgentSession[Any]) -> dict[str, int | None]:
     }
 
 
-def _header(case: Case, witnessed_tools: list[str]) -> dict[str, Any]:
+def _effects(case: Case, tools_found: dict[str, Effect | None]) -> dict[str, Effect]:
+    """The write each tool stands for: where the tool is defined, or in the scenario,
+    which is used where both declare one. Raises ``ValueError`` if the scenario names a
+    tool the agent does not have: a misspelt name would leave the tool's own body to run."""
+    unknown = sorted(set(case.effects) - set(tools_found))
+    if unknown:
+        raise ValueError(
+            f"effects are declared for {unknown}, which are not function tools of the agent "
+            f"the run starts with; it has {sorted(tools_found)}"
+        )
+    at_the_tool = {name: found for name, found in tools_found.items() if found is not None}
+    return {**at_the_tool, **case.effects}
+
+
+def _intents(case: Case, effects: dict[str, Effect]) -> list[Intent]:
+    """The scenario's intents, with those its declared effects imply: the intent of an
+    effect is carried out by the effect's tool."""
+    intents = {it.intent: it for it in case.intents}
+    for tool, declared in sorted(effects.items()):
+        known = intents.get(declared.intent, Intent(declared.intent))
+        if tool not in known.tools:
+            known = dataclasses.replace(known, tools=(*known.tools, tool))
+        intents[declared.intent] = known
+    return list(intents.values())
+
+
+def _header(case: Case, tools_found: dict[str, Effect | None]) -> dict[str, Any]:
     """The scenario as declared, so the checker never has to import it."""
+    effects = _effects(case, tools_found)
+    header = _scenario(case, sorted(tools_found), _intents(case, effects))
+    if effects:
+        # Stated only where there are any: a tool listed here did not run its own body.
+        header["effects"] = [
+            {"tool": tool, "intent": declared.intent} for tool, declared in sorted(effects.items())
+        ]
+    return header
+
+
+def _scenario(case: Case, witnessed_tools: list[str], intents: list[Intent]) -> dict[str, Any]:
     return {
         "speeches": [
             {
@@ -335,7 +388,7 @@ def _header(case: Case, witnessed_tools: list[str]) -> dict[str, Any]:
         "hangup_us": None if case.hangup is None else to_us(case.hangup),
         "intents": [
             {"intent": it.intent, "tools": list(it.tools), "authorized": it.authorized}
-            for it in case.intents
+            for it in intents
         ],
         "witnessed_tools": witnessed_tools,
         "delays": [
@@ -480,19 +533,77 @@ async def _run(case: Case, seed: int) -> RunResult:
             f"{name} reads the wall clock and could not be given the virtual one"
             for name in patch_report().unpatched
         ]
-    warnings = _WarningCollector()
-    lk_logger = logging.getLogger("livekit.agents")
-    lk_logger.addHandler(warnings)
-    witness = tools.ToolWitness(ledger)
-    witness_token = tools.install(witness)
-
-    world_origin = WorldOrigin(
-        ledger, harness_errors, tolerance_us=0 if virtual else REAL_CLOCK_ORIGIN_TOLERANCE_US
-    )
 
     def declared_us(of: str) -> dict[int, int]:
         return {delay.nth: to_us(delay.seconds) for delay in case.delays if delay.of == of}
 
+    backend = EffectBackend(
+        ledger,
+        mode=case.backend_mode,
+        latencies_us=declared_us("backend.latency"),
+        faults={
+            f.nth: (f.of, None if f.seconds is None else to_us(f.seconds)) for f in case.faults
+        },
+    )
+    witness = tools.ToolWitness(ledger, case.effects)
+    warnings = _WarningCollector()
+    lk_logger = logging.getLogger("livekit.agents")
+    lk_logger.addHandler(warnings)
+    # From here until the run is over, code the agent runs finds this run's witness and
+    # backend: a tool that is called, a stand-in service that calls ``effect``.
+    witness_token = tools.install(witness)
+    backend_token = backends.install(backend)
+    try:
+        sink = await _play(
+            case, seed, ledger, harness_errors, declared_us, witness, backend, virtual=virtual
+        )
+    finally:
+        lk_logger.removeHandler(warnings)
+        backends.uninstall(backend_token)
+        tools.uninstall(witness_token)
+
+    executor_calls = loop.executor_calls if isinstance(loop, VirtualTimeLoop) else None
+    ledger.append(
+        "harness",
+        "run.end",
+        stamp_errors=sink.stamp_errors,
+        executor_calls=executor_calls,
+        underruns=sink.underruns,
+        harness_errors=harness_errors,
+        framework_warnings=len(warnings.messages),
+    )
+    return RunResult(
+        case=case.name,
+        seed=seed,
+        ledger=ledger,
+        hash=ledger_hash(ledger.events),
+        versions=versions(),
+        clock=patch_report(),
+        stamp_errors=sink.stamp_errors,
+        executor_calls=executor_calls,
+        underruns=sink.underruns,
+        harness_errors=list(harness_errors),
+        framework_warnings=warnings.messages,
+        invalid=validity(ledger.events),
+    )
+
+
+async def _play(
+    case: Case,
+    seed: int,
+    ledger: Ledger,
+    harness_errors: list[str],
+    declared_us: Callable[[str], dict[int, int]],
+    witness: tools.ToolWitness,
+    backend: EffectBackend,
+    *,
+    virtual: bool,
+) -> ClockedSink:
+    """Build the session and the agent, play the scenario through and close the session.
+    Returns the sink, which holds what the output counted."""
+    world_origin = WorldOrigin(
+        ledger, harness_errors, tolerance_us=0 if virtual else REAL_CLOCK_ORIGIN_TOLERANCE_US
+    )
     stt = ScriptedSTT(ledger, case.speeches, world_origin)
     model = ScriptedLLM(
         ledger,
@@ -531,16 +642,8 @@ async def _run(case: Case, seed: int) -> RunResult:
 
     # The agent is built before the header is written, so the header can name the tools
     # the witness records. Nothing here reaches the ledger.
-    backend = EffectBackend(
-        ledger,
-        mode=case.backend_mode,
-        latencies_us=declared_us("backend.latency"),
-        faults={
-            f.nth: (f.of, None if f.seconds is None else to_us(f.seconds)) for f in case.faults
-        },
-    )
-    agent = case.agent(backend)
-    witnessed_tools = await tools.witness_agent_tools(agent)
+    agent = case.agent()
+    scenario = _header(case, await tools.witness_agent_tools(agent))
 
     declared, effective = _declared_session(case), _effective_session(session)
     for name in declared:
@@ -555,65 +658,37 @@ async def _run(case: Case, seed: int) -> RunResult:
         seed=seed,
         framework={"name": "livekit-agents", "version": lk.__version__},
         clock="virtual" if virtual else "real",
-        scenario=_header(case, witnessed_tools),
+        scenario=scenario,
         contracts=case.contracts,
     )
     _tap(session, ledger, harness_errors)
 
-    try:
-        await session.start(agent)
-        audio_in.push_silence(0.1)  # first frame starts the scripted user's clock
-        if case.hangup is None:
-            await stt.done
-            await asyncio.sleep(case.drain_delay)
-            with contextlib.suppress(RuntimeError, asyncio.TimeoutError):
-                await asyncio.wait_for(session.drain(), timeout=case.drain_timeout)
-        else:
-            await _hang_up(case, session, world_origin, ledger, witness, backend, harness_errors)
-        # Framework state read back by the harness: a judged record, never a reference.
-        ledger.append(
-            "harness",
-            "history.final",
-            read_from="AgentSession.history",
-            items=[summarize_item(i) for i in session.history.items],
-        )
-        # The scenario is over. A tool still running is cut off and recorded as cancelled:
-        # some releases cannot close a session while one of its tools is stuck.
-        await witness.cancel_running()
-        await backend.cancel_in_flight()
-        try:
-            await asyncio.wait_for(session.aclose(), timeout=case.drain_timeout)
-        except asyncio.TimeoutError:
-            harness_errors.append(f"the session did not close within {case.drain_timeout} s")
-        await sync.aclose()
-    finally:
-        lk_logger.removeHandler(warnings)
-        tools.uninstall(witness_token)
-
-    executor_calls = loop.executor_calls if isinstance(loop, VirtualTimeLoop) else None
+    await session.start(agent)
+    audio_in.push_silence(0.1)  # first frame starts the scripted user's clock
+    if case.hangup is None:
+        await stt.done
+        await asyncio.sleep(case.drain_delay)
+        with contextlib.suppress(RuntimeError, asyncio.TimeoutError):
+            await asyncio.wait_for(session.drain(), timeout=case.drain_timeout)
+    else:
+        await _hang_up(case, session, world_origin, ledger, witness, backend, harness_errors)
+    # Framework state read back by the harness: a judged record, never a reference.
     ledger.append(
         "harness",
-        "run.end",
-        stamp_errors=sink.stamp_errors,
-        executor_calls=executor_calls,
-        underruns=sink.underruns,
-        harness_errors=harness_errors,
-        framework_warnings=len(warnings.messages),
+        "history.final",
+        read_from="AgentSession.history",
+        items=[summarize_item(i) for i in session.history.items],
     )
-    return RunResult(
-        case=case.name,
-        seed=seed,
-        ledger=ledger,
-        hash=ledger_hash(ledger.events),
-        versions=versions(),
-        clock=patch_report(),
-        stamp_errors=sink.stamp_errors,
-        executor_calls=executor_calls,
-        underruns=sink.underruns,
-        harness_errors=list(harness_errors),
-        framework_warnings=warnings.messages,
-        invalid=validity(ledger.events),
-    )
+    # The scenario is over. A tool still running is cut off and recorded as cancelled:
+    # some releases cannot close a session while one of its tools is stuck.
+    await witness.cancel_running()
+    await backend.cancel_in_flight()
+    try:
+        await asyncio.wait_for(session.aclose(), timeout=case.drain_timeout)
+    except asyncio.TimeoutError:
+        harness_errors.append(f"the session did not close within {case.drain_timeout} s")
+    await sync.aclose()
+    return sink
 
 
 def versions() -> dict[str, str]:
