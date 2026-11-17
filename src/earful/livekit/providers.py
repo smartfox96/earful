@@ -132,7 +132,10 @@ class ScriptedVAD(lk_vad.VAD):
         min_speech_duration: float = 0.05,
         min_silence_duration: float = 0.5,
     ) -> None:
-        super().__init__(capabilities=lk_vad.VADCapabilities(update_interval=0.1))
+        # While the user speaks, the stream reports once every ``min_speech_duration``.
+        # That is the interval declared to the framework, which paces its VAD metrics by it.
+        capabilities = lk_vad.VADCapabilities(update_interval=min_speech_duration)
+        super().__init__(capabilities=capabilities)
         self._ledger = ledger
         self._origin = origin
         self._speeches = _check_speeches(speeches)
