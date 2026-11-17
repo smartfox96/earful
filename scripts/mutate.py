@@ -7,6 +7,7 @@ the interpreter of a pinned environment:
     .venvs/lk-1.8.12/bin/python scripts/mutate.py              every mutant
     .venvs/lk-1.8.12/bin/python scripts/mutate.py --verify     only check that each still applies
     .venvs/lk-1.8.12/bin/python scripts/mutate.py --only L1    mutants whose name contains "L1"
+    .venvs/lk-1.8.12/bin/python scripts/mutate.py --shard 2/4  the second quarter of them
 
 A mutant is
 
@@ -17,7 +18,9 @@ A mutant is
 
 The unbroken code is run first, as a control: it must pass, or a failure says nothing.
 A mutant that names tests to try first is run against those, and against the whole suite
-only if they pass, so a wrong hint costs time and never hides a survivor.
+only if they pass, so a wrong hint costs time and never hides a survivor. ``--shard K/N``
+takes every Nth mutant, starting at the Kth, so that N runs side by side cover them all;
+each runs the control.
 
 The exit status is 0 if the control passes and every mutant is caught, and 1 otherwise.
 """
@@ -122,10 +125,23 @@ def run(mutant: Mutant | None, scratch: Path, number: int) -> Result:
         shutil.rmtree(copy, ignore_errors=True)
 
 
+def shard(text: str) -> tuple[int, int]:
+    """``K/N`` as two numbers, with 1 <= K <= N."""
+    try:
+        part, _, of = text.partition("/")
+        k, n = int(part), int(of)
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"a shard is K/N, such as 2/4; got {text!r}") from None
+    if not 1 <= k <= n:
+        raise argparse.ArgumentTypeError(f"a shard is K/N with 1 <= K <= N; got {text!r}")
+    return k, n
+
+
 def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--verify", action="store_true", help="only check that each applies")
     parser.add_argument("--only", action="append", default=[], metavar="TEXT")
+    parser.add_argument("--shard", type=shard, default=(1, 1), metavar="K/N")
     parser.add_argument("--workers", type=int, default=max(1, (os.cpu_count() or 2) // 2))
     parser.add_argument("--json", type=Path, metavar="FILE", help="also write the results here")
     args = parser.parse_args(argv)
@@ -136,6 +152,8 @@ def main(argv: list[str]) -> int:
         print(f"mutant names used twice: {repeated}")
         return 1
     chosen = [m for m in MUTANTS if not args.only or any(text in m.name for text in args.only)]
+    k, n = args.shard
+    chosen = chosen[k - 1 :: n]
 
     if args.verify:
         broken = [(m.name, why) for m in chosen if (why := problem(m)) is not None]

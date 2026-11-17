@@ -250,10 +250,11 @@ copy of the repository and runs the tests there.
 ```
 
 On livekit-agents 1.8.12 the control passes and each of the 123 broken versions fails at
-least one test. The run takes about 20 minutes with five copies side by side and is not
-part of CI. The lint job does check, on every change, that the text of each break is
-still found exactly once in its file (`scripts/mutate.py --verify`), so a change that
-moves the code under a break fails until the break is brought along.
+least one test. The run takes about 20 minutes with five copies side by side. CI makes
+it each night, in four parts (`.github/workflows/mutation.yml`). On every change the lint
+job checks that the text of each break is still found exactly once in its file
+(`scripts/mutate.py --verify`), so a change that moves the code under a break fails
+until the break is brought along.
 
 ## Limits
 
