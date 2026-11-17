@@ -375,23 +375,43 @@ differ only in when the session closes.
 
 ## Versioning
 
-Adding a kind, or a field to a kind, is a new schema version, because the schema rejects
-unknown kinds and fields. Each version has its own schema file. Every version change
-regenerates the reference ledgers.
+`earful.ledger/1` is the format of the first release. An optional field can be added to
+it without a new major version: readers ignore fields they do not know, and a field that
+is absent means what it meant before the field existed. Such an addition raises
+`schema_minor` once a release has shipped without it. A new kind, a new required field, a
+change to the type or meaning of an existing field, or a change to a rule that spans
+events is a new major version, with its own schema file. A change that alters what a
+recorded ledger hashes to regenerates the reference ledgers.
 
-## Changes from `earful.ledger/4`
+## Before `earful.ledger/1`
+
+The format was numbered 0 to 5 while it was being developed, and was reset to 1 for the
+first release. The sections below record what each of those development versions changed.
+Their numbers are not versions of the released format: "development version 1" below is
+not `earful.ledger/1`.
+
+### Changes in `earful.ledger/1` from development version 5
+
+- The scripted model delivers its text over the time it generates, and the scripted voice
+  speaks words as they arrive. `tts.synthesized` is recorded once per utterance when its
+  input ends or is cancelled, carries `started_us`, and can follow the `playout.started`
+  of its own audio.
+- `playout.paused` is also recorded when a streaming buffer runs empty while audible.
+- Events can carry `schema_minor`, and fields the schema does not name are accepted.
+
+### Changes in development version 5
 
 - The scenario states when the user hangs up, in `hangup_us`.
 - One scripted-user event: `user.hangup`.
 - A write commits although its caller was cancelled. Before, cancelling the caller
   cancelled the write. The event shapes are unchanged.
 
-## Changes from `earful.ledger/3`
+### Changes in development version 4
 
 - The scenario states the faults it declares, in `faults`.
 - Two backend events: `effect.failed` and `effect.timed_out`.
 
-## Changes from `earful.ledger/2`
+### Changes in development version 3
 
 - The scenario states the provider delays it declares, in `delays`.
 - Speeches closer together than the VAD's silence window are no longer refused. They are
@@ -401,7 +421,7 @@ regenerates the reference ledgers.
   to the model call (`call-<model call>-<n>`). The reference cases no longer invent ids,
   so their recorded call ids changed.
 
-## Changes from `earful.ledger/1`
+### Changes in development version 2
 
 - `tts.synthesized` carries `word_samples`, one length per word, in place of a single
   `samples_per_word`; the scenario declares `seconds_per_letter_us` in place of
@@ -412,11 +432,10 @@ regenerates the reference ledgers.
 - A final transcript is never empty; tool call ids are unique; a segment's pauses and
   resumes alternate; a segment refers only to utterances and words that were synthesized.
 
-## Changes from `earful.ledger/0`
+### Changes in development version 1
 
-Schema 0 was used for Gate 0 (`docs/gate0-feasibility.md`); commit `70bbc4c` reproduces it.
-
-These came with schema 1.
+Development version 0 was used for Gate 0 (`docs/gate0-feasibility.md`); commit `70bbc4c`
+reproduces it. These came with development version 1.
 
 - Added: a published JSON Schema; the run id; the framework release and clock in the
   header; the scenario header; `user.origin`; tool events; `effect.requested` and
