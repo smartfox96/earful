@@ -1,19 +1,23 @@
 name: ci
 
 # A pull request is checked once, as the merge of the branch into its base. A push is
-# checked only on main, so a branch with an open pull request does not run twice.
+# checked only on main, and only if those exact files have not already passed as a pull
+# request (scripts/ci_tested.sh). Closing or merging a pull request starts a run that
+# does nothing except replace the one in progress for it.
 on:
   push:
     branches: [main]
   pull_request:
+    types: [opened, synchronize, reopened, closed]
   schedule:
     - cron: "17 4 * * *" # nightly: catches dependency drift under the pinned releases
   workflow_dispatch:
 
-# A new push to a pull request replaces the run in progress. Runs on main all finish.
+# A new run replaces the one in progress for the same pull request, and for main: the
+# newer commit on main contains the older one.
 concurrency:
   group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
@@ -21,8 +25,13 @@ permissions:
 jobs:
   changes:
     name: what changed
+    if: github.event.action != 'closed'
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read # scripts/ci_tested.sh asks which pull request a commit came from
+      actions: read # and whether ci passed on it
     outputs:
       code: ${{ steps.scope.outputs.code }}
       docs: ${{ steps.scope.outputs.docs }}
@@ -35,10 +44,17 @@ jobs:
         env:
           EVENT: ${{ github.event_name }}
           BEFORE: ${{ github.event.before }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           case "$EVENT" in
             pull_request) scripts/ci_scope.sh HEAD^1 HEAD ;; # HEAD is the merge into the base
-            push) scripts/ci_scope.sh "$BEFORE" HEAD ;;
+            push)
+              if [ "$(scripts/ci_tested.sh "$GITHUB_SHA")" = "tested=true" ]; then
+                echo "These files passed ci as a pull request: nothing to run again." >&2
+                printf 'code=false\ndocs=false\n'
+              else
+                scripts/ci_scope.sh "$BEFORE" HEAD
+              fi ;;
             *) printf 'code=true\ndocs=true\n' ;; # nightly and manual runs check everything
           esac | tee -a "$GITHUB_OUTPUT"
 
@@ -86,6 +102,16 @@ jobs:
           - { version: "1.6.5", as_of: "2026-07-20" }
           - { version: "1.6.6", as_of: "2026-07-20" }
           - { version: "1.8.12", as_of: "2026-11-14" }
+        # macOS runs the oldest and the newest release on a pull request and on a push.
+        # The nightly and manual runs add the three between: there the name below is one
+        # no job has, so nothing is left out.
+        exclude:
+          - os: ${{ (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && 'every release' || 'macos-latest' }}
+            lk: { version: "1.5.7", as_of: "2026-05-06" }
+          - os: ${{ (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && 'every release' || 'macos-latest' }}
+            lk: { version: "1.6.5", as_of: "2026-07-20" }
+          - os: ${{ (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && 'every release' || 'macos-latest' }}
+            lk: { version: "1.6.6", as_of: "2026-07-20" }
         # Every other supported Python, once each, spread across releases.
         include:
           - os: ubuntu-latest
@@ -133,7 +159,7 @@ jobs:
   result:
     name: ci result
     needs: [changes, docs, lint, determinism]
-    if: always()
+    if: always() && github.event.action != 'closed'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:

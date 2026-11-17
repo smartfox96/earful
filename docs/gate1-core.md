@@ -229,8 +229,9 @@ green where it was repaired:
 
 Every replay is repeatable, and none reports that the scenario's code has changed. The
 tests assert the table above on whichever release they run on, and that a replay on 1.5.6
-gives the recorded hash. CI runs them, and replays both bundles, in every job: Linux and
-macOS, five releases, Python 3.10 to 3.14.
+gives the recorded hash. CI runs them, and replays both bundles, in every job: Linux on
+the five releases and on Python 3.10 to 3.14, macOS on the oldest and the newest release
+for each change and on all five every night.
 
 ```bash
 python scripts/replay.py tests/bundles/lk-1.5.6.book_then_interrupt.A2-rule
