@@ -954,6 +954,32 @@ def test_a_case_found_under_a_stretched_delay_reduces_to_the_delay_and_the_hangu
         assert run(undone) == ledger("1.8.12", "book_then_interrupt")  # and needs both
 
 
+def test_a_reduction_makes_no_delay_longer_than_a_search_does():
+    """The failure holds while the write takes 0.2 to 30 s. The middle of that window is
+    a 15 s write, and a search makes none longer than 10 s. The window is cut off at the
+    limit, where it has no edge, so the write is left just inside the edge it does have."""
+
+    def slow_enough(case):
+        took = cases.value(case, Variable("backend.latency", 1))
+        return took is not None and 200_000 <= took <= 30_000_000
+
+    write = Variable("backend.latency", 1)
+    author = a_case(BOOK)
+    found = cases.with_value(author, write, 1_500_000)
+    shrunk = shrink(found, answers(slow_enough), A2, author=author)
+    assert cases.value(shrunk.case, write) == 1_000_000
+    (measured,) = [w for w in shrunk.windows if w.variable == write]
+    assert (measured.lo_us, measured.hi_us) == (200_000, 30_000_000)  # reported whole
+    # With the limit above the window, the middle of the window it is.
+    roomy = shrink(found, answers(slow_enough), A2, author=author, delay_limit_us=60_000_000)
+    assert cases.value(roomy.case, write) == 15_000_000
+    # A delay the case already has longer than the limit is not made longer still.
+    long = cases.with_value(author, write, 20_000_000)
+    assert cases.value(shrink(long, answers(slow_enough), A2, author=author).case, write) <= (
+        20_000_000
+    )
+
+
 def test_a_window_is_found_by_doubling_out_and_halving_back():
     run = answers(asked_about_the_window_between(3_000_000, 7_800_000))
     runner = Runner(run)

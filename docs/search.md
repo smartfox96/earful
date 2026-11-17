@@ -271,6 +271,9 @@ keeps the step only if the run still breaks the same predicate.
    the failure has an edge along that time, put the time on the roundest value in the
    middle half of the window: a whole second if one is there, else half a second, a
    tenth, a twentieth, 10 ms, 1 ms. A time the failure does not depend on is left alone.
+   A delay or a wait is not settled longer than the search's limit, 10 s by default: a
+   window that runs past the limit is cut off there, and the time is put just inside the
+   edge the window has below it. The window is still reported whole.
 
 The result is 1-minimal: undoing any one remaining difference, or removing any one
 remaining speech, declared delay or fault, makes it pass. It is not necessarily the smallest

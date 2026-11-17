@@ -35,13 +35,13 @@ from __future__ import annotations
 
 import copy
 from collections.abc import Callable, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any, TypeVar
 
 from . import case as cases
 from .case import Variable
 from .predicate import Predicate
-from .search import Run, Runner, Window, window
+from .search import DELAY_LIMIT_US, Run, Runner, Window, window
 
 T = TypeVar("T")
 
@@ -325,6 +325,15 @@ def settled(found: Window, at: int) -> int | None:
     return None
 
 
+def _up_to(found: Window, most: int) -> Window | None:
+    """``found`` cut off at ``most``, for choosing where to leave a delay. The cut is not
+    an edge of the failure: it is as if the search for that end had given up there. None
+    if the whole window lies beyond ``most``."""
+    if found.hi_us <= most:
+        return found
+    return replace(found, hi_us=most, hi_end="reach") if found.lo_us <= most else None
+
+
 def _moved_times(author: cases.Case | None, case: cases.Case) -> list[Variable]:
     """The times of ``case`` that are not the author's: what a reduction settles."""
     out: list[Variable] = []
@@ -381,13 +390,16 @@ def shrink(
     *,
     author: cases.Case | None = None,
     max_runs: int = 600,
+    delay_limit_us: int = DELAY_LIMIT_US,
 ) -> Shrunk:
     """Reduce ``case`` while running it still breaks ``predicate``.
 
     ``author`` is the scenario as its author wrote it: what the reduction measures the
     case against. Without it differences cannot be isolated; speeches, delays, faults and
     the hangup are removed and every time is settled. ``max_runs`` bounds the work; if it
-    is spent, the case reduced so far is returned and ``complete`` is false.
+    is spent, the case reduced so far is returned and ``complete`` is false. No delay or
+    wait is settled longer than ``delay_limit_us``, the longest a search makes one, unless
+    the case already has it longer.
 
     Raises ``ValueError`` if ``case`` does not break ``predicate`` to begin with.
     """
@@ -447,7 +459,12 @@ def shrink(
         # A time is moved only if the failure has an edge along it. Where it holds as far
         # as the scenario can go, the failure does not depend on that time.
         depends = "passes" in (found.lo_end, found.hi_end)
-        to = settled(found, cases.value(current, variable) or 0) if depends else None
+        at = cases.value(current, variable) or 0
+        # A failure can hold for delays far longer than any a search makes. The middle of
+        # such a window is no place to leave a delay: it is chosen below the limit.
+        waits = variable.kind in (*cases.DELAY_KINDS, cases.WAIT)
+        inside = _up_to(found, max(delay_limit_us, at)) if waits else found
+        to = settled(inside, at) if depends and inside is not None else None
         if to is not None and to != cases.value(current, variable):
             candidate = cases.with_value(current, variable, to)
             if candidate is not None and breaks(candidate):

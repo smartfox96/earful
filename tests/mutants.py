@@ -979,4 +979,11 @@ MUTANTS = [
         "        coarse = False\n        tried, cannot = candidates(\n            on,\n",
         first="at_no_word_end",
     ),
+    Mutant(
+        "shrink: a delay is settled beyond the longest a search makes",
+        "src/earful/core/shrink.py",
+        "        inside = _up_to(found, max(delay_limit_us, at)) if waits else found\n",
+        "        inside = found\n",
+        first="no_delay_longer_than_a_search",
+    ),
 ]
