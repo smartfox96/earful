@@ -5,6 +5,7 @@ Framework-independent: this module must never import livekit.
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import asdict, dataclass, field
 from typing import Any
 
@@ -85,11 +86,11 @@ def verdict(
     instance: dict[str, Any],
     summary: str,
     *,
-    events: list[Event | None] = (),  # type: ignore[assignment]
-    findings: list[Finding] = (),  # type: ignore[assignment]
+    events: Iterable[Event | None] = (),
+    findings: Iterable[Finding] = (),
     unobservable: str | None = None,
     measures: dict[str, Any] | None = None,
-    flags: list[str] = (),  # type: ignore[assignment]
+    flags: Iterable[str] = (),
 ) -> Verdict:
     """Build a verdict. It fails if any finding names a rule; it is unobservable if
     ``unobservable`` says what evidence is missing; otherwise it passes."""
@@ -116,8 +117,8 @@ def verdict(
 
 
 def result(
-    contract: str, policy: Any, verdicts: list[Verdict], notes: list[str] = ()
-) -> ContractResult:  # type: ignore[assignment]
+    contract: str, policy: Any, verdicts: list[Verdict], notes: Iterable[str] = ()
+) -> ContractResult:
     """A contract fails if any instance failed, is otherwise unobservable if any instance
     was, otherwise passes; with no instances it was not exercised, which is not a pass."""
     outcomes = {v.outcome for v in verdicts}

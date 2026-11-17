@@ -526,8 +526,9 @@ class _QuietTool(_Booker):
         super().__init__(backend)
         self._stop = stop
 
+    # Returns nothing where the tool it overrides returns a string. That is what is tested.
     @lk.function_tool
-    async def create_reservation(self, party_size: int) -> None:
+    async def create_reservation(self, party_size: int) -> None:  # type: ignore[override]
         """Create a reservation.
 
         Args:

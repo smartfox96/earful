@@ -506,6 +506,7 @@ class Exploration:
             moved, key=lambda t: (t.candidate.base, t.candidate.variable, t.candidate.value_us)
         ):
             variable, at = tried.candidate.variable, tried.candidate.value_us
+            assert variable is not None and at is not None
             key = (tried.candidate.base, variable)
             if per_variable.get(key, 0) >= most:
                 continue
@@ -717,7 +718,7 @@ def explore(
             with_one = cases.with_fault(case, of, nth, None if of == "backend.error" else wait_us)
             if with_one is None:
                 continue  # the write already has a fault
-            versions = [(f"{of} {nth}", with_one)]
+            versions: list[tuple[str, cases.Case | None]] = [(f"{of} {nth}", with_one)]
             if of == "backend.timeout":
                 # The write commits at its own latency: before the caller gives up, or
                 # after. One order is the scenario's. The other is made by letting the
@@ -767,10 +768,10 @@ def explore(
             place(version, [handle], transitions(produced, words=words), label)
         if label in as_written:
             # ... and the commit of a write whose caller gives up, to every transition.
-            commit = [
+            commits = [
                 h for h in delay_handles(produced, ["backend.latency"]) if h.variable.index == nth
             ]
-            place(version, commit, transitions(produced, words=words), label)
+            place(version, commits, transitions(produced, words=words), label)
 
     if pairs:
         # A fault and a speech: every speech again, and the hangup, with each fault in place.
@@ -787,8 +788,9 @@ def explore(
                 both = cases.with_fault(version, extra["of"], other_nth, extra["us"])
                 # A timeout that commits later is a fault and a latency: carry both.
                 commit = Variable("backend.latency", other_nth)
-                if both is not None and cases.value(other, commit) != cases.value(case, commit):
-                    both = cases.with_value(both, commit, cases.value(other, commit))
+                later = cases.value(other, commit)
+                if both is not None and later is not None and later != cases.value(case, commit):
+                    both = cases.with_value(both, commit, later)
                 if both is not None:
                     keep(Candidate(both, None, None, base=f"{label} + {other_label}"))
 

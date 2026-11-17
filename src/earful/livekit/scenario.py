@@ -143,9 +143,11 @@ def build(data: dict[str, Any]) -> Case:
         if name not in SETTINGS:
             raise ValueError(f"unknown setting {name!r}; this adapter has {sorted(SETTINGS)}")
         wanted = int if name in _TIMES else _PLAIN[name][1]
-        if not isinstance(value, wanted) or (
-            wanted is int and (isinstance(value, bool) or value < 0)
-        ):
+        if wanted is int:
+            ok = isinstance(value, int) and not isinstance(value, bool) and value >= 0
+        else:
+            ok = isinstance(value, wanted)
+        if not ok:
             kind = "time in microseconds" if wanted is int else wanted.__name__
             raise ValueError(f"setting {name!r} takes a {kind}, not {value!r}")
     case = resolve(data["scenario"])()

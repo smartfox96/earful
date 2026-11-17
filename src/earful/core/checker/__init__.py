@@ -13,6 +13,7 @@ Framework-independent: this package must never import livekit.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import Any
 
 from ..schema import validity
@@ -31,7 +32,8 @@ from .report import (
 )
 from .view import Reading, View, readings
 
-_CHECKS = {
+# Each check takes the policy class of its own contract. ``parse_all`` pairs them by name.
+_CHECKS: dict[str, Callable[[View, Any], ContractResult]] = {
     "A1": a1.check,
     "A2": a2.check,
     "A3": a3.check,

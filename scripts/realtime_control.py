@@ -34,8 +34,8 @@ print(
             == 1,
             "all_marked_invalid": marked,
             "first_difference_line": diff[0] if diff else None,
-            "run_a": diff[1][:200] if diff else None,
-            "run_b": diff[2][:200] if diff else None,
+            "run_a": diff[1][:200] if diff and diff[1] is not None else None,
+            "run_b": diff[2][:200] if diff and diff[2] is not None else None,
         },
         indent=2,
     )

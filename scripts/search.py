@@ -45,7 +45,8 @@ from earful.livekit import scenario
 def main(argv: list[str]) -> int:
     args, keep, out, case_file, variables = [], [], None, None, None
     words, windows = True, True
-    faults, pairs, profiles = cases.FAULT_KINDS, False, 0
+    faults: tuple[str, ...] = cases.FAULT_KINDS
+    pairs, profiles = False, 0
     it = iter(argv)
     for arg in it:
         if arg == "--keep":
@@ -110,6 +111,7 @@ def main(argv: list[str]) -> int:
         if not breaking:
             continue
         rule = f"{predicate.contract}-{predicate.rule}".replace(" ", "-")
+        assert out is not None
         directory = out / f"lk-{summary['livekit-agents']}.{reference.rpartition(':')[2]}.{rule}"
         manifest = bundle.capture(
             directory,

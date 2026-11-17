@@ -27,7 +27,7 @@ SCHEMA_FILE = "earful.ledger-5.schema.json"
 @lru_cache(maxsize=1)
 def load_schema() -> dict[str, Any]:
     """The JSON Schema for one ledger event."""
-    text = resources.files(__package__).joinpath("schemas", SCHEMA_FILE).read_text("utf-8")
+    text = resources.files(__package__).joinpath("schemas").joinpath(SCHEMA_FILE).read_text("utf-8")
     return json.loads(text)
 
 

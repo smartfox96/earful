@@ -449,11 +449,12 @@ if __name__ == "__main__":
             f"   {outcome:12} {contract} {what:10} {len(where):5} runs in {families_hit} families"
         )
     for family in families:
-        groups, example = defaultdict(list), {}
+        groups = defaultdict(list)
+        example: dict[tuple[str, ...], str] = {}
         drift = 0
         for at, res in results[family]:
             if "invalid" in res:
-                key = ("invalid run", "; ".join(res["invalid"])[:120])
+                key: tuple[str, ...] = ("invalid run", "; ".join(res["invalid"])[:120])
                 groups[key].append(at)
                 continue
             drift = max(drift, res["drift_us"])

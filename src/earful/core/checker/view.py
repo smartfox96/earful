@@ -9,6 +9,7 @@ Framework-independent: this module must never import livekit.
 
 from __future__ import annotations
 
+from collections.abc import Iterator
 from dataclasses import dataclass, field
 from functools import cached_property
 from itertools import islice
@@ -44,7 +45,7 @@ def readings(events: list[Event]) -> list[Reading]:
         if e["kind"] == "tts.synthesized" and e["data"]["attribution"] == "ambiguous"
     ]
 
-    def assign(at: int, used: frozenset[int]):
+    def assign(at: int, used: frozenset[int]) -> Iterator[Reading]:
         if at == len(open_):
             yield {}
             return
@@ -76,6 +77,13 @@ class Speech:
     final: Event | None = None  # the final transcript was delivered
 
     @property
+    def delivery(self) -> Event:
+        """The delivery of the final transcript. Raises for a speech that never had one."""
+        if self.final is None:
+            raise ValueError(f"speech {self.index} was not delivered")
+        return self.final
+
+    @property
     def noise(self) -> bool:
         return not self.transcript
 
@@ -89,6 +97,13 @@ class ModelCall:
     call: int
     request: Event
     response: Event | None = None
+
+    @property
+    def answer(self) -> Event:
+        """The response. Raises for a call that never got one."""
+        if self.response is None:
+            raise ValueError(f"model call {self.call} was not answered")
+        return self.response
 
     @property
     def items(self) -> list[dict[str, Any]]:
@@ -314,7 +329,7 @@ class View:
         """Everything the agent was scripted to say, in the order it came to be: the
         model's replies, and synthesized texts that no reply accounts for."""
         out = [
-            Spoken(f"reply {c.call}", {"reply": c.call}, c.words, c.response, c.call)
+            Spoken(f"reply {c.call}", {"reply": c.call}, c.words, c.answer, c.call)
             for c in self.replies
         ]
         out += [
@@ -408,7 +423,7 @@ class View:
     @cached_property
     def delivered(self) -> list[Speech]:
         """Speeches whose final transcript reached the framework, in order of delivery."""
-        return sorted((s for s in self.speeches if s.final), key=lambda s: s.final["seq"])
+        return sorted((s for s in self.speeches if s.final), key=lambda s: s.delivery["seq"])
 
     @cached_property
     def contexts(self) -> list[tuple[str, Event, list[dict[str, Any]]]]:
@@ -453,7 +468,7 @@ class View:
                     )
             else:
                 utterance = self.utterances[item.instance["utterance"]]
-                if any(r.response["seq"] < item.born["seq"] for r in unsynthesized):
+                if any(r.answer["seq"] < item.born["seq"] for r in unsynthesized):
                     unattributable = (
                         "this text could be a model reply altered before it was synthesized"
                     )

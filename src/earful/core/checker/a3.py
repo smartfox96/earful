@@ -11,16 +11,15 @@ from .view import View
 def check(view: View, policy: policies.A3) -> ContractResult:
     verdicts, notes = [], []
     for reply in view.replies:
-        assert reply.response is not None
         playout = view.playout(reply.call)
-        for claim in reply.response["data"]["claims"]:
+        for claim in reply.answer["data"]["claims"]:
             intent = claim["intent"]
             instance = {
                 "reply": reply.call,
                 "intent": intent,
                 "words": [claim["first_word"], claim["last_word"]],
             }
-            base = [reply.response, playout.utterance.event if playout.utterance else None]
+            base = [reply.answer, playout.utterance.event if playout.utterance else None]
             missing = playout.unattributable or (
                 "the run ended before the reply's playout finished" if playout.pending else None
             )
@@ -43,7 +42,7 @@ def check(view: View, policy: policies.A3) -> ContractResult:
                 continue
 
             if policy.claim_point == "span_end":
-                heard_at = playout.completed_us[claim["last_word"]]
+                heard_at: int | None = playout.completed_us[claim["last_word"]]
             else:
                 heard_at = view.word_start_us(playout, claim["first_word"])
             finishes = [s.finished for s in playout.segments]

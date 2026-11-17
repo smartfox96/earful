@@ -13,8 +13,7 @@ def check(view: View, policy: policies.A1) -> ContractResult:
     wrote = {e.requested["data"]["tool"] for e in view.effects.values()}
     for speech in view.delivered:
         for intent in speech.retires:
-            point = speech.final
-            assert point is not None
+            point = speech.delivery
             instance = {"speech": speech.index, "intent": intent}
             effects = [e for e in view.effects.values() if e.intent == intent]
             tools = view.intents[intent]["tools"]
@@ -41,7 +40,7 @@ def check(view: View, policy: policies.A1) -> ContractResult:
 
             new = [e for e in effects if e.requested["seq"] > point["seq"]]
             late = [
-                e
+                e.committed
                 for e in effects
                 if e.requested["seq"] < point["seq"]
                 and e.committed is not None
@@ -62,7 +61,7 @@ def check(view: View, policy: policies.A1) -> ContractResult:
                     Finding(
                         "in-flight",
                         f"{len(late)} write(s) in flight at the retirement committed after it",
-                        tuple(e.committed["seq"] for e in late),
+                        tuple(c["seq"] for c in late),
                     )
                 )
             verdicts.append(
@@ -72,7 +71,7 @@ def check(view: View, policy: policies.A1) -> ContractResult:
                     f"no write for {intent!r} started after the user retired it"
                     if not findings
                     else f"{intent!r} was written after the user retired it",
-                    events=[point, *(e.requested for e in new), *(e.committed for e in late)],
+                    events=[point, *(e.requested for e in new), *late],
                     findings=findings,
                     measures={"writes_after_retirement": len(new), "late_commits": len(late)},
                     flags=["late_commit"] if late else [],

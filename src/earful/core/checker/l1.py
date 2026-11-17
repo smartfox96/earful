@@ -13,7 +13,7 @@ from __future__ import annotations
 from . import policy as policies
 from .memory import user_turns
 from .report import ContractResult, Finding, result, verdict
-from .view import ModelCall, Speech, View
+from .view import Event, ModelCall, Speech, View
 
 MET, MISSED, SUPERSEDED, UNOBSERVABLE = "met", "missed", "superseded", "unobservable"
 LEFT = "the user left"
@@ -33,8 +33,7 @@ class _Budget:
     """The deadline for a milestone, and what excuses missing it."""
 
     def __init__(self, view: View, policy: policies.L1, speech: Speech) -> None:
-        assert speech.final is not None
-        self.clock = max(speech.end, speech.final["t_us"])  # the later of the two, both world
+        self.clock = max(speech.end, speech.delivery["t_us"])  # the later of the two, both world
         self._base = self.clock
         # End of turn can be no later than the VAD's silence plus the endpointing delay.
         self._end_of_turn = view.end_of_turn_us
@@ -82,12 +81,12 @@ class _Budget:
 
 def _judge(
     view: View, policy: policies.L1, speech: Speech, chain: list[ModelCall], calls: list[ModelCall]
-):
+) -> tuple[_Budget, list[Step], list[Event | None], bool]:
     """Time the milestones of one turn. Returns the budget, the steps, the events used and
     whether the turn's tools asked for silence."""
     budget = _Budget(view, policy, speech)
     steps: list[Step] = []
-    used = [speech.final]
+    used: list[Event | None] = [speech.delivery]
     by_call_id = {t.call_id: t for t in view.tools.values() if t.call_id is not None}
 
     def ttfb_of(call: ModelCall | None) -> int:
@@ -166,8 +165,8 @@ def _judge(
         audio = ttfb_of(current) + view.audio_us(current) if current.words else 0
         elapsed += data["duration_us"] + audio + latency
         # A tool cancelled when the scenario ended never finished.
-        outcomes = [t.outcome for t in ran]
-        done = all(o is not None and o["kind"] != "tool.cancelled" for o in outcomes)
+        outcomes = [t.outcome for t in ran if t.outcome is not None]
+        done = len(outcomes) == len(ran) and all(o["kind"] != "tool.cancelled" for o in outcomes)
         finished = max([o["t_us"] for o in outcomes] + [asked for _ in refused]) if done else None
         if not record(f"round {rounds}: every tool call finishes", finished, elapsed):
             on_track = False
@@ -202,7 +201,7 @@ def _judge(
     # The first word of a reply in the chain starts playing. Any reply of the chain will
     # do: the one whose audio started first is the one that counts.
     def budget_of(call: ModelCall, before: int) -> int:
-        return before + call.response["data"]["duration_us"] + ttfb_of(call)
+        return before + call.answer["data"]["duration_us"] + ttfb_of(call)
 
     unknown = False
     heard: list[tuple[int, ModelCall, int]] = []
@@ -240,7 +239,7 @@ def check(view: View, policy: policies.L1) -> ContractResult:
     latest_turn: dict[int, int | None] = {}
     for call in calls:
         seen = user_turns(
-            call.items, [s for s in view.delivered if s.final["seq"] < call.request["seq"]]
+            call.items, [s for s in view.delivered if s.delivery["seq"] < call.request["seq"]]
         )
         owed = [s.index for s in seen.present if s.expects_reply]
         latest_turn[call.call] = owed[-1] if owed else None
