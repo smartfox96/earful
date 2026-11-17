@@ -6,7 +6,7 @@ from typing import Any
 
 import livekit.agents as lk
 
-from ..core.backend import EffectBackend
+from ..core.backend import effect
 from .harness import Case, Intent
 from .providers import Claim, Reply, ToolCall, UserSpeech
 
@@ -44,7 +44,7 @@ def barge_in_mid_word() -> Case:
     """
     return Case(
         name="barge_in_mid_word",
-        agent=lambda backend: lk.Agent(instructions="You are a restaurant host."),
+        agent=lambda: lk.Agent(instructions="You are a restaurant host."),
         speeches=[
             UserSpeech(start=0.5, end=2.5, transcript="Tell me about the menu."),
             UserSpeech(start=5.0, end=6.0, transcript="Stop."),
@@ -60,10 +60,21 @@ BOOKING_ACK = (
 )  # 18 words, 86 letters -> 5.16 s of audio
 
 
+class Reservations:
+    """Stands in for the reservation service: a booking is one write to the backend of
+    the run in progress."""
+
+    async def create(self, party_size: int) -> str:
+        return await effect(BOOKING_INTENT, {"party_size": party_size})
+
+
 class BookingAgent(lk.Agent):
-    def __init__(self, backend: EffectBackend) -> None:
+    """An agent as an application writes one: it is handed the service it books with and
+    knows nothing of Earful."""
+
+    def __init__(self, reservations: Reservations) -> None:
         super().__init__(instructions="You take restaurant reservations.")
-        self._backend = backend
+        self._reservations = reservations
 
     @lk.function_tool
     async def create_reservation(self, party_size: int) -> str:
@@ -72,7 +83,7 @@ class BookingAgent(lk.Agent):
         Args:
             party_size: Number of guests
         """
-        receipt = await self._backend.write(BOOKING_INTENT, {"party_size": party_size})
+        receipt = await self._reservations.create(party_size)
         return f"Reservation {receipt} confirmed for {party_size} guests."
 
 
@@ -113,7 +124,7 @@ def book_then_interrupt() -> Case:
     """
     return Case(
         name="book_then_interrupt",
-        agent=BookingAgent,
+        agent=lambda: BookingAgent(Reservations()),
         speeches=[
             UserSpeech(start=0.5, end=2.5, transcript="Book a table for six tonight."),
             UserSpeech(start=5.0, end=6.0, transcript="Is the table by the window?"),
@@ -147,7 +158,7 @@ def speak_over_new_turn() -> Case:
     """
     return Case(
         name="speak_over_new_turn",
-        agent=lambda backend: lk.Agent(instructions="You are a restaurant host."),
+        agent=lambda: lk.Agent(instructions="You are a restaurant host."),
         speeches=[
             UserSpeech(start=0.5, end=2.5, transcript="Tell me about the menu."),
             UserSpeech(start=3.2, end=4.6, transcript="Actually what about dessert?"),

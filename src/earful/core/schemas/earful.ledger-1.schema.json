@@ -882,6 +882,28 @@
           "uniqueItems": true,
           "description": "Names of the function tools of the agent the run starts with. The tool witness records every call of each."
         },
+        "effects": {
+          "type": "array",
+          "description": "Tools that stand for one durable write. In this run a call of such a tool made the write in place of the tool's own body. Absent when the scenario declares none.",
+          "items": {
+            "type": "object",
+            "additionalProperties": true,
+            "required": [
+              "tool",
+              "intent"
+            ],
+            "properties": {
+              "tool": {
+                "type": "string",
+                "description": "The tool's name: one of witnessed_tools."
+              },
+              "intent": {
+                "$ref": "#/$defs/intent_id",
+                "description": "The intent the write is for."
+              }
+            }
+          }
+        },
         "delays": {
           "type": "array",
           "description": "Provider delays the scenario declares, each in place of what the scenario's code would ask for.",

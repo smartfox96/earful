@@ -18,7 +18,7 @@ from breaks import SEVENTH_WORD_ENDS_US
 from earful.core import bundle
 from earful.core import case as cases
 from earful.core.case import Variable
-from earful.core.checker import check
+from earful.core.checker import ContractFailure, check
 from earful.core.ledger import ledger_hash
 from earful.core.predicate import Predicate
 from earful.core.search import Runner, explore, window
@@ -35,6 +35,8 @@ FIX_3702 = (1, 6, 6)
 FIX_5509 = (1, 5, 7)
 
 SLOW_TO_STOP = Predicate("L2", "rule a")
+# A search of the host's reply also meets livekit/agents#5509 on the releases that have it.
+KNOWN_ON_THIS_RELEASE = ["L2/rule b"] if VERSION < FIX_5509 else []
 STOP = Variable("speech.position", 1)
 REPLY_STARTS_US = 3_200_000  # the long reply's first audio, in every release
 
@@ -229,6 +231,14 @@ def test_a_break_that_lasts_30_ms_at_a_boundary_is_found_and_its_width_measured(
     )  # "Stop." starts 0.5 s before its interruption point
     assert (measured.lo_us, measured.hi_us) == (opens, opens + 29_000)  # located to a millisecond
     assert not measured.instant
+    # Asserted, the search fails the test, and says what was moved and how wide it is.
+    with pytest.raises(ContractFailure) as caught:
+        found.assert_contracts()
+    message = str(caught.value)
+    assert "L2/rule a  in 2 case(s)" in message
+    assert "changed: speech.position 1 at" in message and "(as written 14.000 s)" in message
+    assert f"breaks with speech.position 1 from {opens / 1e6:.3f} s" in message
+    found.assert_contracts(allow=["L2/rule a", *KNOWN_ON_THIS_RELEASE])
 
 
 def test_a_break_at_one_microsecond_is_an_instant_and_is_called_one():
@@ -238,6 +248,13 @@ def test_a_break_at_one_microsecond_is_an_instant_and_is_called_one():
     assert len(found.breaking(SLOW_TO_STOP)) == 1
     (measured,) = found.windows(SLOW_TO_STOP)
     assert measured.instant and measured.width_us == 0 and measured.resolution_us == 1
+    # Such a break is reported and not counted: asserting the search does not fail.
+    (one,) = [b for b in found.breaks() if b.predicate == SLOW_TO_STOP]
+    assert one.instants_only and "same-instant order" in found.describe()
+    found.assert_contracts(allow=KNOWN_ON_THIS_RELEASE)
+    # Without its window measured, nothing says it is an instant.
+    (unmeasured,) = [b for b in found.breaks(windows=False) if b.predicate == SLOW_TO_STOP]
+    assert not unmeasured.instants_only
 
 
 def test_the_search_reaches_the_boundaries_of_a_tool_and_says_what_it_did_not_reach():
@@ -494,6 +511,8 @@ def test_the_fault_scenarios_pass_as_written():
         "reads_the_error",
         "retries_without_a_key",
         "retries_with_a_key",
+        "as_written_confirms_a_failed_booking",
+        "as_written_reads_the_error",
     ):
         report = check(scenario.run(scenario.default(f"breaks:{name}")))
         assert report.valid and not report.failures, (name, report.failures)
@@ -523,6 +542,25 @@ def test_a_confirmation_of_a_write_that_failed_is_found_and_the_control_is_clean
     assert "backend.timeout 1, commit later" not in under
     # The control makes no claim after an error, so word ends cannot matter to it.
     assert faults_of("breaks:reads_the_error", words=False).predicates() == []
+
+
+def test_faults_are_searched_on_a_write_the_scenario_declares_for_a_tool():
+    """The agent has nothing of Earful in it; its booking is an effect the scenario
+    declares. The search treats that write as any other: every fault, and the same
+    failure, under the same faults, as for the agent that writes through a stand-in."""
+    found = faults_of("breaks:as_written_confirms_a_failed_booking")
+    assert {tried.candidate.base for tried in found.tried} == {
+        "backend.error 1",
+        "backend.drop 1",
+        "backend.timeout 1, commit first",
+        "backend.timeout 1, commit later",
+    }
+    assert all(tried.outcome.ran for tried in found.tried)
+    assert found.predicates() == [CONFIRMED_BUT_NOT_DONE]
+    assert bases(found, CONFIRMED_BUT_NOT_DONE) == bases(
+        faults_of("breaks:confirms_a_failed_booking"), CONFIRMED_BUT_NOT_DONE
+    )
+    assert faults_of("breaks:as_written_reads_the_error", words=False).predicates() == []
 
 
 def test_a_claim_heard_before_a_timed_out_write_commits_is_found_with_its_window():

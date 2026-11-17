@@ -5,8 +5,10 @@ Framework-independent: this module must never import livekit.
 
 from __future__ import annotations
 
+import dataclasses
 import hashlib
 import json
+import os
 import re
 from collections.abc import Callable, Iterable
 from pathlib import Path
@@ -25,6 +27,23 @@ DEFAULT_ID_PATTERN = re.compile(r"\b([A-Za-z][A-Za-z_]*_)[0-9a-f]{12}\b")
 
 def _canonical(value: Any) -> str:
     return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
+
+
+def json_value(value: Any) -> Any:
+    """``value`` as JSON can hold it. Anything else becomes ``{"unrepresentable": <type>}``:
+    a default ``repr`` would put a memory address in the ledger."""
+    if value is None or isinstance(value, (bool, int, float, str)):
+        return value
+    if isinstance(value, dict):
+        return {str(k): json_value(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [json_value(v) for v in value]
+    if dataclasses.is_dataclass(value) and not isinstance(value, type):
+        return json_value(dataclasses.asdict(value))
+    dump = getattr(value, "model_dump", None)  # pydantic models
+    if callable(dump):
+        return json_value(dump(mode="json"))
+    return {"unrepresentable": type(value).__name__}
 
 
 def run_id(header: dict[str, Any]) -> str:
@@ -115,15 +134,22 @@ def ledger_hash(events: Iterable[dict[str, Any]]) -> str:
     return digest.hexdigest()
 
 
-def write_jsonl(events: Iterable[dict[str, Any]], path: Path, *, normalized: bool = False) -> None:
+def write_jsonl(
+    events: Iterable[dict[str, Any]], path: str | os.PathLike[str], *, normalized: bool = False
+) -> None:
+    """Write a ledger file: one event per line. ``normalized`` replaces random
+    identifiers by the order they first appear in, which is the form that is hashed."""
     events = list(events)
     lines = normalize(events) if normalized else [_canonical(e) for e in events]
+    path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text("\n".join(lines) + "\n", encoding="ascii")
 
 
-def read_jsonl(path: Path) -> list[dict[str, Any]]:
-    return [json.loads(line) for line in path.read_text(encoding="ascii").splitlines() if line]
+def read_jsonl(path: str | os.PathLike[str]) -> list[dict[str, Any]]:
+    """The events of a ledger file, in order."""
+    text = Path(path).read_text(encoding="ascii")
+    return [json.loads(line) for line in text.splitlines() if line]
 
 
 def compare_view(events: Iterable[dict[str, Any]]) -> list[dict[str, Any]]:

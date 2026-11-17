@@ -39,7 +39,8 @@ from typing import Any
 
 from . import case as cases
 from .case import Variable
-from .checker import check
+from .checker import ContractFailure, check
+from .checker.report import allowed
 from .ledger import ledger_hash
 from .predicate import Predicate, failures
 
@@ -503,6 +504,35 @@ class Tried:
     outcome: Outcome
 
 
+@dataclass(frozen=True)
+class Break:
+    """A contract rule a search found broken, and how it was reached."""
+
+    predicate: Predicate
+    candidates: int  # how many of the cases tried break it
+    everywhere: bool  # it breaks as given and in every case tried: not a matter of timing
+    changed: tuple[str, ...]  # what was changed in the cases that break it
+    windows: tuple[Window, ...]  # how far each moved time can go while it still breaks
+    # It breaks only where two events fall on the same instant: a matter of which ran
+    # first, which says nothing about the system.
+    instants_only: bool
+    example: cases.Case  # a case that breaks it, with the least changed
+    what: str  # what was changed in the example
+    details: tuple[str, ...]  # the checker's findings for the example
+
+
+def _seconds(us: int) -> str:
+    return f"{us / 1_000_000:.3f} s"
+
+
+# Why the search for one end of a window stopped, for a person.
+_ENDS = {
+    "passes": "passes beyond it",
+    "blocked": "no case exists beyond it",
+    "reach": "still breaks where the search stopped",
+}
+
+
 @dataclass
 class Exploration:
     case: cases.Case
@@ -593,6 +623,124 @@ class Exploration:
             }
             for name in sorted(reached)
         }
+
+    def breaks(self, *, windows: bool | Iterable[Predicate] = True) -> list[Break]:
+        """Every rule the search found broken, with an example of each. ``windows``
+        measures how wide each failure is, which takes further runs: for every rule, for
+        none, or for the rules named. A failure that is not measured is not known to be
+        at single instants only."""
+        wanted = None if isinstance(windows, bool) else set(windows)
+        out = []
+        for predicate in self.predicates():
+            breaking = self.breaking(predicate)
+            measure = windows is True or (wanted is not None and predicate in wanted)
+            measured = tuple(self.windows(predicate)) if measure else ()
+            unmoved = predicate in self.original.failures or any(
+                t.candidate.variable is None for t in breaking
+            )
+
+            def distance(tried: Tried) -> tuple[int, int]:
+                variable, to = tried.candidate.variable, tried.candidate.value_us
+                if variable is None or to is None:
+                    return (1 if tried.candidate.base else 0, 0)
+                was = cases.value(self.case, variable)
+                moved = abs(to - was) if was is not None else to
+                return (2 if tried.candidate.base else 1, moved)
+
+            if predicate in self.original.failures:
+                example, what = self.case, "nothing: it breaks as written"
+            else:
+                nearest = min(breaking, key=distance)
+                example, what = nearest.candidate.case, self._what(nearest.candidate)
+            ledger = self.runner.ledger(example)
+            details = tuple(
+                finding.detail
+                for verdict in (check(ledger).failures if ledger is not None else ())
+                if verdict.contract == predicate.contract
+                for finding in verdict.findings
+                if finding.rule == predicate.rule
+            )
+            out.append(
+                Break(
+                    predicate=predicate,
+                    candidates=len(breaking),
+                    everywhere=self.everywhere(predicate),
+                    changed=tuple(sorted({t.candidate.what for t in breaking})),
+                    windows=measured,
+                    instants_only=bool(measured)
+                    and not unmoved
+                    and all(w.instant for w in measured),
+                    example=example,
+                    what=what,
+                    details=details,
+                )
+            )
+        return out
+
+    def _what(self, candidate: Candidate) -> str:
+        """What a candidate changed, with the time it moved and where that time was."""
+        if candidate.variable is None or candidate.value_us is None:
+            return candidate.base
+        was = cases.value(self.case, candidate.variable)
+        written = f"as written {_seconds(was)}" if was is not None else "not declared as written"
+        moved = f"{candidate.variable} at {_seconds(candidate.value_us)} ({written})"
+        return f"{candidate.base} + {moved}" if candidate.base else moved
+
+    def describe(self, found: list[Break] | None = None) -> str:
+        """What the search found, as text for a person."""
+        found = self.breaks() if found is None else found
+        header = (self.runner.ledger(self.case) or [{"data": {}}])[0]["data"]
+        framework = header.get("framework", {})
+        on = f" on {framework.get('name')} {framework.get('version')}" if framework else ""
+        counts = self.summary()
+        lines = [
+            (
+                f"{header.get('case', 'the case')}{on}: {counts['candidates']} cases tried, "
+                f"{counts['ran']} judged, {len(found)} contract rule(s) broken"
+            )
+        ]
+        for one in found:
+            lines.append("")
+            lines.append(
+                f"{one.predicate}  in {one.candidates} case(s)"
+                + (
+                    "  (at single instants only: same-instant order, not counted)"
+                    * one.instants_only
+                )
+            )
+            lines += [f"    {detail}" for detail in one.details]
+            lines.append(f"    changed: {one.what}")
+            others = [c for c in one.changed if c and c != one.what.partition(" at ")[0]]
+            if others:
+                lines.append(f"    also by changing: {', '.join(others)}")
+            widths = [
+                f"    breaks with {w.variable} from {_seconds(w.lo_us)} ({_ENDS[w.lo_end]})"
+                f" to {_seconds(w.hi_us)} ({_ENDS[w.hi_end]})"
+                for w in one.windows
+            ]
+            lines += list(dict.fromkeys(widths))  # the same window under two faults is one line
+        unjudged = {k: counts[k] for k in ("refused", "error", "invalid") if counts[k]}
+        if unjudged:
+            lines.append("")
+            lines.append(
+                "not judged: " + ", ".join(f"{n} {why}" for why, n in sorted(unjudged.items()))
+            )
+        return "\n".join(lines)
+
+    def assert_contracts(self, *, allow: Iterable[Any] = ()) -> None:
+        """Raise ``ContractFailure``, an ``AssertionError``, if the search found a rule
+        broken. A rule that breaks only at single instants is not counted. ``allow``
+        names rules that may break, as ``CONTRACT/RULE``: a known defect of a release
+        under test."""
+        __tracebackhide__ = True  # pytest then shows the test's own line, not this one
+        found = self.breaks()
+        counted = [
+            one
+            for one in found
+            if not one.instants_only and str(one.predicate) not in allowed(allow)
+        ]
+        if counted:
+            raise ContractFailure(self.describe(found))
 
     def summary(self) -> dict[str, Any]:
         counts = {"ran": 0, "refused": 0, "error": 0, "invalid": 0}
@@ -885,6 +1033,7 @@ __all__ = [
     "STRETCHED",
     "STRETCH_US",
     "WAIT_US",
+    "Break",
     "Candidate",
     "Each",
     "Exploration",

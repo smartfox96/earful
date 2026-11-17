@@ -16,16 +16,30 @@ Once a write is requested it belongs to the backend. Its outcome is scheduled on
 at that moment, from its latency and its fault, and nothing that happens to the caller
 afterwards changes it: a tool that is cancelled while it waits has still written.
 
+Code under test reaches the backend of the run it is in through ``effect``. Nothing has to
+be handed a backend: an agent is built as it is built anywhere, and the stand-in for the
+service it writes to calls ``effect`` where the real one would make the write durable.
+
+    class FakeReservations:
+        async def create(self, party_size: int) -> str:
+            return await effect("book-table-1", {"party_size": party_size})
+
+Where a tool talks to its service directly and has nothing to stand in for, an ``Effect``
+declares the write for the tool as a whole, and an adapter makes it in place of the tool's
+body.
+
 Framework-independent: this module must never import livekit.
 """
 
 from __future__ import annotations
 
 import asyncio
-from contextvars import ContextVar
+from collections.abc import Callable
+from contextvars import ContextVar, Token
+from dataclasses import dataclass
 from typing import Any, Literal
 
-from .ledger import Ledger
+from .ledger import Ledger, json_value
 from .timebase import to_seconds, to_us
 
 # The witnessed tool invocation currently running, if any. A framework adapter sets it
@@ -210,3 +224,99 @@ class EffectBackend:
 
     def commits(self, intent: str) -> int:
         return self._commits.get(intent, 0)
+
+
+# The backend of the run in progress, if any. A harness installs one for each run.
+_backend: ContextVar[EffectBackend | None] = ContextVar("earful_backend", default=None)
+
+
+def install(backend: EffectBackend | None) -> Token[EffectBackend | None]:
+    """Make ``backend`` the one ``effect`` writes to in this context; returns a reset token."""
+    return _backend.set(backend)
+
+
+def uninstall(token: Token[EffectBackend | None]) -> None:
+    _backend.reset(token)
+
+
+def active() -> EffectBackend | None:
+    """The backend of the run in progress, or None outside a run."""
+    return _backend.get()
+
+
+async def effect(
+    intent: str,
+    payload: dict[str, Any] | None = None,
+    *,
+    key: str | None = None,
+    latency: float = 0.0,
+) -> str:
+    """Request one durable effect for ``intent`` from the backend of the run in progress
+    and return its receipt: ``EffectBackend.write``, without having been handed a backend.
+
+    Raises ``RuntimeError`` outside a run. A stand-in that calls this is test code, and a
+    write that went nowhere would leave a contract with nothing to check.
+    """
+    backend = _backend.get()
+    if backend is None:
+        raise RuntimeError(
+            f"effect({intent!r}) was called outside an Earful run: there is no backend to write to"
+        )
+    return await backend.write(intent, {} if payload is None else payload, key=key, latency=latency)
+
+
+Arguments = dict[str, Any]  # a tool call's arguments, by parameter name
+
+
+@dataclass(frozen=True)
+class Effect:
+    """One durable write, declared for a tool as a whole.
+
+    In a run, a call of the tool makes the write in place of the tool's body, and the tool
+    returns what ``result`` makes of the receipt. Outside a run the tool is untouched.
+
+    ``intent`` is the logical action the write is for. ``payload`` gives what is written,
+    from the call's arguments: by default the arguments themselves, as JSON holds them.
+    ``key`` is the idempotency key sent with the write: one string for every call, or a
+    function of the arguments. By default no key is sent. ``result`` gives what the tool
+    returns, from the receipt and the arguments: by default the receipt. ``latency`` is
+    how long the backend takes to make the write durable, in seconds.
+
+    A write the backend rejects, or one whose caller stops waiting, raises from the tool
+    as ``BackendError`` or ``BackendTimeout``.
+    """
+
+    intent: str
+    payload: Callable[[Arguments], dict[str, Any]] | None = None
+    key: str | Callable[[Arguments], str | None] | None = None
+    result: Callable[[str, Arguments], Any] | None = None
+    latency: float = 0.0
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.intent, str) or not self.intent:
+            raise ValueError(f"an effect names its intent, a non-empty string; got {self.intent!r}")
+        if self.latency < 0:
+            raise ValueError(f"an effect's latency cannot be negative; got {self.latency}")
+
+    async def make(self, arguments: Arguments) -> Any:
+        """Make the write for a call with ``arguments`` and return the tool's result."""
+        payload = json_value(arguments) if self.payload is None else self.payload(arguments)
+        key = self.key(arguments) if callable(self.key) else self.key
+        receipt = await effect(self.intent, payload, key=key, latency=self.latency)
+        return receipt if self.result is None else self.result(receipt, arguments)
+
+
+__all__ = [
+    "FAULTS",
+    "Arguments",
+    "BackendError",
+    "BackendMode",
+    "BackendTimeout",
+    "Effect",
+    "EffectBackend",
+    "active",
+    "current_tool",
+    "effect",
+    "install",
+    "uninstall",
+]

@@ -15,7 +15,7 @@ report.outcomes()               # {"A1": "not_exercised", "A2": "fail", ...}
 report.failures                 # every failed verdict, with the events it rests on
 ```
 
-`scripts/check_ledger.py LEDGER.jsonl` prints the same from a file. The checker reads only
+`earful check LEDGER.jsonl` prints the same from a file. The checker reads only
 the ledger: it imports neither the scenario nor the framework under test.
 
 ## 1. What a contract is
@@ -162,6 +162,7 @@ The checker reads these from the ledger header; it never imports the scenario.
 | `backchannel` on a speech | The user is acknowledging and does not take the floor | L1, L2, M2 |
 | `retires` on a speech | This turn corrects or cancels the named intent | A1 |
 | Intent | A logical action the user wants done once, with its authorized effect count (default 1) and the tools that carry it out | A1, A2, A3 |
+| Effect on a tool | A call of the named tool is one durable write for an intent, made in place of the tool's body. The tool then counts among the tools that carry out the intent | A1, A2, A3 |
 | Claim on a scripted reply | The reply, or a span of its words, tells the user an intent succeeded | A3 |
 | Hangup | When the user leaves. The session is closed at that time | A3, M1, L1 |
 | Provider delay | How long a model call, a first audio or a backend write takes, declared as data in place of what the scenario's code would ask for | L1; and it moves what every contract judges |
@@ -614,7 +615,7 @@ Taken at an architecture review, 17 November 2026:
 
 ## 10. What the reference ledgers measure
 
-`scripts/check_ledger.py tests/golden/*.jsonl --measures` prints these. The 15 reference
+`earful check tests/golden/*.jsonl --measures` prints these. The 15 reference
 ledgers are three cases on five releases.
 
 | Measure | Observed | Default it supports |

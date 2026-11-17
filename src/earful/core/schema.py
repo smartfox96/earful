@@ -134,6 +134,20 @@ def _check_ledger(events: list[Event], errors: list[str]) -> None:
         for intent in speech["retires"]:
             if intent not in declared:
                 errors.append(f"run.start speech {n}: retires undeclared intent {intent!r}")
+    replaced = [effect["tool"] for effect in scenario.get("effects", [])]
+    if len(set(replaced)) != len(replaced):
+        errors.append("run.start: a tool has more than one effect")
+    for effect in scenario.get("effects", []):
+        tool, intent = effect["tool"], effect["intent"]
+        if tool not in scenario["witnessed_tools"]:
+            errors.append(f"run.start: an effect is declared for {tool!r}, which is not witnessed")
+        carried_out_by = next(
+            (it["tools"] for it in scenario["intents"] if it["intent"] == intent), None
+        )
+        if carried_out_by is None:
+            errors.append(f"run.start: the effect of {tool!r} is for undeclared intent {intent!r}")
+        elif tool not in carried_out_by:
+            errors.append(f"run.start: {tool!r} is not among the tools of its intent {intent!r}")
 
     origins = [e for e in events if e["kind"] == "user.origin"]
     if len(origins) > 1:
@@ -147,7 +161,12 @@ def _check_ledger(events: list[Event], errors: list[str]) -> None:
             errors.append(f"{where}: the scenario declares no hangup")
         elif not origins or origins[0]["seq"] > e["seq"]:
             errors.append(f"{where}: comes before user.origin")
-        elif e["t_us"] != origins[0]["t_us"] + scenario["hangup_us"]:
+        elif header["clock"] == "virtual" and (
+            e["t_us"] != origins[0]["t_us"] + scenario["hangup_us"]
+        ):
+            # To the microsecond, which only a virtual clock can keep. A real-clock ledger
+            # is not evidence in any case; how near its hangup came is for whoever
+            # compares it with the virtual run.
             errors.append(
                 f"{where}: not at the declared time, {scenario['hangup_us']} us after the origin"
             )
@@ -217,7 +236,10 @@ def _check_ledger(events: list[Event], errors: list[str]) -> None:
                 if not claim["first_word"] <= claim["last_word"] < words:
                     errors.append(f"{where}: claim {claim} does not fit the reply")
                 if claim["intent"] not in declared:
-                    errors.append(f"{where}: claim names undeclared intent {claim['intent']!r}")
+                    errors.append(
+                        f"{where}: claim names undeclared intent {claim['intent']!r}; "
+                        "the scenario has to list it among its intents"
+                    )
         elif k == "tts.synthesized":
             if d["started_us"] > e["t_us"]:
                 errors.append(f"{where}: synthesis starts after it was recorded")
@@ -266,7 +288,10 @@ def _check_ledger(events: list[Event], errors: list[str]) -> None:
             if d["tool"] is not None and d["tool"] not in tools:
                 errors.append(f"{where}: tool {d['tool']} was never called")
             if d["intent"] not in declared:
-                errors.append(f"{where}: write for undeclared intent {d['intent']!r}")
+                errors.append(
+                    f"{where}: write for undeclared intent {d['intent']!r}; "
+                    "the scenario has to list it among its intents"
+                )
             effect_requests[d["request"]] = d["intent"]
         elif k in ("effect.committed", "effect.deduplicated", "effect.failed"):
             if d["request"] not in effect_requests or d["request"] in effect_outcomes:
