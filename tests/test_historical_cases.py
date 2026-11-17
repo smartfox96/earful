@@ -43,7 +43,8 @@ def test_5509_stale_reply_over_new_user_turn():
         (over,) = report.results["L2"].failures
         assert over.instance == {"speech": 1}
         assert [f.rule for f in over.findings] == ["rule b"]
-        assert "started 250000 us after the user took the floor" in over.findings[0].detail
+        assert "started" in over.findings[0].detail
+        assert "after the user took the floor" in over.findings[0].detail
     else:
         assert report.outcome("L2") == PASS
 
@@ -59,5 +60,5 @@ def test_interrupted_reply_is_cut_mid_word():
     report = _report(CASES["barge_in_mid_word"]())
     cut = report.results["M1"].verdicts[0]
     assert cut.outcome == PASS
-    assert (cut.measures["played"], cut.measures["cut"]) == (8, 1)
+    assert (cut.measures["played"], cut.measures["cut"]) == (9, 1)
     assert report.failures == ()

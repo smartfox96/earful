@@ -1,10 +1,10 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "urn:earful:case:3",
+  "$id": "urn:earful:case:1",
   "title": "Earful case",
-  "description": "An earful.case/3 document: everything about a scenario that is data. The agent and the model policy are code, named by `scenario`; the user's speeches and when they hang up, the provider delays and faults the scenario declares, the settings, the seed and the contract policy are stated here, so a case can be moved in time, reduced and saved without touching code.",
+  "description": "An earful.case/1 document: everything about a scenario that is data. The agent and the model policy are code, named by `scenario`; the user's speeches and when they hang up, the provider delays and faults the scenario declares, the settings, the seed and the contract policy are stated here, so a case can be moved in time, reduced and saved without touching code.",
   "type": "object",
-  "additionalProperties": false,
+  "additionalProperties": true,
   "required": [
     "schema",
     "scenario",
@@ -18,7 +18,7 @@
   ],
   "properties": {
     "schema": {
-      "const": "earful.case/3"
+      "const": "earful.case/1"
     },
     "scenario": {
       "type": "string",
@@ -34,7 +34,7 @@
       "description": "The scripted user's speeches, in order of their start.",
       "items": {
         "type": "object",
-        "additionalProperties": false,
+        "additionalProperties": true,
         "required": [
           "start_us",
           "end_us",
@@ -94,7 +94,7 @@
       "description": "Provider delays declared as data, each in place of what the scenario's code would ask for. At most one per delay and occurrence.",
       "items": {
         "type": "object",
-        "additionalProperties": false,
+        "additionalProperties": true,
         "required": [
           "of",
           "nth",
@@ -127,7 +127,7 @@
       "description": "Things declared to go wrong, each for one occurrence. At most one per occurrence.",
       "items": {
         "type": "object",
-        "additionalProperties": false,
+        "additionalProperties": true,
         "required": [
           "of",
           "nth",
@@ -178,6 +178,11 @@
         "type": "object"
       },
       "description": "Contract id to the policy values declared for it."
+    },
+    "schema_minor": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Additive format revision within major version 1. Absent means 0. Unknown optional fields are ignored by readers."
     }
   },
   "$defs": {

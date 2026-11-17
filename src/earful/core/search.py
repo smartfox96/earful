@@ -26,7 +26,7 @@ The search uses everything in the ledger to decide where to look, the framework'
 events included. What it finds is decided by the checker alone.
 
 Framework-independent: this module must never import livekit. The adapter supplies
-``run``, a function from a case (earful.case/3) to the ledger of running it.
+``run``, a function from a case (earful.case/1) to the ledger of running it.
 """
 
 from __future__ import annotations
@@ -210,7 +210,7 @@ def transitions(events: list[Event], *, words: bool = True) -> list[Transition]:
             mark(t + d["ttft_us"], "llm.first_token")
             mark(t + d["duration_us"], "llm.done")
         elif kind == "tts.synthesized":
-            mark(t + d["ttfb_us"], "tts.first_audio")
+            mark(d["started_us"] + d["ttfb_us"], "tts.first_audio")
         elif kind == "playout.started" and d["utterance"] in utterances:
             said = utterances[d["utterance"]]
             samples, rate = said["word_samples"], said["sample_rate"]
@@ -304,6 +304,7 @@ def delay_handles(events: list[Event], kinds: Iterable[str]) -> list[Handle]:
             ]
         elif kind == "tts.synthesized":
             found = [("tts.ttfb", d["utterance"], d["ttfb_us"])]
+            t = d["started_us"]
         elif kind == "effect.requested":
             found = [("backend.latency", d["request"], d["latency_us"])]
         out += [
@@ -668,11 +669,11 @@ def explore(
     out: ``map`` one after another, a process pool's ``map`` side by side, provided
     ``run`` can be sent to another process.
 
-    Raises ``ValueError`` if ``case`` is not earful.case/3 or cannot be run as given.
+    Raises ``ValueError`` if ``case`` is not earful.case/1 or cannot be run as given.
     """
     errors = cases.validate(case)
     if errors:
-        raise ValueError("not an earful.case/3 document: " + "; ".join(errors))
+        raise ValueError("not an earful.case/1 document: " + "; ".join(errors))
     kinds = tuple(variables)
     unknown = sorted(set(kinds) - set(cases.SPEECH_KINDS) - set(cases.DELAY_KINDS) - {cases.HANGUP})
     if unknown:

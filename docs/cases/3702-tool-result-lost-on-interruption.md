@@ -66,12 +66,12 @@ To print every verdict for the recorded run:
 | Time (s) | `seq` | Event |
 | --- | --- | --- |
 | 2.700 | 10, 11 | Model call 1. The reply is the acknowledgement plus a `create_reservation` call |
-| 3.000 | 17 to 20 | The tool is called, the backend commits reservation R1, the tool returns |
+| 3.000 | 16 to 19 | The tool is called, the backend commits reservation R1, the tool returns |
 | 3.200 | 21 | The acknowledgement starts playing |
-| 5.500 | 26 | The second speech has lasted 0.5 s. The framework pauses the output |
+| 5.500 | 27 | The second speech has lasted 0.5 s. The framework pauses the output |
 | 6.200 | 32, 33 | The transcript arrives. The framework clears the output, 2.3 s into the reply |
 | 6.500 | 39 | Model call 2. Its context holds the first user turn, the interrupted reply and the second user turn. It holds no call item and no result for `call-1-1` |
-| 6.800 | 43 to 45 | The model calls the tool again. The backend commits reservation R2 |
+| 6.800 | 43 to 46 | The model calls the tool again. The backend commits reservation R2 |
 | 18.200 | 64 | The final chat history also holds nothing for `call-1-1` |
 
 The checker reports:
@@ -96,7 +96,7 @@ still fail.
 ## How much timing room the failure has
 
 On 1.5.6, 1.5.7 and 1.6.5 the case fails for any start of the second speech from 3.000 s
-to 7.869 s. In that range the speech interrupts the reply that made the tool call. The
+to 7.859 s. In that range the speech interrupts the reply that made the tool call. The
 first speech can start anywhere from 0 s to 2.5 s. Both ranges are in the bundle's
 `manifest.json` under `windows`.
 
@@ -107,7 +107,7 @@ first speech can start anywhere from 0 s to 2.5 s. Both ranges are in the bundle
   run: the scripted user, the framework's own events, the sink and the backend.
   `manifest.json` holds the frozen rule, the windows and the environment it was made in.
 - Recorded ledger hash on 1.5.6:
-  `d98bea3d4e91137dd35cb01dd0760a0d8fd73c4c7d84ffa93ffb0b9447622dd3`. A replay on 1.5.6
+  `17cb49659910a6674810baa7ec8e43de59ee156ec414690fe07defcd2949d614`. A replay on 1.5.6
   gives this hash. CI checks that on Linux and macOS.
 - Tests: `tests/test_historical_cases.py`, `tests/test_search_live.py`. CI runs both and
   replays the bundle on all five releases.

@@ -37,10 +37,10 @@ def barge_in_mid_word() -> Case:
 
     Timeline (seconds from the first audio frame):
       0.5 - 2.5   user: "Tell me about the menu."
-      3.3         agent starts a 7.44 s reply (29 words, 0.06 s per letter)
+      3.2         agent starts a 7.44 s reply (29 words, 0.06 s per letter)
       5.0 - 6.0   user: "Stop." -> the framework pauses output after 0.5 s of speech
-                  (5.5), 2.2 s into the reply: inside the ninth word, "start"
-                  (1.98 - 2.28 s).
+                  (5.5), 2.3 s into the reply: inside the tenth word, "then"
+                  (2.28 - 2.52 s).
     """
     return Case(
         name="barge_in_mid_word",
@@ -138,10 +138,10 @@ def speak_over_new_turn() -> Case:
 
     Timeline (seconds from the first audio frame):
       0.5 - 2.5   user: "Tell me about the menu."
-      2.7 - 3.3   model generates the reply; the agent is "thinking", nothing audible yet
+      2.7 - 3.3   model generates the reply; the voice accepts words as they arrive
       3.2 - 4.6   user starts a new turn: "Actually what about dessert?"
       3.25        user state becomes "speaking" (0.05 s of detected speech)
-      3.5         first audio of the now-stale reply is ready
+      ~3.51       first audio of the now-stale reply is ready (0.5 s voice TTFB)
       3.7         0.5 s of speech reached: the framework's interruption threshold
     The question: does any playout start between 3.25 and the end of the user's turn?
     """
@@ -153,6 +153,9 @@ def speak_over_new_turn() -> Case:
             UserSpeech(start=3.2, end=4.6, transcript="Actually what about dessert?"),
         ],
         policy=_slow_menu_policy,
+        # Streaming makes words available before generation finishes. Keep the first
+        # audio after the new VAD start, so this still exercises the same upstream race.
+        tts_ttfb=0.5,
     )
 
 

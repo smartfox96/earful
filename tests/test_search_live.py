@@ -36,7 +36,7 @@ FIX_5509 = (1, 5, 7)
 
 SLOW_TO_STOP = Predicate("L2", "rule a")
 STOP = Variable("speech.position", 1)
-REPLY_STARTS_US = 3_300_000  # the long reply's first audio, in every release
+REPLY_STARTS_US = 3_200_000  # the long reply's first audio, in every release
 
 
 def late(reference):
@@ -105,7 +105,7 @@ def test_data_that_cannot_be_run_is_refused_with_a_value_error():
             "takes a time in microseconds",
         ),
         ({**data, "settings": {**data["settings"], "sink_can_pause": 1}}, "takes a bool"),
-        ({**data, "schema": "earful.case/0"}, "not an earful.case/3 document"),
+        ({**data, "schema": "earful.case/0"}, "not an earful.case/1 document"),
         ({**data, "scenario": "no.such.module:x"}, "no scenario 'no.such.module:x'"),
         ({**data, "scenario": "breaks:nope"}, "no scenario 'breaks:nope'"),
         (

@@ -55,18 +55,25 @@ def test_a_change_of_sample_rate_mid_segment_is_a_stamp_error():
     assert run_virtual(main) == 1
 
 
-def test_audio_that_arrives_after_playout_ran_dry_is_an_underrun():
+def test_streaming_gaps_pause_playout_without_moving_word_completion_times():
     async def main():
-        sink, _ = _sink([2400, 2400])
+        sink, ledger = _sink([2400, 2400, 2400])
         await sink.capture_frame(_frame((1, 2400)))  # 0.1 s of audio
         await asyncio.sleep(0.1)
         await sink.capture_frame(_frame((2, 2400)))  # exactly on time
-        on_time = sink.underruns
         await asyncio.sleep(0.3)
-        await sink.capture_frame(_frame((2, 2400)))  # 0.2 s late
-        return on_time, sink.underruns
+        await sink.capture_frame(_frame((3, 2400)))  # playback was silent for 0.2 s
+        sink.flush()
+        await asyncio.sleep(0.1)
+        return sink.underruns, ledger.events
 
-    assert run_virtual(main) == (0, 1)
+    underruns, events = run_virtual(main)
+    assert underruns == 0
+    done = events[-1]
+    assert done["kind"] == "playout.finished"
+    assert done["data"]["words_played"] == [1, 2, 3]
+    assert done["data"]["words_completed_us"] == [100_000, 200_000, 500_000]
+    assert len([e for e in events if e["kind"] == "playout.started"]) == 1
 
 
 def test_a_cleared_output_stays_paused_until_it_is_resumed():

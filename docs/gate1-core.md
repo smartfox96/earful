@@ -13,7 +13,7 @@ Gate 1 is complete when each of these is demonstrated.
 
 | Criterion | Where it is shown |
 | --- | --- |
-| The ledger is versioned and defined by a published schema | `docs/ledger.md`; `earful.ledger/5` |
+| The ledger is versioned and defined by a published schema | `docs/ledger.md`; `earful.ledger/1` |
 | The checker reads only the ledger and imports no framework | `docs/contracts.md`; `tests/test_core_boundary.py` |
 | Tools write to a deterministic backend that records each write apart from what the tool returns | `src/earful/core/backend.py`; `effect.*` events |
 | Every contract detects a deliberate break, and passes the same scenario without it | Mutations and controls, below |
@@ -70,9 +70,9 @@ audio, the end of every word, the last word (`tests/test_search_live.py`).
 
 | Break | Candidates run | Breaking `L2/rule a` | Window measured | Control: breaking |
 | --- | --- | --- | --- | --- |
-| An output slow to stop whenever it is told to | 99 | 84 (87 on 1.5.6) | 6.9 s wide (7.1 s on 1.5.6), a passing run met on each side | 0 |
-| The same, only in the 30 ms after the seventh word ends | 99 | 2 | 29 ms wide, located to a millisecond | 0 |
-| The same, only at the very microsecond that word ends | 99 | 1 | an instant: no width, a passing run a microsecond either side | 0 |
+| An output slow to stop whenever it is told to | 98 | 84 (87 on 1.5.6) | 6.9 s wide (7.1 s on 1.5.6), a passing run met on each side | 0 |
+| The same, only in the 30 ms after the seventh word ends | 98 | 2 | 29 ms wide, located to a millisecond | 0 |
+| The same, only at the very microsecond that word ends | 98 | 1 | an instant: no width, a passing run a microsecond either side | 0 |
 
 The figures are the same on all five releases except where noted. In the second row a
 fixed step of 50 ms would land inside the 30 ms only by luck. The search puts "Stop." at
@@ -91,11 +91,11 @@ and interruption point reach `tool.called`, `tool.returned`, `effect.requested` 
 `effect.committed`, and that the commit reaches the playout, the sink's pause and the
 user's transcript.
 
-A search of that scenario with every default variable runs 700 to 1 330 candidates,
-depending on the release, with none refused, none raising and none invalid. A further 946
-to 1 496 placements are counted as impossible and not run: a delay cannot be negative, a
+A search of that scenario with every default variable runs 685 to 1 325 candidates,
+depending on the release, with none refused, none raising and none invalid. A further 915
+to 1 427 placements are counted as impossible and not run: a delay cannot be negative, a
 speech cannot overlap or pass another, and the user cannot hang up before their last
-speech is over. It takes 4 to 12 seconds on fifteen cores.
+speech is over. Wall time depends on the available cores; the script reports it for each run.
 
 ### The two known defects are found on the releases that have them and on no other
 
@@ -105,11 +105,11 @@ every one of its handles, to every boundary.
 
 | livekit-agents | `book_then_interrupt`: candidates | breaking `A2/rule` and `M2/rule d` | window of the second speech's start | `speak_over_new_turn`: candidates | breaking `L2/rule b` | window |
 | --- | --- | --- | --- | --- | --- | --- |
-| 1.5.6 | 291 | 189 | 3.000 to 7.869 s | 322 | 14 | 3.001 to 3.449 s |
-| 1.5.7 | 291 | 189 | 3.000 to 7.869 s | 322 | 0 | |
-| 1.6.5 | 291 | 189 | 3.000 to 7.869 s | 322 | 0 | |
-| 1.6.6 | 291 | 0 | | 322 | 0 | |
-| 1.8.12 | 291 | 0 | | 322 | 0 | |
+| 1.5.6 | 283 | 184 | 3.000 to 7.859 s | 319 | 14 | 3.019 to 3.467 s |
+| 1.5.7 | 283 | 184 | 3.000 to 7.859 s | 319 | 0 | |
+| 1.6.5 | 283 | 184 | 3.000 to 7.859 s | 319 | 0 | |
+| 1.6.6 | 283 | 0 | | 319 | 0 | |
+| 1.8.12 | 283 | 0 | | 319 | 0 | |
 
 The first defect has a window nearly five seconds wide: any interruption of the reply
 that called the tool. The second has one of 448 ms: the user must begin speaking after
@@ -126,14 +126,14 @@ every write commits. Two are controls.
 
 | Model and tool | Candidates run | Found | Under which fault |
 | --- | --- | --- | --- |
-| Confirms the booking whatever the tool returned | 360 | `A3/rule` in 92 | A rejected write; a dropped write; a timeout whose write commits after the claim is heard |
-| Control: confirms only a result that is not an error | 396 | nothing | |
-| Calls the tool again after an error; the tool sends no key | 488 | `A2/rule` in 366 | A timeout in either order |
-| Control: the same model, a tool that sends a key, a keyed backend | 488 | nothing | |
+| Confirms the booking whatever the tool returned | 352 | `A3/rule` in 89 | A rejected write; a dropped write; a timeout whose write commits after the claim is heard |
+| Control: confirms only a result that is not an error | 388 | nothing | |
+| Calls the tool again after an error; the tool sends no key | 484 | `A2/rule` in 363 | A timeout in either order |
+| Control: the same model, a tool that sends a key, a keyed backend | 484 | nothing | |
 
 The figures are the same on all five releases, and every candidate was judged. In the
 first row the search also measures where the timeout starts to matter: the confirmation
-is false once the write takes longer than 6.890 s, which is when its commit falls after
+is false once the write takes longer than 6.780 s, which is when its commit falls after
 the last word of "Your table is booked." In the third row a rejected or dropped write is
 not reported, because sending it again writes once.
 
@@ -156,8 +156,8 @@ where the user stays to hear it.
 
 | Agent | Candidates run | Found | Window of the hangup |
 | --- | --- | --- | --- |
-| Books again on exit; its writes carry no key | 98 | `A2/rule` in 86 | 3.001 to 9.900 s |
-| Control: the same agent sends a key, to a keyed backend | 98 | no `A2/rule` | |
+| Books again on exit; its writes carry no key | 96 | `A2/rule` in 84 | 3.001 to 9.780 s |
+| Control: the same agent sends a key, to a keyed backend | 96 | no `A2/rule` | |
 
 The figures are the same on all five releases, and every candidate was judged. The window
 runs from the tool being called to the end of "Your table is booked." The found case
@@ -174,7 +174,7 @@ not been classified is not reported here (`docs/contracts.md`, section 10).
 increments, 3 441 runs per release (`docs/contracts.md`, section 10).
 `scripts/search_vs_sweep.py` makes those runs and then searches each shape. The search
 starts with the moving speech at the last position of its sweep and moves where each
-speech sits and every provider delay: 18 827 candidates on 1.5.6 and 18 716 on each later
+speech sits and every provider delay: 18 482 candidates on 1.5.6 and 18 341 on each later
 release.
 
 ```bash
@@ -211,10 +211,10 @@ with the windows of its speeches measured.
 
 | Bundle | Predicate | Runs to reduce and measure | How far each speech can move and still fail | Replayed 100 times on 1.5.6 |
 | --- | --- | --- | --- | --- |
-| `lk-1.5.6.book_then_interrupt.A2-rule` | `A2/rule` | 75 | first: 0 to 2.5 s; second: 3.000 to 7.869 s | 1 ledger, the one recorded |
-| `lk-1.5.6.speak_over_new_turn.L2-rule-b` | `L2/rule b` | 57 | first: 0.251 to 0.699 s; second: 3.001 to 3.449 s | 1 ledger, the one recorded |
+| `lk-1.5.6.book_then_interrupt.A2-rule` | `A2/rule` | 74 | first: 0 to 2.5 s; second: 3.000 to 7.859 s | 1 ledger, the one recorded |
+| `lk-1.5.6.speak_over_new_turn.L2-rule-b` | `L2/rule b` | 56 | first: 0.233 to 0.681 s; second: 3.019 to 3.467 s | 1 ledger, the one recorded |
 
-Neither sits on an instant, and each speech is at least 199 ms inside its window.
+Neither sits on an instant, and each speech is at least 181 ms inside its window.
 
 Replayed on every supported release, the same two cases are red where the defect is and
 green where it was repaired:
@@ -239,7 +239,7 @@ python scripts/replay.py tests/bundles/lk-1.5.6.book_then_interrupt.A2-rule
 
 ## Mutation checks
 
-`tests/mutants.py` lists 133 deliberate breaks of the code. Each is one piece of source
+`tests/mutants.py` lists 141 deliberate breaks of the code. Each is one piece of source
 text and what replaces it: the offsets of a search ignored, the delay limit removed, a
 window's ends mislabelled, a reduction kept without the failure it needs, a timed-out
 write that never commits, a hangup that excuses a turn already overdue.
@@ -250,9 +250,8 @@ copy of the repository and runs the tests there.
 .venvs/lk-1.8.12/bin/python scripts/mutate.py
 ```
 
-On livekit-agents 1.8.12 the control passes and each of the 133 broken versions fails at
-least one test. The run takes about 20 minutes with five copies side by side. CI makes
-it each night, in four parts (`.github/workflows/mutation.yml`). On every change the lint
+On livekit-agents 1.8.12 the control passes and each of the 141 broken versions fails at
+least one test. CI runs it each night, in four parts (`.github/workflows/mutation.yml`). On every change the lint
 job checks that the text of each break is still found exactly once in its file
 (`scripts/mutate.py --verify`), so a change that moves the code under a break fails
 until the break is brought along.

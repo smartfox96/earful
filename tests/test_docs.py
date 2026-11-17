@@ -62,8 +62,8 @@ def test_every_field_of_a_case_and_of_a_bundle_manifest_is_documented():
 
     missing = {}
     for name, schema in (
-        ("earful.case/3", case.load_schema()),
-        ("earful.bundle/2", bundle.load_schema()),
+        ("earful.case/1", case.load_schema()),
+        ("earful.bundle/1", bundle.load_schema()),
     ):
         fields = _field_names(schema, schema.get("$defs", {}))
         if fields - SEARCH_MENTIONED:

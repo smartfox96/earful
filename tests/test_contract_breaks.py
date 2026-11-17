@@ -384,7 +384,7 @@ class _PlaysOn(ClockedSink):
 
 
 def _hung_up_on(sink):
-    """A long reply from 3.3 s; the user leaves at 5 s, six words in."""
+    """A long reply from 3.2 s; the user leaves at 5 s, six words in."""
     case = CASES["barge_in_mid_word"]()
     case.speeches, case.sink, case.hangup = case.speeches[:1], sink, 5.0
     return run_case(case).ledger.events
@@ -392,24 +392,24 @@ def _hung_up_on(sink):
 
 def test_m1_fails_when_the_output_plays_on_after_the_user_has_left():
     """The output plays on for 2.5 s after the user has left, and the framework remembers
-    all of it. The user heard six words; fifteen are remembered as said."""
+    all of it. The user heard six words; sixteen are remembered as said."""
     events = _hung_up_on(_PlaysOn)
     (finished,) = [e for e in events if e["kind"] == "playout.finished"]
-    assert len(finished["data"]["words_played"]) == 15  # what the sink played, to no one
+    assert len(finished["data"]["words_played"]) == 16  # what the sink played, to no one
     report = check(events)
     assert report.outcome("M1") == FAIL and _rules(report, "M1") == ["rule 3"]
     (reply,) = report.results["M1"].verdicts
     assert (reply.measures["played"], reply.measures["cut"]) == (6, 1)  # what the user heard
-    assert reply.measures["contexts"][0]["remembered"] == 15
+    assert reply.measures["contexts"][0]["remembered"] == 16
     assert "played_on_after_the_hangup" in reply.flags
 
 
 def test_m1_passes_at_a_hangup_with_the_unmodified_output():
-    """The output stops as the user leaves, and the six words played are the six remembered."""
+    """The output stops as the user leaves; memory includes the six words and the cut word."""
     report = check(_hung_up_on(ClockedSink))
     assert report.outcome("M1") == PASS
     (reply,) = report.results["M1"].verdicts
-    assert (reply.measures["played"], reply.measures["contexts"][0]["remembered"]) == (6, 6)
+    assert (reply.measures["played"], reply.measures["contexts"][0]["remembered"]) == (6, 7)
     assert "played_on_after_the_hangup" not in reply.flags
 
 
@@ -749,10 +749,10 @@ def test_the_voice_names_no_reply_whose_first_token_is_not_out():
     for text in (e for e in events if e["kind"] == "tts.synthesized"):
         d = text["data"]
         named = d["candidates"] if d["call"] is None else [d["call"]]
-        assert all(first_token[call] <= text["t_us"] for call in named), d
+        assert all(first_token[call] <= d["started_us"] for call in named), d
         # Replies with these words that had been decided and had no token out yet.
         late += sum(
-            e["data"]["text"] == d["text"] and e["t_us"] <= text["t_us"] < first_token[call]
+            e["data"]["text"] == d["text"] and e["t_us"] <= d["started_us"] < first_token[call]
             for call, e in replies.items()
         )
     assert late  # the case does put such a reply before a text with its words

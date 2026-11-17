@@ -1,0 +1,160 @@
+"""Provider delivery times and the evidence left by interrupted streaming replies."""
+
+import asyncio
+
+import livekit.agents as lk
+import pytest
+from livekit.agents import llm
+
+from earful.core.ledger import Ledger
+from earful.core.schema import validate
+from earful.livekit.clock import now_us, run_virtual
+from earful.livekit.harness import Case, run_case
+from earful.livekit.providers import (
+    Reply,
+    ReplyRegister,
+    ScriptedLLM,
+    StampedTTS,
+    ToolCall,
+    UserSpeech,
+)
+
+
+@pytest.mark.parametrize("ttft,duration", [(0.1, 0.4), (0, 0), (0.4, 0.1)])
+def test_model_chunks_are_paced_and_tools_arrive_at_generation_end(ttft, duration):
+    async def main():
+        ledger = Ledger(now_us, run="test")
+        model = ScriptedLLM(
+            ledger,
+            lambda items: Reply(
+                text="hello world!",
+                ttft=ttft,
+                duration=duration,
+                tool_calls=(ToolCall("lookup", "{}"),),
+            ),
+            [],
+        )
+        context = llm.ChatContext()
+        context.add_message(role="user", content="Hello")
+        chunks = []
+        async with model.chat(chat_ctx=context) as stream:
+            async for chunk in stream:
+                chunks.append((now_us(), chunk.delta.content, chunk.delta.tool_calls))
+        await model.aclose()
+        return chunks
+
+    chunks = run_virtual(main)
+    first, last = round(ttft * 1_000_000), round(max(duration, ttft) * 1_000_000)
+    assert [(at, text) for at, text, _ in chunks[:-1]] == [
+        (first + (last - first) * n // 3, text)
+        for n, text in enumerate(("hel", "lo ", "wor", "ld!"))
+    ]
+    assert chunks[-1][0] == last and chunks[-1][2][0].name == "lookup"
+
+
+def test_voice_emits_complete_words_before_input_ends():
+    async def main():
+        ledger = Ledger(now_us, run="test")
+        register = ReplyRegister(replies={1: ["hello", "world."]})
+        voice = StampedTTS(ledger, register)
+        stream = voice.stream()
+        frames = []
+
+        async def consume():
+            async for audio in stream:
+                frames.append((now_us(), audio.frame))
+
+        consumer = asyncio.create_task(consume())
+        stream.push_text("hel")
+        await asyncio.sleep(0.1)
+        assert not frames and not voice.table.words
+        stream.push_text("lo ")
+        await asyncio.sleep(0.3)
+        assert frames and frames[0][0] == 300_000
+        assert not ledger.of(kind="tts.synthesized")  # the snapshot is not complete yet
+        stream.push_text("wor")
+        await asyncio.sleep(0.2)
+        assert [w["text"] for w in voice.table.words.values()] == ["hello"]
+        stream.push_text("ld.")
+        stream.end_input()
+        await consumer
+        await stream.aclose()
+        await voice.aclose()
+        return ledger.events, voice.table.words, frames
+
+    events, words, frames = run_virtual(main)
+    (event,) = events
+    assert event["kind"] == "tts.synthesized"
+    assert event["data"]["text"] == "hello world."
+    assert event["data"]["started_us"] == 100_000
+    assert event["data"]["call"] == 1
+    assert [word["text"] for word in words.values()] == ["hello", "world."]
+    assert frames[0][0] < event["t_us"]
+
+
+@pytest.mark.parametrize("cancel_at", [0.1, 0.4])
+def test_cancelled_voice_records_one_prefix_and_drops_the_incomplete_word(cancel_at):
+    async def main():
+        ledger = Ledger(now_us, run="test")
+        register = ReplyRegister(replies={1: ["First", "unfinished"]})
+        voice = StampedTTS(ledger, register, ttfb=0.2)
+        stream = voice.stream()
+        frames = []
+
+        async def consume():
+            async for audio in stream:
+                frames.append(audio.frame)
+
+        consumer = asyncio.create_task(consume())
+        stream.push_text("First unfinished")
+        await asyncio.sleep(cancel_at)
+        await stream.aclose()
+        await consumer
+        await voice.aclose()
+        return ledger.events, frames
+
+    (event,), frames = run_virtual(main)
+    assert event["data"]["text"] == "First"
+    assert event["data"]["attribution"] == "prefix" and event["data"]["call"] == 1
+    assert len(event["data"]["stamps"]) == 1
+    assert bool(frames) == (cancel_at > 0.2)
+
+
+def _slow_case(**kwargs):
+    return Case(
+        name="streaming",
+        agent=lambda backend: lk.Agent(instructions="Answer briefly."),
+        speeches=[UserSpeech(0.5, 1.5, "Please speak.")],
+        policy=lambda items: Reply(text="I a I a I a I a.", duration=4),
+        **kwargs,
+    )
+
+
+def test_playout_overlaps_generation_and_gaps_preserve_word_times():
+    result = run_case(_slow_case())
+    events = result.ledger.events
+    assert validate(events) == [] and result.underruns == 0
+    response = next(e for e in events if e["kind"] == "llm.response")
+    started = next(e for e in events if e["kind"] == "playout.started")
+    (synthesized,) = [e for e in events if e["kind"] == "tts.synthesized"]
+    assert started["t_us"] < response["t_us"] + response["data"]["duration_us"]
+    assert started["seq"] < synthesized["seq"]
+    assert len([e for e in events if e["kind"] == "playout.started"]) == 1
+    assert any(e["kind"] == "playout.paused" for e in events)
+    assert synthesized["data"]["call"] == response["data"]["call"]
+    pauses = [e for e in events if e["kind"] == "playout.paused"]
+    assert pauses  # generation is slower than the voice; silence is measured explicitly
+    finished = next(e for e in events if e["kind"] == "playout.finished")["data"]
+    assert finished["words_played"] == synthesized["data"]["stamps"]
+    assert finished["words_completed_us"][-1] > finished["words_completed_us"][0] + 2_000_000
+
+
+def test_hangup_during_generation_keeps_a_single_partial_utterance():
+    result = run_case(_slow_case(hangup=3.0))
+    events = result.ledger.events
+    assert validate(events) == []
+    (synthesized,) = [e for e in events if e["kind"] == "tts.synthesized"]
+    data = synthesized["data"]
+    assert data["call"] == 1 and data["attribution"] == "prefix"
+    assert 0 < len(data["stamps"]) < 8
+    assert synthesized["t_us"] >= data["started_us"]

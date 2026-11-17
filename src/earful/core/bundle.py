@@ -1,12 +1,12 @@
-"""A failure bundle: earful.bundle/2.
+"""A failure bundle: earful.bundle/1.
 
 What is kept when a search finds a failing case and the shrinker has reduced it, so that
 anyone can run it again and see the same thing:
 
     manifest.json           what failed, on what, and how the case was reduced
-    original.case.json      the case as it was found            (earful.case/3)
+    original.case.json      the case as it was found            (earful.case/1)
     original.ledger.jsonl   the ledger of running it            (earful.ledger, normalized)
-    minimal.case.json       the reduced case                    (earful.case/3)
+    minimal.case.json       the reduced case                    (earful.case/1)
     minimal.ledger.jsonl    the ledger of running it
 
 The manifest freezes the failure: the contract rule that broke, the framework release and
@@ -46,8 +46,9 @@ from .predicate import Predicate
 from .search import Run, Runner, judged
 from .shrink import shrink
 
-SCHEMA = "earful.bundle/2"
-SCHEMA_FILE = "earful.bundle-2.schema.json"
+SCHEMA = "earful.bundle/1"
+SCHEMA_MINOR = 0
+SCHEMA_FILE = "earful.bundle-1.schema.json"
 MANIFEST = "manifest.json"
 FILES = {
     "original": ("original.case.json", "original.ledger.jsonl"),
@@ -64,7 +65,7 @@ def load_schema() -> dict[str, Any]:
 
 
 def validate(manifest: Any) -> list[str]:
-    """Every way ``manifest`` departs from earful.bundle/2. An empty list means valid."""
+    """Every way ``manifest`` departs from earful.bundle/1. An empty list means valid."""
     schema = load_schema()
     Draft202012Validator.check_schema(schema)
     return [
@@ -124,6 +125,7 @@ def capture(
     header = minimal_events[0]["data"]
     manifest = {
         "schema": SCHEMA,
+        "schema_minor": SCHEMA_MINOR,
         "predicate": {"contract": predicate.contract, "rule": predicate.rule},
         "framework": header["framework"],
         "clock": header["clock"],
@@ -177,8 +179,8 @@ class Bundle:
 
 
 def load(directory: Path) -> Bundle:
-    """Read a bundle. Raises ``ValueError`` if its manifest is not earful.bundle/2 or a
-    case in it is not earful.case/3."""
+    """Read a bundle. Raises ``ValueError`` if its manifest is not earful.bundle/1 or a
+    case in it is not earful.case/1."""
     manifest = json.loads((directory / MANIFEST).read_text(encoding="ascii"))
     errors = validate(manifest)
     if errors:

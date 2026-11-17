@@ -1,10 +1,10 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "urn:earful:ledger:5",
+  "$id": "urn:earful:ledger:1",
   "title": "Earful ledger event",
-  "description": "One line of an earful.ledger/5 file. A ledger is one JSON object per line, in the order events happened. Rules that span lines (order, references between events) are listed in docs/ledger.md.",
+  "description": "One line of an earful.ledger/1 file. A ledger is one JSON object per line, in the order events happened. Rules that span lines (order, references between events) are listed in docs/ledger.md.",
   "type": "object",
-  "additionalProperties": false,
+  "additionalProperties": true,
   "required": [
     "schema",
     "run",
@@ -16,7 +16,7 @@
   ],
   "properties": {
     "schema": {
-      "const": "earful.ledger/5"
+      "const": "earful.ledger/1"
     },
     "run": {
       "description": "Identifies the run: a digest of the data of its run.start event.",
@@ -82,10 +82,16 @@
         {
           "pattern": "^fw\\."
         }
-      ]
+      ],
+      "type": "string"
     },
     "data": {
       "type": "object"
+    },
+    "schema_minor": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Additive format revision within major version 1. Absent means 0. Unknown optional fields are ignored by readers."
     }
   },
   "allOf": [
@@ -762,7 +768,7 @@
     "scenario": {
       "description": "What the test author declared.",
       "type": "object",
-      "additionalProperties": false,
+      "additionalProperties": true,
       "required": [
         "speeches",
         "hangup_us",
@@ -779,7 +785,7 @@
           "items": {
             "description": "One scripted user utterance.",
             "type": "object",
-            "additionalProperties": false,
+            "additionalProperties": true,
             "required": [
               "speech",
               "start_us",
@@ -844,7 +850,7 @@
           "items": {
             "description": "A logical action the user wants done.",
             "type": "object",
-            "additionalProperties": false,
+            "additionalProperties": true,
             "required": [
               "intent",
               "tools",
@@ -881,7 +887,7 @@
           "description": "Provider delays the scenario declares, each in place of what the scenario's code would ask for.",
           "items": {
             "type": "object",
-            "additionalProperties": false,
+            "additionalProperties": true,
             "required": [
               "of",
               "nth",
@@ -913,7 +919,7 @@
           "description": "Things the scenario declares go wrong, each for one occurrence.",
           "items": {
             "type": "object",
-            "additionalProperties": false,
+            "additionalProperties": true,
             "required": [
               "of",
               "nth",
@@ -949,7 +955,7 @@
         "session": {
           "description": "The framework options the contracts depend on, as passed to the framework and read back from it.",
           "type": "object",
-          "additionalProperties": false,
+          "additionalProperties": true,
           "required": [
             "min_interruption_duration_us",
             "false_interruption_timeout_us",
@@ -994,7 +1000,7 @@
         "providers": {
           "description": "How the scripted providers were configured.",
           "type": "object",
-          "additionalProperties": false,
+          "additionalProperties": true,
           "required": [
             "vad",
             "tts",
@@ -1005,7 +1011,7 @@
             "vad": {
               "description": "Scripted voice activity detector.",
               "type": "object",
-              "additionalProperties": false,
+              "additionalProperties": true,
               "required": [
                 "min_speech_us",
                 "min_silence_us"
@@ -1022,7 +1028,7 @@
             "tts": {
               "description": "Scripted speech synthesizer.",
               "type": "object",
-              "additionalProperties": false,
+              "additionalProperties": true,
               "required": [
                 "seconds_per_letter_us",
                 "ttfb_us"
@@ -1040,7 +1046,7 @@
             "sink": {
               "description": "Audio output.",
               "type": "object",
-              "additionalProperties": false,
+              "additionalProperties": true,
               "required": [
                 "can_pause"
               ],
@@ -1053,7 +1059,7 @@
             "backend": {
               "description": "Effect backend.",
               "type": "object",
-              "additionalProperties": false,
+              "additionalProperties": true,
               "required": [
                 "mode"
               ],
@@ -1124,7 +1130,7 @@
           },
           "else": {
             "description": "Any other item type carries no further fields.",
-            "additionalProperties": false,
+            "additionalProperties": true,
             "properties": {
               "type": true,
               "id": true
@@ -1136,7 +1142,7 @@
     "context_message": {
       "description": "A message.",
       "type": "object",
-      "additionalProperties": false,
+      "additionalProperties": true,
       "required": [
         "type",
         "id",
@@ -1173,7 +1179,7 @@
     "context_function_call": {
       "description": "A tool call the model made.",
       "type": "object",
-      "additionalProperties": false,
+      "additionalProperties": true,
       "required": [
         "type",
         "id",
@@ -1206,7 +1212,7 @@
     "context_function_call_output": {
       "description": "The result of a tool call, as shown to the model.",
       "type": "object",
-      "additionalProperties": false,
+      "additionalProperties": true,
       "required": [
         "type",
         "id",
@@ -1245,7 +1251,7 @@
     "run.start": {
       "description": "Always the first event. Declares what was run; the run id is a digest of this object.",
       "type": "object",
-      "additionalProperties": false,
+      "additionalProperties": true,
       "required": [
         "case",
         "seed",
@@ -1266,7 +1272,7 @@
         "framework": {
           "description": "The framework under test.",
           "type": "object",
-          "additionalProperties": false,
+          "additionalProperties": true,
           "required": [
             "name",
             "version"
@@ -1305,7 +1311,7 @@
     "history.final": {
       "description": "The framework's chat history, read back at the end of the run. Framework state: usable only as a judged record.",
       "type": "object",
-      "additionalProperties": false,
+      "additionalProperties": true,
       "required": [
         "read_from",
         "items"
@@ -1326,7 +1332,7 @@
     "run.end": {
       "description": "Always the last event. Carries the counters that decide whether the run is valid.",
       "type": "object",
-      "additionalProperties": false,
+      "additionalProperties": true,
       "required": [
         "stamp_errors",
         "executor_calls",
@@ -1370,7 +1376,7 @@
     "user.origin": {
       "description": "The scripted user's clock starts: the first audio frame a scripted provider receives. Once per run.",
       "type": "object",
-      "additionalProperties": false,
+      "additionalProperties": true,
       "required": [
         "by"
       ],
@@ -1387,7 +1393,7 @@
     "user.vad_start": {
       "description": "The scripted VAD reports speech to the framework: true start plus min_speech_us.",
       "type": "object",
-      "additionalProperties": false,
+      "additionalProperties": true,
       "required": [
         "speech"
       ],
@@ -1400,7 +1406,7 @@
     "user.vad_end": {
       "description": "The scripted VAD reports silence: true end plus min_silence_us.",
       "type": "object",
-      "additionalProperties": false,
+      "additionalProperties": true,
       "required": [
         "speech"
       ],
@@ -1413,7 +1419,7 @@
     "user.transcript_final": {
       "description": "The scripted STT delivers the final transcript: true end plus stt_delay_us.",
       "type": "object",
-      "additionalProperties": false,
+      "additionalProperties": true,
       "required": [
         "speech",
         "text"
@@ -1429,9 +1435,9 @@
       }
     },
     "tts.synthesized": {
-      "description": "The scripted TTS receives a complete text.",
+      "description": "One utterance finalized when its input ends or synthesis is cancelled. PCM may already have played; started_us records when the first complete word was accepted.",
       "type": "object",
-      "additionalProperties": false,
+      "additionalProperties": true,
       "required": [
         "utterance",
         "call",
@@ -1441,7 +1447,8 @@
         "stamps",
         "word_samples",
         "sample_rate",
-        "ttfb_us"
+        "ttfb_us",
+        "started_us"
       ],
       "properties": {
         "utterance": {
@@ -1501,13 +1508,17 @@
         "ttfb_us": {
           "$ref": "#/$defs/microseconds",
           "description": "Delay before the first audio, as scripted."
+        },
+        "started_us": {
+          "$ref": "#/$defs/microseconds",
+          "description": "Absolute time at which synthesis of the first complete word began. First audio cannot precede started_us + ttfb_us."
         }
       }
     },
     "tool.called": {
       "description": "A witnessed tool starts.",
       "type": "object",
-      "additionalProperties": false,
+      "additionalProperties": true,
       "required": [
         "tool",
         "name",
@@ -1537,7 +1548,7 @@
     "tool.returned": {
       "description": "A witnessed tool returns.",
       "type": "object",
-      "additionalProperties": false,
+      "additionalProperties": true,
       "required": [
         "tool",
         "name",
@@ -1571,7 +1582,7 @@
     "tool.raised": {
       "description": "A witnessed tool raises.",
       "type": "object",
-      "additionalProperties": false,
+      "additionalProperties": true,
       "required": [
         "tool",
         "name",
@@ -1602,7 +1613,7 @@
     "tool.cancelled": {
       "description": "A witnessed tool is cancelled before it finishes.",
       "type": "object",
-      "additionalProperties": false,
+      "additionalProperties": true,
       "required": [
         "tool",
         "name"
@@ -1619,7 +1630,7 @@
     "llm.request": {
       "description": "The framework asks the scripted model for a completion.",
       "type": "object",
-      "additionalProperties": false,
+      "additionalProperties": true,
       "required": [
         "call",
         "items"
@@ -1640,7 +1651,7 @@
     "llm.response": {
       "description": "The scripted model decides its answer, before streaming it.",
       "type": "object",
-      "additionalProperties": false,
+      "additionalProperties": true,
       "required": [
         "call",
         "text",
@@ -1661,7 +1672,7 @@
           "items": {
             "description": "A tool call the model makes.",
             "type": "object",
-            "additionalProperties": false,
+            "additionalProperties": true,
             "required": [
               "name",
               "arguments",
@@ -1686,7 +1697,7 @@
           "items": {
             "description": "A span of the reply that tells the user an intent succeeded. Word indices are 0-based and inclusive.",
             "type": "object",
-            "additionalProperties": false,
+            "additionalProperties": true,
             "required": [
               "intent",
               "first_word",
@@ -1718,7 +1729,7 @@
     "sink.pause": {
       "description": "The framework asks the output to pause, and the output was not already asked to.",
       "type": "object",
-      "additionalProperties": false,
+      "additionalProperties": true,
       "required": [
         "segment"
       ],
@@ -1739,7 +1750,7 @@
     "sink.resume": {
       "description": "The framework asks the output to resume, and it had last been asked to pause.",
       "type": "object",
-      "additionalProperties": false,
+      "additionalProperties": true,
       "required": [
         "segment"
       ],
@@ -1760,7 +1771,7 @@
     "sink.clear": {
       "description": "The framework asks the output to discard buffered audio.",
       "type": "object",
-      "additionalProperties": false,
+      "additionalProperties": true,
       "required": [
         "segment"
       ],
@@ -1781,7 +1792,7 @@
     "sink.flush": {
       "description": "The framework marks the end of a segment's audio.",
       "type": "object",
-      "additionalProperties": false,
+      "additionalProperties": true,
       "required": [
         "segment"
       ],
@@ -1802,7 +1813,7 @@
     "playout.started": {
       "description": "A segment becomes audible.",
       "type": "object",
-      "additionalProperties": false,
+      "additionalProperties": true,
       "required": [
         "segment",
         "utterance"
@@ -1827,7 +1838,7 @@
     "playout.paused": {
       "description": "An audible segment stops being audible on a pause.",
       "type": "object",
-      "additionalProperties": false,
+      "additionalProperties": true,
       "required": [
         "segment",
         "played_us"
@@ -1845,7 +1856,7 @@
     "playout.resumed": {
       "description": "A paused segment becomes audible again.",
       "type": "object",
-      "additionalProperties": false,
+      "additionalProperties": true,
       "required": [
         "segment",
         "played_us"
@@ -1863,7 +1874,7 @@
     "playout.finished": {
       "description": "A segment ends: played out, or cleared.",
       "type": "object",
-      "additionalProperties": false,
+      "additionalProperties": true,
       "required": [
         "segment",
         "interrupted",
@@ -1942,7 +1953,7 @@
     "effect.requested": {
       "description": "A tool asks the backend for a write.",
       "type": "object",
-      "additionalProperties": false,
+      "additionalProperties": true,
       "required": [
         "request",
         "intent",
@@ -1988,7 +1999,7 @@
     "effect.committed": {
       "description": "The write becomes durable.",
       "type": "object",
-      "additionalProperties": false,
+      "additionalProperties": true,
       "required": [
         "request",
         "intent",
@@ -2022,7 +2033,7 @@
     "effect.deduplicated": {
       "description": "On a keyed backend, the key had already committed; the original receipt is returned and nothing new is written.",
       "type": "object",
-      "additionalProperties": false,
+      "additionalProperties": true,
       "required": [
         "request",
         "intent",
@@ -2063,7 +2074,7 @@
     "effect.failed": {
       "description": "The backend rejected a write. Nothing was committed, and the caller was told.",
       "type": "object",
-      "additionalProperties": false,
+      "additionalProperties": true,
       "required": [
         "request",
         "intent",
@@ -2087,7 +2098,7 @@
     "effect.timed_out": {
       "description": "The caller of a write stopped waiting for it. Says nothing about whether the write commits.",
       "type": "object",
-      "additionalProperties": false,
+      "additionalProperties": true,
       "required": [
         "request",
         "intent",
@@ -2116,7 +2127,7 @@
     "user.hangup": {
       "description": "The user left, at the time the scenario declared. The harness then closes the session, as a participant's disconnect does.",
       "type": "object",
-      "additionalProperties": false,
+      "additionalProperties": true,
       "required": [],
       "properties": {}
     }

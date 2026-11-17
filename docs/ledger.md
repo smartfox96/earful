@@ -1,13 +1,13 @@
 # Ledger
 
-Schema: **`earful.ledger/5`**, 17 November 2026.
+Schema: **`earful.ledger/1`**, 17 November 2026.
 
 A ledger is the complete record of one run. It is the only input to the checker
 (`docs/contracts.md`), so anything a contract needs must be in it. One JSON object per
 line, append-only, in the order events happened.
 
 The shape of every event is defined by a JSON Schema (draft 2020-12) shipped with the
-package: [`src/earful/core/schemas/earful.ledger-5.schema.json`](../src/earful/core/schemas/earful.ledger-5.schema.json).
+package: [`src/earful/core/schemas/earful.ledger-1.schema.json`](../src/earful/core/schemas/earful.ledger-1.schema.json).
 That file is normative. Any JSON Schema validator, in any language, can check a ledger
 line against it. This document explains the events and lists the rules that span lines,
 which a per-line schema cannot express; `earful.core.schema.validate` applies both. A test
@@ -16,22 +16,28 @@ keeps this document and the schema in step.
 ## Envelope
 
 ```json
-{"schema": "earful.ledger/5", "run": "run-5f0c2a9be41d7c03", "seq": 17, "t_us": 3300000, "source": "sink", "kind": "playout.started", "data": {...}}
+{"schema": "earful.ledger/1", "run": "run-5f0c2a9be41d7c03", "seq": 17, "t_us": 3300000, "source": "sink", "kind": "playout.started", "data": {...}}
 ```
 
 | Field | Meaning |
 | --- | --- |
-| `schema` | Always `earful.ledger/5` |
+| `schema` | Always `earful.ledger/1` |
+| `schema_minor` | Additive revision within major version 1; absent means 0. The same throughout a run |
 | `run` | Identifies the run. A digest of the data of `run.start`, so two runs share it exactly when they declare the same case, seed, framework release, clock, scenario and contract policy. What then happened is identified by the ledger hash |
 | `seq` | Position in the ledger, from 0. The total order of the run: "before" means lower `seq` |
 | `t_us` | Virtual time in integer microseconds. Never decreases |
 | `source` | The witness that observed the event: `world`, `llm`, `sink`, `backend`, `framework` or `harness`. `docs/contracts.md` section 2 says which may decide a verdict |
 | `kind` | What happened. Earful-owned kinds are listed below; `fw.*` kinds are the framework's own events |
-| `data` | The event's fields. For Earful-owned kinds, exactly the fields listed: none missing, none extra |
+| `data` | The event's fields. Required fields and their types are checked; unknown optional fields are retained and ignored |
 
 Each event is a snapshot taken when it is recorded. Nothing a tool or provider does to its
 own objects afterwards changes the ledger, and data that JSON cannot hold is refused at
 the point it is recorded. Nothing can be appended after `run.end`.
+
+Optional metadata may be added without changing `/1`. Readers ignore unknown fields;
+hashes include them. Required fields, known types, event kinds and the rules below stay
+checked. A change to what a run executes or a contract means needs a new major version.
+Unknown adapter settings and contract policy values are refused.
 
 ## Time
 
@@ -145,7 +151,7 @@ and a ledger must hash the same on every machine. They belong to a run's manifes
 
 | Kind | Fields | When |
 | --- | --- | --- |
-| `tts.synthesized` | `utterance`, `call`, `attribution`, `candidates`, `text`, `stamps` (one per word), `word_samples` (one per word), `sample_rate`, `ttfb_us` | The TTS receives a complete text |
+| `tts.synthesized` | `utterance`, `call`, `attribution`, `candidates`, `text`, `stamps` (one per word), `word_samples` (one per word), `sample_rate`, `ttfb_us`, `started_us` | One utterance is finalized at input flush/end or cancellation |
 | `tool.called` | `tool`, `name`, `call_id`, `arguments` (by parameter name) | A witnessed tool starts |
 | `tool.returned` | `tool`, `name`, `output`, `text`, `expects_reply` | It returns |
 | `tool.raised` | `tool`, `name`, `error` (exception type), `message`, `expects_reply` | It raises |
@@ -154,6 +160,19 @@ and a ledger must hash the same on every machine. They belong to a run's manifes
 The scripted voice gives each word audio in proportion to its letters (`word_samples`):
 "I" is short and "reservation" is long, as in speech. A framework that estimates what was
 spoken from the text is then measured against a voice shaped like a real one.
+
+LLM text chunks arrive on integer deadlines across `[ttft_us, duration_us]`. Tool calls
+arrive at `duration_us`. The voice accepts complete words while text is still arriving
+and releases PCM after `ttfb_us` from the first complete word (`started_us`, an absolute
+time). An unfinished trailing word waits for more text or an input flush. Cancellation
+drops that fragment and finalizes the words already synthesized.
+
+There is one utterance per nonempty TTS input segment, not per sentence or word, and at
+most one attributed utterance per model call. Its metadata can follow `playout.started`:
+the final word list is unknown at the first frame, and the ledger never rewrites it.
+The validator resolves these references after reading the complete ledger and rejects
+playout earlier than `started_us + ttfb_us`. Attribution considers replies available at
+`started_us`, so a later model call cannot explain audio that already began.
 
 `attribution` says which model reply a synthesized text belongs to. Only replies not yet
 synthesized are candidates. `unique`: exactly one reply has this text. `prefix`: none
@@ -240,7 +259,7 @@ state are recorded, and no information is lost.
 | Kind | Fields | When |
 | --- | --- | --- |
 | `playout.started` | `segment`, `utterance` | A segment becomes audible |
-| `playout.paused` | `segment`, `played_us` | An audible segment stops being audible on a pause |
+| `playout.paused` | `segment`, `played_us` | An audible segment stops on a pause or when its streaming buffer empties |
 | `playout.resumed` | `segment`, `played_us` | It becomes audible again |
 | `playout.finished` | `segment`, `interrupted`, `audible`, `utterances`, `position_us`, `pushed_us`, `words_played`, `words_completed_us`, `word_cut`, `word_cut_samples`, `text_played` | A segment ends, played out or cleared |
 

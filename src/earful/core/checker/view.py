@@ -43,7 +43,9 @@ def candidates(events: list[Event]) -> dict[int, list[int]]:
     }
     return {
         e["data"]["utterance"]: [
-            c for c in e["data"]["candidates"] if c not in taken and first_token[c] <= e["t_us"]
+            c
+            for c in e["data"]["candidates"]
+            if c not in taken and first_token[c] <= e["data"]["started_us"]
         ]
         for e in events
         if e["kind"] == "tts.synthesized" and e["data"]["attribution"] == "ambiguous"
@@ -181,6 +183,8 @@ class Segment:
             return []
         out, opened = [], self.started["t_us"]
         for paused, resumed in self.pauses:
+            if resumed is not None and resumed["t_us"] == paused["t_us"]:
+                continue  # no time elapsed between pause and resume
             out.append((opened, paused["t_us"]))
             if resumed is None:
                 return out
@@ -482,7 +486,9 @@ class View:
             unattributable = None
             if item.call is not None:
                 utterance = by_call.get(item.call)
-                if utterance is None and any(u.event["seq"] > item.born["seq"] for u in loose):
+                if utterance is None and any(
+                    u.event["data"]["started_us"] >= item.born["t_us"] for u in loose
+                ):
                     # Its text may have been altered on the way to the voice. Earful does
                     # not guess whether a later unattributed text was this reply.
                     unattributable = (
@@ -490,7 +496,9 @@ class View:
                     )
             else:
                 utterance = self.utterances[item.instance["utterance"]]
-                if any(r.answer["seq"] < item.born["seq"] for r in unsynthesized):
+                if any(
+                    r.answer["t_us"] <= utterance.event["data"]["started_us"] for r in unsynthesized
+                ):
                     unattributable = (
                         "this text could be a model reply altered before it was synthesized"
                     )

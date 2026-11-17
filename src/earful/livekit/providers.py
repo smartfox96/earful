@@ -346,7 +346,9 @@ class ReplyRegister:
     replies: dict[int, list[str]] = field(default_factory=dict)
     synthesized: set[int] = field(default_factory=set)
 
-    def attribute(self, text: str) -> tuple[int | None, str, list[int]]:
+    def attribute(
+        self, text: str, *, eligible: set[int] | None = None
+    ) -> tuple[int | None, str, list[int]]:
         """Which reply a synthesized text belongs to, and every reply it could be.
 
         Only replies not yet synthesized are candidates. ``unique``: exactly one has this
@@ -356,7 +358,11 @@ class ReplyRegister:
         the ledger decides what follows from that.
         """
         words = _words(text)
-        open_ = [c for c in self.replies if c not in self.synthesized]
+        open_ = [
+            c
+            for c in self.replies
+            if c not in self.synthesized and (eligible is None or c in eligible)
+        ]
         kinds: tuple[tuple[str, Callable[[list[str]], bool]], ...] = (
             ("unique", lambda w: w == words),
             ("prefix", lambda w: len(w) > len(words) and w[: len(words)] == words),
@@ -471,7 +477,11 @@ class _ScriptedLLMStream(lk_llm.LLMStream):
         if words:
             model.register.replies[call] = words
         step = 3
-        for i in range(0, len(reply.text), step):
+        chunks = range(0, len(reply.text), step)
+        for n, i in enumerate(chunks):
+            # Absolute integer deadlines avoid accumulating float rounding or scheduler lag.
+            at_us = ttft_us + (duration_us - ttft_us) * n // max(len(chunks) - 1, 1)
+            await _sleep_until(t0, at_us)
             self._chunk(call, content=reply.text[i : i + step])
         await _sleep_until(t0, duration_us)
         if tool_calls:
@@ -570,36 +580,55 @@ class StampedTTS(lk_tts.TTS[NoReturn]):
     def stream(self, *, conn_options: APIConnectOptions = DEFAULT_API_CONNECT_OPTIONS) -> Any:
         return _StampedSynthesizeStream(tts=self, conn_options=conn_options)
 
-    def _render(self, text: str) -> tuple[bytes, int]:
-        """PCM for ``text`` and the time to its first audio, in microseconds; registers
-        its words and records the synthesis."""
+    def _begin(self) -> _Synthesis:
         self._utterances += 1
-        utterance = self._utterances
-        ttfb_us = self._ttfb_by_utterance.get(utterance, self._ttfb_us)
-        pcm = array("h")
-        stamps, word_samples = [], []
-        for index, word in enumerate(text.split()):
-            # Whole samples; the ledger records these numbers, not the requested seconds.
-            samples = (self.sample_rate * letters(word) * self._letter_us + 500_000) // 1_000_000
-            stamp = self.table.add(utterance, index, word, samples)
-            stamps.append(stamp)
-            word_samples.append(samples)
-            pcm.extend([stamp] * samples)
-        call, attribution, candidates = self._register.attribute(text)
-        self._ledger.append(
+        return _Synthesis(self, self._utterances)
+
+
+class _Synthesis:
+    """One utterance, recorded once when its input ends or synthesis is cancelled.
+
+    The ledger is append-only: a word list cannot be known at the first audio frame.
+    ``started_us`` preserves that earlier boundary without rewriting a snapshot. Only
+    replies already available at that boundary may later be attributed to this stream.
+    """
+
+    def __init__(self, tts: StampedTTS, utterance: int) -> None:
+        self.tts, self.utterance = tts, utterance
+        self.started_us = tts._ledger.now_us()
+        self.t0_us = now_us()
+        self.ttfb_us = tts._ttfb_by_utterance.get(utterance, tts._ttfb_us)
+        self.eligible = set(tts._register.replies)
+        self.words: list[str] = []
+        self.stamps: list[int] = []
+        self.word_samples: list[int] = []
+
+    def render(self, word: str) -> bytes:
+        tts = self.tts
+        samples = (tts.sample_rate * letters(word) * tts._letter_us + 500_000) // 1_000_000
+        stamp = tts.table.add(self.utterance, len(self.words), word, samples)
+        self.words.append(word)
+        self.stamps.append(stamp)
+        self.word_samples.append(samples)
+        return array("h", [stamp] * samples).tobytes()
+
+    def finish(self) -> None:
+        text = " ".join(self.words)
+        call, attribution, candidates = self.tts._register.attribute(text, eligible=self.eligible)
+        self.tts._ledger.append(
             "world",
             "tts.synthesized",
-            utterance=utterance,
+            utterance=self.utterance,
             call=call,
             attribution=attribution,
             candidates=candidates,
             text=text,
-            stamps=stamps,
-            word_samples=word_samples,
-            sample_rate=self.sample_rate,
-            ttfb_us=ttfb_us,
+            stamps=self.stamps,
+            word_samples=self.word_samples,
+            sample_rate=self.tts.sample_rate,
+            ttfb_us=self.ttfb_us,
+            started_us=self.started_us,
         )
-        return pcm.tobytes(), ttfb_us
 
 
 def _push_pcm(emitter: Any, pcm: bytes, sample_rate: int) -> None:
@@ -618,11 +647,15 @@ class _StampedChunkedStream(lk_tts.ChunkedStream):
             num_channels=1,
             mime_type="audio/pcm",
         )
-        pcm, ttfb_us = tts._render(self._input_text)
-        if pcm:
-            await asyncio.sleep(to_seconds(ttfb_us))
-            _push_pcm(output_emitter, pcm, tts.sample_rate)
-        output_emitter.flush()
+        synthesis = tts._begin()
+        try:
+            pcm = b"".join(synthesis.render(word) for word in self._input_text.split())
+            if pcm:
+                await _sleep_until(synthesis.t0_us, synthesis.ttfb_us)
+                _push_pcm(output_emitter, pcm, tts.sample_rate)
+            output_emitter.flush()
+        finally:
+            synthesis.finish()
 
 
 class _StampedSynthesizeStream(lk_tts.SynthesizeStream):
@@ -636,22 +669,40 @@ class _StampedSynthesizeStream(lk_tts.SynthesizeStream):
             mime_type="audio/pcm",
             stream=True,
         )
-        text = ""
-        async for data in self._input_ch:
-            if isinstance(data, str):
-                text += data
-                continue
-            if not text.strip():
-                text = ""
-                continue
-            if "_mark_started" in dir(self):
-                self._mark_started()
-            pcm, ttfb_us = tts._render(text)
-            text = ""
-            await asyncio.sleep(to_seconds(ttfb_us))
-            output_emitter.start_segment(segment_id=utils.shortuuid("earful_segment_"))
-            _push_pcm(output_emitter, pcm, tts.sample_rate)
-            output_emitter.flush()
+        pending = ""
+        synthesis: _Synthesis | None = None
+
+        async def push(words: list[str]) -> None:
+            nonlocal synthesis
+            for word in words:
+                first = synthesis is None
+                if synthesis is None:
+                    synthesis = tts._begin()
+                    if "_mark_started" in dir(self):
+                        self._mark_started()
+                pcm = synthesis.render(word)
+                if first:
+                    await _sleep_until(synthesis.t0_us, synthesis.ttfb_us)
+                    output_emitter.start_segment(segment_id=utils.shortuuid("earful_segment_"))
+                _push_pcm(output_emitter, pcm, tts.sample_rate)
+
+        try:
+            async for data in self._input_ch:
+                if isinstance(data, str):
+                    pending += data
+                    words = pending.split()
+                    pending = words.pop() if words and not pending[-1].isspace() else ""
+                    await push(words)
+                else:
+                    await push(pending.split())
+                    pending = ""
+                    if synthesis is not None:
+                        synthesis.finish()
+                        synthesis = None
+                        output_emitter.end_segment()
+        finally:
+            if synthesis is not None:
+                synthesis.finish()
 
 
 __all__ = [

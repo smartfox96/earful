@@ -9,9 +9,9 @@
     "python": "3.13.12"
   },
   "formats": {
-    "case": "earful.case/3",
+    "case": "earful.case/1",
     "contracts": "earful.contracts/1",
-    "ledger": "earful.ledger/5"
+    "ledger": "earful.ledger/1"
   },
   "framework": {
     "name": "livekit-agents",
@@ -21,9 +21,9 @@
     "delays": 0,
     "faults": 0,
     "findings": [
-      "segment 1 started 250000 us after the user took the floor"
+      "segment 1 started 268000 us after the user took the floor"
     ],
-    "hash": "2c1df50ac6c6d4311ed4942eb446a814aba0236be0d3c5a01ac6a46b800cd855",
+    "hash": "c6ed2fc01fa15fd680f22a004f5eb01b3850199c50846934bf7c968b4afc4d6a",
     "speeches": 2
   },
   "original": {
@@ -32,7 +32,7 @@
     "findings": [
       "segment 1 started 250000 us after the user took the floor"
     ],
-    "hash": "775b4b6bae282ef68f148e7153d8aba0cf3a773a06842541b869a3310ec28f99",
+    "hash": "7a8c83096d6171fa1422984eca7c94f0f51e8f6461cc02b4a1bb3988b9e73d69",
     "speeches": 2
   },
   "predicate": {
@@ -42,7 +42,7 @@
   "reduction": {
     "complete": true,
     "differences": [],
-    "runs": 57,
+    "runs": 56,
     "steps": [
       "kept 0 of 1 differences from the author's scenario"
     ]
@@ -51,25 +51,26 @@
     "distinct_hashes": 1,
     "repeats": 3
   },
-  "scenario_digest": "ce3b7af9ba22152550aa46eee198694975df4b5f0290bfc9183e7e3523e4190e",
-  "schema": "earful.bundle/2",
+  "scenario_digest": "dff2165cf1c3bb20de022ca042012cbc0ba6638f9c59bc7be1361b8d4a5204be",
+  "schema": "earful.bundle/1",
+  "schema_minor": 0,
   "windows": [
     {
       "hi_end": "passes",
-      "hi_us": 699000,
+      "hi_us": 681000,
       "instant": false,
       "lo_end": "passes",
-      "lo_us": 251000,
+      "lo_us": 233000,
       "resolution_us": 1000,
       "variable": "speech.position 0",
       "width_us": 448000
     },
     {
       "hi_end": "passes",
-      "hi_us": 3449000,
+      "hi_us": 3467000,
       "instant": false,
       "lo_end": "passes",
-      "lo_us": 3001000,
+      "lo_us": 3019000,
       "resolution_us": 1000,
       "variable": "speech.position 1",
       "width_us": 448000
