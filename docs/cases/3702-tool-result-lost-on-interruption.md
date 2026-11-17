@@ -100,6 +100,29 @@ to 7.859 s. In that range the speech interrupts the reply that made the tool cal
 first speech can start anywhere from 0 s to 2.5 s. Both ranges are in the bundle's
 `manifest.json` under `windows`.
 
+## On the real clock
+
+The reduced case was also run on the real clock, with nothing patched, three times on
+the release that has the defect and three times on the first release that passes
+(`docs/testing.md`, section 10). 18 November 2026, macOS, Python 3.13.
+
+```bash
+.venvs/lk-1.5.6/bin/earful crosscheck tests/bundles/lk-1.5.6.book_then_interrupt.A2-rule
+.venvs/lk-1.6.6/bin/earful crosscheck tests/bundles/lk-1.5.6.book_then_interrupt.A2-rule
+```
+
+| livekit-agents | Virtual clock | Real clock, 3 runs | Largest drift |
+| --- | --- | --- | --- |
+| 1.5.6 | breaks A2 and M2 rule d | 3 of 3 break A2 and M2 rule d and agree with the virtual run | 31.6, 34.1, 36.9 ms |
+| 1.6.6 | breaks nothing | 3 of 3 break nothing and agree with the virtual run | 33.5, 32.8, 33.7 ms |
+
+A real-clock run agrees when the same events happen in the same order, each within
+100 ms of its virtual time, each segment plays the same words give or take one where it
+was cut short, every model call is shown the same context, the same writes commit and the
+same rules break. The second reservation is made on the real clock as it is on the
+virtual one. A real-clock run is not repeatable, and none of these six is evidence on
+its own.
+
 ## Evidence
 
 - Bundle: `tests/bundles/lk-1.5.6.book_then_interrupt.A2-rule/`.
@@ -117,7 +140,8 @@ first speech can start anywhere from 0 s to 2.5 s. Both ranges are in the bundle
 - The VAD, STT, LLM and TTS are scripted. The `AgentSession` is the real one, run in
   process on a virtual clock.
 - "Played" means consumed by Earful's audio sink. The audio never leaves the process.
-- The run has not been compared with a run on a real clock.
+- The real-clock runs remove the virtual clock and nothing else. The providers, the sink
+  and the backend are the same scripted ones.
 - The case produces the behaviour the issue describes. It does not use the reporter's
   agent.
 - Five releases were tested. 1.6.6 is the first of them that passes.

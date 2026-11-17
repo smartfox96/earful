@@ -11,7 +11,7 @@ import pytest
 from earful.cli import BROKEN, NO_VERDICT, OK, REFUSED, main
 from earful.core import case as cases
 from earful.core.ledger import ledger_hash, read_jsonl, write_jsonl
-from earful.core.schema import validate
+from earful.core.schema import validate, validity
 from earful.livekit import scenario
 
 HERE = Path(__file__).parent
@@ -217,7 +217,58 @@ def test_replay_of_what_is_not_a_bundle_is_refused(capsys, tmp_path):
     assert status == REFUSED and "cannot read the bundle" in err
 
 
+# --------------------------------------------------------------------------- crosscheck
+
+
+@pytest.mark.slow
+def test_crosscheck_runs_a_kept_failure_on_both_clocks_and_writes_every_ledger(capsys, tmp_path):
+    """One real-clock run, which takes as long as the conversation. Whether it agrees
+    depends on the machine: the tolerance here is wide enough for any."""
+    kept = BUNDLES / "lk-1.5.6.speak_over_new_turn.L2-rule-b"
+    wide = ("--tolerance-ms", "2000", "--words", "40")
+    status, out, _ = earful(capsys, "crosscheck", kept, "--runs", "1", *wide, "--out", tmp_path)
+    assert status in (OK, BROKEN)  # a rule the real run does not break is a difference
+    lines = out.splitlines()
+    assert lines[0] == f"speak_over_new_turn on livekit-agents {lk.__version__}"
+    assert lines[1].startswith("on the virtual clock it breaks ")
+    assert "real-clock runs agree with the virtual run, within 2000 ms and 40 word(s)" in lines[2]
+    assert lines[3].startswith("run 1: ")
+    assert validity(read_jsonl(tmp_path / "virtual.ledger.jsonl")) == []
+    assert validity(read_jsonl(tmp_path / "real-1.ledger.jsonl")) == [
+        "the run was on the real clock"
+    ]
+
+
+def test_crosscheck_of_what_cannot_be_run_is_refused_or_has_no_verdict(capsys, tmp_path):
+    assert earful(capsys, "crosscheck", "breaks:nope")[0] == REFUSED
+    assert earful(capsys, "crosscheck", tmp_path)[0] == REFUSED  # a directory, not a bundle
+    assert earful(capsys, "crosscheck", "breaks:host", "--runs", "0")[0] == REFUSED
+    status, out, _ = earful(capsys, "crosscheck", "breaks:host_with_no_rule_for_stop")
+    assert status == NO_VERDICT and "nothing to compare with" in out and "NoRule" in out
+
+
 # --------------------------------------------------------------------------- report
+
+
+def test_report_draws_a_page_where_the_output_is_one_and_text_elsewhere(capsys, tmp_path):
+    page = tmp_path / "out" / "run.html"
+    status, out, _ = earful(capsys, "report", BOOKED_TWICE, "-o", page)
+    assert status == OK and out == f"report     {page}\n"
+    drawn = page.read_text(encoding="utf-8")
+    assert drawn.startswith("<!DOCTYPE html>") or drawn.lstrip().lower().startswith(
+        "<!doctype html>"
+    )
+    assert "book_then_interrupt" in drawn and "A2" in drawn and "://" not in drawn
+    # A bundle's page says what the bundle froze.
+    kept = tmp_path / "kept.html"
+    assert earful(capsys, "report", KEPT_3702, "-o", kept)[0] == OK
+    assert "A2/rule" in kept.read_text(encoding="utf-8")
+    # The format can be named: a page to standard output, text to a file named .html.
+    status, out, _ = earful(capsys, "report", CLEAN, "--format", "html")
+    assert status == OK and "<svg" in out
+    named = tmp_path / "plain.html"
+    assert earful(capsys, "report", CLEAN, "--format", "text", "-o", named)[0] == OK
+    assert named.read_text().startswith("case       book_then_interrupt")
 
 
 def test_report_writes_a_run_out_as_text_and_exits_0_whatever_it_says(capsys, tmp_path):

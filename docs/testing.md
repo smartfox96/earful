@@ -299,17 +299,18 @@ def test_a_booking_is_made_once_and_confirmed_truthfully(earful):
 
 When the test fails, the ledger of each run it made, and an example case with its ledger
 for each rule a search of its found broken, are written under `.earful/`, in a directory
-named after the test. The failure output ends with a section that says where:
+named after the test. Each ledger has a report beside it, one HTML page to open in a
+browser (`docs/report.md`). The failure output ends with a section that says where:
 
 ```
 ---------------------------------- earful ----------------------------------
 run 1 (booking) breaks A3/rule
     ledger  .earful/test_booking.py-test_with_a_failed_write/run-1.booking.ledger.jsonl
-    report  .earful/test_booking.py-test_with_a_failed_write/run-1.booking.txt
+    report  .earful/test_booking.py-test_with_a_failed_write/run-1.booking.html
 search 1 (booking) breaks A3/rule: backend.error 1
     case    .earful/test_booking.py-test_searched/search-1.booking.A3-rule.case.json
     ledger  .earful/test_booking.py-test_searched/search-1.booking.A3-rule.ledger.jsonl
-    report  .earful/test_booking.py-test_searched/search-1.booking.A3-rule.txt
+    report  .earful/test_booking.py-test_searched/search-1.booking.A3-rule.html
 ```
 
 A test that passes writes nothing. `.earful/` belongs in `.gitignore`.
@@ -329,7 +330,7 @@ earful run myapp.scenarios:booking --ledger booking.ledger.jsonl
 earful check booking.ledger.jsonl
 earful search myapp.scenarios:booking --keep A3/rule --out failures
 earful replay failures/lk-1.8.12.booking.A3-rule --expect reproduced
-earful report failures/lk-1.8.12.booking.A3-rule
+earful report failures/lk-1.8.12.booking.A3-rule -o report.html
 ```
 
 | Command | Does |
@@ -338,7 +339,8 @@ earful report failures/lk-1.8.12.booking.A3-rule
 | `earful run SCENARIO` | Runs a scenario once and prints its verdicts. `--case FILE` runs a saved case, `--ledger FILE` writes the ledger |
 | `earful search SCENARIO` | Searches a scenario, in one worker process per processor unless `--workers` says otherwise. `--keep CONTRACT/RULE --out DIR` writes a bundle for a rule that broke. `--variables`, `--faults`, `--pairs`, `--profiles`, `--no-words` and `--no-windows` narrow or widen the search |
 | `earful replay BUNDLE_DIR` | Runs a bundle's reduced case again. `--expect reproduced` or `--expect clean` makes the outcome the exit status |
-| `earful report LEDGER` or `BUNDLE_DIR` | Writes the run out as text: what was run, the verdicts and every event. `-o FILE` writes it to a file |
+| `earful crosscheck SCENARIO` or `BUNDLE_DIR` | Runs a case once on the virtual clock and `--runs` times on the real clock, and says whether the real-clock runs agree with the virtual one (section 10). `--tolerance-ms` and `--words` set how far they may differ, `--out DIR` writes every run's ledger |
+| `earful report LEDGER` or `BUNDLE_DIR` | With `-o FILE.html`, draws the run as one HTML page: a timeline, the verdicts and every event (`docs/report.md`). Without it, writes the same out as text. `--format` names one or the other |
 
 A scenario is named `module:function` on the command line, so it has to be importable
 from where the command runs. `check` and `report` read files and work without the
@@ -348,8 +350,56 @@ rule break.
 | Exit status | Meaning |
 | --- | --- |
 | 0 | Nothing broke, or the replay did what `--expect` names. For `report`: the report was written |
-| 1 | A contract rule broke, or the replay did not do what `--expect` names |
+| 1 | A contract rule broke, the replay did not do what `--expect` names, or a real-clock run did not agree with the virtual one |
 | 2 | The command could not be carried out: bad arguments, a file that is not what it should be, a scenario that does not exist |
-| 3 | No verdict: a run was not valid evidence, or did not repeat |
+| 3 | No verdict: a run was not valid evidence, did not repeat, or could not be compared |
 
 A rule that broke outranks a run without a verdict.
+
+## 10. On the real clock
+
+Every run above is on a virtual clock: time moves only when the harness moves it, which
+is what makes a run repeat. A production system has no such clock, so a finding is worth
+one more check before it is reported. `cross_check` runs the same case on the real clock,
+with nothing patched, and compares each of those runs with the virtual one.
+
+```python
+from earful.livekit import cross_check
+
+checked = cross_check(book_then_interrupt, runs=3)
+print("\n".join(checked.lines()))
+assert checked.agrees
+```
+
+```
+book_then_interrupt on livekit-agents 1.5.6
+on the virtual clock it breaks A2/rule, M2/rule d
+3 of 3 real-clock runs agree with the virtual run, within 100 ms and 1 word(s)
+run 1: agrees; breaks A2/rule, M2/rule d; largest drift 19.4 ms
+run 2: agrees; breaks A2/rule, M2/rule d; largest drift 19.4 ms
+run 3: agrees; breaks A2/rule, M2/rule d; largest drift 42.9 ms
+```
+
+A real-clock run agrees with the virtual run if it matches on six things.
+
+| Aspect | What has to match |
+| --- | --- |
+| order | The same events happened. Two events further apart on the virtual clock than the time tolerance came in the same order |
+| timing | Each event, from the user's first audio on, is within the time tolerance of its virtual time |
+| audible | Each segment said the same text and was or was not cut short. A segment cut short played the same number of words, give or take the word tolerance |
+| memory | Each model call was shown the same items, and the final history holds the same. A reply that was cut short may be remembered shorter or longer by the word tolerance |
+| effects | The same writes were requested, with the same outcome each |
+| verdicts | The same contract rules broke |
+
+The tolerances are declared: `Tolerance(time_us=100_000, words=1)` by default. Session
+start-up is left out of the timing, since it takes no virtual time and as long as the
+machine takes.
+
+A real-clock run takes as long as the conversation it scripts, and it is never evidence
+on its own: `validity` marks every one invalid and `check` gives it no verdicts. The
+cross-check reads it only against the virtual run. A real-clock run that is incomplete
+for another reason, such as playout that ran ahead of its audio, cannot be compared, and
+the result says so.
+
+Run cross-checks on a machine that is doing nothing else. Other work delays the event
+loop, and the delay shows as drift.
