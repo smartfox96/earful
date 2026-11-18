@@ -304,6 +304,10 @@ def test_the_double_booking_stays_fixed():
 `not reproduced`: a replay whose runs were not valid evidence is not reproduced either,
 and it is not clean. `judged` says whether every run was valid evidence.
 
+`scenario_changed` says whether the module that defines the scenario's function differs
+from when the bundle was kept. It covers that one file. An agent or a service stand-in
+imported from another module is outside it (`docs/search.md`, section 6).
+
 ## 8. With pytest
 
 Installing Earful registers a pytest plugin. Its `earful` fixture has the same `run`,

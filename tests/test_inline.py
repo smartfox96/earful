@@ -1,5 +1,8 @@
 """A scenario built in a test: run and searched in process, refused where it needs a name."""
 
+import hashlib
+import sys
+
 import livekit.agents as lk
 import pytest
 from breaks import BOOKING, TalksToItsServiceItself, as_written_confirms_a_failed_booking
@@ -153,6 +156,27 @@ def test_only_a_function_at_the_top_of_a_module_has_a_name():
         assert found.reference is None and found.name == INLINE
         assert found.default()["scenario"] == INLINE
         assert cases.validate(found.default()) == []
+
+
+def test_the_digest_of_a_scenario_is_of_the_one_module_that_defines_its_function(
+    tmp_path, monkeypatch
+):
+    monkeypatch.syspath_prepend(tmp_path)
+    agent, scenarios = tmp_path / "digest_agent.py", tmp_path / "digest_scenarios.py"
+    agent.write_text("NAME = 'first'\n")
+    scenarios.write_text("import digest_agent\n\n\ndef booking():\n    return digest_agent.NAME\n")
+    (tmp_path / "digest_named_elsewhere.py").write_text("from digest_scenarios import booking\n")
+    try:
+        before = scenario.fingerprint("digest_scenarios:booking")
+        assert before == hashlib.sha256(scenarios.read_bytes()).hexdigest()
+        assert scenario.fingerprint("digest_named_elsewhere:booking") == before
+        agent.write_text("NAME = 'second, and longer'\n")  # code the scenario imports
+        assert scenario.fingerprint("digest_scenarios:booking") == before
+        scenarios.write_text(scenarios.read_text() + "# a comment is a change\n")
+        assert scenario.fingerprint("digest_scenarios:booking") != before
+    finally:
+        for name in ("digest_agent", "digest_scenarios", "digest_named_elsewhere"):
+            sys.modules.pop(name, None)
 
 
 def test_the_data_of_an_inline_case_cannot_be_run_by_name_and_says_what_to_do():

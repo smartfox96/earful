@@ -330,7 +330,7 @@ The manifest freezes the failure. Its shape is
 | `clock` | The clock the reduced case ran on |
 | `formats` | The versions of the `ledger`, `contracts` and `case` formats the bundle is written in |
 | `environment` | What it was made with, by name. The LiveKit adapter gives the framework, Earful, the interpreter, the platform, and a digest of every installed distribution and its version. For the record; a replay does not depend on it |
-| `scenario_digest` | A digest of the code of the scenario the cases name |
+| `scenario_digest` | SHA-256 of the source of the one module that defines the scenario's function. Empty if that source could not be read. What it covers is set out under Replaying |
 | `original`, `minimal` | Per case: the ledger `hash`, the `case_digest` of its case file, how many `speeches`, declared `delays` and `faults` it has, and the checker's `findings` for the frozen rule, in its own words |
 | `reduction` | `runs`: how many times the system was run. `complete`: false if the budget was spent first. `steps`: what was done, in order. `differences`: every way the reduced case differs from the author's scenario |
 | `windows` | For each speech of the reduced case, and each time the reduction settled: the `variable`, `lo_us`, `hi_us`, `width_us`, `lo_end`, `hi_end`, `resolution_us`, and whether it is an `instant` |
@@ -381,7 +381,7 @@ unknown source safe to replay.
 - **repeatable**: every run gave the same ledger.
 - **identical**: that ledger is the one recorded. Expected only on the release, and with
   the Earful version and scenario code, the bundle was made with.
-- **scenario code changed**: the digest of the scenario's code differs from the one
+- **scenario code changed**: the digest of the scenario's module differs from the one
   recorded. The bundle then tests something other than what was found.
 - **unverified**: the case files the manifest records no digest of. Empty unless the
   bundle was written before `case_digest`.
@@ -399,6 +399,22 @@ expected. A replay makes at least one run: `repeats` below 1 is a `ValueError`.
 `earful replay` also prints the Earful version that kept the bundle, which the manifest
 records in `environment`, when it is not the version replaying it. It names any case file
 it could not verify.
+
+**What the scenario's digest covers.** A case names its code as `module:function`.
+`scenario_digest` is SHA-256 of the source text of one file: the module in which that
+function is defined. Any change to that file changes it, a comment included. It covers
+nothing else:
+
+- a module the scenario imports, such as the agent, its tools or a stand-in for a
+  service;
+- the framework, its dependencies and Earful. The manifest's `environment` records those,
+  and a replay prints the framework release and compares the Earful version;
+- anything the code reads when it runs: files, environment variables.
+
+"Scenario code changed: no" therefore means that one file is as it was when the bundle
+was kept. An agent defined in another module can change without the replay saying so. To
+have it covered, define the agent in the scenario's module. A digest that is empty, because
+the source could not be read when the bundle was kept, is reported as `not known`.
 
 **Trust.** A bundle names the code of its scenario and does not contain it. Replaying one
 imports and runs that code, so replay only bundles you trust.
