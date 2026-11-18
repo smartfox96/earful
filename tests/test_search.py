@@ -19,6 +19,7 @@ from earful.core.search import (
     Exploration,
     Handle,
     Runner,
+    Spent,
     Transition,
     Tried,
     Window,
@@ -1316,6 +1317,21 @@ def test_shrinking_needs_a_failing_case_and_says_when_its_budget_ran_out():
     stopped = shrink(FOUND, run, A2, author=AUTHOR, max_runs=3)
     assert not stopped.complete and stopped.runs == 3 == run.runs
     assert A2.holds(check(run(stopped.case)))
+
+
+def test_the_runs_that_measure_a_window_count_against_the_budget_of_a_reduction():
+    whole = shrink(FOUND, answers(INTERRUPTS), A2, author=AUTHOR)
+    assert whole.complete and whole.runs > 60 and len(whole.windows) == 2
+    run = answers(INTERRUPTS)
+    stopped = shrink(FOUND, run, A2, author=AUTHOR, max_runs=20)
+    assert not stopped.complete and stopped.runs == 20 == run.runs
+    # The budget ran out while the first window was measured: none is reported, nothing settled.
+    assert stopped.windows == [] and stopped.steps == whole.steps[:1]
+    assert A2.holds(check(run(stopped.case)))
+    runner = Runner(answers(INTERRUPTS))
+    with pytest.raises(Spent):
+        window(runner, a_case(BOOK, WINDOW), SECOND, A2, spent=lambda: runner.runs >= 5)
+    assert runner.runs == 5
 
 
 def test_the_case_to_reduce_is_the_one_nearest_the_authors():

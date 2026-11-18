@@ -11,7 +11,7 @@ from typing import Any, TypeVar
 from . import case as cases
 from .case import Variable
 from .predicate import Predicate
-from .search import DELAY_LIMIT_US, Run, Runner, Window, window
+from .search import DELAY_LIMIT_US, Run, Runner, Spent, Window, window
 
 T = TypeVar("T")
 
@@ -383,11 +383,18 @@ def shrink(
         current = cases.without_hangup(current)
         steps.append("removed the hangup")
 
+    def measured(variable: Variable) -> Window | None:
+        """None if the budget ran out first: a window half measured is no measurement."""
+        try:
+            return window(runner, current, variable, predicate, spent=spent)
+        except Spent:
+            return None
+
     windows: list[Window] = []
     for variable in _moved_times(author, current):
-        if spent():
+        found = measured(variable)
+        if found is None:
             break
-        found = window(runner, current, variable, predicate)
         # A time is moved only if the failure has an edge along it.
         depends = "passes" in (found.lo_end, found.hi_end)
         at = cases.value(current, variable) or 0
@@ -404,9 +411,9 @@ def shrink(
     # Speeches left where the author put them are measured too, for the record.
     for index in range(len(current["speeches"])):
         variable = Variable("speech.position", index)
-        if spent() or any(w.variable == variable for w in windows):
-            continue
-        windows.append(window(runner, current, variable, predicate))
+        found = None if any(w.variable == variable for w in windows) else measured(variable)
+        if found is not None:
+            windows.append(found)
 
     remaining = [d.label for d in differences(author, current)] if author is not None else []
     return Shrunk(current, steps, runner.runs - start, not spent(), remaining, windows)

@@ -366,6 +366,10 @@ class Window:
         }
 
 
+class Spent(Exception):
+    """The budget of runs was used up while a window was being measured."""
+
+
 def window(
     runner: Runner,
     case: cases.Case,
@@ -374,10 +378,12 @@ def window(
     *,
     resolution_us: int = 1_000,
     reach_us: int = 30_000_000,
+    spent: Callable[[], bool] | None = None,
 ) -> Window:
     """The window around ``case`` along ``variable`` in which a run still breaks ``predicate``.
     Raises ``ValueError`` if ``case`` does not break it. Each end is located to within
-    ``resolution_us``; a window narrower than that is located again to the microsecond."""
+    ``resolution_us``; a window narrower than that is located again to the microsecond.
+    Raises ``Spent`` before a probe once ``spent()`` is true."""
     at = cases.value(case, variable)
     if at is None or not runner.breaks(case, predicate):
         raise ValueError(f"the case does not break {predicate} with {variable} declared")
@@ -387,6 +393,8 @@ def window(
         moved = cases.with_value(case, variable, to)
         if moved is None:
             return None
+        if spent is not None and spent():
+            raise Spent
         outcome = runner.outcome(moved)
         return predicate in outcome.failures if outcome.ran else None
 
@@ -1005,6 +1013,7 @@ __all__ = [
     "Outcome",
     "Placement",
     "Runner",
+    "Spent",
     "Transition",
     "Tried",
     "Window",

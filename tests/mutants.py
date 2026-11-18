@@ -1840,6 +1840,20 @@ MUTANTS = [
         first="test_a_predicate_names_a_contract_rule_and_no_instance",
     ),
     Mutant(
+        "shrink: the runs that measure a window are outside the budget",
+        "src/earful/core/shrink.py",
+        "            return window(runner, current, variable, predicate, spent=spent)\n",
+        "            return window(runner, current, variable, predicate)\n",
+        first="measure_a_window_count_against_the_budget",
+    ),
+    Mutant(
+        "search: a window goes on being measured when its budget is spent",
+        "src/earful/core/search.py",
+        "        if spent is not None and spent():\n            raise Spent\n",
+        "        if False:\n            raise Spent\n",
+        first="measure_a_window_count_against_the_budget",
+    ),
+    Mutant(
         "search: an instant uses up one of the windows measured along a time",
         "src/earful/core/search.py",
         "            if not found.instant:\n                wide[key] = wide.get(key, 0) + 1\n",

@@ -316,8 +316,9 @@ the edges of their windows. A case left on an edge stops failing after a small c
 the system or to Earful.
 
 Every run is remembered, so no case is run twice. A budget (`max_runs`, 600 by default)
-bounds the work; if it is spent, the case reduced so far is returned and marked
-incomplete.
+bounds the work, the runs that measure a window included. If it is spent, the case
+reduced so far is returned and marked incomplete. A window the budget cut short is left
+out.
 
 A reduction has two limits. It cannot reduce the scenario's code. It follows a rule and
 knows nothing of the mechanism: if the same rule can be broken two ways, a reduction may
