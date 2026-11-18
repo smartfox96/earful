@@ -180,10 +180,7 @@ def _search(args: argparse.Namespace) -> int:
 
 
 def _replay(args: argparse.Namespace) -> int:
-    try:
-        kept = bundle.load(args.bundle)
-    except OSError as exc:
-        raise Refused(f"cannot read the bundle in {args.bundle}: {exc.strerror}") from exc
+    kept = bundle.load(args.bundle)
     adapter = _adapters.by_framework(kept.manifest["framework"]["name"])
     result = adapter.replay(kept, repeats=args.repeats)
     outcome = {
@@ -220,11 +217,8 @@ def _crosscheck(args: argparse.Namespace) -> int:
     source = args.source
     case = _case(args.case)
     if Path(args.source).is_dir():  # a kept failure: its reduced case
-        try:
-            kept = bundle.load(Path(args.source))
-            case = kept.minimal
-        except OSError as exc:
-            raise Refused(f"cannot read the bundle in {args.source}: {exc.strerror}") from exc
+        kept = bundle.load(Path(args.source))
+        case = kept.minimal
         adapter = _adapters.by_framework(kept.manifest["framework"]["name"])
         source = case["scenario"]
     else:

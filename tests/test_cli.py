@@ -1,6 +1,7 @@
 """The ``earful`` command: what each subcommand prints and the status it exits with."""
 
 import json
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -251,7 +252,25 @@ def test_replay_of_a_committed_bundle_says_whether_this_release_still_has_the_de
 
 def test_replay_of_what_is_not_a_bundle_is_refused(capsys, tmp_path):
     status, _, err = earful(capsys, "replay", tmp_path)
-    assert status == REFUSED and "cannot read the bundle" in err
+    assert status == REFUSED
+    assert err == f"earful: cannot read {tmp_path / 'manifest.json'}: No such file or directory\n"
+    (tmp_path / "manifest.json").write_text('{"schema": "ear')
+    status, _, err = earful(capsys, "replay", tmp_path)
+    assert status == REFUSED
+    assert err.startswith(f"earful: {tmp_path / 'manifest.json'} is not JSON: Unterminated string")
+
+
+def test_a_bundle_whose_files_are_not_what_its_manifest_records_is_refused_by_every_command(
+    capsys, tmp_path
+):
+    kept = tmp_path / "kept"
+    shutil.copytree(KEPT_3702, kept)
+    (kept / "minimal.ledger.jsonl").write_text("garbage\n")
+    for command in ("replay", "crosscheck", "report"):
+        status, out, err = earful(capsys, command, kept)
+        assert status == REFUSED and out == ""
+        assert err.startswith(f"earful: {kept / 'minimal.ledger.jsonl'} is not a ledger file: ")
+        assert len(err.splitlines()) == 1
 
 
 @pytest.mark.slow

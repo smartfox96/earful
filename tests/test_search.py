@@ -2,6 +2,7 @@
 
 import copy
 import json
+import shutil
 from pathlib import Path
 
 import pytest
@@ -1220,6 +1221,9 @@ def test_a_bundle_holds_the_failure_and_replays(tmp_path):
     kept = bundle.load(tmp_path / "kept")
     assert kept.predicate == A2 and len(kept.minimal["speeches"]) == 2 and kept.original == FOUND
     assert ledger_hash(kept.ledger()) == manifest["minimal"]["hash"]
+    assert manifest["schema_minor"] == 1 and kept.unverified == ()
+    assert manifest["minimal"]["case_digest"] == bundle.case_digest(kept.minimal)
+    assert manifest["original"]["case_digest"] == bundle.case_digest(FOUND)
     again = bundle.replay(kept, run, fingerprint=lambda reference: "a" * 64)
     assert (
         again.reproduced
@@ -1251,6 +1255,143 @@ def test_a_bundle_that_is_not_one_is_refused(tmp_path):
     (tmp_path / "manifest.json").write_text(json.dumps({"schema": "something/1"}))
     with pytest.raises(ValueError, match="not an earful.bundle/1 manifest"):
         bundle.load(tmp_path)
+
+
+REFERENCE = Path(__file__).parent / "bundles" / "lk-1.5.6.book_then_interrupt.A2-rule"
+
+
+def rewrite(path, change):
+    """Change the JSON document in ``path``."""
+    data = json.loads(path.read_text())
+    change(data)
+    path.write_text(json.dumps(data))
+
+
+def a_copy(tmp_path):
+    """A copy of a reference bundle, to change."""
+    directory = tmp_path / "kept"
+    shutil.copytree(REFERENCE, directory)
+
+    def record(manifest):
+        for which in ("original", "minimal"):
+            case = json.loads((directory / f"{which}.case.json").read_text())
+            manifest[which].setdefault("case_digest", bundle.case_digest(case))
+
+    rewrite(directory / "manifest.json", record)
+    return directory
+
+
+def another_run(directory):
+    shutil.copy(
+        GOLDEN / "lk-1.8.12.book_then_interrupt.ledger.normalized.jsonl",
+        directory / "minimal.ledger.jsonl",
+    )
+
+
+def cut_short(directory):
+    path = directory / "original.ledger.jsonl"
+    path.write_text("".join(path.read_text().splitlines(keepends=True)[:-1]))
+
+
+def asked_later(directory):
+    def move(case):
+        case["speeches"][1].update(start_us=9_000_000, end_us=10_000_000)
+
+    rewrite(directory / "minimal.case.json", move)
+
+
+def in_manifest(**formats):
+    return lambda directory: rewrite(
+        directory / "manifest.json", lambda manifest: manifest["formats"].update(formats)
+    )
+
+
+# What is done to a copy of the bundle, and what the refusal says after the directory.
+TAMPERED = {
+    "a ledger that is no ledger": (
+        lambda d: (d / "minimal.ledger.jsonl").write_text("not a ledger\n"),
+        "/minimal.ledger.jsonl is not a ledger file: ",
+    ),
+    "a ledger that is missing": (
+        lambda d: (d / "original.ledger.jsonl").unlink(),
+        "/original.ledger.jsonl: No such file",
+    ),
+    "the ledger of another run": (
+        another_run,
+        "/minimal.ledger.jsonl is not the ledger the manifest records: its hash is ",
+    ),
+    "a ledger cut short": (
+        cut_short,
+        "/original.ledger.jsonl is not an earful.ledger/1 ledger: the ledger must end with",
+    ),
+    "a case that was edited": (
+        asked_later,
+        "/minimal.case.json is not the case the manifest records: its digest is ",
+    ),
+    "a case that is no case": (
+        lambda d: rewrite(d / "original.case.json", lambda case: case.update(schema="x/0")),
+        "/original.case.json is not an earful.case/1 document: schema: ",
+    ),
+    "a manifest cut short": (
+        lambda d: (d / "manifest.json").write_text('{"schema": "ear'),
+        "/manifest.json is not JSON: Unterminated string",
+    ),
+    "no manifest": (
+        lambda d: (d / "manifest.json").unlink(),
+        "/manifest.json: No such file",
+    ),
+    "a ledger format this Earful does not read": (
+        in_manifest(ledger="earful.ledger/99"),
+        "/manifest.json names the ledger format earful.ledger/99; this Earful reads earful.led",
+    ),
+    "contracts this Earful does not judge by": (
+        in_manifest(contracts="earful.contracts/2"),
+        "/manifest.json names the contracts format earful.contracts/2; this Earful reads ",
+    ),
+    "a case format this Earful does not read": (
+        in_manifest(case="earful.case/2"),
+        "/manifest.json names the case format earful.case/2; this Earful reads earful.case/1",
+    ),
+}
+
+
+def test_a_bundle_is_loaded_with_every_file_of_it_checked(tmp_path):
+    kept = bundle.load(a_copy(tmp_path))
+    assert kept.unverified == ()
+    assert kept.ledger() == read_jsonl(kept.directory / "minimal.ledger.jsonl")
+    assert kept.ledger("original") == read_jsonl(kept.directory / "original.ledger.jsonl")
+    assert kept.minimal == json.loads((kept.directory / "minimal.case.json").read_text())
+    assert kept.original == json.loads((kept.directory / "original.case.json").read_text())
+    # The digest is of the case, however its file is laid out.
+    path = kept.directory / "minimal.case.json"
+    path.write_text(json.dumps(dict(reversed(kept.minimal.items())), indent=4))
+    assert bundle.load(kept.directory).minimal == kept.minimal
+
+
+@pytest.mark.parametrize("tamper, wrong", TAMPERED.values(), ids=list(TAMPERED))
+def test_a_bundle_with_a_file_that_is_not_what_its_manifest_records_is_refused(
+    tmp_path, tamper, wrong
+):
+    directory = a_copy(tmp_path)
+    tamper(directory)
+    with pytest.raises(ValueError) as refused:
+        bundle.load(directory)
+    message = str(refused.value)
+    assert f"{directory}{wrong}" in message and len(message.splitlines()) == 1
+
+
+def test_a_bundle_written_before_manifests_recorded_its_cases_loads_and_says_so(tmp_path):
+    directory = a_copy(tmp_path)
+
+    def as_before(manifest):
+        manifest["schema_minor"] = 0
+        for which in ("original", "minimal"):
+            del manifest[which]["case_digest"]
+
+    rewrite(directory / "manifest.json", as_before)
+    assert bundle.load(directory).unverified == ("original.case.json", "minimal.case.json")
+    asked_later(directory)  # nothing records what the case was
+    assert bundle.load(directory).minimal["speeches"][1]["start_us"] == 9_000_000
 
 
 @pytest.mark.slow

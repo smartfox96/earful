@@ -331,13 +331,40 @@ The manifest freezes the failure. Its shape is
 | `formats` | The versions of the `ledger`, `contracts` and `case` formats the bundle is written in |
 | `environment` | What it was made with, by name. The LiveKit adapter gives the framework, Earful, the interpreter, the platform, and a digest of every installed distribution and its version. For the record; a replay does not depend on it |
 | `scenario_digest` | A digest of the code of the scenario the cases name |
-| `original`, `minimal` | Per case: the ledger `hash`, how many `speeches`, declared `delays` and `faults` it has, and the checker's `findings` for the frozen rule, in its own words |
+| `original`, `minimal` | Per case: the ledger `hash`, the `case_digest` of its case file, how many `speeches`, declared `delays` and `faults` it has, and the checker's `findings` for the frozen rule, in its own words |
 | `reduction` | `runs`: how many times the system was run. `complete`: false if the budget was spent first. `steps`: what was done, in order. `differences`: every way the reduced case differs from the author's scenario |
 | `windows` | For each speech of the reduced case, and each time the reduction settled: the `variable`, `lo_us`, `hi_us`, `width_us`, `lo_end`, `hi_end`, `resolution_us`, and whether it is an `instant` |
 | `replay` | `repeats`: how many times the reduced case was run when the bundle was made. `distinct_hashes`: how many different ledgers that gave, always 1 |
 
 The seed and the contract policy are in the case files. A bundle holds no timestamp and
 no path. A reduced case that does not give the same ledger every time is not written.
+
+**Reading** a bundle checks all five files before anything is done with it:
+
+- the manifest is an `earful.bundle/1` manifest, and its `formats` name the formats this
+  Earful reads;
+- each ledger validates as `earful.ledger/1` and hashes to the `hash` the manifest
+  records for it;
+- each case file validates as `earful.case/1` and has the `case_digest` the manifest
+  records for it.
+
+`case_digest` is SHA-256 of the case as one line of JSON: keys sorted, `,` and `:` as the
+separators, characters outside ASCII escaped. It is computed from the parsed case, so a
+case file laid out another way still matches.
+
+A bundle that fails a check is refused with one line that names the file. `earful replay`,
+`earful crosscheck` and `earful report` print it and exit 2:
+
+```text
+earful: failures/lk-1.8.12.booking.A2-rule/minimal.case.json is not the case the manifest records: its digest is 5d0c…, and the manifest has e41a…
+```
+
+`case_digest` was added in `schema_minor` 1. A bundle written before it is still read. Its
+case files cannot be checked, and a replay says so.
+
+The files are checked against the manifest, and nothing checks the manifest. The checks
+find a file that was edited, damaged or left out. They do not make a bundle from an
+unknown source safe to replay.
 
 **Replaying** runs the reduced case again and says:
 

@@ -3,6 +3,7 @@ each, kept so that the failure can be replayed."""
 
 from __future__ import annotations
 
+import hashlib
 import json
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -14,6 +15,7 @@ from typing import Any
 from jsonschema import Draft202012Validator
 
 from . import case as cases
+from . import schema
 from .checker import CONTRACTS, check
 from .ledger import SCHEMA as LEDGER
 from .ledger import ledger_hash, read_jsonl, write_jsonl
@@ -22,13 +24,15 @@ from .search import Run, Runner, judged
 from .shrink import shrink
 
 SCHEMA = "earful.bundle/1"
-SCHEMA_MINOR = 0
+SCHEMA_MINOR = 1  # 1 added case_digest
 SCHEMA_FILE = "earful.bundle-1.schema.json"
 MANIFEST = "manifest.json"
 FILES = {
     "original": ("original.case.json", "original.ledger.jsonl"),
     "minimal": ("minimal.case.json", "minimal.ledger.jsonl"),
 }
+# The formats this Earful reads, as a manifest names them.
+FORMATS = {"ledger": LEDGER, "contracts": CONTRACTS, "case": cases.SCHEMA}
 
 Event = dict[str, Any]
 
@@ -54,6 +58,11 @@ def validate(manifest: Any) -> list[str]:
 
 def _write_json(path: Path, value: Any) -> None:
     path.write_text(json.dumps(value, indent=2, sort_keys=True) + "\n", encoding="ascii")
+
+
+def case_digest(case: cases.Case) -> str:
+    """What a manifest records of a case file: SHA-256 of the case as one line of JSON."""
+    return hashlib.sha256(cases.canonical(case).encode("ascii")).hexdigest()
 
 
 def _findings(events: list[Event], predicate: Predicate) -> list[str]:
@@ -98,11 +107,12 @@ def capture(
         "predicate": {"contract": predicate.contract, "rule": predicate.rule},
         "framework": header["framework"],
         "clock": header["clock"],
-        "formats": {"ledger": LEDGER, "contracts": CONTRACTS, "case": cases.SCHEMA},
+        "formats": dict(FORMATS),
         "environment": environment or {},
         "scenario_digest": scenario_digest,
         "original": {
             "hash": ledger_hash(found_events),
+            "case_digest": case_digest(case),
             "speeches": len(case["speeches"]),
             "delays": len(case["delays"]),
             "faults": len(case["faults"]),
@@ -110,6 +120,7 @@ def capture(
         },
         "minimal": {
             "hash": ledger_hash(minimal_events),
+            "case_digest": case_digest(shrunk.case),
             "speeches": len(shrunk.case["speeches"]),
             "delays": len(shrunk.case["delays"]),
             "faults": len(shrunk.case["faults"]),
@@ -137,30 +148,86 @@ def capture(
 
 @dataclass
 class Bundle:
+    """A bundle as read, with every file of it checked against its manifest."""
+
     directory: Path
     manifest: dict[str, Any]
     predicate: Predicate
     minimal: cases.Case
     original: cases.Case
+    ledgers: dict[str, list[Event]]  # by "original" and "minimal"
+    unverified: tuple[str, ...] = ()  # the case files the manifest records no digest of
 
     def ledger(self, which: str = "minimal") -> list[Event]:
-        return read_jsonl(self.directory / FILES[which][1])
+        return self.ledgers[which]
+
+
+def _json(path: Path) -> Any:
+    try:
+        return json.loads(path.read_text(encoding="ascii"))
+    except OSError as exc:
+        raise ValueError(f"cannot read {path}: {exc.strerror}") from exc
+    except ValueError as exc:  # not JSON, or not ASCII
+        raise ValueError(f"{path} is not JSON: {exc}") from exc
+
+
+def _case(path: Path, recorded: dict[str, Any]) -> cases.Case:
+    case = _json(path)
+    errors = cases.validate(case)
+    if errors:
+        raise ValueError(f"{path} is not an {cases.SCHEMA} document: " + "; ".join(errors))
+    digest = recorded.get("case_digest")  # absent from a manifest written before minor 1
+    if digest is not None and case_digest(case) != digest:
+        raise ValueError(
+            f"{path} is not the case the manifest records: its digest is "
+            f"{case_digest(case)}, and the manifest has {digest}"
+        )
+    return case
+
+
+def _ledger(path: Path, recorded: dict[str, Any]) -> list[Event]:
+    try:
+        events = read_jsonl(path)
+    except OSError as exc:
+        raise ValueError(f"cannot read {path}: {exc.strerror}") from exc
+    except ValueError as exc:  # not JSON, or not ASCII
+        raise ValueError(f"{path} is not a ledger file: {exc}") from exc
+    errors = schema.validate(events)
+    if errors:
+        more = f" (and {len(errors) - 1} more)" if len(errors) > 1 else ""
+        raise ValueError(f"{path} is not an {LEDGER} ledger: {errors[0]}{more}")
+    if ledger_hash(events) != recorded["hash"]:
+        raise ValueError(
+            f"{path} is not the ledger the manifest records: its hash is "
+            f"{ledger_hash(events)}, and the manifest has {recorded['hash']}"
+        )
+    return events
 
 
 def load(directory: Path) -> Bundle:
-    """Read a bundle. Raises ``ValueError`` if its manifest or one of its cases is invalid."""
-    manifest = json.loads((directory / MANIFEST).read_text(encoding="ascii"))
+    """Read a bundle and check every file of it. A ``ValueError`` names the file refused."""
+    path = directory / MANIFEST
+    manifest = _json(path)
     errors = validate(manifest)
     if errors:
-        raise ValueError(f"{directory / MANIFEST}: not an {SCHEMA} manifest: " + "; ".join(errors))
-    found = {}
-    for which, (case_file, _ledger_file) in FILES.items():
-        found[which] = json.loads((directory / case_file).read_text(encoding="ascii"))
-        errors = cases.validate(found[which])
-        if errors:
-            raise ValueError(f"{which} case: " + "; ".join(errors))
-    predicate = Predicate(manifest["predicate"]["contract"], manifest["predicate"]["rule"])
-    return Bundle(directory, manifest, predicate, found["minimal"], found["original"])
+        raise ValueError(f"{path} is not an {SCHEMA} manifest: " + "; ".join(errors))
+    for name, reads in FORMATS.items():
+        if manifest["formats"][name] != reads:
+            raise ValueError(
+                f"{path} names the {name} format {manifest['formats'][name]}; "
+                f"this Earful reads {reads}"
+            )
+    found = {which: _case(directory / FILES[which][0], manifest[which]) for which in FILES}
+    events = {which: _ledger(directory / FILES[which][1], manifest[which]) for which in FILES}
+    return Bundle(
+        directory,
+        manifest,
+        Predicate(manifest["predicate"]["contract"], manifest["predicate"]["rule"]),
+        found["minimal"],
+        found["original"],
+        events,
+        tuple(FILES[which][0] for which in FILES if "case_digest" not in manifest[which]),
+    )
 
 
 @dataclass
@@ -209,11 +276,13 @@ def replay(
 
 __all__ = [
     "FILES",
+    "FORMATS",
     "MANIFEST",
     "SCHEMA",
     "Bundle",
     "Replay",
     "capture",
+    "case_digest",
     "load",
     "load_schema",
     "replay",

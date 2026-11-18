@@ -190,6 +190,110 @@ MUTANTS = [
         first="test_a_bundle_that_is_not_one_is_refused",
     ),
     Mutant(
+        "bundle: a ledger that does not validate is loaded",
+        "src/earful/core/bundle.py",
+        "    errors = schema.validate(events)\n",
+        "    errors = []\n",
+        first="not_what_its_manifest_records",
+    ),
+    Mutant(
+        "bundle: a ledger is not compared with the hash recorded for it",
+        "src/earful/core/bundle.py",
+        '    if ledger_hash(events) != recorded["hash"]:\n',
+        "    if False:\n",
+        first="not_what_its_manifest_records",
+    ),
+    Mutant(
+        "bundle: a case that does not validate is loaded",
+        "src/earful/core/bundle.py",
+        "    errors = cases.validate(case)\n",
+        "    errors = []\n",
+        first="not_what_its_manifest_records",
+    ),
+    Mutant(
+        "bundle: a case is not compared with the digest recorded for it",
+        "src/earful/core/bundle.py",
+        "    if digest is not None and case_digest(case) != digest:\n",
+        "    if False:\n",
+        first="not_what_its_manifest_records",
+    ),
+    Mutant(
+        "bundle: a case's digest depends on how its file is laid out",
+        "src/earful/core/bundle.py",
+        '    return hashlib.sha256(cases.canonical(case).encode("ascii")).hexdigest()\n',
+        '    return hashlib.sha256(json.dumps(case).encode("ascii")).hexdigest()\n',
+        first="every_file_of_it_checked",
+    ),
+    Mutant(
+        "bundle: a format this Earful does not read is loaded",
+        "src/earful/core/bundle.py",
+        '        if manifest["formats"][name] != reads:\n',
+        "        if False:\n",
+        first="not_what_its_manifest_records",
+    ),
+    Mutant(
+        "bundle: only the ledger format is checked",
+        "src/earful/core/bundle.py",
+        "    for name, reads in FORMATS.items():\n",
+        '    for name, reads in [("ledger", LEDGER)]:\n',
+        first="not_what_its_manifest_records",
+    ),
+    Mutant(
+        "bundle: a file that cannot be read is not a refusal",
+        "src/earful/core/bundle.py",
+        (
+            "    except OSError as exc:\n"
+            '        raise ValueError(f"cannot read {path}: {exc.strerror}") from exc\n'
+            "    except ValueError as exc:  # not JSON, or not ASCII\n"
+            '        raise ValueError(f"{path} is not JSON'
+        ),
+        (
+            "    except KeyError as exc:\n"
+            '        raise ValueError(f"cannot read {path}: {exc}") from exc\n'
+            "    except ValueError as exc:  # not JSON, or not ASCII\n"
+            '        raise ValueError(f"{path} is not JSON'
+        ),
+        first="not_what_its_manifest_records or what_is_not_a_bundle",
+    ),
+    Mutant(
+        "bundle: a ledger that cannot be read is not a refusal",
+        "src/earful/core/bundle.py",
+        (
+            "    except OSError as exc:\n"
+            '        raise ValueError(f"cannot read {path}: {exc.strerror}") from exc\n'
+            "    except ValueError as exc:  # not JSON, or not ASCII\n"
+            '        raise ValueError(f"{path} is not a ledger file'
+        ),
+        (
+            "    except KeyError as exc:\n"
+            '        raise ValueError(f"cannot read {path}: {exc}") from exc\n'
+            "    except ValueError as exc:  # not JSON, or not ASCII\n"
+            '        raise ValueError(f"{path} is not a ledger file'
+        ),
+        first="not_what_its_manifest_records",
+    ),
+    Mutant(
+        "bundle: case files with no recorded digest are said to be verified",
+        "src/earful/core/bundle.py",
+        '        tuple(FILES[which][0] for which in FILES if "case_digest" not in manifest[which]),\n',
+        "        (),\n",
+        first="before_manifests_recorded_its_cases",
+    ),
+    Mutant(
+        "bundle: the manifest records the digest of another case",
+        "src/earful/core/bundle.py",
+        '            "case_digest": case_digest(shrunk.case),\n',
+        '            "case_digest": case_digest(case),\n',
+        first="test_a_bundle_holds_the_failure_and_replays",
+    ),
+    Mutant(
+        "bundle: the loaded ledgers are each other's",
+        "src/earful/core/bundle.py",
+        "        return self.ledgers[which]\n",
+        '        return self.ledgers["original"]\n',
+        first="every_file_of_it_checked",
+    ),
+    Mutant(
         "predicate: the rule is ignored",
         "src/earful/core/predicate.py",
         "        Predicate(verdict.contract, finding.rule)\n",
@@ -370,9 +474,11 @@ MUTANTS = [
         (
             "    errors = validate(manifest)\n"
             "    if errors:\n"
-            '        raise ValueError(f"{directory / MANIFEST}'
+            '        raise ValueError(f"{path} is not an {SCHEMA} manifest'
         ),
-        ('    errors = []\n    if errors:\n        raise ValueError(f"{directory / MANIFEST}'),
+        (
+            '    errors = []\n    if errors:\n        raise ValueError(f"{path} is not an {SCHEMA} manifest'
+        ),
         first="test_a_bundle_that_is_not_one_is_refused",
     ),
     Mutant(
