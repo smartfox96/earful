@@ -21,6 +21,11 @@ from .predicate import Predicate, failures
 Event = dict[str, Any]
 Run = Callable[[cases.Case], list[Event]]
 
+
+class CaseRefused(ValueError):
+    """What a ``Run`` raises for a case its adapter will not run, before it runs anything."""
+
+
 # One 10 ms audio frame either side: the finest step at which a framework is given audio.
 OFFSETS_US = (-10_000, 0, 10_000)
 
@@ -74,10 +79,12 @@ def judged(case: cases.Case, events: list[Event]) -> Outcome:
 
 
 def attempt(run: Run, case: cases.Case) -> tuple[Outcome, list[Event] | None]:
-    """Run and check a case. A refused case or a run that raises is recorded, with no ledger."""
+    """Run and check a case. A refused case or a run that raises is recorded, with no ledger.
+    Only ``CaseRefused`` is a refusal: any other exception, a ``ValueError`` included, came
+    from the run and is an error."""
     try:
         events = run(case)
-    except ValueError as exc:
+    except CaseRefused as exc:
         return Outcome(case, refused=str(exc)), None
     except Exception as exc:  # noqa: BLE001
         return Outcome(case, error=f"{type(exc).__name__}: {exc}"), None
@@ -825,8 +832,7 @@ def explore(
     events = runner.ledger(case)
     original = runner.outcome(case)
     if events is None:
-        why = original.refused or original.error or "; ".join(original.invalid)
-        raise ValueError(f"the case as given cannot be searched: {why}")
+        raise ValueError(f"the case as given cannot be searched: {original.reason}")
     found: dict[str, Candidate] = {}
     impossible: list[Placement] = []
 
@@ -1006,6 +1012,7 @@ __all__ = [
     "WORKERS_VARIABLE",
     "Break",
     "Candidate",
+    "CaseRefused",
     "Each",
     "Exploration",
     "Handle",

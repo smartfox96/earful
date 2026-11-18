@@ -1,6 +1,7 @@
 """The boundary scheduler, the shrinker and the bundle against a real session."""
 
 import functools
+import re
 from pathlib import Path
 
 import livekit.agents as lk
@@ -13,7 +14,7 @@ from earful.core.case import Variable
 from earful.core.checker import ContractFailure, check
 from earful.core.ledger import ledger_hash
 from earful.core.predicate import Predicate
-from earful.core.search import Runner, explore, window
+from earful.core.search import Runner, evaluate, explore, window
 from earful.core.shrink import differences, nearest, shrink
 from earful.livekit import scenario
 from earful.livekit.cases import CASES
@@ -108,6 +109,8 @@ def test_data_that_cannot_be_run_is_refused_with_a_value_error():
     ):
         with pytest.raises(ValueError, match=message):
             scenario.run(broken)
+        refused = evaluate(scenario.run, broken)
+        assert refused.why_not == "refused" and re.search(message, refused.refused)
 
 
 def test_a_declared_delay_takes_the_place_of_what_the_code_asks_for():

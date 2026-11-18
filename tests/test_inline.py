@@ -10,6 +10,7 @@ from breaks import BOOKING, TalksToItsServiceItself, as_written_confirms_a_faile
 from earful.core import case as cases
 from earful.core.checker import ContractFailure, check
 from earful.core.predicate import Predicate
+from earful.core.search import evaluate
 from earful.livekit import scenario
 from earful.livekit.api import WorkersUnavailable, explore, keep, replay, run
 from earful.livekit.cases import BOOKING_ACK, BOOKING_INTENT, barge_in_mid_word
@@ -115,6 +116,22 @@ def test_a_ledger_that_is_not_a_valid_run_fails_the_assertion_and_says_why():
     events = run(booking(READS_THE_ERROR)).events[:-1]  # cut off before run.end
     with pytest.raises(ContractFailure, match="not valid evidence.*\n.*run.end"):
         check(events).assert_contracts(what="the truncated run")
+
+
+def test_a_search_calls_a_case_refused_only_if_the_adapter_refused_it_before_running():
+    def agent():
+        raise ValueError("no table of that size")
+
+    found = Scenario.of(booking(READS_THE_ERROR, agent=agent))
+    data = found.default()
+    raised = evaluate(found.run, data)
+    assert raised.why_not == "error" and raised.error == "ValueError: no table of that size"
+    for refused, why in (
+        ({**data, "settings": {**data["settings"], "volume": 11}}, "unknown setting 'volume'"),
+        ({**data, "contracts": {"A1": {"speed": 1}}}, "A1: unknown policy values"),
+    ):
+        outcome = evaluate(found.run, refused)
+        assert outcome.why_not == "refused" and why in outcome.refused
 
 
 def test_the_same_case_run_twice_gives_the_same_ledger_and_is_not_changed_by_running():

@@ -268,6 +268,27 @@ MUTANTS = [
         first="test_a_runner_runs_each_case_once_and_one_bad_run_does_not_end_a_search",
     ),
     Mutant(
+        "search: any ValueError a run raises is taken for a refusal",
+        "src/earful/core/search.py",
+        "    except CaseRefused as exc:\n",
+        "    except ValueError as exc:\n",
+        first="one_bad_run_does_not_end_a_search or refused_only_if_the_adapter_refused_it",
+    ),
+    Mutant(
+        "adapter: data the adapter will not run is an error of the run",
+        "src/earful/scripted/scenario.py",
+        '            raise CaseRefused(f"unknown setting {name!r}; this adapter has {sorted(settings)}")\n',
+        '            raise ValueError(f"unknown setting {name!r}; this adapter has {sorted(settings)}")\n',
+        first="refused_only_if_the_adapter_refused_it or cannot_be_run_is_refused_with_a_value_error",
+    ),
+    Mutant(
+        "adapter: a case that contradicts itself is refused only once it runs",
+        "src/earful/scripted/scenario.py",
+        "    try:\n        check_case(case)\n    except ValueError as exc:\n        raise CaseRefused(str(exc)) from exc\n",
+        "",
+        first="refused_only_if_the_adapter_refused_it",
+    ),
+    Mutant(
         "shrink: ddmin stops early",
         "src/earful/core/shrink.py",
         "            chunks = min(chunks * 2, len(current))\n",
@@ -648,7 +669,7 @@ MUTANTS = [
         "src/earful/scripted/scenario.py",
         (
             "    except (ImportError, AttributeError) as exc:\n"
-            '        raise ValueError(f"no scenario {scenario!r}: {exc}") from exc\n'
+            '        raise CaseRefused(f"no scenario {scenario!r}: {exc}") from exc\n'
         ),
         ("    except (ImportError, AttributeError):\n        raise\n"),
         first="test_a_scenario_or_a_case_that_does_not_exist_is_refused",

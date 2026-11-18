@@ -16,6 +16,7 @@ from earful.core.predicate import Predicate, failures
 from earful.core.search import (
     DEFAULT_VARIABLES,
     Candidate,
+    CaseRefused,
     Exploration,
     Handle,
     Runner,
@@ -318,7 +319,7 @@ def test_a_runner_runs_each_case_once_and_one_bad_run_does_not_end_a_search():
         run.calls += 1
         first = case["speeches"][0]["start_us"]
         if first == 1:
-            raise ValueError("too close together")
+            raise CaseRefused("too close together")
         if first == 2:
             raise RuntimeError("deadlock")
         return ledger("1.5.6" if first == 3 else "1.8.12", "book_then_interrupt")
@@ -335,6 +336,10 @@ def test_a_runner_runs_each_case_once_and_one_bad_run_does_not_end_a_search():
     invalid = ledger("1.8.12", "book_then_interrupt")
     invalid[-1]["data"]["underruns"] = 1
     assert evaluate(lambda case: invalid, wanted[0]).why_not == "invalid"
+    # Only the adapter's own refusal is one: a ValueError a run raises is an error like any other.
+    mistaken = evaluate(lambda case: int("six"), wanted[0])
+    assert mistaken.why_not == "error" and mistaken.refused is None
+    assert mistaken.error == "ValueError: invalid literal for int() with base 10: 'six'"
 
 
 def test_exploring_runs_every_candidate_and_reports_what_broke_and_what_was_reached():
@@ -503,7 +508,7 @@ def test_a_case_that_cannot_be_searched_is_refused_up_front():
     with pytest.raises(ValueError, match="unknown variables"):
         explore(a_case(BOOK), run, variables=["speech.volume"])
     with pytest.raises(ValueError, match="cannot be searched: too close"):
-        explore(a_case(BOOK), lambda case: (_ for _ in ()).throw(ValueError("too close")))
+        explore(a_case(BOOK), lambda case: (_ for _ in ()).throw(CaseRefused("too close")))
     with pytest.raises(ValueError, match="cannot be searched: RuntimeError: deadlock"):
         explore(a_case(BOOK), lambda case: (_ for _ in ()).throw(RuntimeError("deadlock")))
     nothing = explore(

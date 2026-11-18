@@ -15,8 +15,9 @@ from importlib import metadata
 from typing import Any, TypeVar
 
 from ..core import case as case_format
+from ..core.search import CaseRefused
 from ..core.timebase import to_seconds, to_us
-from .case import CaseData, Delay, Fault
+from .case import CaseData, Delay, Fault, check_case
 from .world import UserSpeech
 
 CaseT = TypeVar("CaseT", bound=CaseData)
@@ -26,9 +27,9 @@ _REFERENCE = re.compile(r"^[A-Za-z_][A-Za-z0-9_.]*:[A-Za-z_][A-Za-z0-9_.]*$")
 
 
 def resolve(scenario: str) -> Callable[[], Any]:
-    """The function a ``module:function`` reference names, or ``ValueError`` if there is none."""
+    """The function a ``module:function`` reference names, or ``CaseRefused`` if there is none."""
     if scenario == INLINE:
-        raise ValueError(
+        raise CaseRefused(
             "this case was built inline, in the process that ran it, so its data does not "
             "name code that can build it again. Define the scenario as a function at the "
             "top level of a module and pass that function, or its module:function name"
@@ -39,10 +40,9 @@ def resolve(scenario: str) -> Callable[[], Any]:
         for part in name.split("."):
             target = getattr(target, part)
     except (ImportError, AttributeError) as exc:
-        raise ValueError(f"no scenario {scenario!r}: {exc}") from exc
+        raise CaseRefused(f"no scenario {scenario!r}: {exc}") from exc
     if not callable(target):
-        # ValueError like every other bad reference: callers handle one kind of refusal.
-        raise ValueError(f"scenario {scenario!r} is not a function")  # noqa: TRY004
+        raise CaseRefused(f"scenario {scenario!r} is not a function")
     return target
 
 
@@ -135,15 +135,16 @@ def build(
     plain: dict[str, tuple[str, type]],
 ) -> CaseT:
     """The ``Case`` that ``data`` describes: the code ``make`` or the named scenario returns,
-    with the data's values. Raises ``ValueError`` for data that is not earful.case/1, a bad
-    setting or a scenario that does not exist."""
+    with the data's values. Raises ``CaseRefused``, a ``ValueError``, for data that is not
+    earful.case/1, a bad setting, a scenario that does not exist or a case that contradicts
+    itself."""
     errors = case_format.validate(data)
     if errors:
-        raise ValueError("not an earful.case/1 document: " + "; ".join(errors))
+        raise CaseRefused("not an earful.case/1 document: " + "; ".join(errors))
     settings = (*times, *plain)
     for name, value in data["settings"].items():
         if name not in settings:
-            raise ValueError(f"unknown setting {name!r}; this adapter has {sorted(settings)}")
+            raise CaseRefused(f"unknown setting {name!r}; this adapter has {sorted(settings)}")
         wanted = int if name in times else plain[name][1]
         if wanted is int:
             ok = isinstance(value, int) and not isinstance(value, bool) and value >= 0
@@ -151,10 +152,10 @@ def build(
             ok = isinstance(value, wanted)
         if not ok:
             kind = "time in microseconds" if wanted is int else wanted.__name__
-            raise ValueError(f"setting {name!r} takes a {kind}, not {value!r}")
+            raise CaseRefused(f"setting {name!r} takes a {kind}, not {value!r}")
     case = (make or resolve(data["scenario"]))()
     if not isinstance(case, case_type):
-        raise ValueError(  # noqa: TRY004 - one kind of refusal, as for every bad scenario
+        raise CaseRefused(
             f"scenario {data['scenario']!r} returned {type(case).__name__}, not a Case"
         )
     case.speeches = [
@@ -181,6 +182,10 @@ def build(
         else:
             setattr(case, plain[name][0], value)
     case.contracts = copy.deepcopy(data["contracts"])
+    try:
+        check_case(case)
+    except ValueError as exc:
+        raise CaseRefused(str(exc)) from exc
     return case
 
 

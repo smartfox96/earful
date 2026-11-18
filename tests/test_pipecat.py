@@ -26,6 +26,7 @@ from earful import pipecat as pc
 from earful.cli import main
 from earful.core import bundle, case, schema
 from earful.core.ledger import Ledger
+from earful.core.search import evaluate
 from earful.pipecat import scenario
 from earful.pipecat.sink import ClockedOutput
 from earful.pipecat.tools import ToolWitness
@@ -158,6 +159,8 @@ def test_pipecat_case_settings_and_delays_survive_serialization():
     data["settings"]["tts_word_timestamps"] = 1
     with pytest.raises(ValueError, match="takes a bool"):
         scenario.build(data)
+    refused = evaluate(pc.Scenario.of(greeting).run, data)
+    assert refused.why_not == "refused" and "takes a bool" in refused.refused
 
 
 def test_pipecat_rejects_unknown_tools_and_retired_intents():

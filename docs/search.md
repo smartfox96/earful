@@ -149,6 +149,11 @@ from them: a run that is not valid evidence, a case the adapter refuses, and a r
 raises. Each is counted and reported; none ends a search. A search that could judge none
 of the cases it tried has no result, and its assertion fails.
 
+A refusal is the adapter declining a case before anything runs: data that is not
+`earful.case/1`, a setting it does not have, a scenario that contradicts itself. It
+raises `CaseRefused`, a `ValueError`. Whatever else a run raises is an error, a
+`ValueError` from the agent's own code included.
+
 ## 3. The boundary scheduler
 
 Timing defects occur at boundaries: the user interrupts as the first audio arrives, or a
