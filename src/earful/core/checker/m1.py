@@ -97,7 +97,7 @@ def _judge(
         )
     # A stop landing as the last word ended leaves the audio whole, so either mark is right.
     cut_short = played < len(words) or playout.interrupted
-    either_mark = played == len(words) and view.stopped_as_it_ended(playout)
+    either_mark = view.stopped_as_it_ended(playout, len(words))
     if (
         message is not None
         and policy.check_interrupted_flag
@@ -171,7 +171,7 @@ def check(view: View, policy: policies.M1) -> ContractResult:
         contexts, flags = judged[item.key]
         flags = list(flags)
         played, cut = playout.played, playout.cut
-        if played == len(item.words) and view.stopped_as_it_ended(playout):
+        if view.stopped_as_it_ended(playout, len(item.words)):
             flags.append("stopped_as_it_ended")
         if playout.outlasted_hangup:
             flags.append("played_on_after_the_hangup")  # judged on what the user heard

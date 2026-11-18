@@ -385,17 +385,16 @@ class View:
             over = max(over, stopped(later) + self.end_of_turn_us)
         return over
 
-    def stopped_as_it_ended(self, playout: Playout) -> bool:
-        """Whether a pause or clear reached the sink at the instant the playout's audio ended."""
-        ended = playout.settled
-        if ended is None:
+    def stopped_as_it_ended(self, playout: Playout, words: int) -> bool:
+        """Whether all its ``words`` played and a pause or clear reached the sink as they ended."""
+        done = playout.settled
+        if done is None or playout.played < words:
             return False
-        if ended["data"]["interrupted"]:
-            # Stopped with nothing left to play: the stop landed on the last sample.
-            return ended["data"]["position_us"] == ended["data"]["pushed_us"]
+        ended = {playout.completed_us.get(words - 1)}
+        if not done["data"]["interrupted"]:
+            ended.add(done["t_us"])  # the framework learns of the end when the sink reports it
         return any(
-            e["kind"] in ("sink.pause", "sink.clear") and e["t_us"] == ended["t_us"]
-            for e in self.commands
+            e["kind"] in ("sink.pause", "sink.clear") and e["t_us"] in ended for e in self.commands
         )
 
     @cached_property

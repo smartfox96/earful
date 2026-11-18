@@ -315,21 +315,101 @@ def test_m1_the_final_history_counts_only_if_read_after_the_playout_finished(bar
     assert "read before its playout finished" in last.findings[0].detail
 
 
-def test_m1_a_stop_that_lands_as_the_audio_ends_accepts_either_mark(barge):
+@pytest.mark.parametrize("off_us, either", [(-1, False), (0, True), (1, False)])
+def test_m1_a_stop_that_lands_as_the_audio_ends_accepts_either_mark(barge, off_us, either):
     message, _segment = _last_reply(barge)
     message["interrupted"] = True
     finished = of(barge, "playout.finished", 1)
     clear = copy.deepcopy(of(barge, "sink.clear"))
     clear["data"]["segment"] = None
+    barge.append({**clear, "t_us": finished["t_us"] + off_us})
+    last = check(seal(sorted(barge, key=lambda e: e["t_us"]))).results["M1"].verdicts[-1]
+    assert ("stopped_as_it_ended" in last.flags) == either
+    assert [f.rule for f in last.findings] == ([] if either else ["rule 5"])
 
-    late = copy.deepcopy(barge)
-    history = of(late, "history.final")
-    late.insert(late.index(history), {**clear, "t_us": finished["t_us"] + 1})
-    assert rules(check(seal(late)), "M1") == ["rule 5"]
 
+def _stopped_with_nothing_left(events, *, pause_off_us=None, cleared_after_us=2_000_000):
+    """The last reply plays out and its segment stays open; it is cleared later. A pause
+    command reaches the sink ``pause_off_us`` from the instant the audio ended."""
+    finished, history = of(events, "playout.finished", 1), of(events, "history.final")
+    ended = finished["t_us"]
+    paused = copy.deepcopy(of(events, "playout.paused"))
+    paused["t_us"] = ended
+    paused["data"].update(segment=2, played_us=finished["data"]["pushed_us"])
+    clear = copy.deepcopy(of(events, "sink.clear"))
+    clear["t_us"] = ended + cleared_after_us
+    clear["data"]["segment"] = 2
+    events.remove(finished)
+    finished["t_us"] = ended + cleared_after_us
+    finished["data"]["interrupted"] = True
+    events[events.index(history) : events.index(history)] = [paused, clear, finished]
+    if pause_off_us is not None:
+        pause = copy.deepcopy(of(events, "sink.pause"))
+        pause["t_us"] = ended + pause_off_us
+        pause["data"]["segment"] = 2
+        events.append(pause)
+    return seal(sorted(events, key=lambda e: e["t_us"]))
+
+
+def test_m1_a_reply_cleared_after_its_audio_ended_is_interrupted(barge):
+    """Every word played, and the clear came two seconds later: no tie excuses the mark."""
+    message, _segment = _last_reply(barge)
+    events = _stopped_with_nothing_left(barge)
+    last = check(copy.deepcopy(events)).results["M1"].verdicts[-1]
+    assert last.measures["played"] == 2 and "stopped_as_it_ended" not in last.flags
+    assert [f.rule for f in last.findings] == ["rule 5"]
+    message["interrupted"] = True
+    last = check(events).results["M1"].verdicts[-1]
+    assert last.outcome == PASS and "stopped_as_it_ended" not in last.flags
+
+
+@pytest.mark.parametrize("off_us, either", [(-1, False), (0, True), (1, False)])
+def test_m1_a_pause_as_the_audio_ends_accepts_either_mark_of_a_reply_cleared_later(
+    barge, off_us, either
+):
+    for mark in (False, True):
+        events = copy.deepcopy(barge)
+        _last_reply(events)[0]["interrupted"] = mark
+        events = _stopped_with_nothing_left(events, pause_off_us=off_us)
+        last = check(events).results["M1"].verdicts[-1]
+        assert ("stopped_as_it_ended" in last.flags) == either
+        assert [f.rule for f in last.findings] == ([] if either or mark else ["rule 5"])
+
+
+def test_m1_a_stop_as_the_sink_reports_the_end_accepts_either_mark(barge):
+    """A segment can stay open after its last sample; it ends for the framework when the
+    sink says so."""
+    message, _segment = _last_reply(barge)
+    message["interrupted"] = True
+    finished = of(barge, "playout.finished", 1)
+    finished["t_us"] += 300_000
+    clear = copy.deepcopy(of(barge, "sink.clear"))
+    clear["data"]["segment"] = None
+    barge.append({**clear, "t_us": finished["t_us"]})
+    last = check(seal(sorted(barge, key=lambda e: e["t_us"]))).results["M1"].verdicts[-1]
+    assert last.outcome == PASS and "stopped_as_it_ended" in last.flags
+
+
+def test_m1_a_flush_as_the_audio_ends_is_no_stop(barge):
+    message, _segment = _last_reply(barge)
+    message["interrupted"] = True
+    finished = of(barge, "playout.finished", 1)
+    flush = copy.deepcopy(of(barge, "sink.flush", 1))
+    barge.insert(barge.index(finished) + 1, {**flush, "t_us": finished["t_us"]})
+    assert rules(check(seal(barge)), "M1") == ["rule 5"]
+
+
+def test_m1_a_stop_as_the_last_word_ends_excuses_nothing_if_a_word_was_skipped(barge):
+    message, segment = _last_reply(barge)
+    segment.update(words_played=[31], words_completed_us=segment["words_completed_us"][1:])
+    finished = of(barge, "playout.finished", 1)
+    clear = copy.deepcopy(of(barge, "sink.clear"))
+    clear["data"]["segment"] = None
     barge.insert(barge.index(finished) + 1, {**clear, "t_us": finished["t_us"]})
     last = check(seal(barge)).results["M1"].verdicts[-1]
-    assert last.outcome == PASS and "stopped_as_it_ended" in last.flags
+    assert message["interrupted"] is False and last.measures["played"] == 1
+    assert [f.rule for f in last.findings] == ["rule 5"]
+    assert "stopped_as_it_ended" not in last.flags
 
 
 def _barely_started(events):
