@@ -127,9 +127,11 @@ reading can then be told from one that depends on the reading taken. Another rea
 can also judge an instance the reading taken has no verdict for. There is then no
 verdict to flag, so if the instance does not pass there, a note on its contract says so.
 
-A ledger with more than 512 readings, or with a text left with no candidate, is not read
-every way: its ambiguous texts stay unattributed, and what depends on them is
-unobservable.
+A ledger with more than 512 readings, or in which the ambiguous texts cannot each be
+given a reply of their own, is not read every way: its ambiguous texts stay unattributed,
+and what depends on them is unobservable. A text left with no candidate is the simplest
+such ledger. The checker's work is bounded by the readings it lists: it follows a choice
+only if the texts that remain can still each be given a reply.
 
 ## 3. Played audio
 

@@ -2,10 +2,8 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterator
 from dataclasses import dataclass, field
 from functools import cached_property
-from itertools import islice
 from typing import Any
 
 Event = dict[str, Any]
@@ -38,21 +36,69 @@ def candidates(events: list[Event]) -> dict[int, list[int]]:
 
 
 def readings(events: list[Event]) -> list[Reading]:
-    """Every way to give each ambiguous text one candidate reply; ``[{}]`` if none or too many."""
-    open_ = list(candidates(events).items())
+    """Each way to give every ambiguous text a reply of its own; ``[{}]`` if none or too many."""
+    texts = list(candidates(events).items())
+    reply: dict[int, int] = {}  # position of a text -> the reply it holds
+    holder: dict[int, int] = {}  # reply -> position of the text that holds it
 
-    def assign(at: int, used: frozenset[int]) -> Iterator[Reading]:
-        if at == len(open_):
-            yield {}
-            return
-        utterance, candidates = open_[at]
-        for call in candidates:
-            if call not in used:
-                for rest in assign(at + 1, used | {call}):
-                    yield {utterance: call, **rest}
+    def house(text: int, fixed: int) -> bool:
+        """Give ``text``, which holds nothing, a reply; texts before ``fixed`` keep theirs."""
+        wanted: dict[int, int] = {}  # reply -> the text that would take it
+        asking = [text]
+        for other in asking:
+            for call in texts[other][1]:
+                if call in wanted or (call in holder and holder[call] < fixed):
+                    continue
+                wanted[call] = other
+                if call in holder:
+                    asking.append(holder[call])  # its holder must find another
+                    continue
+                free: int | None = call
+                while free is not None:  # hand each reply on the path to the text that wanted it
+                    taker = wanted[free]
+                    gave_up = reply.get(taker)
+                    reply[taker], holder[free] = free, taker
+                    free = gave_up
+                return True
+        return False
 
-    found = list(islice(assign(0, frozenset()), MAX_READINGS + 1))
-    return found if 0 < len(found) <= MAX_READINGS else [{}]
+    def take(text: int, call: int) -> bool:
+        """Give ``text`` this reply if texts before it keep theirs and later ones can be housed."""
+        other = holder.get(call)
+        if other == text:
+            return True
+        if other is not None and other < text:
+            return False
+        mine = reply[text]
+        del holder[mine]
+        reply[text], holder[call] = call, text
+        if other is None:
+            return True
+        del reply[other]
+        if house(other, text + 1):
+            return True
+        reply[other], holder[call] = call, other
+        reply[text], holder[mine] = mine, text
+        return False
+
+    if not all(house(text, 0) for text in range(len(texts))):
+        return [{}]
+    # A candidate is taken only if the rest can then be housed, so no branch is without a reading.
+    found: list[Reading] = []
+    tried = [0] * len(texts)  # how many candidates of the text at each depth were tried
+    at = 0
+    while at >= 0 and len(found) <= MAX_READINGS:
+        if at == len(texts):
+            found.append({utterance: reply[n] for n, (utterance, _) in enumerate(texts)})
+            at -= 1
+        elif tried[at] == len(texts[at][1]):
+            tried[at] = 0
+            at -= 1
+        else:
+            tried[at] += 1
+            if take(at, texts[at][1][tried[at] - 1]):
+                at += 1
+    return found if len(found) <= MAX_READINGS else [{}]
 
 
 @dataclass

@@ -1,7 +1,9 @@
 """The checker on recorded and hand-edited ledgers."""
 
 import copy
+import itertools
 import json
+import random
 from pathlib import Path
 
 import pytest
@@ -9,7 +11,7 @@ import pytest
 from earful.core.checker import FAIL, NOT_EXERCISED, PASS, UNOBSERVABLE, PolicyError, check
 from earful.core.checker.memory import align, favourable, user_turns
 from earful.core.checker.report import ContractResult, Finding, split, verdict
-from earful.core.checker.view import Speech, Spoken, View, readings
+from earful.core.checker.view import MAX_READINGS, Speech, Spoken, View, readings
 from earful.core.ledger import read_jsonl, run_id
 
 GOLDEN = Path(__file__).parent / "golden"
@@ -531,6 +533,53 @@ def test_a_reading_gives_each_ambiguous_text_one_of_its_candidates_and_no_reply_
     assert readings([*said, *both]) == [{1: 2, 2: 4}, {1: 4, 2: 2}]
     one_taken = [_synthesized(1, "ambiguous", [2, 4]), _synthesized(2, "unique", [2], 2)]
     assert readings([*said, *one_taken]) == [{1: 4}]
+
+
+def _texts(*could_be):
+    """Ambiguous texts numbered from 1, each with the replies it could be, all answered."""
+    calls = sorted({call for candidates in could_be for call in candidates})
+    return [
+        *_answered(*calls),
+        *(_synthesized(n, "ambiguous", list(c)) for n, c in enumerate(could_be, 1)),
+    ]
+
+
+def test_texts_that_cannot_each_have_a_reply_of_their_own_are_not_read_and_cost_no_search():
+    """Thirty texts for twenty-nine replies: trying every order would never finish."""
+    assert readings(_texts(*[range(1, 30)] * 30)) == [{}]
+    assert readings(_texts([1, 2], [])) == [{}]
+    # one text has to take the reply the others cannot do without
+    assert readings(_texts([1, 2], *[range(2, 12)] * 10)) == [{}]  # 10! readings: too many
+    forced = readings(_texts([3, 1], [3, 2], [3]))
+    assert forced == [{1: 1, 2: 2, 3: 3}]
+
+
+def test_a_ledger_is_read_every_way_up_to_512_readings_and_no_further():
+    def chain(texts):
+        """Text n could be reply n or n + 1: one more reading than there are texts."""
+        return _texts(*([n, n + 1] for n in range(1, texts + 1)))
+
+    assert MAX_READINGS == 512
+    assert len(readings(chain(510))) == 511
+    assert len(readings(chain(511))) == 512
+    assert readings(chain(512)) == [{}]
+    assert len(readings(_texts(*([2 * n, 2 * n + 1] for n in range(9))))) == 512
+    assert readings(_texts(*([2 * n, 2 * n + 1] for n in range(10)))) == [{}]
+
+
+def test_readings_are_every_assignment_in_the_order_of_the_candidates():
+    rng = random.Random(7)
+    for _ in range(300):
+        replies = range(1, rng.randint(1, 6) + 1)
+        could_be = [
+            rng.sample(replies, rng.randint(0, len(replies))) for _ in range(rng.randint(0, 5))
+        ]
+        every = [
+            dict(enumerate(choice, 1))
+            for choice in itertools.product(*could_be)
+            if len(set(choice)) == len(choice)
+        ]
+        assert readings(_texts(*could_be)) == (every if 0 < len(every) <= 512 else [{}])
 
 
 def test_a_text_is_no_reply_whose_first_token_came_after_it_was_synthesized():

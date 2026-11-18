@@ -149,9 +149,62 @@ MUTANTS = [
     Mutant(
         "readings: none are offered",
         "src/earful/core/checker/view.py",
-        "    return found if 0 < len(found) <= MAX_READINGS else [{}]\n",
+        "    return found if len(found) <= MAX_READINGS else [{}]\n",
         "    return [{}]\n",
         first="generated_twice or generates_twice or reading_gives",
+    ),
+    Mutant(
+        "readings: one more than the limit is still read every way",
+        "src/earful/core/checker/view.py",
+        "    return found if len(found) <= MAX_READINGS else [{}]\n",
+        "    return found if len(found) <= MAX_READINGS + 1 else [{}]\n",
+        first="up_to_512_readings",
+    ),
+    Mutant(
+        "readings: a ledger with exactly the limit is not read",
+        "src/earful/core/checker/view.py",
+        "    return found if len(found) <= MAX_READINGS else [{}]\n",
+        "    return found if len(found) < MAX_READINGS else [{}]\n",
+        first="up_to_512_readings",
+    ),
+    Mutant(
+        "readings: the limit is one reading higher",
+        "src/earful/core/checker/view.py",
+        "MAX_READINGS = 512\n",
+        "MAX_READINGS = 513\n",
+        first="up_to_512_readings",
+    ),
+    Mutant(
+        "readings: a text takes a reply that an earlier text holds",
+        "src/earful/core/checker/view.py",
+        "        if other is not None and other < text:\n            return False\n",
+        "",
+        first="reading_gives or every_assignment_in_the_order",
+    ),
+    Mutant(
+        "readings: a choice is followed without housing the text it displaces",
+        "src/earful/core/checker/view.py",
+        "        if house(other, text + 1):\n            return True\n",
+        "        if house(other, 0):\n            return True\n",
+        first="every_assignment_in_the_order or cannot_each_have_a_reply",
+    ),
+    Mutant(
+        "readings: a choice that leaves a later text without a reply is kept",
+        "src/earful/core/checker/view.py",
+        (
+            "        reply[other], holder[call] = call, other\n"
+            "        reply[text], holder[mine] = mine, text\n"
+            "        return False\n"
+        ),
+        "        return True\n",
+        first="cannot_each_have_a_reply or every_assignment_in_the_order",
+    ),
+    Mutant(
+        "readings: texts that cannot all be housed leave no reading at all",
+        "src/earful/core/checker/view.py",
+        "    if not all(house(text, 0) for text in range(len(texts))):\n        return [{}]\n",
+        "    if not all(house(text, 0) for text in range(len(texts))):\n        return []\n",
+        first="cannot_each_have_a_reply",
     ),
     Mutant(
         "readings: the worst is reported",
@@ -166,13 +219,6 @@ MUTANTS = [
         "                best[i][j] = min(options, key=lambda option: (option[0], not option[1]))\n",
         "                best[i][j] = options[0]\n",
         first="kindest",
-    ),
-    Mutant(
-        "readings: one reply may answer for two texts",
-        "src/earful/core/checker/view.py",
-        "            if call not in used:\n",
-        "            if True:\n",
-        first="reading_gives",
     ),
     # The search, the shrinker, the bundle and what they rest on.
     Mutant(
