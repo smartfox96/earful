@@ -334,6 +334,25 @@ command line or in the call, is always taken as given.
 `earful.keep(found, "A3/rule")` without a directory writes the bundle under the test's
 evidence directory.
 
+In CI the evidence is worth keeping, since the machine that ran the test is gone when the
+job ends. On GitHub Actions, two steps upload it when a test fails:
+
+```yaml
+      - run: pytest
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: earful-evidence
+          path: .earful/
+          include-hidden-files: true
+          if-no-files-found: ignore
+```
+
+`include-hidden-files` is needed: the action leaves out a directory whose name starts
+with a dot, and without it the upload is empty. The artifact holds each failing test's
+ledgers, cases and reports. A report is one self-contained HTML page, so it opens
+straight from the downloaded archive.
+
 ## 9. From the command line
 
 ```bash
