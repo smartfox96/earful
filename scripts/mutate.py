@@ -1,9 +1,9 @@
 """Break the code on purpose, one place at a time, and check that a test fails each time.
 
-.venvs/lk-1.8.12/bin/python scripts/mutate.py              every mutant
-.venvs/lk-1.8.12/bin/python scripts/mutate.py --verify     only check that each still applies
-.venvs/lk-1.8.12/bin/python scripts/mutate.py --only L1    mutants whose name contains "L1"
-.venvs/lk-1.8.12/bin/python scripts/mutate.py --shard 2/4  the second quarter of them
+.venvs/lint/bin/python scripts/mutate.py              every mutant
+.venvs/lint/bin/python scripts/mutate.py --verify     only check that each still applies
+.venvs/lint/bin/python scripts/mutate.py --only L1    mutants whose name contains "L1"
+.venvs/lint/bin/python scripts/mutate.py --shard 2/4  the second quarter of them
 """
 
 from __future__ import annotations

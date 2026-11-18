@@ -9,9 +9,9 @@ import os
 import sys
 from collections.abc import Callable, Sequence
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
-from . import __version__
+from . import __version__, _adapters
 from .core import bundle, crosscheck, html, timeline
 from .core import case as cases
 from .core.checker import Report, check
@@ -20,9 +20,6 @@ from .core.ledger import read_jsonl, write_jsonl
 from .core.predicate import Predicate
 from .core.search import default_workers
 
-if TYPE_CHECKING:
-    from types import ModuleType
-
 OK, BROKEN, REFUSED, NO_VERDICT = 0, 1, 2, 3
 
 
@@ -30,16 +27,11 @@ class Refused(Exception):
     """The command cannot be carried out as asked. Its text is what the user is told."""
 
 
-def _adapter() -> ModuleType:
+def _scenario_path() -> None:
     # The installed script would not otherwise find a scenario's module in this directory.
     here = os.getcwd()
     if here not in sys.path:
         sys.path.insert(0, here)
-    try:
-        from . import livekit
-    except ImportError as exc:
-        raise Refused(str(exc)) from exc
-    return livekit
 
 
 def _ledger(path: Path) -> list[dict[str, Any]]:
@@ -95,9 +87,10 @@ def _check(args: argparse.Namespace) -> int:
 
 
 def _run(args: argparse.Namespace) -> int:
-    adapter = _adapter()
+    case = _case(args.case)
+    adapter, source = _adapters.select(args.scenario)
     try:
-        result = adapter.run(args.scenario, case=_case(args.case), seed=args.seed)
+        result = adapter.run(source, case=case, seed=args.seed)
     except adapter.InvalidRun as exc:
         result = exc.result
     if args.ledger is not None:
@@ -113,16 +106,17 @@ def _run(args: argparse.Namespace) -> int:
 
 
 def _search(args: argparse.Namespace) -> int:
-    adapter = _adapter()
     keep = [Predicate.parse(rule) for rule in args.keep or []]
     if keep and args.out is None:
         raise Refused("--keep needs --out, the directory to write bundles to")
     faults = () if args.faults == "none" else tuple(args.faults.split(","))
     case = _case(args.case)
 
+    adapter, source = _adapters.select(args.scenario)
+
     def search(workers: int) -> Any:
         return adapter.explore(
-            args.scenario,
+            source,
             case=case,
             seed=args.seed,
             workers=workers,
@@ -186,12 +180,12 @@ def _search(args: argparse.Namespace) -> int:
 
 
 def _replay(args: argparse.Namespace) -> int:
-    adapter = _adapter()
     try:
         kept = bundle.load(args.bundle)
     except OSError as exc:
         raise Refused(f"cannot read the bundle in {args.bundle}: {exc.strerror}") from exc
-    result = adapter.replay(args.bundle, repeats=args.repeats)
+    adapter = _adapters.by_framework(kept.manifest["framework"]["name"])
+    result = adapter.replay(kept, repeats=args.repeats)
     outcome = {
         "predicate": str(kept.predicate),
         "made_on": kept.manifest["framework"],
@@ -223,19 +217,22 @@ def _replay(args: argparse.Namespace) -> int:
 
 
 def _crosscheck(args: argparse.Namespace) -> int:
-    adapter = _adapter()
-    reference: str = args.source
+    source = args.source
     case = _case(args.case)
     if Path(args.source).is_dir():  # a kept failure: its reduced case
         try:
-            case = bundle.load(Path(args.source)).minimal
+            kept = bundle.load(Path(args.source))
+            case = kept.minimal
         except OSError as exc:
             raise Refused(f"cannot read the bundle in {args.source}: {exc.strerror}") from exc
-        reference = case["scenario"]
+        adapter = _adapters.by_framework(kept.manifest["framework"]["name"])
+        source = case["scenario"]
+    else:
+        adapter, source = _adapters.select(source)
     tolerance = crosscheck.Tolerance(time_us=args.tolerance_ms * 1000, words=args.words)
     try:
         checked = adapter.cross_check(
-            reference, case=case, seed=args.seed, runs=args.runs, tolerance=tolerance
+            source, case=case, seed=args.seed, runs=args.runs, tolerance=tolerance
         )
     except adapter.InvalidRun as exc:
         print("the virtual run is not valid evidence, so there is nothing to compare with:")
@@ -303,7 +300,6 @@ def _ignored(directory: Path) -> str | None:
 
 
 def _init(args: argparse.Namespace) -> int:
-    _adapter()
     from .livekit.scaffold import scaffold
 
     made = scaffold(args.agent)
@@ -492,8 +488,10 @@ def _parser() -> argparse.ArgumentParser:
 def main(argv: Sequence[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     try:
+        if args.run in (_init, _run, _search, _replay, _crosscheck):
+            _scenario_path()
         return int(args.run(args))
-    except Refused as exc:
+    except (Refused, ImportError) as exc:
         print(f"earful: {exc}", file=sys.stderr)
     except ValueError as exc:  # a scenario, a case or a bundle the core refuses
         print(f"earful: {exc}", file=sys.stderr)

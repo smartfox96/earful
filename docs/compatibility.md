@@ -26,7 +26,16 @@ tested. Earful takes over the framework's clock and wraps its tools, and it chec
 every run that it could: a run in which a clock read could not be given the virtual time
 is marked invalid and yields no verdict, so an unsupported release fails loudly.
 
-## What CI runs
+## pipecat-ai
+
+The `pipecat` extra accepts pipecat-ai 1.16.x, which requires Python 3.11 or later.
+CI exercises 1.16.0 on Linux with Python 3.13 in a separate job. Its dependency pins
+are in `compat/pc-1.16.0.lock.txt`. Build that environment with
+`scripts/make_pipecat_env.sh` and run `.venvs/pc-1.16.0/bin/python -m pytest tests/test_pipecat.py`.
+The adapter uses Pipecat's VAD turn-start and speech-timeout turn-stop strategies.
+[Writing a Pipecat scenario](pipecat.md)
+
+## What CI runs for LiveKit
 
 On every pull request, each row below runs every test, checks that each of the three
 reference scenarios gives the committed ledger byte for byte in 100 runs in one process
@@ -51,7 +60,7 @@ imports and checks a ledger with nothing but its own dependencies.
 
 ## The portable core
 
-`earful` without the `livekit` extra depends only on `jsonschema`. It reads and checks
+`earful` without framework extras depends only on `jsonschema`. It reads and checks
 ledgers, and reads bundles. It runs nothing. Python 3.10 or later.
 
 ## What is outside

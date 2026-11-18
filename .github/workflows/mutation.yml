@@ -22,11 +22,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v6
-      - name: Build pinned environment
-        run: scripts/make_env.sh 1.8.12 2026-11-14
+      - name: Install both adapters for the deliberate breaks
+        run: |
+          scripts/make_pipecat_env.sh
+          uv pip install --python .venvs/pc-1.16.0/bin/python --exclude-newer 2026-11-18 \
+            -c compat/pc-1.16.0.lock.txt "livekit-agents==1.8.12"
       - name: Break the code one place at a time (scripts/mutate.py)
         run: >-
-          .venvs/lk-1.8.12/bin/python scripts/mutate.py
+          .venvs/pc-1.16.0/bin/python scripts/mutate.py
           --shard ${{ matrix.part }}/4 --json mutation-${{ matrix.part }}.json
       - uses: actions/upload-artifact@v4
         if: always()

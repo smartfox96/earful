@@ -16,7 +16,7 @@ echo "=== what the wheel holds"
 listing="$(python3 -m zipfile -l "$wheel")"
 for wanted in earful/py.typed earful/core/schemas/earful.ledger-1.schema.json \
   earful/core/schemas/earful.case-1.schema.json earful/core/schemas/earful.bundle-1.schema.json \
-  earful/cli.py earful/pytest_plugin.py; do
+  earful/cli.py earful/pytest_plugin.py earful/pipecat/harness.py earful/scripted/scenario.py; do
   grep -q "$wanted" <<<"$listing" || {
     echo "the wheel does not hold $wanted" >&2
     exit 1
@@ -69,6 +69,7 @@ import earful
 from earful import ContractFailure, Effect, Predicate, check, effect, read_ledger
 from earful.core import bundle, case, schema
 
+assert importlib.util.find_spec("pipecat") is None
 assert importlib.util.find_spec("livekit") is None, "the framework is installed"
 assert "site-packages" in earful.__file__, earful.__file__
 assert resources.files("earful").joinpath("py.typed").is_file()
@@ -91,6 +92,12 @@ except ImportError as missing:
     assert 'pip install "earful[livekit]"' in str(missing), missing
 else:
     raise SystemExit("earful.livekit imported without the framework")
+try:
+    import earful.pipecat  # noqa: F401
+except ImportError as missing:
+    assert 'pip install "earful[pipecat]"' in str(missing), missing
+else:
+    raise SystemExit("earful.pipecat imported without the framework")
 assert not [name for name in sys.modules if name.split(".")[0] in ("tests", "scripts", "breaks")]
 print("ok: earful", earful.__version__)
 PY

@@ -1,5 +1,7 @@
 # Writing a test
 
+For a Pipecat pipeline, see [Writing a Pipecat scenario](pipecat.md).
+
 A test gives Earful a scenario, runs it against a real `AgentSession` on the virtual
 clock, and asserts the seven contracts (`docs/contracts.md`). This page covers the parts
 of a scenario, the calls a test makes, the `earful` command and the pytest fixture.

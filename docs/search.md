@@ -73,6 +73,11 @@ wrote it; `scenario.describe(case, reference)` gives the data of a `Case` built 
 and running a case from its data gives the same ledger, byte for byte, as running it
 directly.
 
+The Pipecat adapter shares `seconds_per_letter_us`, `tts_ttfb_us`, `drain_delay_us`,
+`drain_timeout_us` and `backend_mode`. Its turn settings are `vad_start_us`, `vad_stop_us`,
+`user_speech_timeout_us` and `user_turn_stop_timeout_us`. Its voice accepts
+`tts_word_timestamps` as a boolean. [Pipecat scenarios](pipecat.md)
+
 ### Variables
 
 Every time in a case is a **variable**: something that can be moved on its own.

@@ -15,6 +15,10 @@ as of. `docs/compatibility.md` lists the supported releases with their dates. Th
 is installed editable, so the `earful` command and the pytest plugin in that environment
 run the code in your checkout.
 
+For the Pipecat-only environment, run `scripts/make_pipecat_env.sh` and
+`.venvs/pc-1.16.0/bin/python -m pytest -q tests/test_pipecat.py`. The lock records the
+Python 3.13 dependencies resolved on 2026-11-18 for Linux.
+
 ## The checks
 
 | Command | What it runs | Time |
@@ -24,8 +28,8 @@ run the code in your checkout.
 | `scripts/wheel_smoke.sh` | Builds the wheel and the source distribution, installs the wheel alone outside the repository and uses it | 5 s |
 | `scripts/quickstart_check.sh` | Follows the README's quickstart from the wheel, with livekit-agents, outside the repository | 90 s |
 | `scripts/site.sh DIR` | Draws the two example reports the README links to, into `DIR` | 15 s |
-| `scripts/check_all.sh` | All of the above, then on each of the five releases: every test, repeatability of the reference ledgers, the two historical cases and the replays | 8 min |
-| `.venvs/lk-1.8.12/bin/python scripts/mutate.py` | Applies each deliberate break of `tests/mutants.py` and checks that a test it names fails | 5 min |
+| `scripts/check_all.sh` | All of the above, then on each of the five LiveKit releases: every test, repeatability of the reference ledgers, the two historical cases and the replays | 8 min |
+| `.venvs/lint/bin/python scripts/mutate.py` | Applies each deliberate break of `tests/mutants.py` and checks that a test it names fails | 5 min |
 
 CI runs `check_all.sh`'s parts on every pull request, on Linux for the five releases and
 on macOS for the oldest and the newest. The deliberate breaks run each night.
@@ -49,8 +53,9 @@ older releases have the two defects described in `docs/cases/`.
 ## Rules the code keeps
 
 **The core imports no framework.** Everything under `src/earful/core/` works on plain
-data. `tests/test_core_boundary.py` fails if a module there imports `livekit` or
-`earful.livekit`. Anything that touches livekit-agents belongs in `src/earful/livekit/`,
+data. `tests/test_core_boundary.py` fails if a module there imports `livekit`, `pipecat`
+or either Earful adapter. The same rule covers `src/earful/scripted/`. Anything that touches
+livekit-agents belongs in `src/earful/livekit/`,
 and a name taken from inside livekit-agents, one that it does not export at its top
 level, goes through `src/earful/livekit/_compat.py`.
 

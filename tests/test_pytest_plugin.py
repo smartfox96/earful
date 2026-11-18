@@ -126,8 +126,8 @@ def test_a_search_uses_the_workers_the_command_line_gave_unless_it_names_its_own
         adapter, "explore", lambda scenario, **options: asked.append(options) or "found"
     )
     helper = Earful(tmp_path, workers=4)
-    assert helper.explore("some:scenario", words=False) == "found"
-    helper.explore("some:scenario", workers=0)
+    assert helper.explore(IMPORTABLE, words=False) == "found"
+    helper.explore(IMPORTABLE, workers=0)
     assert asked == [{"words": False, "workers": 4}, {"workers": 0}]
     assert helper.searches == ["found", "found"]
 
@@ -270,11 +270,11 @@ def test_a_run_that_is_not_valid_evidence_is_kept_as_evidence_too(tmp_path):
     assert (tmp_path / "run-1.barge_in_mid_word.ledger.jsonl").exists()
 
 
-def test_loading_the_plugin_does_not_import_the_framework():
+def test_loading_the_plugin_does_not_import_either_framework():
     """pytest loads the plugin in every project that has Earful installed."""
     code = (
         "import sys, earful.pytest_plugin\n"
-        "loaded = [m for m in sys.modules if m.split('.')[0] == 'livekit']\n"
+        "loaded = [m for m in sys.modules if m.split('.')[0] in ('livekit', 'pipecat')]\n"
         "assert not loaded, loaded\n"
     )
     done = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, check=False)

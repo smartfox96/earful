@@ -377,14 +377,14 @@ MUTANTS = [
     ),
     Mutant(
         "adapter: settings not checked",
-        "src/earful/livekit/scenario.py",
+        "src/earful/scripted/scenario.py",
         "        if not ok:\n",
         "        if False:\n",
         first="test_data_that_cannot_be_run_is_refused_with_a_value_error",
     ),
     Mutant(
         "adapter: unknown scenario not a ValueError",
-        "src/earful/livekit/scenario.py",
+        "src/earful/scripted/scenario.py",
         (
             "    except (ImportError, AttributeError) as exc:\n"
             '        raise ValueError(f"no scenario {scenario!r}: {exc}") from exc\n'
@@ -394,7 +394,7 @@ MUTANTS = [
     ),
     Mutant(
         "adapter: fingerprint constant",
-        "src/earful/livekit/scenario.py",
+        "src/earful/scripted/scenario.py",
         '    return hashlib.sha256(source.encode("utf-8")).hexdigest() if source else ""\n',
         '    return "0" * 64\n',
         first="test_a_bundle_says_when_the_code_of_its_scenario_has_changed",
@@ -651,14 +651,14 @@ MUTANTS = [
     ),
     Mutant(
         "harness: two faults on one write run",
-        "src/earful/livekit/harness.py",
-        "            if fault.nth in faulted:\n",
-        "            if False:\n",
+        "src/earful/scripted/case.py",
+        "        if fault.nth in faulted:\n",
+        "        if False:\n",
         first="test_a_fault_that_is_no_fault_is_refused",
     ),
     Mutant(
         "adapter: a case's faults are not built",
-        "src/earful/livekit/scenario.py",
+        "src/earful/scripted/scenario.py",
         (
             "    case.faults = [\n"
             '        Fault(f["of"], f["nth"], None if f["us"] is None else to_seconds(f["us"]))\n'
@@ -740,16 +740,12 @@ MUTANTS = [
     ),
     Mutant(
         "harness: a hangup before a speech is over runs",
-        "src/earful/livekit/harness.py",
+        "src/earful/scripted/case.py",
+        ('        if late:\n            raise ValueError(\n                f"the user hangs up at'),
         (
-            "            if late:\n"
-            "                raise ValueError(\n"
-            '                    f"the user hangs up at'
-        ),
-        (
-            "            if False:\n"
-            "                raise ValueError(\n"
-            '                    f"the user hangs up at'
+            "        if False:\n"
+            "            raise ValueError(\n"
+            '                f"the user hangs up at'
         ),
         first="test_a_scenario_that_contradicts_itself_is_refused_before_it_runs",
     ),
@@ -941,14 +937,14 @@ MUTANTS = [
     ),
     Mutant(
         "adapter: a case's hangup is not built",
-        "src/earful/livekit/scenario.py",
+        "src/earful/scripted/scenario.py",
         '    case.hangup = None if data["hangup_us"] is None else to_seconds(data["hangup_us"])\n',
         "    case.hangup = None\n",
         first="a_hangup_is_part_of_a_cases_data",
     ),
     Mutant(
         "adapter: a case's hangup is not described",
-        "src/earful/livekit/scenario.py",
+        "src/earful/scripted/scenario.py",
         (
             '        "hangup_us": None if case.hangup is None else to_us(case.hangup),\n'
             '        "delays": ['
@@ -1204,7 +1200,7 @@ MUTANTS = [
     ),
     Mutant(
         "harness: an effect's tool is not among the tools of its intent",
-        "src/earful/livekit/harness.py",
+        "src/earful/scripted/case.py",
         "        if tool not in known.tools:\n",
         "        if False:\n",
         first="names_the_tools_whose_body or gains_the_tool",
@@ -1353,44 +1349,44 @@ MUTANTS = [
     ),
     Mutant(
         "adapter: the data of an inline case is looked up by name",
-        "src/earful/livekit/scenario.py",
+        "src/earful/scripted/scenario.py",
         "    if scenario == INLINE:\n",
         "    if False:\n",
         first="cannot_be_run_by_name",
     ),
     Mutant(
         "adapter: an inline scenario passes for an importable one",
-        "src/earful/livekit/scenario.py",
+        "src/earful/scripted/scenario.py",
         "    if reference is None or reference == INLINE:\n",
         "    if False:\n",
         first="refused_by_worker_processes or refused_as_a_bundle",
     ),
     Mutant(
         "adapter: a scenario that returns no Case is run",
-        "src/earful/livekit/scenario.py",
-        "    if not isinstance(case, Case):\n",
+        "src/earful/scripted/scenario.py",
+        "    if not isinstance(case, case_type):\n",
         "    if False:\n",
         first="not_a_scenario_is_refused",
     ),
     Mutant(
         "api: a search asked to use workers runs in this process",
-        "src/earful/livekit/api.py",
-        "    if workers == 0:\n",
-        "    if True:\n",
+        "src/earful/scripted/api.py",
+        "        if workers == 0:\n",
+        "        if True:\n",
         first="function_in_a_module_is_kept",
     ),
     Mutant(
         "api: a rule no case breaks is kept",
-        "src/earful/livekit/api.py",
-        "    if not breaking:\n",
-        "    if False:\n",
+        "src/earful/scripted/api.py",
+        "        if not breaking:\n",
+        "        if False:\n",
         first="function_in_a_module_is_kept",
     ),
     Mutant(
         "api: a case's data is not what is run",
-        "src/earful/livekit/api.py",
-        '    return run_case(found.build(case), seed=case["seed"])\n',
-        '    return run_case(found.make(), seed=case["seed"])\n',
+        "src/earful/scripted/api.py",
+        '        return self.run_case(found.build(case), seed=case["seed"])\n',
+        '        return self.run_case(found.make(), seed=case["seed"])\n',
         first="run_from_its_data",
     ),
     Mutant(
@@ -1516,15 +1512,15 @@ MUTANTS = [
     Mutant(
         "plugin: a scenario built inline is given worker processes",
         "src/earful/pytest_plugin.py",
-        "        if self.spread or livekit.Scenario.of(scenario).reference is None:\n",
+        "        if self.spread or reference is None:\n",
         "        if self.spread:\n",
         first="worker_per_processor_if_it_can_be_imported",
     ),
     Mutant(
         "plugin: a test run spread by xdist starts workers of its own",
         "src/earful/pytest_plugin.py",
-        "        if self.spread or livekit.Scenario.of(scenario).reference is None:\n",
-        "        if livekit.Scenario.of(scenario).reference is None:\n",
+        "        if self.spread or reference is None:\n",
+        "        if reference is None:\n",
         first="xdist_has_spread_over_the_processors",
     ),
     Mutant(
@@ -1537,7 +1533,7 @@ MUTANTS = [
     Mutant(
         "plugin: a search nobody gave a number for fails where workers cannot be started",
         "src/earful/pytest_plugin.py",
-        "                found = livekit.explore(scenario, workers=0, **options)\n",
+        "                found = adapter.explore(source, workers=0, **options)\n",
         "                raise\n",
         first="cannot_be_started_a_search_nobody_gave_a_number_for",
     ),
@@ -1826,30 +1822,30 @@ MUTANTS = [
     # What a review found: retired intents, worker processes, copies and a manifest.
     Mutant(
         "harness: a speech cannot retire an intent that only an effect declares",
-        "src/earful/livekit/harness.py",
-        "    declared = {it.intent for it in intents}\n",
-        "    declared = {it.intent for it in case.intents}\n",
+        "src/earful/scripted/case.py",
+        "        undeclared = sorted(set(speech.retires) - intents.keys())\n",
+        "        undeclared = sorted(set(speech.retires) - {it.intent for it in explicit})\n",
         first="retire_an_intent_that_only_an_effect_declares",
     ),
     Mutant(
         "harness: a speech may retire an intent nothing declares",
-        "src/earful/livekit/harness.py",
+        "src/earful/scripted/case.py",
         '            raise ValueError(f"speech at {speech.start} s retires undeclared intents {undeclared}")\n',
         "            pass\n",
         first="retires_an_intent_nothing_declares",
     ),
     Mutant(
         "api: a search starts its workers before it checks what it is asked for",
-        "src/earful/livekit/api.py",
-        "    variables, faults = search.check_arguments(start, variables, faults)\n",
-        "    variables, faults = tuple(variables), tuple(faults)\n",
+        "src/earful/scripted/api.py",
+        "        variables, faults = search.check_arguments(start, variables, faults)\n",
+        "        variables, faults = tuple(variables), tuple(faults)\n",
         first="checked_before_a_worker_is_started or starts_no_worker",
     ),
     Mutant(
         "api: a pool that cannot be made is an unhandled error",
-        "src/earful/livekit/api.py",
-        "    except (OSError, NotImplementedError, ImportError) as exc:\n",
-        "    except ImportError as exc:\n",
+        "src/earful/scripted/api.py",
+        "        except (OSError, NotImplementedError, ImportError) as exc:\n",
+        "        except ImportError as exc:\n",
         first="cannot_be_started",
     ),
     Mutant(
@@ -2020,5 +2016,124 @@ MUTANTS = [
         '        intent = _literal(names[0].replace("_", "-"))\n',
         "        intent = _literal(names[0])\n",
         first="a_value_for_each_argument_the_tool_requires or init_writes_runs_as_it_is",
+    ),
+    Mutant(
+        "pipecat: each sentence starts a new utterance",
+        "src/earful/pipecat/providers.py",
+        "        one = self._open.get(context_id)\n",
+        "        one = None\n",
+        first="plays_a_whole_reply_as_one_utterance",
+    ),
+    Mutant(
+        "pipecat: a late transcript holds up subsequent transcripts",
+        "src/earful/pipecat/providers.py",
+        "        for at_us, index, final in sorted(deadlines):\n",
+        "        for at_us, index, final in deadlines:\n",
+        first="transcripts_arrive_at_their_own_deadlines",
+    ),
+    Mutant(
+        "pipecat: streaming gaps disappear from word completion times",
+        "src/earful/pipecat/sink.py",
+        "                    segment.completed_us[stamp] = start + _duration(offset)\n",
+        "                    segment.completed_us[stamp] = _duration(segment.samples - heard + offset)\n",
+        first="playout_preserves_gaps_between_chunks",
+    ),
+    Mutant(
+        "pipecat: the input can hang past the scenario deadline",
+        "src/earful/pipecat/harness.py",
+        "{running, ended}, timeout=timeout, return_when=asyncio.FIRST_COMPLETED",
+        "{running, ended}, return_when=asyncio.FIRST_COMPLETED",
+        first="a_stalled_input_yields_invalid_evidence",
+    ),
+    Mutant(
+        "pipecat: the sink counts the cancelled chunk in full",
+        "src/earful/pipecat/sink.py",
+        "            heard = min(len(samples), elapsed * SAMPLE_RATE // US_PER_SECOND)\n",
+        "            heard = len(samples)\n",
+        first="cancellation_counts_only_the_samples",
+    ),
+    Mutant(
+        "pipecat: a word is counted complete with only one sample played",
+        "src/earful/pipecat/sink.py",
+        '                if count == self._table.words[stamp]["samples"]:\n',
+        "                if count == 1:\n",
+        first="cancellation_counts_only_the_samples",
+    ),
+    Mutant(
+        "pipecat: the model ignores a declared delay",
+        "src/earful/pipecat/providers.py",
+        "self._ttft_us.get(call, to_us(reply.ttft))",
+        "to_us(reply.ttft)",
+        first="pipecat_case_settings_and_delays",
+    ),
+    Mutant(
+        "pipecat: the bot runs the function body despite its declared effect",
+        "src/earful/pipecat/tools.py",
+        "                declared = self._effects.get(params.function_name)\n",
+        "                declared = None\n",
+        first="pipecat_booking_effect_is_linked",
+    ),
+    Mutant(
+        "pipecat: a misspelled effect silently leaves a service call in place",
+        "src/earful/pipecat/harness.py",
+        "    if unknown:\n",
+        "    if False:\n",
+        first="pipecat_rejects_unknown_tools",
+    ),
+    Mutant(
+        "pipecat: a progress update becomes the tool result",
+        "src/earful/pipecat/tools.py",
+        "if not told and (properties is None or properties.is_final):",
+        "if not told:",
+        first="forwards_intermediate_callbacks",
+    ),
+    Mutant(
+        "pipecat: a handler that declines a follow-up is recorded as expecting one",
+        "src/earful/pipecat/tools.py",
+        "expects_reply=properties is None or properties.run_llm is not False,",
+        "expects_reply=True,",
+        first="forwards_intermediate_callbacks",
+    ),
+    Mutant(
+        "pipecat: a pending turn is mistaken for an idle pipeline",
+        "src/earful/pipecat/harness.py",
+        "                    or tap.user_speaking\n",
+        "",
+        first="waits_for_the_final_turn_and_slow_tool",
+    ),
+    Mutant(
+        "pipecat: a hangup discards the backend's pending writes",
+        "src/earful/pipecat/harness.py",
+        "await asyncio.wait_for(backend.settle_in_flight(), timeout=case.drain_timeout)",
+        "await asyncio.sleep(0)",
+        first="hangup_stops_the_user_and_settles",
+    ),
+    Mutant(
+        "adapters: choosing the framework discards the first case",
+        "src/earful/_adapters.py",
+        "        return first.pop() if first else make()\n",
+        "        return make()\n",
+        first="pipecat_fixture_builds_once",
+    ),
+    Mutant(
+        "adapters: bundle replay always picks LiveKit",
+        "src/earful/_adapters.py",
+        "    return importlib.import_module(_ADAPTERS[name])\n",
+        '    return importlib.import_module(_ADAPTERS["livekit-agents"])\n',
+        first="pipecat_search_keeps_and_replays",
+    ),
+    Mutant(
+        "pipecat: the model treats framework refusals as successful results",
+        "src/earful/pipecat/providers.py",
+        '"is_error": call_id in error_results and error_results[call_id] == text,',
+        '"is_error": False,',
+        first="recognizes_a_framework_refusal",
+    ),
+    Mutant(
+        "pipecat: an async tool's final result is read as a system message",
+        "src/earful/pipecat/providers.py",
+        'if role == "tool" or (deferred is not None and deferred.kind == "final"):',
+        'if role == "tool":',
+        first="reads_async_tool_results_from_the_context",
     ),
 ]

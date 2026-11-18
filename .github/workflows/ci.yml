@@ -106,6 +106,21 @@ jobs:
       - name: Install the wheel with livekit-agents and follow the README (scripts/quickstart_check.sh)
         run: scripts/quickstart_check.sh
 
+  pipecat:
+    name: pipecat 1.16.0 / Linux / py3.13
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - run: scripts/make_pipecat_env.sh
+      - name: Exercise the Pipecat adapter without LiveKit
+        run: |
+          .venvs/pc-1.16.0/bin/python -c 'import importlib.util; assert importlib.util.find_spec("livekit") is None'
+          .venvs/pc-1.16.0/bin/python -m pytest -q tests/test_pipecat.py
+
   determinism:
     name: lk ${{ matrix.lk.version }} / ${{ matrix.os }} / py${{ matrix.python }}
     needs: changes
@@ -180,7 +195,7 @@ jobs:
   # The check main requires: a skipped job passes, a failed or cancelled one does not.
   result:
     name: ci result
-    needs: [changes, docs, lint, wheel, quickstart, determinism]
+    needs: [changes, docs, lint, wheel, quickstart, pipecat, determinism]
     if: always() && github.event.action != 'closed'
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -189,7 +204,7 @@ jobs:
         env:
           RESULTS: ${{ join(needs.*.result, ' ') }}
         run: |
-          echo "changes, docs, lint, wheel, quickstart, determinism: $RESULTS"
+          echo "changes, docs, lint, wheel, quickstart, pipecat, determinism: $RESULTS"
           case " $RESULTS " in
             *" failure "* | *" cancelled "*) exit 1 ;;
           esac

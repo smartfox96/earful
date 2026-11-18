@@ -21,6 +21,8 @@ for entry in "${RELEASES[@]}"; do
 done
 
 scripts/lint.sh
+scripts/make_pipecat_env.sh
+.venvs/pc-1.16.0/bin/python -m pytest -q tests/test_pipecat.py
 scripts/wheel_smoke.sh
 scripts/quickstart_check.sh
 SITE="$(mktemp -d)"
