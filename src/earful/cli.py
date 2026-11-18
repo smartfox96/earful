@@ -142,8 +142,7 @@ def _search(args: argparse.Namespace) -> int:
     for predicate in keep:
         if not any(one.predicate == predicate for one in broken):
             continue
-        rule = f"{predicate.contract}-{predicate.rule}".replace(" ", "-")
-        directory = args.out / f"lk-{release.get('version')}.{function}.{rule}"
+        directory = args.out / _bundle_name(release, function, predicate)
         manifest = adapter.keep(found, predicate, directory).manifest
         kept[str(predicate)] = {
             "directory": str(directory),
@@ -177,6 +176,15 @@ def _search(args: argparse.Namespace) -> int:
         if not one.instants_only and str(one.predicate) not in allowed(_rules(args.allow))
     ]
     return BROKEN if counted else OK
+
+
+# What the directory of a kept bundle begins with, for each framework.
+_SHORT = {"livekit-agents": "lk", "pipecat-ai": "pc"}
+
+
+def _bundle_name(framework: dict[str, str], function: str, predicate: Predicate) -> str:
+    rule = f"{predicate.contract}-{predicate.rule}".replace(" ", "-")
+    return f"{_SHORT[framework['name']]}-{framework['version']}.{function}.{rule}"
 
 
 def _replay(args: argparse.Namespace) -> int:

@@ -306,6 +306,16 @@ def test_pipecat_search_keeps_and_replays_a_booking_bundle(earful, tmp_path, cap
 
 
 @pytest.mark.slow
+def test_pipecat_search_from_the_command_line_names_the_kept_bundle_after_pipecat(tmp_path, capsys):
+    narrow = ("--variables", "none", "--faults", "backend.timeout", "--no-words", "--workers", "0")
+    kept = ("--keep", "A2/rule", "--out", str(tmp_path), "--json")
+    assert main(["search", "test_pipecat:booking", *narrow, *kept]) == 1
+    (directory,) = tmp_path.iterdir()
+    assert directory.name == f"pc-{scenario.environment()['pipecat-ai']}.booking.A2-rule"
+    assert json.loads(capsys.readouterr().out)["bundles"]["A2/rule"]["directory"] == str(directory)
+    assert bundle.load(directory).manifest["framework"]["name"] == "pipecat-ai"
+
+
 def test_pipecat_workers_run_an_importable_scenario_in_a_fresh_interpreter(monkeypatch):
     from concurrent.futures import ProcessPoolExecutor
 

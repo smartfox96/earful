@@ -1637,6 +1637,13 @@ MUTANTS = [
         first="still_has_the_defect",
     ),
     Mutant(
+        "cli: a kept bundle is named after LiveKit whatever its framework",
+        "src/earful/cli.py",
+        "    return f\"{_SHORT[framework['name']]}-{framework['version']}.{function}.{rule}\"\n",
+        "    return f\"lk-{framework['version']}.{function}.{rule}\"\n",
+        first="named_after_its_framework or names_the_kept_bundle_after_pipecat",
+    ),
+    Mutant(
         "cli: a replay that was not judged has a verdict",
         "src/earful/cli.py",
         "    if not result.judged or not result.repeatable:\n",

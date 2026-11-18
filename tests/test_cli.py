@@ -177,6 +177,20 @@ def test_search_finds_the_break_keeps_it_and_the_kept_bundle_replays(capsys, tmp
     assert "not kept, since no case broke them: A2/rule" in out
 
 
+def test_a_kept_bundle_is_named_after_its_framework_its_scenario_and_its_rule():
+    from earful import _adapters
+    from earful.cli import _SHORT, _bundle_name
+    from earful.core.predicate import Predicate
+
+    pipecat = {"name": "pipecat-ai", "version": "1.16.0"}
+    assert _bundle_name(pipecat, "booking", Predicate("L2", "rule b")) == (
+        "pc-1.16.0.booking.L2-rule-b"
+    )
+    livekit = {"name": "livekit-agents", "version": "1.8.12"}
+    assert _bundle_name(livekit, "booking", Predicate("A2", "rule")) == "lk-1.8.12.booking.A2-rule"
+    assert set(_SHORT) == set(_adapters._ADAPTERS)  # a framework with an adapter has a name
+
+
 def test_a_ledger_file_is_read_and_written_by_name_or_by_path(tmp_path):
     events = read_jsonl(str(CLEAN))
     assert events == read_jsonl(CLEAN)
