@@ -1414,6 +1414,39 @@ def test_a_bundle_with_a_file_that_is_not_what_its_manifest_records_is_refused(
     assert f"{directory}{wrong}" in message and len(message.splitlines()) == 1
 
 
+def test_a_replay_is_reproduced_or_clean_only_if_every_run_was_judged(tmp_path):
+    kept = bundle.load(a_copy(tmp_path))
+    failing, passing = (ledger(release, "book_then_interrupt") for release in ("1.5.6", "1.8.12"))
+    not_evidence = passing[:-1]  # no run.end: the checker gives no verdict on it
+
+    def in_turn(*ledgers):
+        runs = iter(ledgers)
+        return lambda case: next(runs)
+
+    def shows(again):
+        return (again.judged, again.reproduced, again.clean, again.repeatable)
+
+    broken = bundle.replay(kept, in_turn(failing, failing, failing))
+    assert shows(broken) == (True, True, False, True) and broken.unverified == ()
+    assert shows(bundle.replay(kept, in_turn(passing, passing, passing))) == (
+        True,
+        False,
+        True,
+        True,
+    )
+    unjudged = bundle.replay(kept, in_turn(not_evidence, not_evidence, not_evidence))
+    assert shows(unjudged) == (False, False, False, True)  # three equal ledgers that show nothing
+    assert "run.end" in unjudged.invalid[0]
+    one_unjudged = bundle.replay(kept, in_turn(passing, not_evidence, passing))
+    assert shows(one_unjudged) == (False, False, False, False)
+    in_some = bundle.replay(kept, in_turn(failing, passing, failing))
+    assert shows(in_some) == (True, False, False, False)
+    assert shows(bundle.replay(kept, in_turn(passing), repeats=1)) == (True, False, True, True)
+    for repeats in (0, -1):
+        with pytest.raises(ValueError, match=f"at least one run; got repeats={repeats}"):
+            bundle.replay(kept, in_turn(), repeats=repeats)
+
+
 def test_a_bundle_written_before_manifests_recorded_its_cases_loads_and_says_so(tmp_path):
     directory = a_copy(tmp_path)
 
@@ -1425,7 +1458,10 @@ def test_a_bundle_written_before_manifests_recorded_its_cases_loads_and_says_so(
     rewrite(directory / "manifest.json", as_before)
     assert bundle.load(directory).unverified == ("original.case.json", "minimal.case.json")
     asked_later(directory)  # nothing records what the case was
-    assert bundle.load(directory).minimal["speeches"][1]["start_us"] == 9_000_000
+    kept = bundle.load(directory)
+    assert kept.minimal["speeches"][1]["start_us"] == 9_000_000
+    again = bundle.replay(kept, lambda case: kept.ledger(), repeats=1)
+    assert again.reproduced and again.unverified == kept.unverified
 
 
 @pytest.mark.slow

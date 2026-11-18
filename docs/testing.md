@@ -288,9 +288,21 @@ assert again.reproduced and again.identical
 `keep` reduces a case that breaks the rule to the smallest that still does, runs it three
 more times, and writes it as a bundle if every run gives the ledger that broke the rule
 (`docs/search.md`, section 6). A failure that does not repeat raises `ValueError` and
-nothing is written. `replay` runs the reduced case again on whatever release is installed:
-`reproduced` says whether it still breaks the rule, and `identical` whether the ledger is
-the one recorded.
+nothing is written.
+
+`replay` checks every file of the bundle, then runs the reduced case again on whatever
+release is installed. `reproduced` says that every run broke the rule, and `identical`
+that the ledger is the one recorded. Once the defect is fixed, the bundle is the
+regression test:
+
+```python
+def test_the_double_booking_stays_fixed():
+    assert replay("failures/double-booking").clean
+```
+
+`clean` says that every run was judged and none broke the rule. Assert `clean`, and never
+`not reproduced`: a replay whose runs were not valid evidence is not reproduced either,
+and it is not clean. `judged` says whether every run was valid evidence.
 
 ## 8. With pytest
 
@@ -378,7 +390,7 @@ earful report failures/lk-1.8.12.booking.A3-rule -o report.html
 | `earful check LEDGER...` | Prints the verdicts for recorded ledgers. `--measures` adds what each verdict measured, `--json` prints one report per line |
 | `earful run SCENARIO` | Runs a scenario once and prints its verdicts. `--case FILE` runs a saved case, `--ledger FILE` writes the ledger |
 | `earful search SCENARIO` | Searches a scenario, in one worker process per processor unless `--workers` says otherwise. Where worker processes cannot be started, as in some sandboxes and containers, it says so and searches in its own process; with `--workers N` given it refuses. `--keep CONTRACT/RULE --out DIR` writes a bundle for a rule that broke. `--variables`, `--faults`, `--pairs`, `--profiles`, `--no-words` and `--no-windows` narrow or widen the search |
-| `earful replay BUNDLE_DIR` | Runs a bundle's reduced case again. `--expect reproduced` or `--expect clean` makes the outcome the exit status |
+| `earful replay BUNDLE_DIR` | Checks every file of a bundle against its manifest, then runs its reduced case again. `--expect reproduced` exits 0 if every run broke the rule, `--expect clean` if none did, and 1 otherwise. A replay with a run that was not valid evidence, or with runs that differ, exits 3 whatever is expected. `--repeats N` sets the number of runs |
 | `earful crosscheck SCENARIO` or `BUNDLE_DIR` | Runs a case once on the virtual clock and `--runs` times on the real clock, and says whether the real-clock runs agree with the virtual one (section 10). `--tolerance-ms` and `--words` set how far they may differ, `--out DIR` writes every run's ledger |
 | `earful report LEDGER` or `BUNDLE_DIR` | With `-o FILE.html`, draws the run as one HTML page: a timeline, the verdicts and every event (`docs/report.md`). Without it, writes the same out as text. `--format` names one or the other |
 
@@ -391,7 +403,7 @@ rule break.
 | --- | --- |
 | 0 | Nothing broke, or the replay did what `--expect` names. For `report`: the report was written |
 | 1 | A contract rule broke, the replay did not do what `--expect` names, or a real-clock run did not agree with the virtual one |
-| 2 | The command could not be carried out: bad arguments, a file that is not what it should be, a scenario that does not exist |
+| 2 | The command could not be carried out: bad arguments, a file that is not what it should be, a bundle with a file that is not what its manifest records, a scenario that does not exist |
 | 3 | No verdict: a run was not valid evidence, did not repeat, or could not be compared |
 
 A rule that broke outranks a run without a verdict.

@@ -183,34 +183,52 @@ def _replay(args: argparse.Namespace) -> int:
     kept = bundle.load(args.bundle)
     adapter = _adapters.by_framework(kept.manifest["framework"]["name"])
     result = adapter.replay(kept, repeats=args.repeats)
+    kept_with = kept.manifest["environment"].get("earful")
     outcome = {
         "predicate": str(kept.predicate),
         "made_on": kept.manifest["framework"],
         "replayed_on": result.framework,
+        "kept_with_earful": kept_with,
+        "replayed_with_earful": __version__,
+        "judged": result.judged,
         "reproduced": result.reproduced,
+        "clean": result.clean,
         "repeatable": result.repeatable,
         "identical_to_recorded": result.identical,
         "scenario_code_changed": result.scenario_changed,
+        "unverified": list(result.unverified),
         "invalid": list(result.invalid),
     }
     if args.json:
         print(json.dumps(outcome, indent=2))
     else:
         made, on = kept.manifest["framework"], result.framework
+        if result.reproduced:
+            breaks = "yes"
+        elif result.clean:
+            breaks = "no"
+        else:
+            breaks = "in some runs" if result.judged else "not judged"
         print(f"{kept.predicate}, kept on {made.get('name')} {made.get('version')}")
         print(f"replayed {args.repeats} times on {on.get('name')} {on.get('version')}")
-        print(f"  breaks the rule       {'yes' if result.reproduced else 'no'}")
+        print(f"  breaks the rule       {breaks}")
         print(f"  every run the same    {'yes' if result.repeatable else 'no'}")
         print(f"  the ledger recorded   {'yes' if result.identical else 'no'}")
         changed = {None: "not known", True: "yes", False: "no"}[result.scenario_changed]
         print(f"  scenario code changed {changed}")
+        if result.unverified:
+            files = " and ".join(result.unverified)
+            print(f"  not verified: {files} (the manifest records no digest of them)")
+        if kept_with not in (None, __version__):
+            print(f"  kept with Earful {kept_with}, replayed with Earful {__version__}")
         for reason in result.invalid:
             print(f"  invalid: {reason}")
-    if result.invalid or not result.repeatable:
+    if not result.judged or not result.repeatable:
         return NO_VERDICT
     if args.expect is None:
         return OK
-    return OK if result.reproduced == (args.expect == "reproduced") else BROKEN
+    expected = result.reproduced if args.expect == "reproduced" else result.clean
+    return OK if expected else BROKEN
 
 
 def _crosscheck(args: argparse.Namespace) -> int:

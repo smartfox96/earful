@@ -9,7 +9,9 @@ from pathlib import Path
 import livekit.agents as lk
 import pytest
 
+from earful import __version__
 from earful.cli import BROKEN, NO_VERDICT, OK, REFUSED, main
+from earful.core import bundle
 from earful.core import case as cases
 from earful.core.ledger import ledger_hash, read_jsonl, write_jsonl
 from earful.core.schema import validate, validity
@@ -248,6 +250,75 @@ def test_replay_of_a_committed_bundle_says_whether_this_release_still_has_the_de
     expected, other = ("reproduced", "clean") if HAS_3702 else ("clean", "reproduced")
     assert earful(capsys, "replay", KEPT_3702, "--expect", expected)[0] == OK
     assert earful(capsys, "replay", KEPT_3702, "--expect", other)[0] == BROKEN
+
+
+def test_replay_that_could_not_be_judged_has_no_verdict_whatever_was_expected(capsys, monkeypatch):
+    clean, broken = read_jsonl(CLEAN), read_jsonl(BOOKED_TWICE)
+    runs = []
+
+    def stand_in(*ledgers):
+        runs[:] = ledgers * 3
+        monkeypatch.setattr(scenario, "run", lambda data: runs.pop(0))
+
+    for expect in ((), ("--expect", "clean"), ("--expect", "reproduced")):
+        stand_in(clean[:-1])  # a run with no end is not valid evidence
+        status, out, _ = earful(capsys, "replay", KEPT_3702, *expect)
+        assert status == NO_VERDICT
+        assert "breaks the rule       not judged" in out and "  invalid: " in out
+    stand_in(clean[:-1])
+    outcome = json.loads(earful(capsys, "replay", KEPT_3702, "--json")[1])
+    assert (outcome["judged"], outcome["reproduced"], outcome["clean"]) == (False, False, False)
+    assert outcome["repeatable"] and outcome["invalid"]
+
+    stand_in(clean)
+    status, out, _ = earful(capsys, "replay", KEPT_3702, "--expect", "clean")
+    assert status == OK and "breaks the rule       no\n" in out and "invalid" not in out
+    stand_in(clean)
+    outcome = json.loads(earful(capsys, "replay", KEPT_3702, "--json")[1])
+    assert (outcome["judged"], outcome["reproduced"], outcome["clean"]) == (True, False, True)
+    stand_in(broken)
+    status, out, _ = earful(capsys, "replay", KEPT_3702, "--expect", "clean")
+    assert status == BROKEN and "breaks the rule       yes\n" in out
+
+    stand_in(broken, clean, clean)  # runs that differ show nothing either
+    status, out, _ = earful(capsys, "replay", KEPT_3702, "--expect", "clean")
+    assert status == NO_VERDICT and "breaks the rule       in some runs\n" in out
+    status, _, err = earful(capsys, "replay", KEPT_3702, "--repeats", "0")
+    assert status == REFUSED and err == "earful: a replay makes at least one run; got repeats=0\n"
+
+
+def test_replay_says_what_it_could_not_verify_and_which_earful_kept_the_bundle(
+    capsys, tmp_path, monkeypatch
+):
+    monkeypatch.setattr(scenario, "run", lambda data: read_jsonl(CLEAN))
+    kept = tmp_path / "kept"
+    shutil.copytree(KEPT_3702, kept)
+    manifest = json.loads((kept / "manifest.json").read_text())
+
+    def replayed(earful_version, digests):
+        manifest["environment"] = {"earful": earful_version} if earful_version else {}
+        for which in ("original", "minimal"):
+            case = json.loads((kept / f"{which}.case.json").read_text())
+            manifest[which]["case_digest"] = bundle.case_digest(case)
+            if not digests:
+                del manifest[which]["case_digest"]
+        (kept / "manifest.json").write_text(json.dumps(manifest))
+        out = earful(capsys, "replay", kept)[1]
+        return out, json.loads(earful(capsys, "replay", kept, "--json")[1])
+
+    out, outcome = replayed(__version__, digests=True)
+    assert "not verified" not in out and "kept with" not in out
+    assert outcome["unverified"] == [] and outcome["kept_with_earful"] == __version__
+    out, outcome = replayed(None, digests=True)  # a bundle that does not say
+    assert "kept with" not in out and outcome["kept_with_earful"] is None
+    out, outcome = replayed("0.0.1", digests=False)
+    assert (
+        "  not verified: original.case.json and minimal.case.json "
+        "(the manifest records no digest of them)\n"
+    ) in out
+    assert f"  kept with Earful 0.0.1, replayed with Earful {__version__}\n" in out
+    assert outcome["unverified"] == ["original.case.json", "minimal.case.json"]
+    assert (outcome["kept_with_earful"], outcome["replayed_with_earful"]) == ("0.0.1", __version__)
 
 
 def test_replay_of_what_is_not_a_bundle_is_refused(capsys, tmp_path):

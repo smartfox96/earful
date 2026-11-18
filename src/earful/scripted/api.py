@@ -165,8 +165,8 @@ class AdapterAPI(Generic[CaseT, ResultT]):
         *,
         repeats: int = 3,
     ) -> bundle.Bundle:
-        """Reduce a case that breaks ``rule`` and write it to ``directory`` as a bundle.
-        Raises ``ValueError`` if the scenario is not importable or no case breaks the rule."""
+        """Reduce a case that breaks ``rule`` and write it to ``directory`` as a bundle. Raises
+        ``ValueError`` if the scenario is not importable or no case breaks the rule every time."""
         predicate = Predicate.parse(rule) if isinstance(rule, str) else rule
         reference = self.scenario.importable(found.case["scenario"], "keep a failure as a bundle")
         breaking = [tried.candidate.case for tried in found.breaking(predicate)]
@@ -189,8 +189,8 @@ class AdapterAPI(Generic[CaseT, ResultT]):
         return bundle.load(directory)
 
     def replay(self, directory: Path | str | bundle.Bundle, *, repeats: int = 3) -> bundle.Replay:
-        """Run a bundle's reduced case again and say whether it still breaks its rule.
-        This imports and runs the scenario the bundle names: replay only bundles you trust."""
+        """Run a bundle's reduced case again: ``reproduced`` if every run breaks its rule, ``clean``
+        if none does. It imports and runs the bundle's scenario: replay only bundles you trust."""
         kept = directory if isinstance(directory, bundle.Bundle) else bundle.load(Path(directory))
         return bundle.replay(
             kept, self.scenario.run, repeats=repeats, fingerprint=self.scenario.fingerprint

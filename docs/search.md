@@ -372,18 +372,33 @@ The files are checked against the manifest, and nothing checks the manifest. The
 find a file that was edited, damaged or left out. They do not make a bundle from an
 unknown source safe to replay.
 
-**Replaying** runs the reduced case again and says:
+**Replaying** runs the reduced case again, three times by default, and says:
 
-- **reproduced**: every run broke the frozen predicate.
+- **judged**: every run was valid evidence (`docs/ledger.md`, Validity). A replay with a
+  run that was not shows nothing about the rule, and `invalid` gives the reasons.
+- **reproduced**: every run was judged and broke the frozen predicate.
+- **clean**: every run was judged and none broke it.
 - **repeatable**: every run gave the same ledger.
 - **identical**: that ledger is the one recorded. Expected only on the release, and with
   the Earful version and scenario code, the bundle was made with.
 - **scenario code changed**: the digest of the scenario's code differs from the one
   recorded. The bundle then tests something other than what was found.
+- **unverified**: the case files the manifest records no digest of. Empty unless the
+  bundle was written before `case_digest`.
 
 On the release it was found on, a bundle is reproduced, repeatable and identical, on any
-platform. On a release that repaired the defect it is repeatable and not reproduced. That
-pair is the regression test.
+platform. On a release that repaired the defect it is clean and repeatable. That pair is
+the regression test.
+
+A replay can be neither reproduced nor clean: a run was not valid evidence, or some runs
+broke the rule and others did not. "Not reproduced" therefore does not mean the defect is
+gone. A test of a fix asserts `clean`, and `earful replay --expect clean` exits 0 only for
+a clean replay. A replay that was not judged, or whose runs differ, exits 3 whatever was
+expected. A replay makes at least one run: `repeats` below 1 is a `ValueError`.
+
+`earful replay` also prints the Earful version that kept the bundle, which the manifest
+records in `environment`, when it is not the version replaying it. It names any case file
+it could not verify.
 
 **Trust.** A bundle names the code of its scenario and does not contain it. Replaying one
 imports and runs that code, so replay only bundles you trust.

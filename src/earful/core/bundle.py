@@ -240,12 +240,19 @@ def load(directory: Path) -> Bundle:
 
 @dataclass
 class Replay:
-    reproduced: bool  # every run broke the bundle's rule
+    reproduced: bool  # every run was judged and broke the bundle's rule
     hashes: list[str]  # the ledger hash of each run
     recorded: str  # the hash the bundle recorded for the reduced case
     framework: dict[str, str]  # what it was replayed on
     scenario_changed: bool | None  # the scenario's code has changed; None if unknown
-    invalid: tuple[str, ...] = ()  # why the runs are not valid evidence, if they are not
+    invalid: tuple[str, ...] = ()  # why a run was not valid evidence, if one was not
+    clean: bool = False  # every run was judged and none broke the rule
+    unverified: tuple[str, ...] = ()  # the bundle's case files that nothing could check
+
+    @property
+    def judged(self) -> bool:
+        """Every run was valid evidence. A replay that was not judged shows nothing."""
+        return not self.invalid
 
     @property
     def repeatable(self) -> bool:
@@ -263,6 +270,8 @@ def replay(
     """Run the bundle's reduced case ``repeats`` times. This runs the scenario's code, so
     replay only bundles you trust. ``fingerprint`` digests a scenario's code, to tell whether
     it has changed since capture. Raises ``ValueError`` if the adapter refuses the case."""
+    if repeats < 1:
+        raise ValueError(f"a replay makes at least one run; got repeats={repeats}")
     recorded = bundle.manifest["scenario_digest"]
     changed = None
     if fingerprint is not None and recorded:
@@ -272,13 +281,18 @@ def replay(
         events = run(bundle.minimal)
         framework = events[0]["data"]["framework"]
         outcomes.append(judged(bundle.minimal, events))
+    # A run that is not valid evidence has no failures, so it never counts as breaking.
+    broke = [bundle.predicate in o.failures for o in outcomes]
+    invalid = next((o.invalid for o in outcomes if o.invalid), ())
     return Replay(
-        reproduced=all(bundle.predicate in o.failures for o in outcomes),
+        reproduced=all(broke),
         hashes=[o.hash or "" for o in outcomes],
         recorded=bundle.manifest["minimal"]["hash"],
         framework=framework,
         scenario_changed=changed,
-        invalid=next((o.invalid for o in outcomes if o.invalid), ()),
+        invalid=invalid,
+        clean=not invalid and not any(broke),
+        unverified=bundle.unverified,
     )
 
 
