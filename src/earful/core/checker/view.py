@@ -469,13 +469,14 @@ class View:
         def heard(at: int | None) -> int | None:
             return None if at is None or (left is not None and at >= left) else at
 
+        began: list[int] = []  # each instant a segment began to play audio of it
         for segment in self.segments.values():
             # A started segment names its first utterance even if the run ends before it finishes.
             if (
                 segment.started is not None
                 and segment.started["data"]["utterance"] == utterance.utterance
             ):
-                playout.first_audible_us = heard(segment.started["t_us"])
+                began.append(segment.started["t_us"])
             done = segment.finished
             # What a segment played is known only once it has finished.
             if done is None or utterance.utterance not in done["data"]["utterances"]:
@@ -495,19 +496,21 @@ class View:
                 playout.cut = 1
             if playout.outlasted_hangup:
                 playout.cut = 1  # the word under way when the user left is the one they heard cut
-            if segment.started is not None and playout.first_audible_us is None:
+            if segment.started is not None:
                 if d["utterances"][0] == utterance.utterance:
                     # First in its segment: it began when the segment did.
-                    playout.first_audible_us = heard(segment.started["t_us"])
+                    began.append(segment.started["t_us"])
                 elif first_stamp in d["words_played"]:
                     # Not first in its segment: it began when the word before it completed.
                     position = d["words_played"].index(first_stamp)
                     if position > 0:
-                        playout.first_audible_us = heard(d["words_completed_us"][position - 1])
+                        began.append(d["words_completed_us"][position - 1])
                 elif d["word_cut"] == first_stamp and d["words_completed_us"]:
-                    playout.first_audible_us = heard(d["words_completed_us"][-1])
+                    began.append(d["words_completed_us"][-1])
             if playout.settled is None or done["seq"] > playout.settled["seq"]:
                 playout.settled = done
+        # One text can play in several segments; it was first audible at the earliest.
+        playout.first_audible_us = heard(min(began, default=None))
 
     def open_segments(self) -> list[int]:
         seen = {e["data"]["segment"] for e in self.commands if e["data"]["segment"] is not None}

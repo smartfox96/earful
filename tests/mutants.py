@@ -980,6 +980,13 @@ MUTANTS = [
         first="test_audio_that_starts_as_the_user_leaves_was_never_audible",
     ),
     Mutant(
+        "view: a text played in two segments is first audible when the last began",
+        "src/earful/core/checker/view.py",
+        "playout.first_audible_us = heard(min(began, default=None))",
+        "playout.first_audible_us = heard(max(began, default=None))",
+        first="test_a_reply_played_in_two_segments_was_first_audible_when_the_first_began",
+    ),
+    Mutant(
         "view: the word under way at the hangup is not cut",
         "src/earful/core/checker/view.py",
         "                playout.cut = 1  # the word under way when the user left is the one they heard cut\n",

@@ -990,6 +990,44 @@ def test_l1_first_audio_counts_even_if_the_run_ends_before_the_segment_finishes(
     assert report.results["M1"].verdicts[-1].outcome == UNOBSERVABLE
 
 
+def _in_two_segments(events, later_us=2_000_000):
+    """The last reply's second word plays in a segment of its own, ``later_us`` after the first."""
+    first = of(events, "playout.finished", 1)
+    started, second = copy.deepcopy(of(events, "playout.started", 1)), copy.deepcopy(first)
+    one, two = first["data"]["words_completed_us"]
+    first["t_us"] = one
+    first["data"].update(
+        position_us=240_000,
+        pushed_us=240_000,
+        words_played=[30],
+        words_completed_us=[one],
+        text_played="Okay,",
+    )
+    started["t_us"] = one + later_us
+    started["data"]["segment"] = 3
+    second["t_us"] = two + later_us
+    second["data"].update(
+        segment=3,
+        position_us=480_000,
+        pushed_us=480_000,
+        words_played=[31],
+        words_completed_us=[two + later_us],
+        text_played="stopping.",
+    )
+    events.extend((started, second))
+    return seal(sorted(events, key=lambda event: event["t_us"]))
+
+
+def test_a_reply_played_in_two_segments_was_first_audible_when_the_first_began(barge):
+    """The second segment starts at 9.24 s, after the turn's deadline of 8.7 s."""
+    events = _in_two_segments(barge)
+    assert View(events).playout(2).first_audible_us == of(events, "playout.started", 1)["t_us"]
+    report = check(events)
+    assert report.valid and report.failures == ()
+    assert report.results["L1"].verdicts[-1].measures["time_to_first_audio_us"] == 800_000
+    assert report.results["M1"].verdicts[-1].measures["played"] == 2
+
+
 def test_l2_a_speech_the_vad_never_reported_holds_no_floor(barge):
     cut = barge.index(of(barge, "user.vad_start", 1))
     result = check(seal(barge[:cut] + [barge[-1]])).results["L2"]
