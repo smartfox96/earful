@@ -1318,4 +1318,16 @@ def test_l2_a_speech_the_vad_never_reported_holds_no_floor(barge):
     cut = barge.index(of(barge, "user.vad_start", 1))
     result = check(seal(barge[:cut] + [barge[-1]])).results["L2"]
     assert [v.instance for v in result.verdicts] == [{"speech": 0}]
-    assert "the run ended before the VAD reported it" in result.notes[0]
+    assert result.notes == ("speech 1: the VAD never reported it, so it held no floor",)
+
+
+def test_l2_a_speech_the_vad_did_not_report_in_a_run_that_went_on_holds_no_floor(barge):
+    """A speech shorter than the VAD's minimum is never reported, though the run continues."""
+    unreported = [
+        e
+        for e in barge
+        if not (e["kind"] in ("user.vad_start", "user.vad_end") and e["data"]["speech"] == 1)
+    ]
+    result = check(seal(unreported)).results["L2"]
+    assert [v.instance for v in result.verdicts] == [{"speech": 0}]
+    assert result.notes == ("speech 1: the VAD never reported it, so it held no floor",)

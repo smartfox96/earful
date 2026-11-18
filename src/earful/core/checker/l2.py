@@ -41,7 +41,7 @@ def check(view: View, policy: policies.L2) -> ContractResult:
             continue
         if speech.vad_start is None:
             # The framework was never told of this speech, so nobody held the floor.
-            notes.append(f"speech {speech.index}: the run ended before the VAD reported it")
+            notes.append(f"speech {speech.index}: the VAD never reported it, so it held no floor")
             continue
 
         # The floor opens when the VAD has reported the speech, and no earlier than its start.

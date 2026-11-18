@@ -373,7 +373,7 @@ after it.
 | Milestone 3 | The first word of a reply to the turn starts playing. Any reply will do, including one the framework generated again for the same turn (after a backchannel, or because what it had generated ahead of time was out of date); the one heard first counts. However the chain ends (the rounds run out, a call is never answered, the model says nothing), the turn is still owed this, unless its tools asked for silence |
 | Rule | Fail if a milestone has not occurred by its deadline. The deadline is the start of the clock, plus the declared end-of-turn delay, plus the scripted provider delays on the chain so far, plus `slack_us`. A finding names the milestone that was missed (`milestone 1`, `milestone 2`, `milestone 3`), so that a failure to call the model and a reply that never plays are different failures |
 | End-of-turn delay | The scripted VAD's `min_silence_us` plus the session's `min_endpointing_delay_us`: the latest the framework can decide the turn is over |
-| Delays on the chain | For each step already taken: the model's `duration_us`; if it spoke, the `ttfb_us` of its own utterance plus the length of its audio, since the framework finishes speaking before the next step; and the backend `latency_us` of the writes its tools made |
+| Delays on the chain | For each step already taken: the model's `duration_us`; if it spoke, the `ttfb_us` of its own utterance plus the length of its audio, since the framework finishes speaking before the next step; and, for each write its tools made, the backend `latency_us`, or the wait before the caller was told the write timed out. A tool's own running time is not on the chain: the scenario's code decides it and nothing declares it. A turn whose tool takes long by design needs a larger `slack_us` |
 | Excused | The user began speaking again before the milestone was due. If that speech expects a reply it carries the obligation, and this turn has no verdict. If it is noise or a backchannel, the turn keeps the obligation and its clock restarts when that speech ends plus the false-interruption timeout. The user hung up before the milestone was due: the turn has no verdict. A milestone that was already overdue when the user left still fails |
 | Policy | `slack_us` (default 1 000 000). `max_steps` (default 4) |
 | Unobservable | The scenario ended (the final history was read) before the deadline passed; a tool the model called was not witnessed; or the reply's audio cannot be attributed |
@@ -403,11 +403,11 @@ between two speeches of a segment is in neither floor window: the user is not sp
 
 | | |
 | --- | --- |
-| Instance | Each speech that is neither noise nor a backchannel, and that the scripted VAD reported before the run ended |
+| Instance | Each speech that is neither noise nor a backchannel, and that the scripted VAD reported. A speech it never reported held no floor, whether it was too short for the VAD or the run ended first: it is named in a note and has no verdict |
 | Reference record | `world`: the floor window and interruption point |
 | Judged record | `sink`: when it was audible, and when segments started or resumed |
 | Rule a, stop | If the sink is audible at the interruption point, it stops being audible by that point plus `stop_bound_us`. Rule b keeps it silent from then until the floor window closes |
-| Rule b, no start | No segment starts or resumes inside the floor window, later than `start_grace_us` after it opens |
+| Rule b, no start | No segment starts or resumes inside the floor window, later than `start_grace_us` after it opens. Both ends of that span are excluded. A segment that plays on after its streaming buffer ran empty resumes, like one resumed after a pause: audio begins while the user holds the floor. A gap of zero length is no resume |
 | Policy | `stop_bound_us` (default 100 000). `start_grace_us` (default 0). `interruptions_allowed` (default true; if false, rule a does not apply) |
 | Reference in doubt | A rule a failure in which a pause or clear command did reach the sink, but later than the interruption point plus `stop_bound_us`, is marked `reference_in_doubt`. It stays a failure. It is not published or attributed until someone confirms that the computed interruption point matches the framework's documented threshold on that release. A failure with no command at all, or with a timely command the sink did not obey, is not marked |
 | Unobservable | The ledger has no true speech boundaries |
