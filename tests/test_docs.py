@@ -193,6 +193,84 @@ def test_the_readme_shows_the_example_as_it_is_in_the_repository():
         assert line in README, line
 
 
+SKILL = (ROOT / "skills" / "earful" / "SKILL.md").read_text()
+
+
+def test_the_skill_for_coding_agents_uses_only_what_exists():
+    """skills/earful/SKILL.md is what a coding assistant reads in place of these pages,
+    so a name it gets wrong is a name every assistant gets wrong. Its code is read as
+    Python: each name imported from the package is looked up, each keyword given to
+    something of the package is one that it takes, and each name the text sets in code
+    type is one the package has."""
+    import ast
+    import importlib
+    import inspect
+
+    import earful
+    import earful.livekit as adapter
+
+    front, _, body = SKILL.removeprefix("---\n").partition("\n---\n")
+    assert SKILL.startswith("---\nname: earful\n") and "\ndescription: " in "\n" + front
+
+    blocks = re.findall(r"```python\n(.*?)```", body, flags=re.DOTALL)
+    spans = re.findall(r"`([^`\n]+)`", re.sub(r"```.*?```", "", body, flags=re.DOTALL))
+    trees = [ast.parse(block) for block in blocks]
+    for span in spans:
+        try:
+            trees.append(ast.parse(span))
+        except SyntaxError:
+            continue  # prose in code type: a command, a rule's name, a fragment
+
+    known = {}
+    for tree in trees:
+        for node in ast.walk(tree):
+            if isinstance(node, ast.ImportFrom) and (node.module or "").startswith("earful"):
+                module = importlib.import_module(node.module)
+                for alias in node.names:
+                    assert hasattr(module, alias.name), f"{node.module} has no {alias.name}"
+                    known[alias.name] = getattr(module, alias.name)
+    assert {"Case", "Effect", "ScriptedModel", "UserSpeech", "effect", "run", "explore"} <= set(
+        known
+    )
+
+    methods = {"when": adapter.ScriptedModel.when, "otherwise": adapter.ScriptedModel.otherwise}
+    checked = 0
+    for tree in trees:
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call):
+                continue
+            if isinstance(node.func, ast.Name) and node.func.id in known:
+                target = known[node.func.id]
+            elif isinstance(node.func, ast.Attribute) and node.func.attr in methods:
+                target = methods[node.func.attr]
+            elif isinstance(node.func, ast.Attribute) and node.func.attr == "assert_contracts":
+                target = adapter.RunResult.assert_contracts
+            else:
+                continue
+            takes = inspect.signature(target).parameters
+            for keyword in node.keywords:
+                assert keyword.arg in takes, f"{ast.unparse(node.func)} takes no {keyword.arg}"
+                checked += 1
+    assert checked >= 10
+
+    # A bare name in code type is the package's, or one of the few that are not.
+    elsewhere = {"pytest", "earful", "AgentSession"}
+    for span in spans:
+        if re.fullmatch(r"[A-Za-z_]+", span) and span not in elsewhere:
+            assert hasattr(adapter, span) or hasattr(earful, span), f"the package has no {span}"
+
+    commands = _commands()
+    named = set(re.findall(r"`earful ([a-z]+) ", body))
+    assert named and named <= set(commands), named - set(commands)
+    assert "skills/earful/SKILL.md" in README
+
+
+def _commands():
+    from earful.cli import _parser
+
+    return _parser()._subparsers._group_actions[0].choices
+
+
 def test_every_page_and_command_the_readme_names_exists():
     from earful.cli import _parser
 

@@ -210,6 +210,14 @@ To test your own agent, start from [`docs/testing.md`](https://github.com/smartf
 talks to its service directly needs no stand-in: declare it as an effect in the test, and
 the agent stays as it is.
 
+## With a coding assistant
+
+Earful is new, so an assistant such as Claude Code or Cursor has not seen its API and
+will guess at it. [`skills/earful/SKILL.md`](https://github.com/smartfox96/earful/blob/main/skills/earful/SKILL.md) is one page that tells
+it how to write and read an Earful test. Copy it to where your assistant keeps its skills
+or rules (`.claude/skills/earful/SKILL.md` for Claude Code, a file under `.cursor/rules/`
+for Cursor), then ask for a test of your agent.
+
 ## What is checked
 
 Each contract is decided from the ledger alone ([`docs/contracts.md`](https://github.com/smartfox96/earful/blob/main/docs/contracts.md)).

@@ -53,7 +53,7 @@ packages = ["src/earful"]
 # The source distribution is what the package is built from and what explains it: the
 # code, the tests, the docs and the example. Environments and caches stay out.
 [tool.hatch.build.targets.sdist]
-include = ["src", "tests", "docs", "examples", "scripts", "compat", "*.md", "LICENSE", "NOTICE"]
+include = ["src", "tests", "docs", "examples", "skills", "scripts", "compat", "*.md", "LICENSE", "NOTICE"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

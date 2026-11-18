@@ -1,6 +1,7 @@
 """The example the README walks through: it fails as shipped, for the reason the README
 gives, and passes with the one-line fix the README gives."""
 
+import re
 import shutil
 from pathlib import Path
 
@@ -47,6 +48,42 @@ def test_as_shipped_the_conversation_passes_and_the_search_finds_a_second_bookin
     kept = example.path / ".earful" / "test_booking.py-test_every_timing_and_fault_near_it"
     assert (kept / "search-1.booking.A2-rule.case.json").exists()
     assert (kept / "search-1.booking.A2-rule.ledger.jsonl").exists()
+
+
+SKILL = EXAMPLE.parents[1] / "skills" / "earful" / "SKILL.md"
+# An agent with the tool the skill's test names, as an application would have written it.
+SUPPORT_AGENT = '''
+import livekit.agents as lk
+
+
+class SupportAgent(lk.Agent):
+    def __init__(self) -> None:
+        super().__init__(instructions="You handle refunds.")
+
+    @lk.function_tool
+    async def issue_refund(self, order: str) -> str:
+        """Refund an order.
+
+        Args:
+            order: The order number
+        """
+        raise AssertionError("a test reached the payment service")
+'''
+
+
+def test_the_test_the_skill_shows_a_coding_assistant_runs_as_written(pytester):
+    """skills/earful/SKILL.md shows an assistant one test to write others from. It is run
+    here as the page gives it. Only the run of the conversation as written is asserted:
+    what a search of it meets on an older release is not the skill's subject."""
+    (shown, *_others) = re.findall(r"```python\n(.*?)```", SKILL.read_text(), flags=re.DOTALL)
+    (pytester.path / "myapp").mkdir()
+    (pytester.path / "myapp" / "__init__.py").write_text("")
+    (pytester.path / "myapp" / "agent.py").write_text(SUPPORT_AGENT)
+    (pytester.path / "test_refund.py").write_text(shown)
+    result = pytester.runpytest_inprocess(
+        "-p", "no:cacheprovider", "-p", "no:asyncio", "-k", "as_written"
+    )
+    result.assert_outcomes(passed=1, deselected=1)
 
 
 def test_with_an_idempotency_key_sent_the_second_booking_is_gone(example):
