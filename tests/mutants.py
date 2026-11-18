@@ -1,9 +1,11 @@
 """Deliberate breaks of the code, one place each. ``scripts/mutate.py`` applies each in a
 copy of the repository and checks that a test fails.
 
-A mutant is a piece of source text and what replaces it. The text must occur exactly once
-in its file: ``scripts/mutate.py --verify`` checks that, and the lint job runs it, so a
-change to the code that moves a mutant's text fails until the mutant is brought along.
+A mutant is a piece of source text, what replaces it, and the tests that should fail when
+it does. The text must occur exactly once in its file and each word of ``first`` must be
+part of a test's name: ``scripts/mutate.py --verify`` checks both, and the lint job runs
+it, so a change that moves a mutant's text or renames its test fails until the mutant is
+brought along.
 """
 
 # ruff: noqa: E501  (each string is source text, copied exactly)
@@ -19,7 +21,7 @@ class Mutant:
     path: str  # the file, from the repository root
     old: str  # the text as it is: found exactly once in the file
     new: str  # the text that breaks it
-    first: str | None = None  # a pytest -k expression: tests to try before the whole suite
+    first: str  # a pytest -k expression: the tests that should catch it, run before any other
 
 
 MUTANTS = [
@@ -151,60 +153,70 @@ MUTANTS = [
         "src/earful/core/search.py",
         '    out["vad_end"] = length + vad["min_silence_us"]\n',
         '    out["vad_end"] = length\n',
+        first="test_a_speech_acts_at_its_anchors_and_each_variable_moves_some_of_them",
     ),
     Mutant(
         "search: a speech too short to interrupt is moved",
         "src/earful/core/search.py",
         '    if length >= session["min_interruption_duration_us"]:\n',
         "    if True:\n",
+        first="test_a_speech_acts_at_its_anchors_and_each_variable_moves_some_of_them",
     ),
     Mutant(
         "search: derived transitions are dropped",
         "src/earful/core/search.py",
         '            mark(t + d["ttft_us"], "llm.first_token")\n',
         "            pass\n",
+        first="test_transitions_are_the_events_of_a_run_and_the_moments_the_ledger_states",
     ),
     Mutant(
         "search: a refused case counts as run",
         "src/earful/core/search.py",
         "        return Outcome(case, refused=str(exc)), None\n",
         "        return Outcome(case), None\n",
+        first="test_a_runner_runs_each_case_once_and_one_bad_run_does_not_end_a_search",
     ),
     Mutant(
         "shrink: ddmin stops early",
         "src/earful/core/shrink.py",
         "            chunks = min(chunks * 2, len(current))\n",
         "            break\n",
+        first="test_ddmin_finds_a_one_minimal_subset",
     ),
     Mutant(
         "bundle: a replay accepts any run",
         "src/earful/core/bundle.py",
         "        reproduced=all(bundle.predicate in o.failures for o in outcomes),\n",
         "        reproduced=True,\n",
+        first="test_replay_of_a_committed_bundle_says_whether_this_release_still_has_the_defect",
     ),
     Mutant(
         "bundle: a loaded manifest is not validated",
         "src/earful/core/bundle.py",
         "    errors = validate(manifest)\n",
         "    errors = []\n",
+        first="test_a_bundle_that_is_not_one_is_refused",
     ),
     Mutant(
         "predicate: the rule is ignored",
         "src/earful/core/predicate.py",
         "        Predicate(verdict.contract, finding.rule)\n",
         "        Predicate(verdict.contract, 'rule')\n",
+        first="test_a_predicate_names_a_contract_rule_and_no_instance",
     ),
     Mutant(
         "search: offsets ignored",
         "src/earful/core/search.py",
         "                to = handle.value_us + transition.t_us + offset - handle.t_us\n",
         "                to = handle.value_us + transition.t_us - handle.t_us\n",
+        first="test_every_candidate_puts_a_handle_before_at_or_after_a_transition",
     ),
     Mutant(
         "search: no delay limit",
         "src/earful/core/search.py",
         "                too_long = waits and to > max(delay_limit_us, handle.value_us)\n",
         "                too_long = False\n",
+        first="test_a_search_never_makes_a_provider_slower_than_its_limit",
     ),
     Mutant(
         "search: a raising run ends the search",
@@ -217,42 +229,49 @@ MUTANTS = [
             "    except KeyboardInterrupt as exc:\n"
             "        return Outcome(case, error=str(exc)), None\n"
         ),
+        first="test_a_runner_runs_each_case_once_and_one_bad_run_does_not_end_a_search",
     ),
     Mutant(
         "search: runner forgets",
         "src/earful/core/search.py",
         "        todo = {key: case for key, case in zip(keys, wanted) if key not in self._seen}\n",
         "        todo = {key: case for key, case in zip(keys, wanted)}\n",
+        first="test_a_runner_runs_each_case_once_and_one_bad_run_does_not_end_a_search",
     ),
     Mutant(
         "search: word ends always",
         "src/earful/core/search.py",
         '        elif kind == "playout.finished" and words:\n',
         '        elif kind == "playout.finished":\n',
+        first="test_transitions_are_the_events_of_a_run_and_the_moments_the_ledger_states",
     ),
     Mutant(
         "search: speech.end moves the start anchors",
         "src/earful/core/search.py",
         '    "speech.end": ("transcript", "vad_end", "turn_end"),\n',
         '    "speech.end": ("vad_start", "transcript", "vad_end", "turn_end"),\n',
+        first="test_a_speech_acts_at_its_anchors_and_each_variable_moves_some_of_them",
     ),
     Mutant(
         "window: never to the microsecond",
         "src/earful/core/search.py",
         "    if lo == hi and resolution_us > 1:\n",
         "    if False:\n",
+        first="test_a_window_narrower_than_a_millisecond_is_located_to_the_microsecond",
     ),
     Mutant(
         "window: every end passes",
         "src/earful/core/search.py",
         '                bad, why = probe, "passes" if result is False else "blocked"\n',
         '                bad, why = probe, "passes"\n',
+        first="test_each_end_of_a_window_says_why_the_search_stopped_there",
     ),
     Mutant(
         "window: reach ignored",
         "src/earful/core/search.py",
         ('            if step >= reach:\n                return good, "reach"\n'),
         ('            if step >= reach * 1000:\n                return good, "reach"\n'),
+        first="test_each_end_of_a_window_says_why_the_search_stopped_there",
     ),
     Mutant(
         "search: everywhere never",
@@ -263,12 +282,14 @@ MUTANTS = [
             "        )\n"
         ),
         "        return False\n",
+        first="test_a_rule_that_breaks_wherever_things_are_put_is_not_about_timing",
     ),
     Mutant(
         "search: coverage ignores why",
         "src/earful/core/search.py",
         ("                if why is None:\n                    reached[name].add(kind)\n"),
         ("                if True:\n                    reached[name].add(kind)\n"),
+        first="test_what_cannot_be_run_is_counted_and_said",
     ),
     Mutant(
         "case: speeches may pass each other",
@@ -279,66 +300,77 @@ MUTANTS = [
             '    out["speeches"].sort(key=lambda s: s["start_us"])\n'
             "    return None if validate(out) else out\n"
         ),
+        first="test_a_value_that_gives_no_case_gives_none",
     ),
     Mutant(
         "case: a delay declared twice",
         "src/earful/core/case.py",
         "    if len(set(declared)) != len(declared):\n",
         "    if False:\n",
+        first="test_a_case_is_validated_against_its_schema",
     ),
     Mutant(
         "shrink: nothing-at-all not tried",
         "src/earful/core/shrink.py",
         ("    if fails([]):\n        return []\n"),
         "",
+        first="test_a_fault_is_a_difference_and_a_reduction_keeps_it_only_if_the_failure_needs_it",
     ),
     Mutant(
         "shrink: differences not isolated",
         "src/earful/core/shrink.py",
         "            if len(needed) < len(all_of_them):\n",
         "            if False:\n",
+        first="test_a_fault_is_a_difference_and_a_reduction_keeps_it_only_if_the_failure_needs_it",
     ),
     Mutant(
         "shrink: nothing removed",
         "src/earful/core/shrink.py",
         "            if len(kept) < len(items):\n",
         "            if False:\n",
+        first="test_a_fault_is_a_difference_and_a_reduction_keeps_it_only_if_the_failure_needs_it",
     ),
     Mutant(
         "shrink: settles what does not depend",
         "src/earful/core/shrink.py",
         '        depends = "passes" in (found.lo_end, found.hi_end)\n',
         "        depends = True\n",
+        first="test_a_fault_is_a_difference_and_a_reduction_keeps_it_only_if_the_failure_needs_it",
     ),
     Mutant(
         "shrink: settles on the edge",
         "src/earful/core/shrink.py",
         "        lo, hi, aim = found.lo_us + quarter, found.hi_us - quarter, (found.lo_us + found.hi_us) // 2\n",
         "        lo, hi, aim = found.lo_us, found.hi_us, found.lo_us\n",
+        first="test_a_hangup_is_a_difference_and_a_reduction_keeps_it_only_if_the_failure_needs_it",
     ),
     Mutant(
         "shrink: budget ignored",
         "src/earful/core/shrink.py",
         "        return runner.runs - start >= max_runs\n",
         "        return False\n",
+        first="test_shrinking_needs_a_failing_case_and_says_when_its_budget_ran_out",
     ),
     Mutant(
         "shrink: nearest is the first",
         "src/earful/core/shrink.py",
         "    return min(found, key=distance)\n",
         "    return found[0]\n",
+        first="test_the_case_to_reduce_is_the_one_nearest_the_authors",
     ),
     Mutant(
         "bundle: an unsteady case is kept",
         "src/earful/core/bundle.py",
         "    if distinct != 1:\n",
         "    if False:\n",
+        first="test_a_case_that_does_not_repeat_is_not_kept",
     ),
     Mutant(
         "bundle: code change never seen",
         "src/earful/core/bundle.py",
         '        changed = fingerprint(bundle.minimal["scenario"]) != recorded\n',
         "        changed = False\n",
+        first="test_a_bundle_holds_the_failure_and_replays",
     ),
     Mutant(
         "bundle: a written manifest is not validated",
@@ -349,12 +381,14 @@ MUTANTS = [
             '        raise ValueError(f"{directory / MANIFEST}'
         ),
         ('    errors = []\n    if errors:\n        raise ValueError(f"{directory / MANIFEST}'),
+        first="test_a_bundle_that_is_not_one_is_refused",
     ),
     Mutant(
         "adapter: settings not checked",
         "src/earful/livekit/scenario.py",
         "        if not ok:\n",
         "        if False:\n",
+        first="test_data_that_cannot_be_run_is_refused_with_a_value_error",
     ),
     Mutant(
         "adapter: unknown scenario not a ValueError",
@@ -364,36 +398,42 @@ MUTANTS = [
             '        raise ValueError(f"no scenario {scenario!r}: {exc}") from exc\n'
         ),
         ("    except (ImportError, AttributeError):\n        raise\n"),
+        first="test_a_scenario_or_a_case_that_does_not_exist_is_refused",
     ),
     Mutant(
         "adapter: fingerprint constant",
         "src/earful/livekit/scenario.py",
         '    return hashlib.sha256(source.encode("utf-8")).hexdigest() if source else ""\n',
         '    return "0" * 64\n',
+        first="test_a_bundle_says_when_the_code_of_its_scenario_has_changed",
     ),
     Mutant(
         "harness: declared delays ignored",
         "src/earful/livekit/harness.py",
         "        return {delay.nth: to_us(delay.seconds) for delay in case.delays if delay.of == of}\n",
         "        return {}\n",
+        first="test_l1_budgets_a_reply_with_the_delays_declared_for_it",
     ),
     Mutant(
         "vad: never merges",
         "src/earful/livekit/providers.py",
         "        if segments and speech.start_us - speeches[segments[-1][-1]].end_us < min_silence_us:\n",
         "        if False:\n",
+        first="test_the_search_finds_the_break_from_a_scenario_that_passes",
     ),
     Mutant(
         "L2: point from the speech, not the segment",
         "src/earful/core/checker/l2.py",
         "        reached = max(speech.segment_start + minimum, speech.start)\n",
         "        reached = speech.start + minimum\n",
+        first="test_speech_that_resumes_within_the_vads_silence_window_is_one_segment_to_it",
     ),
     Mutant(
         "L1: one rule name",
         "src/earful/core/checker/l1.py",
         ('    if step == AUDIO:\n        return "milestone 3"\n'),
         ('    if step == AUDIO:\n        return "rule"\n'),
+        first="test_l1_fails_when_the_model_returns_nothing",
     ),
     Mutant(
         "L1: the voice's default ttfb",
@@ -404,6 +444,7 @@ MUTANTS = [
             "        )\n"
         ),
         '        return view.providers["tts"]["ttfb_us"]\n',
+        first="test_l1_budgets_a_reply_with_the_delays_declared_for_it",
     ),
     Mutant(
         "validator: vad report for any speech",
@@ -414,12 +455,14 @@ MUTANTS = [
             "            ):\n"
         ),
         "            elif False:\n",
+        first="test_validator_rejects",
     ),
     Mutant(
         "model: call ids not unique",
         "src/earful/livekit/providers.py",
         '            t.call_id if t.call_id is not None else f"call-{call}-{n}"\n',
         '            t.call_id if t.call_id is not None else "call"\n',
+        first="test_as_shipped_the_conversation_passes_and_the_search_finds_a_second_booking",
     ),
     # Backend faults.
     Mutant(
@@ -427,36 +470,42 @@ MUTANTS = [
         "src/earful/core/backend.py",
         '        if fault != "backend.drop":\n',
         '        if fault not in ("backend.drop", "backend.timeout"):\n',
+        first="test_a_fault_on_the_write_is_what_the_tool_raises",
     ),
     Mutant(
         "backend: a rejected write commits",
         "src/earful/core/backend.py",
         'rejected=fault == "backend.error"\n',
         "rejected=False\n",
+        first="test_run_exits_1_when_the_scenario_breaks_a_rule_as_it_does_from_a_saved_case",
     ),
     Mutant(
         "backend: the caller is told at once",
         "src/earful/core/backend.py",
         "            await asyncio.sleep(to_seconds(give_up_us))\n",
         "            await asyncio.sleep(0)\n",
+        first="test_a_caller_that_times_out_first_is_told_so_and_the_write_still_commits",
     ),
     Mutant(
         "backend: a fault applies to every write",
         "src/earful/core/backend.py",
         "fault, give_up_us = self._faults.get(request, (None, None))",
         "fault, give_up_us = next(iter(self._faults.values()), (None, None))",
+        first="test_a_fault_belongs_to_one_write_and_the_next_is_untouched",
     ),
     Mutant(
         "L1: a timed-out wait is not declared time",
         "src/earful/core/checker/l1.py",
         '            e.timed_out["data"]["after_us"] if e.timed_out else e.requested["data"]["latency_us"]\n',
         '            e.requested["data"]["latency_us"]\n',
+        first="test_with_an_idempotency_key_sent_the_second_booking_is_gone",
     ),
     Mutant(
         "view: any outcome is a commit",
         "src/earful/core/checker/view.py",
         'return self.outcome if self.outcome and self.outcome["kind"] == "effect.committed" else None',
         "return self.outcome",
+        first="test_run_exits_1_when_the_scenario_breaks_a_rule_as_it_does_from_a_saved_case",
     ),
     Mutant(
         "search: no timeout that commits later",
@@ -468,24 +517,28 @@ MUTANTS = [
             "                    ]\n"
         ),
         '                    versions = [(f"{of} {nth}, commit first", with_one)]\n',
+        first="test_a_search_adds_each_fault_to_each_write_the_run_made",
     ),
     Mutant(
         "search: the wait is not moved",
         "src/earful/core/search.py",
         "        if gave_up is not None:\n",
         "        if False:\n",
+        first="test_a_fault_search_runs_every_fault_on_every_write_and_every_run_is_judged",
     ),
     Mutant(
         "search: a wait may pass the limit",
         "src/earful/core/search.py",
         "                waits = handle.variable.kind in (*cases.DELAY_KINDS, cases.WAIT)\n",
         "                waits = handle.variable.kind in cases.DELAY_KINDS\n",
+        first="test_a_caller_is_never_made_to_wait_longer_than_the_limit",
     ),
     Mutant(
         "search: a paired timeout loses its later commit",
         "src/earful/core/search.py",
         "                if both is not None and later is not None and later != cases.value(case, commit):\n",
         "                if False:\n",
+        first="test_pairs_put_faults_on_two_writes_and_move_speeches_under_each_fault",
     ),
     Mutant(
         "search: pairs do not move speeches under a fault",
@@ -495,60 +548,70 @@ MUTANTS = [
             "                move_speeches(version, under[label], label)\n"
         ),
         ("            if False:\n                move_speeches(version, under[label], label)\n"),
+        first="test_pairs_put_faults_on_two_writes_and_move_speeches_under_each_fault",
     ),
     Mutant(
         "search: profiles are not seeded",
         "src/earful/core/search.py",
         "        rng = random.Random(f\"{case['seed']}:{number}\")\n",
         "        rng = random.Random()\n",
+        first="test_profiles_redraw_every_delay_from_the_seed_and_move_speeches_under_each",
     ),
     Mutant(
         "search: profiles ignore the case's seed",
         "src/earful/core/search.py",
         "        rng = random.Random(f\"{case['seed']}:{number}\")\n",
         '        rng = random.Random(f"{number}")\n',
+        first="test_profiles_redraw_every_delay_from_the_seed_and_move_speeches_under_each",
     ),
     Mutant(
         "search: speeches are not moved under a profile",
         "src/earful/core/search.py",
         '            move_speeches(profile, produced, f"profile {number}")\n',
         "            pass\n",
+        first="test_profiles_redraw_every_delay_from_the_seed_and_move_speeches_under_each",
     ),
     Mutant(
         "search: an unmoved break is given a window",
         "src/earful/core/search.py",
         "        moved = [t for t in self.breaking(predicate) if t.candidate.variable is not None]\n",
         "        moved = list(self.breaking(predicate))\n",
+        first="test_search_finds_the_break_keeps_it_and_the_kept_bundle_replays",
     ),
     Mutant(
         "case: two faults on one write validate",
         "src/earful/core/case.py",
         "    if len(set(faulted)) != len(faulted):\n",
         "    if False:\n",
+        first="test_a_fault_is_data_for_one_write",
     ),
     Mutant(
         "case: a timeout needs no wait",
         "src/earful/core/case.py",
         '        if (fault["us"] is None) != (fault["of"] == "backend.error"):\n',
         "        if False:\n",
+        first="test_a_fault_is_data_for_one_write",
     ),
     Mutant(
         "case: an error's wait can be moved",
         "src/earful/core/case.py",
         '            (f for f in out["faults"] if f["nth"] == variable.index and f["us"] is not None), None\n',
         '            (f for f in out["faults"] if f["nth"] == variable.index), None\n',
+        first="test_a_fault_is_data_for_one_write",
     ),
     Mutant(
         "shrink: a fault is not a difference",
         "src/earful/core/shrink.py",
         "        if ours_faults.get(nth) != theirs_faults.get(nth):\n",
         "        if False:\n",
+        first="test_a_fault_is_a_difference_and_a_reduction_keeps_it_only_if_the_failure_needs_it",
     ),
     Mutant(
         "shrink: faults are never removed",
         "src/earful/core/shrink.py",
         ('        ("delays", "declared delays"),\n        ("faults", "faults"),\n    ):\n'),
         ('        ("delays", "declared delays"),\n    ):\n'),
+        first="test_a_fault_is_a_difference_and_a_reduction_keeps_it_only_if_the_failure_needs_it",
     ),
     Mutant(
         "shrink: a moved wait has no window",
@@ -561,12 +624,14 @@ MUTANTS = [
             "    ]\n"
         ),
         "    out += []\n",
+        first="test_a_fault_is_a_difference_and_a_reduction_keeps_it_only_if_the_failure_needs_it",
     ),
     Mutant(
         "validator: a caller may give up twice",
         "src/earful/core/schema.py",
         '            if d["request"] not in effect_requests or d["request"] in gave_up:\n',
         '            if d["request"] not in effect_requests:\n',
+        first="test_validator_rejects_a_faulted_write_that_cannot_have_happened",
     ),
     Mutant(
         "validator: a rejection is not an outcome",
@@ -579,6 +644,7 @@ MUTANTS = [
             '        elif k in ("effect.committed", "effect.deduplicated", "effect.failed"):\n'
             '            if d["request"] not in effect_requests or (k != "effect.failed" and d["request"] in effect_outcomes):\n'
         ),
+        first="test_validator_rejects_a_faulted_write_that_cannot_have_happened",
     ),
     Mutant(
         "harness: faults do not reach the backend",
@@ -589,12 +655,14 @@ MUTANTS = [
             "        },\n"
         ),
         "        faults={},\n",
+        first="test_run_exits_1_when_the_scenario_breaks_a_rule_as_it_does_from_a_saved_case",
     ),
     Mutant(
         "harness: two faults on one write run",
         "src/earful/livekit/harness.py",
         "            if fault.nth in faulted:\n",
         "            if False:\n",
+        first="test_a_fault_that_is_no_fault_is_refused",
     ),
     Mutant(
         "adapter: a case's faults are not built",
@@ -606,12 +674,14 @@ MUTANTS = [
             "    ]\n"
         ),
         "    case.faults = []\n",
+        first="test_run_exits_1_when_the_scenario_breaks_a_rule_as_it_does_from_a_saved_case",
     ),
     Mutant(
         "bundle: the manifest miscounts faults",
         "src/earful/core/bundle.py",
         '            "faults": len(shrunk.case["faults"]),\n',
         '            "faults": 0,\n',
+        first="test_a_case_found_with_a_fault_reduces_to_the_fault_and_replays",
     ),
     Mutant(
         "search: no timeout that commits first",
@@ -623,18 +693,21 @@ MUTANTS = [
             "                    ]\n"
         ),
         '                    versions = [(f"{of} {nth}, commit later", with_one)]\n',
+        first="test_a_search_adds_each_fault_to_each_write_the_run_made",
     ),
     Mutant(
         "search: the commit is not moved under a timeout",
         "src/earful/core/search.py",
         "        if label in as_written:\n",
         "        if False:\n",
+        first="test_a_fault_search_runs_every_fault_on_every_write_and_every_run_is_judged",
     ),
     Mutant(
         "search: a slow write is called commit first",
         "src/earful/core/search.py",
         "                if latency < wait_us:\n",
         "                if True:\n",
+        first="test_a_search_adds_each_fault_to_each_write_the_run_made",
     ),
     # The hangup.
     Mutant(
@@ -647,18 +720,21 @@ MUTANTS = [
             "                return\n"
             "            try:\n"
         ),
+        first="test_a_tool_cancelled_while_its_write_is_under_way_is_cancelled_and_the_write_commits",
     ),
     Mutant(
         "backend: a rejected write whose caller has gone is not recorded",
         "src/earful/core/backend.py",
         ('        if fault != "backend.drop":\n            self._schedule('),
         ('        if fault not in ("backend.drop", "backend.error"):\n            self._schedule('),
+        first="test_run_exits_1_when_the_scenario_breaks_a_rule_as_it_does_from_a_saved_case",
     ),
     Mutant(
         "harness: the session is not closed at the hangup",
         "src/earful/livekit/harness.py",
         "    closing = asyncio.ensure_future(session.aclose())\n",
         "    closing = asyncio.ensure_future(asyncio.sleep(0))\n",
+        first="test_m1_fails_when_the_output_plays_on_after_the_user_has_left",
     ),
     Mutant(
         "harness: the header does not state the hangup",
@@ -668,6 +744,7 @@ MUTANTS = [
             '        "intents": ['
         ),
         ('        "hangup_us": None,\n        "intents": ['),
+        first="test_l1_owes_nothing_to_a_user_who_hung_up_before_it_was_due",
     ),
     Mutant(
         "harness: a hangup before a speech is over runs",
@@ -682,6 +759,7 @@ MUTANTS = [
             "                raise ValueError(\n"
             '                    f"the user hangs up at'
         ),
+        first="test_a_scenario_that_contradicts_itself_is_refused_before_it_runs",
     ),
     Mutant(
         "harness: the history is read before the session has closed",
@@ -692,12 +770,14 @@ MUTANTS = [
             "        # Some releases"
         ),
         ("    done = True\n    if not done:\n        # Some releases"),
+        first="test_l1_owes_nothing_to_a_user_who_hung_up_before_it_was_due",
     ),
     Mutant(
         "validator: a hangup may be recorded twice",
         "src/earful/core/schema.py",
         "    if len(hangups) > 1:\n",
         "    if False:\n",
+        first="test_validator_rejects_a_hangup_that_cannot_have_happened",
     ),
     Mutant(
         "validator: an undeclared hangup validates",
@@ -708,12 +788,14 @@ MUTANTS = [
             "        elif"
         ),
         ('        if scenario["hangup_us"] is None:\n            pass\n        elif'),
+        first="test_validator_rejects_a_hangup_that_cannot_have_happened",
     ),
     Mutant(
         "validator: a hangup may be at any time",
         "src/earful/core/schema.py",
         '        elif header["clock"] == "virtual" and (\n',
         "        elif False and (\n",
+        first="test_a_real_clock_hangup_need_not_fall_on_its_declared_microsecond",
     ),
     Mutant(
         "validator: a real-clock hangup is held to its microsecond",
@@ -731,24 +813,28 @@ MUTANTS = [
             "    ):\n"
         ),
         "    if False:\n",
+        first="test_validator_rejects_a_hangup_that_cannot_have_happened",
     ),
     Mutant(
         "view: words finished after the hangup count as played",
         "src/earful/core/checker/view.py",
         "                if left is not None and at > left:\n",
         "                if False:\n",
+        first="test_m1_fails_when_the_output_plays_on_after_the_user_has_left",
     ),
     Mutant(
         "view: audio that starts after the hangup is audible",
         "src/earful/core/checker/view.py",
         "            return None if at is None or (left is not None and at >= left) else at\n",
         "            return at\n",
+        first="test_audio_that_starts_as_the_user_leaves_was_never_audible",
     ),
     Mutant(
         "view: the word under way at the hangup is not cut",
         "src/earful/core/checker/view.py",
         "                playout.cut = 1  # the word under way when the user left is the one they heard cut\n",
         "                pass\n",
+        first="test_a3_a_claim_that_finished_playing_after_the_user_left_was_not_delivered",
     ),
     Mutant(
         "L1: a hangup excuses nothing",
@@ -761,48 +847,56 @@ MUTANTS = [
             "            ):\n"
         ),
         "            if False:\n",
+        first="test_l1_owes_nothing_to_a_user_who_hung_up_before_it_was_due",
     ),
     Mutant(
         "L1: a hangup excuses a turn that was overdue",
         "src/earful/core/checker/l1.py",
         ("                self._left is not None\n                and self._left < deadline\n"),
         "                self._left is not None\n",
+        first="test_l1_still_fails_a_turn_that_was_overdue_when_the_user_left",
     ),
     Mutant(
         "M1: playing on after the hangup is not flagged",
         "src/earful/core/checker/m1.py",
         '            flags.append("played_on_after_the_hangup")  # judged on what the user heard\n',
         "            pass\n",
+        first="test_m1_fails_when_the_output_plays_on_after_the_user_has_left",
     ),
     Mutant(
         "case: a hangup may come before the last speech ends",
         "src/earful/core/case.py",
         '    elif case["hangup_us"] is not None and case["hangup_us"] < last_end:\n',
         "    elif False:\n",
+        first="test_a_hangup_is_a_time_in_the_case_no_earlier_than_the_end_of_the_last_speech",
     ),
     Mutant(
         "case: a user who never speaks may hang up",
         "src/earful/core/case.py",
         '    if case["hangup_us"] is not None and last_end is None:\n',
         "    if False:\n",
+        first="test_a_hangup_is_a_time_in_the_case_no_earlier_than_the_end_of_the_last_speech",
     ),
     Mutant(
         "case: a moved hangup is not checked",
         "src/earful/core/case.py",
         ('        out["hangup_us"] = us\n        return None if validate(out) else out\n'),
         ('        out["hangup_us"] = us\n        return out\n'),
+        first="test_a_hangup_is_a_time_in_the_case_no_earlier_than_the_end_of_the_last_speech",
     ),
     Mutant(
         "search: the hangup is not moved",
         "src/earful/core/search.py",
         ("        if cases.HANGUP not in kinds:\n            return\n"),
         ("        if True:\n            return\n"),
+        first="test_a_search_moves_the_hangup_to_every_transition_after_the_last_speech",
     ),
     Mutant(
         "search: a declared hangup is moved against its own run",
         "src/earful/core/search.py",
         '        stays = produced if on["hangup_us"] is None else runner.ledger(cases.without_hangup(on))\n',
         "        stays = produced\n",
+        first="test_a_hangup_the_case_declares_is_moved_against_the_run_in_which_the_user_stays",
     ),
     Mutant(
         "search: the hangup is not moved under a fault",
@@ -812,24 +906,28 @@ MUTANTS = [
             "                move_hangup(version, under[label], label)\n"
         ),
         "                move_speeches(version, under[label], label)\n",
+        first="test_pairs_move_the_hangup_with_each_fault_in_place",
     ),
     Mutant(
         "search: the hangup is always moved",
         "src/earful/core/search.py",
         ("        if cases.HANGUP not in kinds:\n            return\n"),
         ("        if False:\n            return\n"),
+        first="test_exploring_runs_every_candidate_and_reports_what_broke_and_what_was_reached",
     ),
     Mutant(
         "shrink: a hangup is not a difference",
         "src/earful/core/shrink.py",
         '    if author["hangup_us"] != found["hangup_us"]:\n',
         "    if False:\n",
+        first="test_a_hangup_is_a_difference_and_a_reduction_keeps_it_only_if_the_failure_needs_it",
     ),
     Mutant(
         "shrink: the hangup is never removed",
         "src/earful/core/shrink.py",
         '    if current["hangup_us"] is not None and not spent() and breaks(cases.without_hangup(current)):\n',
         "    if False:\n",
+        first="test_a_hangup_is_a_difference_and_a_reduction_keeps_it_only_if_the_failure_needs_it",
     ),
     Mutant(
         "shrink: a moved hangup is not settled",
@@ -840,12 +938,14 @@ MUTANTS = [
             "    ):\n"
         ),
         "    if False:\n",
+        first="test_a_hangup_is_a_difference_and_a_reduction_keeps_it_only_if_the_failure_needs_it",
     ),
     Mutant(
         "shrink: a difference in the hangup is not applied",
         "src/earful/core/shrink.py",
         ('        elif target[0] == "hangup":\n            out["hangup_us"] = to\n'),
         ('        elif target[0] == "hangup":\n            pass\n'),
+        first="test_a_hangup_is_a_difference_and_a_reduction_keeps_it_only_if_the_failure_needs_it",
     ),
     Mutant(
         "adapter: a case's hangup is not built",

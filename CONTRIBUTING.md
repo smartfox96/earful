@@ -24,7 +24,7 @@ run the code in your checkout.
 | `scripts/wheel_smoke.sh` | Builds the wheel and the source distribution, installs the wheel alone outside the repository and uses it | 5 s |
 | `scripts/quickstart_check.sh` | Follows the README's quickstart from the wheel, with livekit-agents, outside the repository | 90 s |
 | `scripts/check_all.sh` | All of the above, then on each of the five releases: every test, repeatability of the reference ledgers, the two historical cases and the replays | 8 min |
-| `.venvs/lk-1.8.12/bin/python scripts/mutate.py` | Applies each deliberate break of `tests/mutants.py` and checks that a test fails | 30 min |
+| `.venvs/lk-1.8.12/bin/python scripts/mutate.py` | Applies each deliberate break of `tests/mutants.py` and checks that a test it names fails | 5 min |
 
 CI runs `check_all.sh`'s parts on every pull request, on Linux for the five releases and
 on macOS for the oldest and the newest. The deliberate breaks run each night.
@@ -63,8 +63,10 @@ with the schemas: a field the schema has and the page does not mention fails it.
 
 **A change to behaviour comes with a deliberate break.** `tests/mutants.py` lists small
 breaks of the code, each one piece of source text and what replaces it. When you add
-behaviour, add the break that removes it and name the test that should catch it. When you
-move code a break is anchored on, `scripts/lint.sh` fails until the break's text is
+behaviour, add the break that removes it and name the test that should catch it. Only
+the named tests are run against a break, which is what keeps the whole run short; a break
+that some other test catches fails the run as misnamed. When you move code a break is
+anchored on, or rename a test a break names, `scripts/lint.sh` fails until the break is
 brought along. A break that no test can catch is a sign the code it breaks is not needed.
 
 **Tests over a second are marked `slow`.** `pytest -m "not slow"` is the loop to work in.
