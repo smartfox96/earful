@@ -5,6 +5,7 @@
 # The date runs to the end of that day in UTC. An environment that exists is kept and
 # brought up to date.
 # EARFUL_PYTHON picks the interpreter of a new environment (default 3.13).
+# EARFUL_DIST installs the wheel in that directory in place of the checkout.
 # EARFUL_LOCK=check compares the result with compat/pc-<version>.lock.txt, and
 # EARFUL_LOCK=write records it there (scripts/env_lock.sh).
 set -euo pipefail
@@ -15,9 +16,15 @@ version="${1:-1.16.0}"
 as_of="${2:-2026-11-18}"
 env_dir=".venvs/pc-$version"
 
+earful=(-e '.[pipecat]')
+if [ -n "${EARFUL_DIST:-}" ]; then
+  wheel="$(cd "$EARFUL_DIST" && pwd)/$(cd "$EARFUL_DIST" && ls earful-*.whl)"
+  earful=("${wheel}[pipecat]")
+fi
+
 [ -x "$env_dir/bin/python" ] || uv venv -q --python "${EARFUL_PYTHON:-3.13}" "$env_dir"
 VIRTUAL_ENV="$env_dir" uv pip install -q --exclude-newer "$as_of" \
-  -e '.[pipecat]' "pipecat-ai==$version" pytest pytest-asyncio
+  "${earful[@]}" "pipecat-ai==$version" pytest pytest-asyncio
 scripts/env_lock.sh "$env_dir" "compat/pc-$version.lock.txt"
 
 "$env_dir/bin/python" -c 'from importlib.metadata import version; print("pipecat-ai", version("pipecat-ai"))'

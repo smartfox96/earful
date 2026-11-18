@@ -398,7 +398,7 @@ def test_a_change_to_prose_alone_runs_every_test_file_that_reads_prose():
         for path in (ROOT / "tests").glob("test_*.py")
         if reads.search(path.read_text()) and path != Path(__file__).resolve()
     }
-    ran = set(re.findall(r"pytest -q tests/(test_\w+\.py)$", _jobs(CI)["docs"], re.MULTILINE))
+    ran = set(re.findall(r" tests/(test_\w+\.py)$", _jobs(CI)["docs"], re.MULTILINE))
     assert readers == ran, "the docs job of ci.yml has to run each test file that reads prose"
 
 
@@ -475,7 +475,41 @@ def test_a_resolve_date_means_the_same_day_on_every_machine():
 def test_ci_compares_the_environments_it_builds_on_python_3_13_with_their_lock_files():
     jobs = _jobs(CI)
     assert "EARFUL_LOCK: ${{ matrix.python == '3.13' && 'check' || '' }}\n" in jobs["determinism"]
-    assert "EARFUL_LOCK=check scripts/make_pipecat_env.sh\n" in jobs["pipecat"]
+    assert "EARFUL_LOCK: ${{ matrix.cell.python == '3.13' && 'check' || '' }}\n" in jobs["pipecat"]
     for name in ("make_env.sh", "make_pipecat_env.sh"):
         script = (SCRIPTS / name).read_text()
         assert re.search(r'^\S*scripts/env_lock\.sh"? "\$env_dir" ', script, re.MULTILINE), name
+
+
+_PASSES = "def test_one():\n    pass\n"
+_SKIPPED = "import pytest\n\n\n@pytest.mark.skip\ndef test_two():\n    pass\n\n\n"
+_SKIPS_ITSELF = 'import pytest\n\npytest.importorskip("no_such_framework")\n\n\n'
+_TESTS = {
+    "every test passes": _PASSES + "\n\ndef test_two():\n    pass\n",
+    "a test is skipped": _SKIPPED + _PASSES,  # pytest itself exits 0
+    "the file skips itself": _SKIPS_ITSELF + _PASSES,
+    "a test fails": "def test_one():\n    assert False\n",
+    "there is no test": "",
+}
+
+
+@pytest.mark.parametrize("name", _TESTS)
+def test_a_run_counts_only_when_every_test_ran(tmp_path, name):
+    (tmp_path / "test_these.py").write_text(_TESTS[name])
+    done = _script("ran_every_test.sh", sys.executable, "test_these.py", cwd=tmp_path)
+    if name == "every test passes":
+        assert done.returncode == 0, done.stdout + done.stderr
+        assert done.stdout.endswith("all 2 tests ran\n")
+    else:
+        assert done.returncode != 0, done.stdout
+    if name == "a test is skipped":
+        assert "1 passed, 1 skipped" in done.stdout and "skipped 1" in done.stderr
+
+
+def test_the_pipecat_tests_run_where_a_skip_fails_the_job():
+    jobs = _jobs(CI)
+    ran = "scripts/ran_every_test.sh .venvs/pc-{}/bin/python tests/test_pipecat.py\n"
+    assert ran.format("${{ matrix.pc.version }}") in jobs["pipecat"]
+    assert ran.format("1.16.0") in jobs["docs"]
+    assert ran.format("1.16.0") in (SCRIPTS / "check_all.sh").read_text()
+    assert "pytest.importorskip(" in (ROOT / "tests" / "test_pipecat.py").read_text()

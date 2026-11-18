@@ -67,6 +67,18 @@ A separate job builds the wheel, installs it alone in a fresh environment outsid
 repository, without livekit-agents, and uses it (`scripts/wheel_smoke.sh`): the package
 imports and checks a ledger with nothing but its own dependencies.
 
+## What CI runs for Pipecat
+
+On every pull request, each row below builds the pinned environment without
+livekit-agents and runs `tests/test_pipecat.py`. A row fails if a test there is skipped.
+
+| pipecat-ai | Python | System | Earful installed from |
+| --- | --- | --- | --- |
+| 1.16.0 | 3.11 | Linux | the checkout |
+| 1.16.0 | 3.12 | Linux | the built wheel |
+| 1.16.0 | 3.13 | Linux | the checkout |
+| 1.16.0 | 3.13 | macOS | the checkout |
+
 ## The portable core
 
 `earful` without framework extras depends only on `jsonschema`. It reads and checks

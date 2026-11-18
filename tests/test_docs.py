@@ -212,6 +212,30 @@ def test_each_extra_accepts_the_releases_the_page_says_it_does():
     )
 
 
+def test_the_pipecat_table_on_the_compatibility_page_is_what_the_workflow_runs():
+    ((release, as_of),) = re.findall(_PINNED, _section("pipecat-ai"), re.MULTILINE)
+    job = _job("pipecat")
+    assert re.findall(r'version: "([\d.]+)", as_of: "([\d-]+)"', job) == [(release, as_of)]
+    cells = re.findall(r'\{ os: (\w+)-latest, python: "([\d.]+)", from: (\w+) \}', job)
+    systems = {"ubuntu": "Linux", "macos": "macOS"}
+    sources = {"checkout": "the checkout", "wheel": "the built wheel"}
+    table = re.findall(
+        r"^\| ([\d.]+) \| ([\d.]+) \| (Linux|macOS) \| (the checkout|the built wheel) \|$",
+        _section("What CI runs for Pipecat"),
+        re.MULTILINE,
+    )
+    assert table == [
+        (release, python, systems[os], sources[source]) for os, python, source in cells
+    ]
+    # Every Python from the extra's marker to the newest, both systems, and the wheel once.
+    pythons = sorted({python for _, python, _ in cells})
+    assert pythons == ["3.11", "3.12", "3.13"]
+    assert {os for os, _, _ in cells} == set(systems)
+    assert [source for _, _, source in cells].count("wheel") == 1
+    supported = f"pipecat-ai {release}, on Linux and macOS, Python {pythons[0]} to {pythons[-1]}."
+    assert supported in README
+
+
 def test_the_ci_table_on_the_compatibility_page_is_what_the_workflow_runs():
     page = (ROOT / "docs" / "compatibility.md").read_text()
     workflow = (ROOT / ".github" / "workflows" / "ci.yml").read_text()

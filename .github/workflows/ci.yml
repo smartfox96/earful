@@ -70,7 +70,7 @@ jobs:
       - name: Tests that read docs/ and the top-level Markdown
         run: |
           .venvs/lk-1.8.12/bin/python -m pytest -q tests/test_docs.py
-          .venvs/pc-1.16.0/bin/python -m pytest -q tests/test_pipecat.py
+          scripts/ran_every_test.sh .venvs/pc-1.16.0/bin/python tests/test_pipecat.py
 
   lint:
     name: format, lint, types
@@ -109,20 +109,50 @@ jobs:
         run: scripts/quickstart_check.sh
 
   pipecat:
-    name: pipecat 1.16.0 / Linux / py3.13
+    name: pc ${{ matrix.pc.version }} / ${{ matrix.cell.os }} / py${{ matrix.cell.python }} / ${{ matrix.cell.from }}
     needs: changes
     if: needs.changes.outputs.code == 'true'
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
+    runs-on: ${{ matrix.cell.os }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        pc:
+          - { version: "1.16.0", as_of: "2026-11-18" }
+        # Every Python the adapter supports, macOS once, and the built wheel once.
+        cell:
+          - { os: ubuntu-latest, python: "3.11", from: checkout }
+          - { os: ubuntu-latest, python: "3.12", from: wheel }
+          - { os: ubuntu-latest, python: "3.13", from: checkout }
+          - { os: macos-latest, python: "3.13", from: checkout }
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v6
-      - name: Build pinned environment, and compare it with its lock file
-        run: EARFUL_LOCK=check scripts/make_pipecat_env.sh
-      - name: Exercise the Pipecat adapter without LiveKit
+      - name: Build the wheel
+        if: matrix.cell.from == 'wheel'
+        run: uv build --wheel --out-dir dist
+      - name: Build pinned environment, and compare it with its lock file on Python 3.13
+        env:
+          EARFUL_PYTHON: ${{ matrix.cell.python }}
+          EARFUL_DIST: ${{ matrix.cell.from == 'wheel' && 'dist' || '' }}
+          EARFUL_LOCK: ${{ matrix.cell.python == '3.13' && 'check' || '' }}
+        run: scripts/make_pipecat_env.sh ${{ matrix.pc.version }} ${{ matrix.pc.as_of }}
+      - name: LiveKit is absent, and the package is the one this cell installs
+        env:
+          FROM: ${{ matrix.cell.from }}
         run: |
-          .venvs/pc-1.16.0/bin/python -c 'import importlib.util; assert importlib.util.find_spec("livekit") is None'
-          .venvs/pc-1.16.0/bin/python -m pytest -q tests/test_pipecat.py
+          .venvs/pc-${{ matrix.pc.version }}/bin/python - <<'PY'
+          import importlib.util
+          import os
+
+          import earful
+
+          assert importlib.util.find_spec("livekit") is None, "livekit is installed"
+          installed = "site-packages" in earful.__file__
+          assert installed == (os.environ["FROM"] == "wheel"), earful.__file__
+          PY
+      - name: Every Pipecat test runs, and none is skipped (scripts/ran_every_test.sh)
+        run: scripts/ran_every_test.sh .venvs/pc-${{ matrix.pc.version }}/bin/python tests/test_pipecat.py
 
   determinism:
     name: lk ${{ matrix.lk.version }} / ${{ matrix.os }} / py${{ matrix.python }}
