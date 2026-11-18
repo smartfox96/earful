@@ -22,12 +22,15 @@ look at [a known defect of livekit-agents 1.5.6](https://smartfox96.github.io/ea
 
 ## Quickstart
 
-Ten minutes, Python 3.10 or later. The two files below are in
+Ten minutes, Python 3.10 or later, with pytest installed. The two files below are in
 [`examples/booking`](https://github.com/smartfox96/earful/tree/main/examples/booking). The output shown is from livekit-agents 1.8.12.
 
 ```bash
-pip install "earful[livekit]" pytest
+pip install "earful[livekit]"
 ```
+
+The quotes keep the shell from reading the brackets, and `[livekit]` installs
+livekit-agents alongside in a release Earful is tested with.
 
 **1. An agent.** This one takes restaurant bookings. It is handed the service it books
 with and knows nothing of Earful. Save it as `agent.py`.
