@@ -146,7 +146,8 @@ renumbered while the failure stays the same.
 A run **breaks a predicate** when its report has a failed verdict of that contract with a
 finding of that rule. Three kinds of run break nothing, because nothing can be concluded
 from them: a run that is not valid evidence, a case the adapter refuses, and a run that
-raises. Each is counted and reported; none ends a search.
+raises. Each is counted and reported; none ends a search. A search that could judge none
+of the cases it tried has no result, and its assertion fails.
 
 ## 3. The boundary scheduler
 
@@ -241,6 +242,15 @@ events included. What it finds is decided by the checker alone.
   run that could be judged, and the kinds it never was, with the reason: no such case
   exists (`impossible`), the adapter refused it, the run raised, or the run was not valid
   evidence. A search that found nothing is read together with this list.
+- **What was not judged.** The cases that were refused, raised or were not valid evidence,
+  grouped by reason. Reasons that differ only in a number are one reason. Each has its
+  count and one case as an example: what was changed, and what that put beside what.
+
+  ```
+  not judged: 2 of 78 cases
+      2 error: RuntimeError: boom
+          such as speech.position 1 at 2.500 s (as written 20.000 s), to put interrupt at llm.done
+  ```
 
 ## 4. Windows
 

@@ -420,10 +420,79 @@ def test_what_cannot_be_run_is_counted_and_said():
         summary["error"] == 2 and summary["ran"] > 0 and summary["errors"] == ["RuntimeError: boom"]
     )
     assert summary["error"] + summary["ran"] == summary["candidates"]
+    found.assert_contracts()  # the cases that ran were judged, and none broke a rule
+    assert found.describe().endswith(
+        f"\n\nnot judged: 2 of {summary['candidates']} cases\n"
+        "    2 error: RuntimeError: boom\n"
+        "        such as speech.position 1 at 2.500 s (as written 20.000 s), "
+        "to put interrupt at llm.done"
+    )
     # before the return the question lies inside the booking; at and after it the run raised
     never = found.coverage()["speech.position 1 interrupt"]["never_reached"]
     assert never["tool.returned"] == ["error", "impossible"]
     assert "playout.started" not in never
+
+
+def test_a_search_that_could_judge_nothing_it_tried_fails_and_says_why_with_an_example():
+    case = a_case(BOOK, speech(20_000_000, 21_000_000, WINDOW["transcript"]))
+
+    def run(moved):
+        """Only the case as given, and the booking on its own, can be judged."""
+        if moved == case or len(moved["speeches"]) == 1:
+            return ledger("1.8.12", "book_then_interrupt")
+        at = moved["speeches"][1]["start_us"]
+        if at < 5_000_000:
+            raise KeyError("party_size")
+        invalid = ledger("1.8.12", "book_then_interrupt")
+        invalid[-1]["data"]["underruns"] = at // 1_000_000
+        return invalid
+
+    found = explore(
+        case, run, variables=["speech.position"], speeches=[1], moments=["interrupt"], words=False
+    )
+    assert found.nothing_judged and found.summary()["ran"] == 0 and found.predicates() == []
+    late, early = found.not_judged()  # runs that differ only in a number are one reason
+    assert (late.why, early.why) == ("invalid", "error") and late.cases > early.cases
+    assert late.cases + early.cases == len(found.tried)
+    moved = "speech.position 1 at {} s (as written 20.000 s), to put interrupt at {}"
+    assert found.summary()["not_judged"][1] == {
+        "why": "error",
+        "reason": "KeyError: 'party_size'",
+        "cases": early.cases,
+        "example": moved.format("2.500", "llm.done"),
+    }
+    with pytest.raises(ContractFailure) as caught:
+        found.assert_contracts()
+    head, said = str(caught.value).split("\n\n")
+    tried = len(found.tried)
+    assert head.endswith(f": {tried} cases tried, 0 judged, 0 contract rule(s) broken")
+    assert said.splitlines() == [
+        f"not judged: {tried} of {tried} cases, which leaves the search with no result",
+        f"    {late.cases} invalid: playout ran ahead of its audio 5 times",
+        "        such as " + moved.format("5.000", "sink.pause"),
+        f"    {early.cases} error: KeyError: 'party_size'",
+        "        such as " + moved.format("2.500", "llm.done"),
+    ]
+
+
+def test_a_rule_the_case_breaks_as_given_is_found_where_no_case_tried_breaks_it():
+    case = a_case(BOOK, WINDOW)
+    options = {"speeches": [1], "moments": ["interrupt"], "words": False}
+    found = explore(
+        case, answers(lambda moved: moved == case), variables=["speech.position"], **options
+    )
+    assert found.tried and found.breaking(A2) == [] and A2 in found.predicates()
+    one = found.breaks()[0]
+    assert (one.predicate, one.candidates, one.example) == (A2, 0, case)
+    assert one.what == "nothing: it breaks as written" and not one.everywhere
+    with pytest.raises(ContractFailure, match="A2/rule  in 0 case"):
+        found.assert_contracts()
+    alone = explore(case, answers(lambda moved: True), variables=[], faults=[])
+    assert alone.tried == [] and not alone.nothing_judged
+    with pytest.raises(ContractFailure, match="0 cases tried, 0 judged, 2 contract rule"):
+        alone.assert_contracts()
+    clean = explore(case, answers(lambda moved: False), variables=[], faults=[])
+    clean.assert_contracts()  # nothing was tried, and the case as given was judged
 
 
 def test_a_case_that_cannot_be_searched_is_refused_up_front():

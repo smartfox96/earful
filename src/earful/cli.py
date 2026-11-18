@@ -186,7 +186,7 @@ def _search(args: argparse.Namespace) -> int:
             print(f"\nnot kept, since no case broke them: {', '.join(missing)}")
     if any(not one.instants_only and str(one.predicate) not in allow for one in broken):
         return BROKEN
-    return NO_VERDICT if unjudged else OK
+    return NO_VERDICT if unjudged or found.nothing_judged else OK
 
 
 # What the directory of a kept bundle begins with, for each framework.

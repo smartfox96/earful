@@ -5,8 +5,9 @@ from __future__ import annotations
 
 import os
 import random
+import re
 from collections.abc import Callable, Iterable
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from functools import partial
 from typing import Any
 
@@ -55,6 +56,13 @@ class Outcome:
         if self.error is not None:
             return "error"
         return "invalid" if self.invalid else None
+
+    @property
+    def reason(self) -> str:
+        """Why not, in the words of the refusal, the error or the validity check."""
+        if self.refused is not None:
+            return self.refused
+        return self.error if self.error is not None else "; ".join(self.invalid)
 
 
 def judged(case: cases.Case, events: list[Event]) -> Outcome:
@@ -432,6 +440,16 @@ class Break:
     details: tuple[str, ...]  # the checker's findings for the example
 
 
+@dataclass(frozen=True)
+class NotJudged:
+    """The cases a search could not judge for one reason."""
+
+    why: str  # refused, error or invalid
+    reason: str  # in the words of the first such case
+    cases: int
+    example: str  # what that case changed, and where that put it
+
+
 def _seconds(us: int) -> str:
     return f"{us / 1_000_000:.3f} s"
 
@@ -453,8 +471,9 @@ class Exploration:
     runner: Runner
 
     def predicates(self) -> list[Predicate]:
-        """Every rule some candidate broke."""
-        return sorted({p for t in self.tried for p in t.outcome.failures})
+        """Every rule the case as given or some candidate broke."""
+        tried = {p for t in self.tried for p in t.outcome.failures}
+        return sorted(tried.union(self.original.failures))
 
     def breaking(self, predicate: Predicate) -> list[Tried]:
         return [t for t in self.tried if predicate in t.outcome.failures]
@@ -529,6 +548,26 @@ class Exploration:
             for name in sorted(reached)
         }
 
+    @property
+    def nothing_judged(self) -> bool:
+        """Whether the search tried cases and could judge none of them."""
+        return bool(self.tried) and not any(t.outcome.ran for t in self.tried)
+
+    def not_judged(self) -> list[NotJudged]:
+        """Why cases could not be judged, the reason with the most cases first. Reasons that
+        differ only in their numbers are one reason."""
+        groups: dict[tuple[str, str], list[Tried]] = {}
+        for tried in self.tried:
+            why = tried.outcome.why_not
+            if why is not None:
+                alike = re.sub(r"\d+", "0", tried.outcome.reason)
+                groups.setdefault((why, alike), []).append(tried)
+        out = [
+            NotJudged(why, same[0].outcome.reason, len(same), self._placed(same[0].candidate))
+            for (why, _alike), same in groups.items()
+        ]
+        return sorted(out, key=lambda group: (-group.cases, group.why, group.reason))
+
     def breaks(self, *, windows: bool | Iterable[Predicate] = True) -> list[Break]:
         """Every rule the search found broken, with an example of each. ``windows`` says which
         failures have their width measured, which takes further runs: all, none or those named."""
@@ -588,6 +627,15 @@ class Exploration:
         moved = f"{candidate.variable} at {_seconds(candidate.value_us)} ({written})"
         return f"{candidate.base} + {moved}" if candidate.base else moved
 
+    def _placed(self, candidate: Candidate) -> str:
+        """What a candidate changed and, where a time was moved, what that put beside what."""
+        if not candidate.placements:
+            return self._what(candidate)
+        first = candidate.placements[0]
+        offset, beside = first.offset_us, first.transition.kinds[0]
+        side = f"{abs(offset) // 1000} ms {'before' if offset < 0 else 'after'}" if offset else "at"
+        return f"{self._what(candidate)}, to put {first.handle.moment} {side} {beside}"
+
     def describe(
         self, found: list[Break] | None = None, unjudged: dict[str, str] | None = None
     ) -> str:
@@ -624,12 +672,14 @@ class Exploration:
                 for w in one.windows
             ]
             lines += list(dict.fromkeys(widths))  # the same window under two faults is one line
-        skipped = {k: counts[k] for k in ("refused", "error", "invalid") if counts[k]}
+        skipped = self.not_judged()
         if skipped:
-            lines.append("")
-            lines.append(
-                "not judged: " + ", ".join(f"{n} {why}" for why, n in sorted(skipped.items()))
-            )
+            cut = sum(group.cases for group in skipped)
+            result = ", which leaves the search with no result" * self.nothing_judged
+            lines += ["", f"not judged: {cut} of {counts['candidates']} cases{result}"]
+            for group in skipped:
+                lines.append(f"    {group.cases} {group.why}: {group.reason}")
+                lines.append(f"        such as {group.example}")
         if unjudged:
             lines += ["", "required, with no pass or fail in the case as given:"]
             lines += [f"    {contract} {why}" for contract, why in unjudged.items()]
@@ -643,16 +693,17 @@ class Exploration:
     def assert_contracts(
         self, *, allow: Iterable[Predicate | str] | str = (), require: Iterable[str] | str = ()
     ) -> None:
-        """Raise ``ContractFailure`` if the search found a rule broken, or if the case as given
-        has no pass or fail for a contract in ``require``. Rules that break only at single
-        instants, or are named in ``allow`` as ``CONTRACT/RULE``, are not counted."""
+        """Raise ``ContractFailure`` if the search found a rule broken, if it could judge none
+        of the cases it tried, or if the case as given has no pass or fail for a contract in
+        ``require``. Rules that break only at single instants, or are named in ``allow`` as
+        ``CONTRACT/RULE``, are not counted."""
         __tracebackhide__ = True  # pytest then shows the test's own line, not this one
         allowing, unjudged = allowed(allow), self.unjudged(require)
         found = self.breaks()
         counted = [
             one for one in found if not one.instants_only and str(one.predicate) not in allowing
         ]
-        if counted or unjudged:
+        if counted or unjudged or self.nothing_judged:
             raise ContractFailure(self.describe(found, unjudged))
 
     def summary(self) -> dict[str, Any]:
@@ -674,6 +725,7 @@ class Exploration:
                 for p in self.predicates()
             },
             "errors": sorted({t.outcome.error for t in self.tried if t.outcome.error}),
+            "not_judged": [asdict(group) for group in self.not_judged()],
         }
 
 
@@ -936,6 +988,7 @@ __all__ = [
     "Each",
     "Exploration",
     "Handle",
+    "NotJudged",
     "Outcome",
     "Placement",
     "Runner",
