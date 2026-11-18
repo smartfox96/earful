@@ -11,7 +11,12 @@ under ``--earful-out`` (``.earful`` by default), each with a report to open in a
 browser, and the failure says where.
 
     --earful-out DIR       where the evidence of failing tests goes
-    --earful-workers N     worker processes for searches that do not say (default 0)
+    --earful-workers N     worker processes for searches that do not say (default auto)
+
+``auto`` gives a search one worker process per processor where that can work, and runs
+it in the test's process where it cannot: a scenario built inline, which a worker could
+not build again; a test run that pytest-xdist has already spread over the processors; a
+machine that does not allow worker processes.
 
 This module is loaded by pytest in every project that has Earful installed, so it
 imports the adapter, and with it the framework, only when a test asks for the fixture.
@@ -20,6 +25,7 @@ imports the adapter, and with it the framework, only when a test asks for the fi
 from __future__ import annotations
 
 import json
+import os
 import re
 from collections.abc import Generator
 from pathlib import Path
@@ -50,20 +56,35 @@ def pytest_addoption(parser: pytest.Parser) -> None:
     )
     group.addoption(
         "--earful-workers",
-        type=int,
-        default=0,
+        type=_workers,
+        default=None,
         metavar="N",
-        help="worker processes for a search that does not say how many (default: 0, "
-        "which runs it in the test's process)",
+        help="worker processes for a search that does not say how many; 0 runs it in "
+        "the test's process (default: auto, one per processor for a scenario that can "
+        "be imported, and the test's process otherwise)",
     )
+
+
+def _workers(text: str) -> int | None:
+    """What ``--earful-workers`` was given: a number of processes, or None for ``auto``."""
+    if text == "auto":
+        return None
+    try:
+        workers = int(text)
+    except ValueError:
+        workers = -1
+    if workers < 0:
+        raise pytest.UsageError(f"--earful-workers takes a number of processes or auto; got {text}")
+    return workers
 
 
 class Earful:
     """What a test is given as ``earful``. It remembers what the test ran."""
 
-    def __init__(self, directory: Path, workers: int) -> None:
+    def __init__(self, directory: Path, workers: int | None, *, spread: bool = False) -> None:
         self.directory = directory  # where this test's evidence goes if it fails
-        self.workers = workers
+        self.workers = workers  # None: as many as suits each search
+        self.spread = spread  # this test run already uses the processors (pytest-xdist)
         self.runs: list[RunResult] = []
         self.searches: list[Exploration] = []
 
@@ -82,13 +103,30 @@ class Earful:
 
     def explore(self, scenario: Source, **options: Any) -> Any:
         """Search a scenario: ``earful.livekit.explore``, with the number of workers the
-        command line gave unless the call names one."""
+        call names, or else the number the command line gave. Where neither says, a
+        scenario that can be imported is searched in one worker per processor, and in
+        this process if workers cannot be started here."""
         from . import livekit
 
-        options.setdefault("workers", self.workers)
-        found = livekit.explore(scenario, **options)
+        if "workers" in options or self.workers is not None:
+            options.setdefault("workers", self.workers)
+            found = livekit.explore(scenario, **options)
+        else:
+            try:
+                found = livekit.explore(scenario, workers=self._suited(scenario), **options)
+            except livekit.WorkersUnavailable:
+                found = livekit.explore(scenario, workers=0, **options)
         self.searches.append(found)
         return found
+
+    def _suited(self, scenario: Source) -> int:
+        """How many workers suit a search of ``scenario`` that nobody gave a number for."""
+        from . import livekit
+
+        if self.spread or livekit.Scenario.of(scenario).reference is None:
+            return 0
+        processors = os.cpu_count() or 1
+        return processors if processors > 1 else 0
 
     def keep(
         self, found: Exploration, rule: Predicate | str, directory: Path | str | None = None
@@ -163,7 +201,11 @@ def earful(request: pytest.FixtureRequest) -> Earful:
     out = Path(config.getoption("--earful-out"))
     if not out.is_absolute():
         out = config.rootpath / out
-    helper = Earful(out / _slug(request.node.nodeid), config.getoption("--earful-workers"))
+    helper = Earful(
+        out / _slug(request.node.nodeid),
+        config.getoption("--earful-workers"),
+        spread=hasattr(config, "workerinput"),  # set in a worker process of pytest-xdist
+    )
     request.node.stash[_KEY] = helper
     return helper
 

@@ -252,9 +252,9 @@ A scenario is given in one of three forms.
 | A function that returns a `Case`, defined in a test or as a lambda | No | No |
 | A function at the top level of a module, passed as the function or as `"module:function"` | Yes | Yes |
 
-Every form runs in the process of the test unless workers are asked for. A worker process
-and a saved bundle both build the scenario again from its name, so both need a scenario
-that can be imported. `explore(case, workers=4)` and `keep(...)` refuse one that cannot,
+`explore` runs every form in the process that calls it unless workers are asked for. A
+worker process and a saved bundle both build the scenario again from its name, so both
+need a scenario that can be imported. `explore(case, workers=4)` and `keep(...)` refuse one that cannot,
 before anything runs, and say what to change. A search also checks what it is asked for
 (the case, the variables, the faults) before it starts a worker, and raises
 `WorkersUnavailable` where worker processes cannot be started at all.
@@ -264,7 +264,8 @@ machine the 860 runs above take 36 s in the process of the test and 9 s in 15 wo
 The workers are started for the search and stopped when it ends, so each search runs the
 scenario's code as it is at that moment. Each worker is a fresh interpreter that imports
 the main module of the process that started it, so a script that searches with workers
-needs the `if __name__ == "__main__":` guard. Under pytest nothing is needed.
+needs the `if __name__ == "__main__":` guard. Under pytest nothing is needed, and the
+`earful` fixture starts the workers by itself (section 8).
 
 Passed as a function, a scenario is built anew for each run. Passed as a `Case`, it is
 copied for each run: its agent is built by its own factory each time, and its policy is
@@ -320,7 +321,15 @@ A test that passes writes nothing. `.earful/` belongs in `.gitignore`.
 | Option | Meaning |
 | --- | --- |
 | `--earful-out DIR` | Where the evidence goes. Default `.earful`, under pytest's root directory |
-| `--earful-workers N` | Worker processes for a search that does not name a number. Default 0 |
+| `--earful-workers N` | Worker processes for a search that does not name a number; 0 runs it in the test's process. Default `auto` |
+
+With `auto`, `earful.explore` gives a search one worker process per processor if its
+scenario can be imported (section 6), and runs it in the test's process otherwise. The
+README's search of 736 cases takes 33 s in the test's process and 13 s with workers, on a
+15-core machine. Three things keep a search in the test's process under `auto`: a
+scenario built inline, a test run that pytest-xdist has already spread over the
+processors, and a machine where worker processes cannot be started. A number, on the
+command line or in the call, is always taken as given.
 
 `earful.keep(found, "A3/rule")` without a directory writes the bundle under the test's
 evidence directory.

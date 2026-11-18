@@ -2,6 +2,7 @@
 failing test leaves."""
 
 import json
+import os
 import subprocess
 import sys
 
@@ -13,7 +14,7 @@ import pytest
 import earful.livekit as adapter
 from earful.core.ledger import read_jsonl
 from earful.core.schema import validate
-from earful.pytest_plugin import Earful
+from earful.pytest_plugin import Earful, _workers
 
 PROJECT = '''
 import livekit.agents as lk
@@ -132,6 +133,96 @@ def test_a_search_uses_the_workers_the_command_line_gave_unless_it_names_its_own
     helper.explore("some:scenario", workers=0)
     assert asked == [{"words": False, "workers": 4}, {"workers": 0}]
     assert helper.searches == ["found", "found"]
+
+
+IMPORTABLE = "breaks:as_written_confirms_a_failed_booking"
+
+
+def test_a_search_nobody_gave_a_number_for_gets_a_worker_per_processor_if_it_can_be_imported(
+    monkeypatch, tmp_path
+):
+    asked = []
+    monkeypatch.setattr(
+        adapter, "explore", lambda scenario, **options: asked.append(options) or "found"
+    )
+    monkeypatch.setattr(os, "cpu_count", lambda: 6)
+    helper = Earful(tmp_path, workers=None)
+    function = adapter.Scenario.of(IMPORTABLE).make
+    helper.explore(IMPORTABLE, words=False)
+    helper.explore(function)
+    # A Case, and a function with no name of its own, can be built only where they are.
+    helper.explore(function())
+    helper.explore(lambda: function())
+    # The search says how many, and that is how many.
+    helper.explore(IMPORTABLE, workers=2)
+    assert asked == [
+        {"words": False, "workers": 6},
+        {"workers": 6},
+        {"workers": 0},
+        {"workers": 0},
+        {"workers": 2},
+    ]
+    # One processor is this process.
+    monkeypatch.setattr(os, "cpu_count", lambda: 1)
+    helper.explore(IMPORTABLE)
+    assert asked[-1] == {"workers": 0}
+
+
+def test_a_test_run_that_xdist_has_spread_over_the_processors_searches_in_its_own_process(
+    monkeypatch, tmp_path
+):
+    asked = []
+    monkeypatch.setattr(
+        adapter, "explore", lambda scenario, **options: asked.append(options) or "found"
+    )
+    monkeypatch.setattr(os, "cpu_count", lambda: 6)
+    Earful(tmp_path, workers=None, spread=True).explore(IMPORTABLE)
+    Earful(tmp_path, workers=3, spread=True).explore(IMPORTABLE)  # the command line said
+    assert asked == [{"workers": 0}, {"workers": 3}]
+
+
+def test_where_workers_cannot_be_started_a_search_nobody_gave_a_number_for_runs_in_the_test(
+    monkeypatch, tmp_path
+):
+    asked = []
+
+    def explore(scenario, **options):
+        asked.append(options["workers"])
+        if options["workers"]:
+            raise adapter.WorkersUnavailable("no semaphores here")
+        return "found"
+
+    monkeypatch.setattr(adapter, "explore", explore)
+    monkeypatch.setattr(os, "cpu_count", lambda: 6)
+    helper = Earful(tmp_path, workers=None)
+    assert helper.explore(IMPORTABLE) == "found"
+    assert asked == [6, 0] and helper.searches == ["found"]
+    # A number someone gave is not quietly set aside.
+    with pytest.raises(adapter.WorkersUnavailable):
+        helper.explore(IMPORTABLE, workers=2)
+    with pytest.raises(adapter.WorkersUnavailable):
+        Earful(tmp_path, workers=2).explore(IMPORTABLE)
+    assert asked == [6, 0, 2, 2]
+
+
+def test_the_workers_option_takes_a_number_of_processes_or_auto():
+    assert _workers("auto") is None
+    assert (_workers("0"), _workers("3")) == (0, 3)
+    for refused in ("-1", "many", ""):
+        with pytest.raises(pytest.UsageError, match="a number of processes or auto"):
+            _workers(refused)
+
+
+def test_the_fixture_is_told_what_the_command_line_and_xdist_say(pytester):
+    pytester.makeconftest("def pytest_configure(config):\n    config.workerinput = {}\n")
+    pytester.makepyfile(
+        "def test_it(earful, request):\n"
+        "    wanted = request.config.getoption('--earful-workers')\n"
+        "    assert earful.spread and earful.workers == wanted\n"
+    )
+    plain = ("-p", "no:cacheprovider", "-p", "no:asyncio")
+    pytester.runpytest_inprocess(*plain).assert_outcomes(passed=1)  # auto: no number
+    pytester.runpytest_inprocess(*plain, "--earful-workers", "2").assert_outcomes(passed=1)
 
 
 @pytest.mark.slow
