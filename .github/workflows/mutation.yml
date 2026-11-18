@@ -1,11 +1,13 @@
 name: mutation
 
 # Every deliberate break in tests/mutants.py must fail a test it names (scripts/mutate.py).
-# Nightly and on request, in four parts.
+# In four parts: nightly, on request, and from ci.yml for a pull request that changes
+# src/ or tests/ (scripts/ci_scope.sh).
 on:
   schedule:
     - cron: "47 4 * * *"
   workflow_dispatch:
+  workflow_call:
 
 permissions:
   contents: read

@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 # Did every job of the ci workflow do what the scope asked of it? Exits 1 if not.
-#   CODE=true DOCS=false RESULTS="changes=success docs=skipped lint=success ..." scripts/ci_result.sh
-# CODE and DOCS are what scripts/ci_scope.sh printed, RESULTS each job's result.
+#   CODE=true DOCS=false MUTANTS=true RESULTS="changes=success docs=skipped ..." scripts/ci_result.sh
+# CODE, DOCS and MUTANTS are what scripts/ci_scope.sh printed, RESULTS each job's result.
 # A job the scope asks for must have passed. No job may have failed or been cancelled.
 set -euo pipefail
 
-JOBS="changes docs lint wheel quickstart pipecat determinism"
+JOBS="changes docs lint wheel quickstart pipecat determinism mutants"
 
 failed=0
 wrong() {
@@ -13,7 +13,7 @@ wrong() {
   failed=1
 }
 
-for name in CODE DOCS; do
+for name in CODE DOCS MUTANTS; do
   case "${!name:-}" in
     true | false) ;;
     *) wrong "the scope gave $name as '${!name:-}', which is neither true nor false" ;;
@@ -29,6 +29,7 @@ for pair in ${RESULTS:-}; do
     changes) due=true ;;
     docs) if [ "$CODE" = false ]; then due="$DOCS"; else due=false; fi ;;
     lint | wheel | quickstart | pipecat | determinism) due="$CODE" ;;
+    mutants) due="$MUTANTS" ;;
     *)
       wrong "no rule here says when the job '$job' has to run"
       continue

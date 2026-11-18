@@ -37,6 +37,7 @@ jobs:
     outputs:
       code: ${{ steps.scope.outputs.code }}
       docs: ${{ steps.scope.outputs.docs }}
+      mutants: ${{ steps.scope.outputs.mutants }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -228,11 +229,20 @@ jobs:
           name: evidence-${{ matrix.lk.version }}-${{ matrix.os }}-py${{ matrix.python }}
           path: evidence/
 
+  # A change to src/ or tests/ runs every deliberate break, in the mutation workflow's jobs.
+  mutants:
+    name: deliberate breaks
+    needs: changes
+    if: needs.changes.outputs.mutants == 'true'
+    uses: ./.github/workflows/mutation.yml
+    permissions:
+      contents: read
+
   # The check main requires. A job the scope asks for must have passed, and none may have
   # failed or been cancelled (scripts/ci_result.sh).
   result:
     name: ci result
-    needs: [changes, docs, lint, wheel, quickstart, pipecat, determinism]
+    needs: [changes, docs, lint, wheel, quickstart, pipecat, determinism, mutants]
     if: always() && github.event.action != 'closed'
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -242,6 +252,7 @@ jobs:
         env:
           CODE: ${{ needs.changes.outputs.code }}
           DOCS: ${{ needs.changes.outputs.docs }}
+          MUTANTS: ${{ needs.changes.outputs.mutants }}
           RESULTS: >-
             changes=${{ needs.changes.result }}
             docs=${{ needs.docs.result }}
@@ -250,4 +261,5 @@ jobs:
             quickstart=${{ needs.quickstart.result }}
             pipecat=${{ needs.pipecat.result }}
             determinism=${{ needs.determinism.result }}
+            mutants=${{ needs.mutants.result }}
         run: scripts/ci_result.sh

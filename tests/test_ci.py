@@ -77,10 +77,12 @@ def _scope(repo, *args, **env):
     return dict(line.split("=") for line in done.stdout.splitlines()), done.returncode
 
 
-NOTHING = {"code": "false", "docs": "false"}
-PROSE = {"code": "false", "docs": "true"}
-CODE = {"code": "true", "docs": "false"}
-EVERYTHING = {"code": "true", "docs": "true"}
+NOTHING = {"code": "false", "docs": "false", "mutants": "false"}
+PROSE = {"code": "false", "docs": "true", "mutants": "false"}
+CODE = {"code": "true", "docs": "false", "mutants": "false"}
+BEHAVIOUR = {"code": "true", "docs": "false", "mutants": "true"}  # the deliberate breaks run
+NIGHTLY = {"code": "true", "docs": "true", "mutants": "false"}
+EVERYTHING = {"code": "true", "docs": "true", "mutants": "true"}
 
 
 @pytest.mark.parametrize(
@@ -90,8 +92,12 @@ EVERYTHING = {"code": "true", "docs": "true"}
         ("docs/img/report-booking.png", PROSE),
         ("README.md", PROSE),  # read by tests/test_docs.py
         ("CHANGELOG.md", PROSE),
-        ("src/earful/cli.py", CODE),
-        ("tests/test_docs.py", CODE),
+        ("src/earful/cli.py", BEHAVIOUR),
+        ("tests/test_docs.py", BEHAVIOUR),
+        ("scripts/mutate.py", BEHAVIOUR),
+        ("scripts/make_lint_env.sh", BEHAVIOUR),  # the environment the breaks run in
+        (".github/workflows/mutation.yml", BEHAVIOUR),
+        ("scripts/lint.sh", CODE),
         ("skills/earful/SKILL.md", CODE),  # Markdown that tests/test_examples.py runs
         ("examples/booking/agent.py", CODE),
         (".github/workflows/ci.yml", CODE),
@@ -109,13 +115,15 @@ def test_a_changed_path_runs_the_jobs_whose_tests_read_it(repo, path, expected):
 def test_the_scope_of_several_paths_is_the_union(repo):
     base = _git(repo, "rev-parse", "HEAD")
     assert _scope(repo, base, _commit(repo, {})) == (NOTHING, 0)
-    head = _commit(repo, {"docs/page.md": "new\n", "src/earful/cli.py": "a = 2\n"})
+    head = _commit(repo, {"docs/page.md": "new\n", "pyproject.toml": "[project]\n"})
+    assert _scope(repo, base, head) == (NIGHTLY, 0)
+    head = _commit(repo, {"src/earful/cli.py": "a = 2\n"})
     assert _scope(repo, base, head) == (EVERYTHING, 0)
 
 
 def test_a_deleted_or_moved_file_counts_where_it_was(repo):
     base = _git(repo, "rev-parse", "HEAD")
-    assert _scope(repo, base, _commit(repo, {"src/earful/cli.py": None})) == (CODE, 0)
+    assert _scope(repo, base, _commit(repo, {"src/earful/cli.py": None})) == (BEHAVIOUR, 0)
     _git(repo, "reset", "-q", "--hard", base)
     _git(repo, "mv", "src/earful/cli.py", "docs/cli.py")
     assert _scope(repo, base, _commit(repo, {})) == (EVERYTHING, 0)
@@ -140,9 +148,12 @@ def test_a_pull_request_is_scoped_by_what_its_merge_brings_to_the_base(repo):
     assert _scope(repo, "--event", "pull_request") == (PROSE, 0)
 
 
-@pytest.mark.parametrize("event", ["schedule", "workflow_dispatch"])
-def test_a_nightly_or_manual_run_checks_everything(repo, event):
-    assert _scope(repo, "--event", event) == (EVERYTHING, 0)
+def test_a_nightly_or_manual_run_checks_everything(repo):
+    assert _scope(repo, "--event", "workflow_dispatch") == (EVERYTHING, 0)
+    # The deliberate breaks have their own nightly run, 30 minutes after this one.
+    assert _scope(repo, "--event", "schedule") == (NIGHTLY, 0)
+    assert '    - cron: "17 4 * * *"' in CI
+    assert '    - cron: "47 4 * * *"' in WORKFLOWS["mutation.yml"]
 
 
 def test_an_event_has_to_be_named(repo):
@@ -215,7 +226,7 @@ def test_a_push_of_tested_files_runs_nothing_and_any_other_push_is_scoped(repo, 
     _commit(repo, {"src/earful/cli.py": "a = 4\n"})
     tested = {**gh, "STUB_HEAD_TREE": _git(repo, "rev-parse", "HEAD^{tree}")}
     assert _scope(repo, "--event", "push", before, **tested) == (NOTHING, 0)
-    assert _scope(repo, "--event", "push", before, **gh) == (CODE, 0)
+    assert _scope(repo, "--event", "push", before, **gh) == (BEHAVIOUR, 0)
     assert _scope(repo, "--event", "push", _NO_COMMIT, **gh) == (EVERYTHING, 0)
     assert _scope(repo, "--event", "push", **gh) == (EVERYTHING, 0)
 
@@ -288,20 +299,21 @@ def test_the_scope_step_hands_the_scope_to_the_jobs(tmp_path, repo):
     }
     shell = [*_SHELLS[0], str(tmp_path / "step.sh")]
     subprocess.run(shell, cwd=repo, env={**os.environ, **env}, check=True)
-    assert output.read_text() == "code=true\ndocs=true\n"
-    for name in ("code", "docs"):
+    assert output.read_text() == "code=true\ndocs=true\nmutants=false\n"
+    for name in ("code", "docs", "mutants"):
         assert f"{name}: ${{{{ steps.scope.outputs.{name} }}}}" in jobs["changes"]
         assert f"{name.upper()}: ${{{{ needs.changes.outputs.{name} }}}}" in jobs["result"]
 
 
-_ALL = ("changes", "docs", "lint", "wheel", "quickstart", "pipecat", "determinism")
+_ALL = ("changes", "docs", "lint", "wheel", "quickstart", "pipecat", "determinism", "mutants")
 
 
-def _result(code, docs, /, **results):
+def _result(scope, /, **results):
     """The exit status of ``scripts/ci_result.sh``; a job not named was skipped."""
     pairs = " ".join(f"{job}={results.pop(job, 'skipped')}" for job in _ALL)
     pairs += "".join(f" {job}={result}" for job, result in results.items())
-    done = _script("ci_result.sh", cwd=ROOT, CODE=code, DOCS=docs, RESULTS=pairs)
+    given = {name.upper(): value for name, value in scope.items()}
+    done = _script("ci_result.sh", cwd=ROOT, RESULTS=pairs, **given)
     assert done.returncode in (0, 1), done.stderr
     return done.returncode
 
@@ -312,36 +324,43 @@ _RAN = dict.fromkeys(
 
 
 def test_the_result_passes_when_every_job_the_scope_asks_for_passed():
-    assert _result("true", "false", **_RAN) == 0
-    assert _result("true", "true", **_RAN) == 0
-    assert _result("false", "true", changes="success", docs="success") == 0
-    assert _result("false", "false", changes="success") == 0
+    assert _result(CODE, **_RAN) == 0
+    assert _result(NIGHTLY, **_RAN) == 0
+    assert _result(BEHAVIOUR, **_RAN, mutants="success") == 0
+    assert _result(EVERYTHING, **_RAN, mutants="success") == 0
+    assert _result(PROSE, changes="success", docs="success") == 0
+    assert _result(NOTHING, changes="success") == 0
 
 
 @pytest.mark.parametrize(
-    ("code", "docs", "results"),
+    ("scope", "results"),
     [
-        ("", "", {"changes": "success"}),  # the scope step set no output
-        ("true", "", _RAN),
-        ("yes", "false", _RAN),
-        ("true", "false", {**_RAN, "lint": "skipped"}),
-        ("true", "false", {**_RAN, "determinism": "failure"}),
-        ("true", "false", {**_RAN, "pipecat": "cancelled"}),
-        ("true", "false", {**_RAN, "wheel": ""}),
-        ("false", "true", {"changes": "success"}),  # the docs job did not run
-        ("false", "false", {"changes": "success", "lint": "failure"}),
-        ("false", "false", {}),  # the scope job itself was skipped
-        ("false", "false", {"changes": "failure"}),
-        ("true", "false", {**_RAN, "another": "success"}),  # a job the script has no rule for
+        ({"code": "", "docs": "", "mutants": ""}, {"changes": "success"}),  # no output was set
+        ({**CODE, "docs": ""}, _RAN),
+        ({**CODE, "code": "yes"}, _RAN),
+        ({"code": "true", "docs": "false"}, _RAN),  # mutants is not given at all
+        (CODE, {**_RAN, "lint": "skipped"}),
+        (CODE, {**_RAN, "determinism": "failure"}),
+        (CODE, {**_RAN, "pipecat": "cancelled"}),
+        (CODE, {**_RAN, "wheel": ""}),
+        (BEHAVIOUR, _RAN),  # the deliberate breaks did not run
+        (BEHAVIOUR, {**_RAN, "mutants": "failure"}),
+        (PROSE, {"changes": "success"}),  # the docs job did not run
+        (NOTHING, {"changes": "success", "lint": "failure"}),
+        (NOTHING, {}),  # the scope job itself was skipped
+        (NOTHING, {"changes": "failure"}),
+        (CODE, {**_RAN, "another": "success"}),  # a job the script has no rule for
     ],
 )
-def test_the_result_fails_otherwise(code, docs, results):
-    assert _result(code, docs, **results) == 1
+def test_the_result_fails_otherwise(scope, results):
+    assert _result(scope, **results) == 1
 
 
 def test_the_result_fails_when_a_job_is_missing_from_what_it_is_given():
     pairs = " ".join(f"{job}=success" for job in _ALL if job != "determinism")
-    done = _script("ci_result.sh", cwd=ROOT, CODE="true", DOCS="false", RESULTS=pairs)
+    done = _script(
+        "ci_result.sh", cwd=ROOT, CODE="true", DOCS="false", MUTANTS="true", RESULTS=pairs
+    )
     assert done.returncode == 1 and "determinism" in done.stderr
 
 
@@ -513,3 +532,16 @@ def test_the_pipecat_tests_run_where_a_skip_fails_the_job():
     assert ran.format("1.16.0") in jobs["docs"]
     assert ran.format("1.16.0") in (SCRIPTS / "check_all.sh").read_text()
     assert "pytest.importorskip(" in (ROOT / "tests" / "test_pipecat.py").read_text()
+
+
+def test_the_deliberate_breaks_run_for_a_pull_request_that_changes_behaviour():
+    jobs = _jobs(CI)
+    assert "    if: needs.changes.outputs.mutants == 'true'\n" in jobs["mutants"]
+    assert "    uses: ./.github/workflows/mutation.yml\n" in jobs["mutants"]
+    mutation = WORKFLOWS["mutation.yml"]
+    assert "\n  workflow_call:\n" in mutation and "\n  workflow_dispatch:\n" in mutation
+    # One environment for the breaks, here and in CI: the one scripts/lint.sh builds.
+    assert "run: scripts/make_lint_env.sh\n" in mutation
+    assert ".venvs/lint/bin/python scripts/mutate.py\n" in mutation
+    assert ".venvs/lint/bin/python scripts/mutate.py " in (SCRIPTS / "mutate.py").read_text()
+    assert "scripts/make_lint_env.sh || exit 1\n" in (SCRIPTS / "lint.sh").read_text()
