@@ -44,6 +44,7 @@ from .core.checker import Report, check
 from .core.checker.report import allowed
 from .core.ledger import read_jsonl, write_jsonl
 from .core.predicate import Predicate
+from .core.search import default_workers
 
 if TYPE_CHECKING:
     from types import ModuleType
@@ -173,7 +174,7 @@ def _search(args: argparse.Namespace) -> int:
         )
 
     try:
-        found = search((os.cpu_count() or 1) if args.workers is None else args.workers)
+        found = search(default_workers() if args.workers is None else args.workers)
     except adapter.WorkersUnavailable as exc:
         if args.workers is not None:  # asked for by number: say so, do not do otherwise
             raise Refused(str(exc)) from exc
@@ -478,8 +479,8 @@ def _parser() -> argparse.ArgumentParser:
         "--workers",
         type=int,
         metavar="N",
-        help="worker processes (default: one per processor, or this process where worker "
-        "processes cannot be started; 0 runs in this process)",
+        help="worker processes (default: one per processor or what EARFUL_WORKERS says, "
+        "or this process where worker processes cannot be started; 0 runs in this process)",
     )
     sub.add_argument("--json", action="store_true", help="the whole result as JSON")
     allow(sub)

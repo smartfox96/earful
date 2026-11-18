@@ -10,7 +10,12 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
+# The releases are checked side by side, and each run would take every processor for its
+# own worker processes. Share the processors out between them instead.
+cores="$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 4)"
 declare -a RELEASES=("1.5.6 2026-04-30" "1.5.7 2026-05-06" "1.6.5 2026-07-20" "1.6.6 2026-07-20" "1.8.12 2026-11-14")
+shared=$(( cores / ${#RELEASES[@]} ))
+export EARFUL_WORKERS="${EARFUL_WORKERS:-$(( shared > 1 ? shared : 1 ))}"
 GOLDEN=tests/golden
 BUNDLES=tests/bundles
 OUT="$(mktemp -d)"

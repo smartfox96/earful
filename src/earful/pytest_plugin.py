@@ -16,7 +16,9 @@ browser, and the failure says where.
 ``auto`` gives a search one worker process per processor where that can work, and runs
 it in the test's process where it cannot: a scenario built inline, which a worker could
 not build again; a test run that pytest-xdist has already spread over the processors; a
-machine that does not allow worker processes.
+machine that does not allow worker processes. The environment variable
+``EARFUL_WORKERS`` gives ``auto`` a number to use in place of one per processor, for a
+machine that is running several test runs at once.
 
 This module is loaded by pytest in every project that has Earful installed, so it
 imports the adapter, and with it the framework, only when a test asks for the fixture.
@@ -25,7 +27,6 @@ imports the adapter, and with it the framework, only when a test asks for the fi
 from __future__ import annotations
 
 import json
-import os
 import re
 from collections.abc import Generator
 from pathlib import Path
@@ -122,11 +123,12 @@ class Earful:
     def _suited(self, scenario: Source) -> int:
         """How many workers suit a search of ``scenario`` that nobody gave a number for."""
         from . import livekit
+        from .core.search import default_workers
 
         if self.spread or livekit.Scenario.of(scenario).reference is None:
             return 0
-        processors = os.cpu_count() or 1
-        return processors if processors > 1 else 0
+        workers = default_workers()
+        return workers if workers > 1 else 0  # one worker is no faster than this process
 
     def keep(
         self, found: Exploration, rule: Predicate | str, directory: Path | str | None = None

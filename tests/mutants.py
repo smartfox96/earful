@@ -1529,13 +1529,6 @@ MUTANTS = [
         first="worker_per_processor_if_it_can_be_imported",
     ),
     Mutant(
-        "plugin: one processor is given a worker process",
-        "src/earful/pytest_plugin.py",
-        "        return processors if processors > 1 else 0\n",
-        "        return processors\n",
-        first="worker_per_processor_if_it_can_be_imported",
-    ),
-    Mutant(
         "plugin: a test run spread by xdist starts workers of its own",
         "src/earful/pytest_plugin.py",
         "        if self.spread or livekit.Scenario.of(scenario).reference is None:\n",
@@ -1901,6 +1894,34 @@ MUTANTS = [
         '            if isinstance(w, dict) and w.get("instant") is True\n',
         '            if w.get("instant") is True\n',
         first="windows_are_not_what_they_should_be",
+    ),
+    Mutant(
+        "search: what the environment says about workers is not heard",
+        "src/earful/core/search.py",
+        "    if not given:\n        return os.cpu_count() or 1\n",
+        "    if True:\n        return os.cpu_count() or 1\n",
+        first="as_many_as_the_environment_says or environment_says_how_many_workers",
+    ),
+    Mutant(
+        "search: a number of workers below none is taken",
+        "src/earful/core/search.py",
+        '    if workers < 0:\n        raise ValueError(f"{WORKERS_VARIABLE} is a number',
+        '    if False:\n        raise ValueError(f"{WORKERS_VARIABLE} is a number',
+        first="as_many_as_the_environment_says or environment_says_how_many_workers",
+    ),
+    Mutant(
+        "cli: a search takes every processor whatever the environment says",
+        "src/earful/cli.py",
+        "        found = search(default_workers() if args.workers is None else args.workers)\n",
+        "        found = search((os.cpu_count() or 1) if args.workers is None else args.workers)\n",
+        first="as_many_as_the_environment_says",
+    ),
+    Mutant(
+        "plugin: one worker process is started where this process would do",
+        "src/earful/pytest_plugin.py",
+        "        return workers if workers > 1 else 0  # one worker is no faster than this process\n",
+        "        return workers\n",
+        first="worker_per_processor_if_it_can_be_imported",
     ),
     # earful init: the first test written for an agent.
     Mutant(

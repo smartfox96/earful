@@ -28,9 +28,7 @@ def example(pytester):
 
 
 def run(example):
-    return example.runpytest_inprocess(
-        "-p", "no:cacheprovider", "-p", "no:asyncio", "--earful-workers", "4"
-    )
+    return example.runpytest_inprocess("-p", "no:cacheprovider", "-p", "no:asyncio")
 
 
 def test_as_shipped_the_conversation_passes_and_the_search_finds_a_second_booking(example):

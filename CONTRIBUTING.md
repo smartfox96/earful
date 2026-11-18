@@ -35,6 +35,13 @@ on macOS for the oldest and the newest. The deliberate breaks run each night.
 after its last push (`.github/CODEOWNERS`). Nobody can push to `main`, and a merged
 branch is deleted from the repository.
 
+`check_all.sh` is heavy: five test runs side by side for six minutes. It shares the
+processors between them (`EARFUL_WORKERS`), and it is still not something to run on
+battery or after every change. While working, the first row of the table is the check to
+run. CI runs everything on the pull request, and the deliberate breaks run there in seven
+minutes (`gh workflow run mutation.yml --ref <branch>`), where they take a whole machine
+for five here.
+
 Run `check_all.sh` before opening a pull request that touches `src/`. A change can pass
 on the newest release and fail on the oldest: some tests search a real session, and the
 older releases have the two defects described in `docs/cases/`.

@@ -31,6 +31,7 @@ Framework-independent: this module must never import livekit. The adapter suppli
 
 from __future__ import annotations
 
+import os
 import random
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
@@ -768,6 +769,31 @@ DEFAULT_VARIABLES = ("speech.position", *cases.DELAY_KINDS, cases.HANGUP)
 # How long the caller of a write waits, when a search adds a timeout or a drop.
 WAIT_US = 1_000_000
 
+# The environment variable that says how many worker processes a search may start when
+# nobody gives it a number.
+WORKERS_VARIABLE = "EARFUL_WORKERS"
+
+
+def default_workers() -> int:
+    """How many worker processes a search starts when nobody says: one per processor,
+    or the number ``EARFUL_WORKERS`` gives, where 0 means the process that searches.
+
+    A search cannot know what else the machine is doing. Several test runs side by
+    side, each taking every processor for its own workers, start more processes than
+    there are processors to run them: nothing finishes sooner and the machine runs hot.
+    Whoever starts the runs knows how many there are, and sets the variable. Raises
+    ``ValueError`` for a value that is not a number of processes."""
+    given = os.environ.get(WORKERS_VARIABLE, "").strip()
+    if not given:
+        return os.cpu_count() or 1
+    try:
+        workers = int(given)
+    except ValueError:
+        workers = -1
+    if workers < 0:
+        raise ValueError(f"{WORKERS_VARIABLE} is a number of processes, 0 for none; got {given!r}")
+    return workers
+
 
 def check_arguments(
     case: cases.Case, variables: Iterable[str], faults: Iterable[str]
@@ -1043,6 +1069,7 @@ __all__ = [
     "STRETCHED",
     "STRETCH_US",
     "WAIT_US",
+    "WORKERS_VARIABLE",
     "Break",
     "Candidate",
     "Each",
@@ -1058,6 +1085,7 @@ __all__ = [
     "attempt",
     "candidates",
     "check_arguments",
+    "default_workers",
     "delay_handles",
     "evaluate",
     "explore",

@@ -331,6 +331,11 @@ scenario built inline, a test run that pytest-xdist has already spread over the
 processors, and a machine where worker processes cannot be started. A number, on the
 command line or in the call, is always taken as given.
 
+`EARFUL_WORKERS=N` in the environment gives `auto`, and `earful search`, a number to use
+in place of one per processor. Set it where several test runs share a machine: each would
+otherwise start a worker for every processor, which makes the machine hot and nothing
+faster. `EARFUL_WORKERS=0` keeps every search in its own process.
+
 `earful.keep(found, "A3/rule")` without a directory writes the bundle under the test's
 evidence directory.
 

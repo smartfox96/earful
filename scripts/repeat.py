@@ -41,6 +41,7 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 from earful.core.ledger import first_difference, normalize, write_jsonl
+from earful.core.search import default_workers
 from earful.livekit.cases import CASES
 from earful.livekit.harness import run_case, versions
 
@@ -114,7 +115,8 @@ def _repeat(case: str, args: argparse.Namespace) -> bool:
         )
 
     # Separate processes share nothing, so running them side by side changes only the wait.
-    with ThreadPoolExecutor(max_workers=min(8, os.cpu_count() or 1)) as pool:
+    # At most eight at once, and no more than EARFUL_WORKERS allows.
+    with ThreadPoolExecutor(max_workers=max(1, min(8, default_workers()))) as pool:
         for i, proc in enumerate(pool.map(spawn, range(args.subprocess))):
             if proc.returncode != 0:
                 problems.append(f"subprocess #{i}: exit {proc.returncode}: {proc.stderr[-400:]}")

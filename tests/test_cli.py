@@ -209,6 +209,30 @@ def test_a_search_asked_for_what_there_is_not_starts_no_worker(capsys, monkeypat
     assert status == REFUSED and "unknown variables" in err and started == []
 
 
+def test_a_search_starts_a_worker_per_processor_or_as_many_as_the_environment_says(
+    capsys, monkeypatch
+):
+    started = []
+
+    def counted(workers=None):
+        started.append(workers)
+        raise PermissionError(13, "Permission denied")  # the search then runs in this process
+
+    monkeypatch.setattr(scenario, "pool", counted)
+    monkeypatch.setattr("os.cpu_count", lambda: 6)
+    narrow = ("--variables", "none", "--faults", "backend.error", "--no-words")
+    reference = "breaks:as_written_reads_the_error"
+    monkeypatch.delenv("EARFUL_WORKERS", raising=False)
+    assert earful(capsys, "search", reference, *narrow)[0] == OK
+    monkeypatch.setenv("EARFUL_WORKERS", "2")
+    assert earful(capsys, "search", reference, *narrow)[0] == OK
+    assert earful(capsys, "search", reference, *narrow, "--workers", "3")[0] == REFUSED
+    assert started == [6, 2, 3]
+    monkeypatch.setenv("EARFUL_WORKERS", "-4")
+    status, _, err = earful(capsys, "search", reference, *narrow)
+    assert status == REFUSED and "EARFUL_WORKERS is a number of processes" in err
+
+
 def test_where_workers_cannot_be_started_the_search_runs_in_this_process_unless_told_a_number(
     capsys, monkeypatch
 ):
