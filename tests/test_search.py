@@ -291,6 +291,45 @@ def test_every_candidate_puts_a_handle_before_at_or_after_a_transition():
     assert any(p.handle.variable.kind == "speech.position" for p in impossible)
 
 
+def test_a_handle_that_sits_on_a_transition_of_another_run_is_put_either_side_of_it():
+    events = ledger("1.8.12", "book_then_interrupt")
+    case = a_case(BOOK, WINDOW)
+    (interrupt,) = [
+        h for h in speech_handles(case, 1, events, ["speech.position"]) if h.moment == "interrupt"
+    ]
+    on_it = [Transition(interrupt.t_us, ("tool.returned",))]
+    found, impossible = candidates(case, [interrupt], on_it, apart=True)
+    assert sorted(c.value_us - interrupt.value_us for c in found) == [-10_000, 10_000]
+    assert [p.offset_us for c in found for p in c.placements] == [-10_000, 10_000]
+    assert impossible == []
+    # In a run that holds the handle, a transition at its instant is the handle: no target.
+    assert candidates(case, [interrupt], on_it) == ([], [])
+
+
+def test_a_speech_or_a_hangup_written_on_a_transition_is_moved_to_either_side_of_it():
+    """The tool returns at 3.0 s, where the second speech as written could first interrupt."""
+    on_the_return = a_case(BOOK, speech(2_500_000, 3_500_000, WINDOW["transcript"]))
+    just_after = answers(lambda case: case["speeches"][-1]["start_us"] == 2_510_000)
+    found = explore(
+        on_the_return,
+        just_after,
+        variables=["speech.position"],
+        speeches=[1],
+        moments=["interrupt"],
+        words=False,
+    )
+    assert [t.candidate.value_us for t in found.breaking(A2)] == [2_510_000]
+    # 10 ms before it the speech would lie inside the booking.
+    assert (3_000_000, -10_000) in {(p.transition.t_us, p.offset_us) for p in found.impossible}
+
+    stays = ledger("1.8.12", "book_then_interrupt")
+    at = next(t.t_us for t in transitions(stays, words=False) if t.t_us > 7_000_000)
+    leaving = explore(
+        a_case(BOOK, WINDOW, hangup_us=at), lambda case: stays, variables=["user.hangup"], faults=[]
+    )
+    assert {at - 10_000, at + 10_000} <= {t.candidate.value_us for t in leaving.tried}
+
+
 def test_a_search_never_makes_a_provider_slower_than_its_limit():
     events = ledger("1.8.12", "book_then_interrupt")
     handles = delay_handles(events, ["backend.latency"])

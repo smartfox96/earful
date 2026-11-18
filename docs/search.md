@@ -185,6 +185,10 @@ variable so that the handle falls there. The offsets are 10 ms before, exactly a
 10 ms after: one audio frame, the finest regular step at which a framework is given audio.
 Cases that coincide are one candidate. Each candidate is run and checked.
 
+A speech or a hangup written exactly on a transition is already at it, and is put 10 ms
+either side. A delay or a wait is not put beside the moment it runs out: that transition
+is its own, and moves with it.
+
 A delay is placed against the transitions of the case as it is. A speech is placed against
 the transitions of the run without that speech: the timeline it would interrupt. A hangup
 is placed against the transitions of the run in which the user stays. No delay

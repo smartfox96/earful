@@ -308,17 +308,24 @@ def candidates(
     offsets_us: Iterable[int] = OFFSETS_US,
     delay_limit_us: int = DELAY_LIMIT_US,
     base: str = "",
+    apart: bool = False,
 ) -> tuple[list[Candidate], list[Placement]]:
     """Every case that puts one of ``handles`` at an offset from one of ``targets``, and the
-    placements for which no case exists. Cases that coincide are one candidate."""
+    placements for which no case exists. Cases that coincide are one candidate. ``apart``
+    says the targets are of a run without the handles, so that a target at the instant of a
+    handle is something else and the handle is put either side of it. Otherwise it is the
+    handle's own doing, and no target."""
     found: dict[str, Candidate] = {}
     impossible: list[Placement] = []
     offsets = tuple(offsets_us)
     for handle in handles:
         for transition in targets:
-            if transition.t_us == handle.t_us:
-                continue  # where it already is
+            there = transition.t_us == handle.t_us
+            if there and not apart:
+                continue
             for offset in offsets:
+                if there and offset == 0:
+                    continue  # where it already is
                 placement = Placement(handle, transition, offset)
                 to = handle.value_us + transition.t_us + offset - handle.t_us
                 waits = handle.variable.kind in (*cases.DELAY_KINDS, cases.WAIT)
@@ -846,9 +853,15 @@ def explore(
             found[key] = candidate
 
     def place(
-        on: cases.Case, handles: list[Handle], against: list[Event], base: str, coarse: bool = False
+        on: cases.Case,
+        handles: list[Handle],
+        against: list[Event],
+        base: str,
+        coarse: bool = False,
+        apart: bool = False,
     ) -> None:
-        """A coarse placing is at each transition itself, the ends of played words left out."""
+        """A coarse placing is at each transition itself, the ends of played words left out.
+        ``apart`` says ``against`` is a run without the handles."""
         tried, cannot = candidates(
             on,
             handles,
@@ -856,6 +869,7 @@ def explore(
             offsets_us=(0,) if coarse else offsets,
             delay_limit_us=delay_limit_us,
             base=base,
+            apart=apart,
         )
         impossible.extend(cannot)
         for candidate in tried:
@@ -876,7 +890,7 @@ def explore(
             if wanted_moments is not None:
                 handles = [h for h in handles if h.moment in wanted_moments]
             if alone is not None:  # else the scenario cannot run without this speech
-                place(on, handles, alone, base, coarse)
+                place(on, handles, alone, base, coarse, apart=True)
 
     def move_hangup(on: cases.Case, produced: list[Event], base: str, coarse: bool = False) -> None:
         """A hangup cuts short the run in which the user stays."""
@@ -884,7 +898,7 @@ def explore(
             return
         stays = produced if on["hangup_us"] is None else runner.ledger(cases.without_hangup(on))
         if stays is not None:
-            place(on, [hangup_handle(on, stays)], stays, base, coarse)
+            place(on, [hangup_handle(on, stays)], stays, base, coarse, apart=True)
 
     place(case, delay_handles(events, delay_kinds), events, "")
     move_speeches(case, events, "")
