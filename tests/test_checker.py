@@ -743,6 +743,42 @@ def test_user_text_is_read_as_one_stream():
     assert [s.index for s in user_turns(_user("for six"), [first, second]).present] == []
 
 
+def _best_reading(texts, delivered, i=0, at=0):
+    """What ``user_turns`` must find, tried every way: (stray, -turns, -found, taken)."""
+    if i == len(delivered):
+        return (len(texts) - at, 0, 0, ())
+    speech, options = delivered[i], []
+    if speech.words and texts[at : at + len(speech.words)] == speech.words:
+        stray, turns, found, taken = _best_reading(texts, delivered, i + 1, at + len(speech.words))
+        options.append((stray, turns - (not speech.backchannel), found - 1, (i, *taken)))
+    if speech.backchannel or not speech.words:
+        options.append(_best_reading(texts, delivered, i + 1, at))
+    return min(options, default=(len(texts) - at, 0, 0, ()))
+
+
+def test_user_turns_finds_the_best_reading_of_any_stream():
+    rng = random.Random(3)
+    phrases = ["ok", "ok ok", "stop", "ok stop", ""]
+    for _ in range(500):
+        delivered = [
+            _speech(n, rng.choice(phrases), backchannel=rng.random() < 0.4)
+            for n in range(rng.randint(0, 6))
+        ]
+        said = " ".join(rng.choice(phrases) for _ in range(rng.randint(0, 5))).split()
+        found = user_turns(_user(" ".join(said)), delivered)
+        stray, _turns, _found, taken = _best_reading(said, delivered)
+        assert [s.index for s in found.present] == list(taken)
+        assert len(found.stray) == stray
+
+
+def test_user_turns_reads_a_long_conversation():
+    """A reading by recursion ran out of stack near 1 200 delivered speeches."""
+    delivered = [_speech(n, f"turn {n}") for n in range(5000)]
+    found = user_turns(_user(*(s.transcript for s in delivered)), delivered)
+    assert len(found.present) == 5000 and not found.stray
+    assert found.ended_at[4999] == 4999
+
+
 def test_a_backchannel_may_be_present_or_absent_even_when_the_next_turn_starts_with_its_words():
     ack, turn = _speech(0, "Stop.", True), _speech(1, "Stop. Now please.")
     dropped = user_turns(_user("Stop. Now please."), [ack, turn])

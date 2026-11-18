@@ -13,14 +13,22 @@ def check(view: View, policy: policies.M2) -> ContractResult:
     by_call_id = {t.call_id: t for t in view.tools.values() if t.call_id is not None}
     requested_by = {tc["call_id"]: c.call for c in view.calls.values() for tc in c.tool_calls}
     turns_in: dict[int, set[int]] = {}  # model call -> speeches its context held
+    delivered_by = {
+        event["seq"]: [s for s in view.delivered if s.delivery["seq"] < event["seq"]]
+        for _label, event, _items in view.contexts
+    }
+    turns_of = {
+        event["seq"]: user_turns(items, delivered_by[event["seq"]])
+        for _label, event, items in view.contexts
+    }
 
     for label, event, items in view.contexts:
         findings, unknown = [], []
         used: list[Event | None] = [event]
-        delivered = [s for s in view.delivered if s.delivery["seq"] < event["seq"]]
+        delivered = delivered_by[event["seq"]]
 
         # Rule a: the user text is the delivered transcripts, whole and in order.
-        turns = user_turns(items, delivered)
+        turns = turns_of[event["seq"]]
         present = {s.index for s in turns.present}
         if event["kind"] == "llm.request":
             turns_in[event["data"]["call"]] = present
@@ -172,11 +180,7 @@ def check(view: View, policy: policies.M2) -> ContractResult:
             if call is None:
                 continue  # text the application spoke answers no particular turn
             source = view.calls[call]
-            seen = user_turns(
-                source.items,
-                [s for s in view.delivered if s.delivery["seq"] < source.request["seq"]],
-            )
-            for speech in seen.present:
+            for speech in turns_of[source.request["seq"]].present:
                 ended = turns.ended_at.get(speech.index)
                 if ended is not None and index < ended:
                     findings.append(

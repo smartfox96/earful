@@ -5,12 +5,12 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from functools import cache
 from typing import Any
 
 from .view import Speech, Spoken
 
 Item = dict[str, Any]
+Score = tuple[int, int, int]  # (stray words, -turns found, -transcripts found); least is best
 
 
 def _words(item: Item) -> list[str]:
@@ -34,31 +34,51 @@ def user_turns(items: list[Item], delivered: list[Speech]) -> UserTurns:
     ]
     texts = [w for w, _ in stream]
 
-    @cache
-    def best(i: int, at: int) -> tuple[int, int, int, tuple[int, ...]]:
-        """(stray words, -turns found, -all found, speeches taken) from speech ``i`` on."""
-        if i == len(delivered):
-            return (len(texts) - at, 0, 0, ())
-        speech = delivered[i]
-        words = speech.words
-        options = []
-        if words and texts[at : at + len(words)] == words:
-            stray, turns, found, taken = best(i + 1, at + len(words))
-            options.append((stray, turns - (not speech.backchannel), found - 1, (i, *taken)))
-        if speech.backchannel or not words:
-            options.append(best(i + 1, at))
-        if not options:
-            return (len(texts) - at, 0, 0, ())  # a turn that is not there ends the reading
-        return min(options)
+    def fits(speech: Speech, at: int) -> bool:
+        return bool(speech.words) and texts[at : at + len(speech.words)] == speech.words
 
-    _stray, _turns, _found, taken = best(0, 0)
+    def may_be_absent(speech: Speech) -> bool:
+        return speech.backchannel or not speech.words
+
+    def ends(at: int) -> Score:
+        return (len(texts) - at, 0, 0)
+
+    # The places in the stream each speech could start at, given the speeches before it.
+    starts: list[set[int]] = [{0}]
+    for speech in delivered:
+        starts.append(
+            {at + len(speech.words) for at in starts[-1] if fits(speech, at)}
+            | {at for at in starts[-1] if may_be_absent(speech)}
+        )
+    # From the last speech back: the best that can follow each place, and whether by skipping.
+    best: dict[int, Score] = {at: ends(at) for at in starts[-1]}
+    skips: list[dict[int, bool]] = []
+    for speech, places in zip(reversed(delivered), reversed(starts[:-1])):
+        here: dict[int, Score] = {}
+        skip: dict[int, bool] = {}
+        for at in places:
+            options: list[tuple[Score, bool]] = []
+            if fits(speech, at):
+                stray, turns, kept = best[at + len(speech.words)]
+                options.append(((stray, turns - (not speech.backchannel), kept - 1), False))
+            if may_be_absent(speech):
+                options.append((best[at], True))
+            if options:
+                here[at], skip[at] = min(options)  # of two equal readings, the one that takes it
+            else:
+                here[at] = ends(at)  # a turn that is not there ends the reading
+        best = here
+        skips.append(skip)
+
     found = UserTurns()
     at = 0
-    for i in taken:
-        speech = delivered[i]
-        at += len(speech.words)
-        found.present.append(speech)
-        found.ended_at[speech.index] = stream[at - 1][1]
+    for speech, skip in zip(delivered, reversed(skips)):
+        if at not in skip:
+            break
+        if not skip[at]:
+            at += len(speech.words)
+            found.present.append(speech)
+            found.ended_at[speech.index] = stream[at - 1][1]
     found.stray = texts[at:]
     return found
 
