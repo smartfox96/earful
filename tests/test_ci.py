@@ -3,6 +3,7 @@
 import os
 import re
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -366,6 +367,28 @@ def test_every_workflow_runs_its_steps_with_pipefail():
     for name, text in WORKFLOWS.items():
         assert "\ndefaults:\n  run:\n    shell: bash\n" in text, name
         assert not re.search(r"^\s+shell:(?! bash$)", text, re.MULTILINE), name
+
+
+@pytest.mark.slow
+@pytest.mark.parametrize("issue", ["3702", "5509"])
+def test_a_historical_case_script_fails_on_a_verdict_its_release_should_not_give(tmp_path, issue):
+    import livekit.agents as lk
+
+    source = (SCRIPTS / f"spike_{issue}.py").read_text()
+    (fixed_in,) = re.findall(r"^FIXED_IN = \((\d+), (\d+), (\d+)\)", source, re.MULTILINE)
+    installed = tuple(int(part) for part in lk.__version__.split(".")[:3])
+    # The other side of the installed release, so that the verdict it gives is the wrong one.
+    moved = "(99, 0, 0)" if installed >= tuple(map(int, fixed_in)) else "(0, 0, 0)"
+    wrong = tmp_path / "wrong.py"
+    wrong.write_text(source.replace(f"FIXED_IN = ({', '.join(fixed_in)})", f"FIXED_IN = {moved}"))
+    for script, status in ((SCRIPTS / f"spike_{issue}.py", 0), (wrong, 1)):
+        done = subprocess.run(
+            [sys.executable, str(script)], capture_output=True, text=True, check=False
+        )
+        assert done.returncode == status, done.stderr
+        assert '"distinct_hashes": 1' in done.stdout
+    assert done.stderr.startswith(f"#{issue}: ")
+    assert f"scripts/spike_{issue}.py evidence\n" in _jobs(CI)["determinism"]
 
 
 def test_a_change_to_prose_alone_runs_every_test_file_that_reads_prose():

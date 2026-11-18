@@ -186,6 +186,28 @@ def test_the_ci_table_on_the_compatibility_page_is_what_the_workflow_runs():
 README = (ROOT / "README.md").read_text()
 
 
+def test_the_releases_with_each_known_defect_are_the_same_everywhere_they_are_listed():
+    page = (ROOT / "docs" / "compatibility.md").read_text()
+    rows = re.findall(
+        r"^\| (\d+\.\d+\.\d+) \| [\d-]+ \| `[^`]+` \| (present|repaired) \| (present|repaired) \|",
+        page,
+        re.MULTILINE,
+    )
+    assert len(rows) == 5
+    tests = (ROOT / "tests" / "test_historical_cases.py").read_text()
+    for column, issue in ((1, "3702"), (2, "5509")):
+        script = (ROOT / "scripts" / f"spike_{issue}.py").read_text()
+        (fixed_in,) = re.findall(r"^FIXED_IN = \((\d+), (\d+), (\d+)\)", script, re.MULTILINE)
+        assert f"FIX_{issue} = ({', '.join(fixed_in)})" in tests
+        first_repaired = tuple(int(part) for part in fixed_in)
+        present = [row[0] for row in rows if row[column] == "present"]
+        repaired = [row[0] for row in rows if row[column] == "repaired"]
+        assert all(tuple(map(int, r.split("."))) < first_repaired for r in present)
+        assert all(tuple(map(int, r.split("."))) >= first_repaired for r in repaired)
+        (shown,) = re.findall(rf"^\| \[livekit/agents#{issue}\].*$", README, re.MULTILINE)
+        assert shown.endswith(f"| {', '.join(present)} | {', '.join(repaired)} |")
+
+
 def test_the_readme_shows_the_example_as_it_is_in_the_repository():
     for name in ("agent.py", "test_booking.py"):
         source = (ROOT / "examples" / "booking" / name).read_text()
