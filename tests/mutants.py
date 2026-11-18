@@ -227,7 +227,7 @@ MUTANTS = [
     Mutant(
         "bundle: a ledger that does not validate is loaded",
         "src/earful/core/bundle.py",
-        "    errors = schema.validate(events)\n",
+        "    errors = ledger_errors(events)\n",
         "    errors = []\n",
         first="not_what_its_manifest_records",
     ),

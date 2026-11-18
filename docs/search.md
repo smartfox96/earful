@@ -342,8 +342,8 @@ no path.
 A bundle is written only for a failure that repeats. The reduction judged one run of the
 reduced case, and that run broke the rule. The reduced case is then run `repeats` more
 times, three by default, and each run has to give the ledger of the run that was judged.
-The case as found is run again in the same way. If any run gives another ledger, nothing
-is written and the error says how many runs agreed.
+The ledger written for the case as found has to be the one it was judged by, too. If any
+run gives another ledger, nothing is written and the error says how many runs agreed.
 
 **Reading** a bundle checks all five files before anything is done with it:
 
@@ -402,8 +402,8 @@ it could not verify.
 
 **What the scenario's digest covers.** A case names its code as `module:function`.
 `scenario_digest` is SHA-256 of the source text of one file: the module in which that
-function is defined. Any change to that file changes it, a comment included. It covers
-nothing else:
+function is defined. Any change to that file changes it, a comment included. It does not
+cover:
 
 - a module the scenario imports, such as the agent, its tools or a stand-in for a
   service;

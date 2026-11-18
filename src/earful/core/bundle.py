@@ -15,11 +15,11 @@ from typing import Any
 from jsonschema import Draft202012Validator
 
 from . import case as cases
-from . import schema
 from .checker import CONTRACTS, check
 from .ledger import SCHEMA as LEDGER
 from .ledger import ledger_hash, read_jsonl, write_jsonl
 from .predicate import Predicate
+from .schema import validate as ledger_errors
 from .search import Run, Runner, judged
 from .shrink import shrink
 
@@ -200,7 +200,7 @@ def _ledger(path: Path, recorded: dict[str, Any]) -> list[Event]:
         raise ValueError(f"cannot read {path}: {exc.strerror}") from exc
     except ValueError as exc:  # not JSON, or not ASCII
         raise ValueError(f"{path} is not a ledger file: {exc}") from exc
-    errors = schema.validate(events)
+    errors = ledger_errors(events)
     if errors:
         more = f" (and {len(errors) - 1} more)" if len(errors) > 1 else ""
         raise ValueError(f"{path} is not an {LEDGER} ledger: {errors[0]}{more}")
