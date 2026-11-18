@@ -301,6 +301,7 @@ and what CI runs for each.
 | [`docs/search.md`](https://github.com/smartfox96/earful/blob/main/docs/search.md) | The search, the reduction of a failing case, and the bundle that is kept |
 | [`docs/ledger.md`](https://github.com/smartfox96/earful/blob/main/docs/ledger.md) | Every event in a ledger, and what makes a run valid |
 | [`docs/compatibility.md`](https://github.com/smartfox96/earful/blob/main/docs/compatibility.md) | Supported releases and what is tested |
+| [`CHANGELOG.md`](https://github.com/smartfox96/earful/blob/main/CHANGELOG.md) | What changed in each release |
 | [`docs/gate0-feasibility.md`](https://github.com/smartfox96/earful/blob/main/docs/gate0-feasibility.md), [`gate1-core.md`](https://github.com/smartfox96/earful/blob/main/docs/gate1-core.md), [`gate2-historical-proof.md`](https://github.com/smartfox96/earful/blob/main/docs/gate2-historical-proof.md) | The evidence each stage of the project rests on |
 
 ## Layout

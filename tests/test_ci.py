@@ -574,3 +574,26 @@ def test_every_workflow_installs_one_version_of_uv_and_leaves_no_credentials_beh
             versions.update(re.findall(r'^env:\n  UV_VERSION: "(.+)"$', text, re.MULTILINE))
             assert text.count("          version: ${{ env.UV_VERSION }}\n") == installs, name
     assert len(versions) == 1 and re.fullmatch(r"\d+\.\d+\.\d+", versions.pop())
+
+
+def test_a_release_takes_its_notes_from_its_section_of_the_changelog(tmp_path):
+    def section(version, *changelog):
+        done = _script("changelog_section.sh", version, *changelog, cwd=tmp_path)
+        return done.returncode, done.stdout
+
+    status, notes = section("0.1.1")
+    assert status == 0 and notes.startswith("### Added\n\n- `earful init module:Class`")
+    assert "## [" not in notes and "]: https://" not in notes and not notes.endswith("\n\n")
+    status, notes = section("0.1.0")  # the last section stops before the link definitions
+    assert status == 0 and notes.startswith("The first release.\n")
+    assert notes.endswith("JSON Schema.\n")
+
+    small = tmp_path / "CHANGELOG.md"
+    small.write_text(
+        "# Changelog\n\n## [Unreleased]\n\n## [1.10.0] - 2027-01-02\n\n- Ten.\n\n"
+        "## [1.1.0] - 2027-01-01\n\n- One.\n\n[1.1.0]: https://example.invalid/1.1.0\n"
+    )
+    assert section("1.1.0", str(small)) == (0, "- One.\n")
+    assert section("1.10.0", str(small)) == (0, "- Ten.\n")
+    for absent in ("1.1", "2.0.0", "Unreleased"):  # no such section, or nothing in it
+        assert section(absent, str(small)) == (1, "")

@@ -298,6 +298,24 @@ def test_the_readme_shows_the_example_as_it_is_in_the_repository():
         assert line in README, line
 
 
+def test_the_changelog_has_a_section_for_the_version_under_one_for_what_is_unreleased():
+    changelog = (ROOT / "CHANGELOG.md").read_text()
+    project = (ROOT / "pyproject.toml").read_text()
+    (version,) = re.findall(r'^version = "(.+)"$', project, re.MULTILINE)
+    headings = re.findall(r"^## \[(.+?)\](?: - (\d{4}-\d\d-\d\d))?$", changelog, re.MULTILINE)
+    assert len(headings) == len(re.findall(r"^## ", changelog, re.MULTILINE))
+    names = [name for name, _ in headings]
+    assert names[:2] == ["Unreleased", version], "the newest section is not this version's"
+    assert not headings[0][1] and all(date for _, date in headings[1:])
+    released = [tuple(int(part) for part in name.split(".")) for name in names[1:]]
+    assert released == sorted(released, reverse=True)
+    for name in names:
+        link = rf"^\[{re.escape(name)}\]: https://github\.com/smartfox96/earful/"
+        assert re.search(link, changelog, re.MULTILINE), f"[{name}] links nowhere"
+    assert "https://github.com/smartfox96/earful/blob/main/CHANGELOG.md" in README
+    assert 'Changelog = "https://github.com/smartfox96/earful/blob/main/CHANGELOG.md"' in project
+
+
 SKILL = (ROOT / "skills" / "earful" / "SKILL.md").read_text()
 
 
