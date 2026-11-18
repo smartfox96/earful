@@ -78,4 +78,10 @@ grep -q "2 passed" <<<"$output" || fail "pytest did not pass both tests: $output
 earful replay "$kept" --expect clean >/dev/null || fail "the kept failure still reproduces"
 echo "ok"
 
+echo "=== after it: earful init writes a first test for an agent, and that test passes"
+earful init agent:BookingAgent >/dev/null || fail "earful init refused the example's agent"
+output="$(pytest -q test_booking_agent.py 2>&1)" || fail "the test earful init wrote fails: $output"
+grep -q "2 passed" <<<"$output" || fail "the test earful init wrote did not pass: $output"
+echo "ok"
+
 echo "the quickstart took $(( $(date +%s) - installed )) s after a $((installed - began)) s install"

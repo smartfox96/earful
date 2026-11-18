@@ -49,6 +49,10 @@ def test_every_timing_and_fault_near_it(earful):
 Run it with `pytest`. `earful` is a pytest fixture the package installs. Without pytest,
 `from earful.livekit import run, explore` are the same calls.
 
+`earful init module:Class` writes a file of this shape from the agent's own tools, with
+placeholder words and arguments. Start from it when there is no test yet, then replace
+the placeholders with a conversation the agent is for.
+
 ## Rules for writing one
 
 1. **Read the agent first.** Use its real tool names and argument names in `call=` and

@@ -356,6 +356,7 @@ straight from the downloaded archive.
 ## 9. From the command line
 
 ```bash
+earful init myapp.agent:BookingAgent
 earful run myapp.scenarios:booking --ledger booking.ledger.jsonl
 earful check booking.ledger.jsonl
 earful search myapp.scenarios:booking --keep A3/rule --out failures
@@ -365,6 +366,7 @@ earful report failures/lk-1.8.12.booking.A3-rule -o report.html
 
 | Command | Does |
 | --- | --- |
+| `earful init AGENT` | Writes a first test for an agent, named as `module:Class`, into `test_<agent>.py` (`-o FILE` names another). The test runs as it is: the scripted model calls the agent's first tool, and every tool is declared an effect, so no tool body runs. The file marks what to change. An agent that cannot be built without arguments is built with `None` for each. Adds `.earful/` to `.gitignore` |
 | `earful check LEDGER...` | Prints the verdicts for recorded ledgers. `--measures` adds what each verdict measured, `--json` prints one report per line |
 | `earful run SCENARIO` | Runs a scenario once and prints its verdicts. `--case FILE` runs a saved case, `--ledger FILE` writes the ledger |
 | `earful search SCENARIO` | Searches a scenario, in one worker process per processor unless `--workers` says otherwise. Where worker processes cannot be started, as in some sandboxes and containers, it says so and searches in its own process; with `--workers N` given it refuses. `--keep CONTRACT/RULE --out DIR` writes a bundle for a rule that broke. `--variables`, `--faults`, `--pairs`, `--profiles`, `--no-words` and `--no-windows` narrow or widen the search |

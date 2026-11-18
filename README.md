@@ -213,9 +213,17 @@ earful replay failures/lk-1.8.12.booking.A2-rule --expect clean    # the kept fa
 The kept failure is now a regression test: `earful replay --expect clean` fails if the
 double booking ever comes back.
 
-To test your own agent, start from [`docs/testing.md`](https://github.com/smartfox96/earful/blob/main/docs/testing.md). A tool that
-talks to its service directly needs no stand-in: declare it as an effect in the test, and
-the agent stays as it is.
+To test your own agent, let Earful write the first test from the agent's tools:
+
+```bash
+earful init myapp.agent:SupportAgent    # writes test_support_agent.py
+pytest test_support_agent.py
+```
+
+The test it writes runs as it is. Every tool is declared an effect, so no tool body runs
+and nothing reaches a real service. The file marks what to change: what the user says,
+which tool the model calls, and which tools only read. [`docs/testing.md`](https://github.com/smartfox96/earful/blob/main/docs/testing.md) covers
+the rest.
 
 ## With a coding assistant
 

@@ -335,6 +335,49 @@ def _report(args: argparse.Namespace) -> int:
     return OK  # the report was written; what it says is not this command's status
 
 
+# --------------------------------------------------------------------------- init
+
+
+def _ignored(directory: Path) -> str | None:
+    """See that git leaves ``.earful/`` out, where ``directory`` is under git or already
+    has a ``.gitignore``. Returns what was done, if anything was."""
+    listing = directory / ".gitignore"
+    if listing.exists():
+        text = listing.read_text(encoding="utf-8")
+        if any(line.strip() in (".earful", ".earful/") for line in text.splitlines()):
+            return None
+        separator = "" if not text or text.endswith("\n") else "\n"
+        listing.write_text(f"{text}{separator}.earful/\n", encoding="utf-8")
+        return "added to .gitignore"
+    if (directory / ".git").exists():
+        listing.write_text(".earful/\n", encoding="utf-8")
+        return ".gitignore written"
+    return None
+
+
+def _init(args: argparse.Namespace) -> int:
+    _adapter()
+    from .livekit.scaffold import scaffold
+
+    made = scaffold(args.agent)
+    target: Path = args.output or Path(made.filename)
+    if target.exists():
+        raise Refused(f"{target} is already there; move it, or name another file with -o")
+    try:
+        target.write_text(made.source, encoding="utf-8")
+    except OSError as exc:
+        raise Refused(f"cannot write {target}: {exc.strerror or exc}") from exc
+    print(f"wrote      {target}")
+    if made.tools:
+        print(f"tools      {', '.join(made.tools)}")
+        print("           each is declared an effect; delete those that only read")
+    done = _ignored(Path.cwd())
+    if done:
+        print(f"ignored    .earful/ ({done})")
+    print(f"next       pytest {target}")
+    return OK
+
+
 # --------------------------------------------------------------------------- the command
 
 
@@ -365,6 +408,18 @@ def _parser() -> argparse.ArgumentParser:
         sub.add_argument("scenario", metavar="SCENARIO", help="module:function")
         sub.add_argument("--case", type=Path, metavar="FILE", help="a saved case (earful.case/1)")
         sub.add_argument("--seed", type=int, default=0, help="seed of the run (default 0)")
+
+    sub = command(
+        "init",
+        _init,
+        "Write a first test for an agent, from the agent's own tools. It runs as it is.",
+    )
+    sub.add_argument(
+        "agent", metavar="AGENT", help="module:Class, such as myapp.agent:SupportAgent"
+    )
+    sub.add_argument(
+        "-o", "--output", type=Path, metavar="FILE", help="write here, not test_<agent>.py"
+    )
 
     sub = command("check", _check, "Print the verdicts for recorded ledgers.")
     sub.add_argument("ledger", nargs="+", type=Path, metavar="LEDGER")
