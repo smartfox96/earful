@@ -1,10 +1,10 @@
 {
   "clock": "virtual",
   "environment": {
-    "earful": "0.0.0",
+    "earful": "0.1.1",
     "livekit": "1.1.5",
     "livekit-agents": "1.5.6",
-    "packages": "f171c39b23849530a501abe7dc5bc0508d46e9437b0cb01d7dcb61e9210720bb",
+    "packages": "dd52b90f09d2b461c6e619aa96de41a899badac63a5b2e5383f3fe88289948dd",
     "platform": "Darwin-arm64",
     "python": "3.13.12"
   },
@@ -18,6 +18,7 @@
     "version": "1.5.6"
   },
   "minimal": {
+    "case_digest": "7df06a1a2f2bb64100804f8799c873bf8e7d38ef454e8b42d84e38396ca58076",
     "delays": 0,
     "faults": 0,
     "findings": [
@@ -27,6 +28,7 @@
     "speeches": 2
   },
   "original": {
+    "case_digest": "102b6223f7c4a410b098fc53d4a2b12d4752c9580a1063070cc0bb96e37f714f",
     "delays": 1,
     "faults": 0,
     "findings": [
@@ -53,7 +55,7 @@
   },
   "scenario_digest": "07d47d9d9aab4c2916303a52e07687b205d3d049914410787b70a60583578429",
   "schema": "earful.bundle/1",
-  "schema_minor": 0,
+  "schema_minor": 1,
   "windows": [
     {
       "hi_end": "passes",

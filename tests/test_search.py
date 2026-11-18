@@ -1303,16 +1303,7 @@ def rewrite(path, change):
 
 def a_copy(tmp_path):
     """A copy of a reference bundle, to change."""
-    directory = tmp_path / "kept"
-    shutil.copytree(REFERENCE, directory)
-
-    def record(manifest):
-        for which in ("original", "minimal"):
-            case = json.loads((directory / f"{which}.case.json").read_text())
-            manifest[which].setdefault("case_digest", bundle.case_digest(case))
-
-    rewrite(directory / "manifest.json", record)
-    return directory
+    return Path(shutil.copytree(REFERENCE, tmp_path / "kept"))
 
 
 def another_run(directory):
@@ -1482,9 +1473,11 @@ def test_a_manifest_cannot_point_outside_its_bundle(tmp_path):
 )
 def test_every_reference_bundle_is_what_its_manifest_says(directory):
     kept = bundle.load(directory)
+    assert kept.manifest["schema_minor"] == 1 and kept.unverified == ()
     for which, case in (("original", kept.original), ("minimal", kept.minimal)):
         events = kept.ledger(which)
         assert ledger_hash(events) == kept.manifest[which]["hash"]
+        assert bundle.case_digest(case) == kept.manifest[which]["case_digest"]
         assert len(case["speeches"]) == kept.manifest[which]["speeches"]
         assert kept.predicate.holds(check(events))
         assert events[0]["data"]["framework"] == kept.manifest["framework"]

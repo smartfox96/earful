@@ -11,7 +11,6 @@ import pytest
 
 from earful import __version__
 from earful.cli import BROKEN, NO_VERDICT, OK, REFUSED, main
-from earful.core import bundle
 from earful.core import case as cases
 from earful.core.ledger import ledger_hash, read_jsonl, write_jsonl
 from earful.core.schema import validate, validity
@@ -311,11 +310,8 @@ def test_replay_says_what_it_could_not_verify_and_which_earful_kept_the_bundle(
 
     def replayed(earful_version, digests):
         manifest["environment"] = {"earful": earful_version} if earful_version else {}
-        for which in ("original", "minimal"):
-            case = json.loads((kept / f"{which}.case.json").read_text())
-            manifest[which]["case_digest"] = bundle.case_digest(case)
-            if not digests:
-                del manifest[which]["case_digest"]
+        if not digests:  # as a bundle written before manifests recorded them
+            del manifest["original"]["case_digest"], manifest["minimal"]["case_digest"]
         (kept / "manifest.json").write_text(json.dumps(manifest))
         out = earful(capsys, "replay", kept)[1]
         return out, json.loads(earful(capsys, "replay", kept, "--json")[1])
