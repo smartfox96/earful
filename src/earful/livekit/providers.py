@@ -23,6 +23,7 @@ from ..scripted.voice import SHORTEST, StampTable, letters
 from ..scripted.world import UserSpeech, WorldOrigin, _check_speeches, vad_segments
 from ..scripted.world import sleep_until as _sleep_until
 from ._compat import DEFAULT_API_CONNECT_OPTIONS, APIConnectOptions
+from .tools import unwitnessed
 
 
 class ScriptedVAD(lk_vad.VAD):
@@ -45,6 +46,10 @@ class ScriptedVAD(lk_vad.VAD):
         self._min_silence_us = to_us(min_silence_duration)
         if self._min_speech_us <= 0:
             raise ValueError("min_speech_duration must be positive")
+        # The framework opens a new stream for each agent it hands over to.
+        self._streams = 0
+        self._starts: set[int] = set()  # segments whose start is in the ledger
+        self._ends: set[int] = set()  # segments whose end has been reported
 
     def stream(self) -> lk_vad.VADStream:
         return _ScriptedVADStream(self)
@@ -60,21 +65,32 @@ class _ScriptedVADStream(lk_vad.VADStream):
         assert isinstance(vad, ScriptedVAD)
         if not vad._speeches:
             return
-
-        async for frame in self._input_ch:
-            if isinstance(frame, rtc.AudioFrame):
-                break
-        else:
-            return
-
-        t0 = now_us()
-        vad._origin.mark("vad", t0)
-        for segment in vad_segments(vad._speeches, vad._min_silence_us):
-            spans = [(vad._speeches[i].start_us, vad._speeches[i].end_us) for i in segment]
+        vad._streams += 1
+        if vad._streams == 1:  # the scripted user's clock starts at the first audio frame
+            async for frame in self._input_ch:
+                if isinstance(frame, rtc.AudioFrame):
+                    break
+            else:
+                return
+            vad._origin.mark("vad", now_us())
+        assert vad._origin.t0_us is not None
+        t0 = vad._origin.t0_us
+        opened = now_us() - t0
+        for number, segment in enumerate(vad_segments(vad._speeches, vad._min_silence_us)):
+            # A stream hears only what is said after it opens, as a detector would.
+            spans = [
+                (max(vad._speeches[i].start_us, opened), vad._speeches[i].end_us)
+                for i in segment
+                if vad._speeches[i].end_us > opened
+            ]
+            if number in vad._ends or not spans:
+                continue
             start_us, end_us = spans[0][0], spans[-1][1]
             await _sleep_until(t0, start_us + vad._min_speech_us)
             self._emit(lk_vad.VADEventType.START_OF_SPEECH, spans, now_us() - t0)
-            vad._ledger.append("world", "user.vad_start", speech=segment[0])
+            if number not in vad._starts:
+                vad._starts.add(number)
+                vad._ledger.append("world", "user.vad_start", speech=segment[0])
 
             end_at = end_us + vad._min_silence_us
             tick = start_us + 2 * vad._min_speech_us
@@ -85,6 +101,7 @@ class _ScriptedVADStream(lk_vad.VADStream):
 
             await _sleep_until(t0, end_at)
             self._emit(lk_vad.VADEventType.END_OF_SPEECH, spans, now_us() - t0)
+            vad._ends.add(number)
             vad._ledger.append("world", "user.vad_end", speech=segment[-1])
 
         async for _ in self._input_ch:
@@ -243,6 +260,9 @@ class _ScriptedLLMStream(lk_llm.LLMStream):
 
         items = [summarize_item(i) for i in self.chat_ctx.items]
         model._ledger.append("llm", "llm.request", call=call, items=items)
+        missed = unwitnessed(list(self.tools))
+        if missed:
+            model._errors.append(f"call {call}: the model is offered {missed} without the witness")
         try:
             reply = model._policy(items)
         except Exception as exc:

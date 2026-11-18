@@ -183,6 +183,8 @@ def _session_kwargs(case: Case) -> dict[str, Any]:
                 min_delay=case.min_endpointing_delay, max_delay=case.max_endpointing_delay
             ),
             "interruption": lk.InterruptionOptions(
+                # The other mode is a model reached over the network.
+                mode="vad",
                 min_duration=case.min_interruption_duration,
                 false_interruption_timeout=case.false_interruption_timeout,
             ),
@@ -507,7 +509,8 @@ async def _play(
 
     # The agent is built first, so that the header can name its tools.
     agent = case.agent()
-    scenario = _header(case, await tools.witness_agent_tools(agent))
+    found = {**tools.witness_session_tools(session), **await tools.witness_agent_tools(agent)}
+    scenario = _header(case, found)
 
     declared, effective = _declared_session(case), _effective_session(session)
     for name in declared:
