@@ -30,8 +30,9 @@ CI runs `check_all.sh`'s parts on every pull request, on Linux for the five rele
 on macOS for the oldest and the newest. The deliberate breaks run each night.
 
 `main` takes a change only as a pull request, and only once that pull request's
-`ci result` check has passed. Nobody can push to `main`, and a merged branch is deleted
-from the repository.
+`ci result` check has passed. A pull request also needs the maintainer's approval, given
+after its last push (`.github/CODEOWNERS`). Nobody can push to `main`, and a merged
+branch is deleted from the repository.
 
 Run `check_all.sh` before opening a pull request that touches `src/`. A change can pass
 on the newest release and fail on the oldest: some tests search a real session, and the
