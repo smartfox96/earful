@@ -6,18 +6,18 @@ from array import array
 from livekit import rtc
 
 from earful.core.ledger import Ledger
-from earful.livekit.providers import StampTable
 from earful.livekit.sink import ClockedSink
 from earful.scripted.clock import now_us, run_virtual
+from earful.scripted.voice import StampTable, encode
 
 RATE = 24000
 
 
 def _frame(*runs, rate=RATE):
-    """An audio frame made of (stamp, sample count) runs."""
+    """An audio frame made of (stamp, sample count) runs, each the start of that word."""
     pcm = array("h")
     for stamp, count in runs:
-        pcm.extend([stamp] * count)
+        pcm.extend(encode(stamp, count))
     return rtc.AudioFrame(
         data=pcm.tobytes(), sample_rate=rate, num_channels=1, samples_per_channel=len(pcm)
     )
@@ -36,10 +36,12 @@ def _kinds(ledger):
     return [e["kind"] for e in ledger.events]
 
 
-def test_an_unknown_sample_value_is_a_stamp_error():
+def test_a_sample_of_no_known_word_is_a_stamp_error():
     async def main():
         sink, _ = _sink([2400])
-        await sink.capture_frame(_frame((1, 2399), (99, 1)))
+        await sink.capture_frame(_frame((1, 2399), (99, 1)))  # word 99 was never synthesized
+        sink.flush()
+        await asyncio.sleep(0.2)
         return sink.stamp_errors
 
     assert run_virtual(main) == 1

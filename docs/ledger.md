@@ -74,7 +74,7 @@ All are deterministic: the same run gives the same identifiers.
 | `speech` | Scenario order, from 0 | One scripted user utterance |
 | `call` | Scripted model, from 1 | One model call; its request, its response and the reply it produced |
 | `utterance` | Scripted TTS, from 1 | One synthesized text |
-| stamp | Scripted TTS, from 1 | One synthesized word. Written into every audio sample of that word |
+| stamp | Scripted TTS, from 1 | One synthesized word. Any three samples of that word's audio in a row name it |
 | `segment` | Sink, from 1, at a segment's first frame | One playout segment, audible or not |
 | `tool` | Tool witness, from 1 | One invocation of a witnessed tool |
 | `call_id` | The model | Links a tool invocation to the model's tool call and to the framework's chat items |

@@ -8,7 +8,6 @@ import re
 import subprocess
 import sys
 import time
-from array import array
 from dataclasses import replace
 from pathlib import Path
 from unittest.mock import AsyncMock
@@ -225,7 +224,7 @@ def test_pipecat_cancellation_counts_only_the_samples_that_played():
         table.add(1, 1, "there", 240)
         ledger = Ledger(now_us, run="test")
         output = ClockedOutput(ledger, table)
-        frame = OutputAudioRawFrame(array("h", [1] * 240 + [2] * 240).tobytes(), 24000, 1)
+        frame = OutputAudioRawFrame((table.audio(1) + table.audio(2)).tobytes(), 24000, 1)
         writing = asyncio.create_task(output.write_audio_frame(frame))
         await asyncio.sleep(0.015)
         writing.cancel()
@@ -249,7 +248,7 @@ def test_pipecat_playout_preserves_gaps_between_chunks():
             stamp = table.add(1, index, word, 240)
             if index:
                 await asyncio.sleep(0.005)
-            frame = OutputAudioRawFrame((array("h", [stamp]) * 240).tobytes(), 24000, 1)
+            frame = OutputAudioRawFrame(table.audio(stamp).tobytes(), 24000, 1)
             await output.write_audio_frame(frame)
         await output.cancel(CancelFrame())
         return ledger.events[-1]["data"]

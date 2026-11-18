@@ -12,8 +12,8 @@ from livekit import rtc
 
 from ..core.ledger import Ledger
 from ..core.timebase import US_PER_SECOND, to_seconds
+from ..scripted.voice import StampReader, StampTable, words_heard
 from ._compat import io
-from .providers import StampTable
 
 
 class _Segment:
@@ -77,40 +77,33 @@ class ClockedSink(io.AudioOutput):
         self._segment: _Segment | None = None
         self._paused = False  # what the framework last asked for; outlives segments
         self._finish_handle: asyncio.TimerHandle | None = None
-        self.stamp_errors = 0
+        self._reader = StampReader(table)
+        self._resampled = 0
         self.underruns = 0
+
+    @property
+    def stamp_errors(self) -> int:
+        return self._reader.errors + self._resampled
+
+    def _take(self, segment: _Segment, runs: list[tuple[int, int]]) -> None:
+        for stamp, count in runs:
+            if segment.runs and segment.runs[-1][0] == stamp:
+                segment.runs[-1][1] += count
+            else:
+                segment.runs.append([stamp, count])
 
     def _words_at(
         self, segment: _Segment, position_samples: int
     ) -> tuple[list[int], list[int], int | None, int]:
         # Returns the stamps fully played, when each ended (us), the stamp cut and its samples.
-        consumed: dict[int, int] = {}
-        last_sample: dict[int, int] = {}  # stamp -> offset just past its last consumed sample
-        offset = 0
-        for stamp, count in segment.runs:
-            take = max(0, min(count, position_samples - offset))
-            if stamp != 0 and take:
-                consumed[stamp] = consumed.get(stamp, 0) + take
-                last_sample[stamp] = offset + take
-            offset += count
-        played: list[int] = []
-        cut: int | None = None
-        cut_samples = 0
-        for stamp, got in consumed.items():
-            if got >= self._table.words[stamp]["samples"]:
-                played.append(stamp)
-            else:
-                cut, cut_samples = stamp, got
-        done = [
-            segment.time_of(-(-last_sample[s] * US_PER_SECOND // segment.sample_rate))
-            for s in played
-        ]
+        played, ended, cut, cut_samples = words_heard(segment.runs, position_samples, self._table)
+        done = [segment.time_of(-(-end * US_PER_SECOND // segment.sample_rate)) for end in ended]
         return played, done, cut, cut_samples
 
     def _utterances(self, segment: _Segment) -> list[int]:
         seen: list[int] = []
         for stamp, _count in segment.runs:
-            if stamp and stamp in self._table.words:
+            if stamp:
                 u = self._table.words[stamp]["utterance"]
                 if u not in seen:
                     seen.append(u)
@@ -192,6 +185,7 @@ class ClockedSink(io.AudioOutput):
             )
         else:
             position_us, position_samples = pushed_us, segment.pushed_samples
+        self._take(segment, self._reader.end())
         played, done, cut, cut_samples = self._words_at(segment, position_samples)
         self._ledger.append(
             "sink",
@@ -236,7 +230,7 @@ class ClockedSink(io.AudioOutput):
             self._segments += 1
             segment = self._segment = _Segment(self._segments, frame.sample_rate)
         elif frame.sample_rate != segment.sample_rate:
-            self.stamp_errors += 1  # resampled mid-segment: stamps can no longer be trusted
+            self._resampled += 1  # resampled mid-segment: stamps can no longer be trusted
         if (
             segment.started_us is not None
             and segment.pause_began_us is None
@@ -246,13 +240,7 @@ class ClockedSink(io.AudioOutput):
             self.underruns += 1
 
         samples = memoryview(frame.data).cast("B").cast("h")
-        for value in samples:
-            if value != 0 and value not in self._table.words:
-                self.stamp_errors += 1
-            if segment.runs and segment.runs[-1][0] == value:
-                segment.runs[-1][1] += 1
-            else:
-                segment.runs.append([value, 1])
+        self._take(segment, self._reader.read(samples))
         segment.pushed_samples += len(samples)
 
         if segment.starved:

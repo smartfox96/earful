@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from bisect import bisect_right
 from dataclasses import dataclass, field
 
 from pipecat.frames.frames import (
@@ -20,18 +21,23 @@ from pipecat.transports.base_transport import TransportParams
 
 from ..core.ledger import Ledger
 from ..core.timebase import US_PER_SECOND, to_seconds
-from ..scripted.voice import StampTable
+from ..scripted.voice import StampReader, StampTable, words_heard
 from .providers import SAMPLE_RATE
 
 
 @dataclass
 class _Segment:
     number: int
-    consumed: dict[int, int] = field(default_factory=dict)
-    completed_us: dict[int, int] = field(default_factory=dict)
-    samples: int = 0
+    runs: list[list[int]] = field(default_factory=list)  # [stamp, sample count], as written
+    writes: list[tuple[int, int]] = field(default_factory=list)  # (first sample, started us)
+    heard: int = 0  # samples that played
     pushed: int = 0
     cleared: bool = False
+
+    def time_of(self, end: int) -> int:
+        """When the audio up to sample ``end`` had played."""
+        first, started_us = self.writes[bisect_right(self.writes, (end - 1, 2**62)) - 1]
+        return started_us + _duration(end - first)
 
 
 def _duration(samples: int) -> int:
@@ -55,7 +61,19 @@ class ClockedOutput(BaseOutputTransport):
         self._segments = 0
         self._segment: _Segment | None = None
         self._writing = False
-        self.stamp_errors = 0
+        self._reader = StampReader(table)
+        self._altered = 0
+
+    @property
+    def stamp_errors(self) -> int:
+        return self._reader.errors + self._altered
+
+    def _take(self, segment: _Segment, runs: list[tuple[int, int]]) -> None:
+        for stamp, count in runs:
+            if segment.runs and segment.runs[-1][0] == stamp:
+                segment.runs[-1][1] += count
+            else:
+                segment.runs.append([stamp, count])
 
     @property
     def playing(self) -> bool:
@@ -100,24 +118,26 @@ class ClockedOutput(BaseOutputTransport):
     async def write_audio_frame(self, frame: OutputAudioRawFrame) -> bool:
         samples = memoryview(frame.audio).cast("h")
         if frame.sample_rate != SAMPLE_RATE or frame.num_channels != 1:
-            self.stamp_errors += 1
+            self._altered += 1
         segment = self._segment
+        if segment is None and not any(samples):
+            return True  # silence between utterances is not a segment
+        began = segment is None
         if segment is None:
-            if not any(samples):
-                return True  # silence between utterances is not a segment
             self._segments += 1
             segment = self._segment = _Segment(self._segments)
-            first = next(value for value in samples if value)
+        self._take(segment, self._reader.read(samples))
+        if began:
+            first = next((stamp for stamp, _count in segment.runs if stamp), None)
             self._ledger.append(
                 "sink",
                 "playout.started",
                 segment=segment.number,
-                utterance=self._table.words[first]["utterance"]
-                if first in self._table.words
-                else None,
+                utterance=self._table.words[first]["utterance"] if first else None,
             )
         # A write plays from its arrival. Gaps between writes are silence.
         start = self._ledger.now_us()
+        segment.writes.append((segment.pushed, start))
         segment.pushed += len(samples)
         self._writing = True
         try:
@@ -125,41 +145,28 @@ class ClockedOutput(BaseOutputTransport):
         finally:
             self._writing = False
             elapsed = max(0, self._ledger.now_us() - start)
-            heard = min(len(samples), elapsed * SAMPLE_RATE // US_PER_SECOND)
-            segment.samples += heard
-            for offset, stamp in enumerate(samples[:heard], 1):
-                if not stamp:
-                    continue
-                if stamp not in self._table.words:
-                    self.stamp_errors += 1
-                    continue
-                count = segment.consumed.get(stamp, 0) + 1
-                segment.consumed[stamp] = count
-                if count == self._table.words[stamp]["samples"]:
-                    segment.completed_us[stamp] = start + _duration(offset)
+            segment.heard += min(len(samples), elapsed * SAMPLE_RATE // US_PER_SECOND)
         if segment.cleared:
             self._finish(segment, interrupted=True)
         return True
 
     def _finish(self, segment: _Segment, *, interrupted: bool) -> None:
-        played = list(segment.completed_us)
-        cut = next((s for s in segment.consumed if s not in segment.completed_us), None)
-        utterances = list(
-            dict.fromkeys(self._table.words[s]["utterance"] for s in segment.consumed)
-        )
+        self._take(segment, self._reader.end())
+        played, ended, cut, cut_samples = words_heard(segment.runs, segment.heard, self._table)
+        heard = [*played, *([] if cut is None else [cut])]
         self._ledger.append(
             "sink",
             "playout.finished",
             segment=segment.number,
             interrupted=interrupted,
             audible=True,
-            utterances=utterances,
-            position_us=_duration(segment.samples),
+            utterances=list(dict.fromkeys(self._table.words[s]["utterance"] for s in heard)),
+            position_us=_duration(segment.heard),
             pushed_us=_duration(segment.pushed),
             words_played=played,
-            words_completed_us=[segment.completed_us[s] for s in played],
+            words_completed_us=[segment.time_of(end) for end in ended],
             word_cut=cut,
-            word_cut_samples=segment.consumed[cut] if cut is not None else 0,
+            word_cut_samples=cut_samples,
             text_played=" ".join(self._table.words[s]["text"] for s in played),
         )
         self._segment = None

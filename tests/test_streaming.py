@@ -8,6 +8,7 @@ from livekit.agents import llm
 
 from earful.core.ledger import Ledger
 from earful.core.schema import validate
+from earful.livekit.cases import LONG_REPLY
 from earful.livekit.harness import Case, run_case
 from earful.livekit.providers import (
     Reply,
@@ -158,3 +159,34 @@ def test_hangup_during_generation_keeps_a_single_partial_utterance():
     assert data["call"] == 1 and data["attribution"] == "prefix"
     assert 0 < len(data["stamps"]) < 8
     assert synthesized["t_us"] >= data["started_us"]
+
+
+def test_what_is_remembered_of_a_cut_reply_does_not_depend_on_the_words_said_before_it():
+    def remembered(opening):
+        def policy(items):
+            said = [i["text"] for i in items if i["type"] == "message" and i["role"] == "user"]
+            if "menu" in said[-1]:
+                return Reply(text=LONG_REPLY, ttft=0.1, duration=0.4)
+            return Reply(text="Okay." if "Stop" in said[-1] else opening, ttft=0.1, duration=0.4)
+
+        case = Case(
+            name="long",
+            agent=lambda: lk.Agent(instructions="Answer."),
+            speeches=[
+                UserSpeech(0.5, 1.5, "Hello there."),
+                UserSpeech(60.0, 62.0, "Tell me about the menu."),
+                UserSpeech(64.5, 65.5, "Stop."),
+            ],
+            policy=policy,
+        )
+        result = run_case(case)
+        result.assert_contracts()
+        history = next(e for e in result.ledger.events if e["kind"] == "history.final")
+        return [
+            item["text"]
+            for item in history["data"]["items"]
+            if item["type"] == "message" and item["interrupted"]
+        ]
+
+    few, many = remembered("Hello to you."), remembered(" ".join([LONG_REPLY] * 6))
+    assert few == many and len(few) == 1

@@ -6,7 +6,6 @@ import asyncio
 import dataclasses
 import json
 import time
-from array import array
 from collections.abc import AsyncGenerator
 from dataclasses import dataclass, field
 from typing import Any, cast
@@ -41,7 +40,7 @@ from ..core.ledger import Ledger
 from ..core.timebase import to_us
 from ..scripted.clock import now_us
 from ..scripted.model import Policy, ReplyRegister
-from ..scripted.voice import StampTable, letters
+from ..scripted.voice import SHORTEST, StampTable, letters
 from ..scripted.world import UserSpeech, WorldOrigin, sleep_until, vad_segments
 from .tools import ToolWitness
 
@@ -350,8 +349,8 @@ class ScriptedLLM(LLMService):
 
 
 class StampedTTS(TTSService):
-    """The LiveKit adapter's stamped voice, as a Pipecat service: each sample's value is
-    the stamp of the word it belongs to. Pipecat hands it one sentence at a time."""
+    """The LiveKit adapter's stamped voice, as a Pipecat service: the sink reads from the
+    audio the stamp of the word each sample belongs to."""
 
     def __init__(
         self,
@@ -380,6 +379,8 @@ class StampedTTS(TTSService):
             to_us(ttfb),
             ttfb_us,
         )
+        if (SAMPLE_RATE * self._letter_us + 500_000) // 1_000_000 < SHORTEST:
+            raise ValueError(f"seconds_per_letter is shorter than {SHORTEST} audio samples")
         self._utterances = 0
         self._open: dict[str, _Utterance] = {}
         self.synthesizing = 0
@@ -408,7 +409,7 @@ class StampedTTS(TTSService):
             one.stamps.append(stamp)
             one.word_samples.append(samples)
             one.samples += samples
-            pcm.extend((array("h", [stamp]) * samples).tobytes())
+            pcm.extend(self.table.audio(stamp).tobytes())
         self.synthesizing += 1
         try:
             if first:

@@ -6,7 +6,6 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import dataclasses
-from array import array
 from typing import Any, NoReturn
 
 from livekit import rtc
@@ -20,7 +19,7 @@ from ..core.ledger import Ledger
 from ..core.timebase import to_seconds, to_us
 from ..scripted.clock import now_us
 from ..scripted.model import Claim, Policy, Reply, ReplyRegister, ToolCall, _words
-from ..scripted.voice import StampTable, letters
+from ..scripted.voice import SHORTEST, StampTable, letters
 from ..scripted.world import UserSpeech, WorldOrigin, _check_speeches, vad_segments
 from ..scripted.world import sleep_until as _sleep_until
 from ._compat import DEFAULT_API_CONNECT_OPTIONS, APIConnectOptions
@@ -316,7 +315,7 @@ class _ScriptedLLMStream(lk_llm.LLMStream):
 
 
 class StampedTTS(lk_tts.TTS[NoReturn]):
-    """Emits PCM in which every sample's value is the stamp of the word it belongs to.
+    """Emits PCM from which the sink reads the stamp of the word each sample belongs to.
     A word's audio lasts ``seconds_per_letter`` for each of its letters."""
 
     def __init__(
@@ -340,8 +339,8 @@ class StampedTTS(lk_tts.TTS[NoReturn]):
         # Utterance (from 1) -> a time to first audio the scenario declared for it.
         self._ttfb_by_utterance = dict(ttfb_us or {})
         self._letter_us = to_us(seconds_per_letter)
-        if sample_rate * self._letter_us < 1_000_000:
-            raise ValueError("seconds_per_letter is shorter than one audio sample")
+        if (sample_rate * self._letter_us + 500_000) // 1_000_000 < SHORTEST:
+            raise ValueError(f"seconds_per_letter is shorter than {SHORTEST} audio samples")
         self._utterances = 0
         self.table = StampTable(sample_rate=sample_rate)
 
@@ -377,7 +376,7 @@ class _Synthesis:
         self.words.append(word)
         self.stamps.append(stamp)
         self.word_samples.append(samples)
-        return array("h", [stamp] * samples).tobytes()
+        return tts.table.audio(stamp).tobytes()
 
     def finish(self) -> None:
         text = " ".join(self.words)
