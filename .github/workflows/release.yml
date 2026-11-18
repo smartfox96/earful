@@ -18,7 +18,15 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # the next step asks whether main contains the tag's commit
       - uses: astral-sh/setup-uv@v6
+      - name: The tag is on main
+        run: |
+          if ! git merge-base --is-ancestor HEAD origin/main; then
+            echo "$GITHUB_REF_NAME is on $(git rev-parse HEAD), which is not a commit of main" >&2
+            exit 1
+          fi
       - name: The tag names the version in pyproject.toml
         run: |
           version="$(sed -n 's/^version = "\(.*\)"$/\1/p' pyproject.toml)"

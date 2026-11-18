@@ -29,6 +29,10 @@ run the code in your checkout.
 CI runs `check_all.sh`'s parts on every pull request, on Linux for the five releases and
 on macOS for the oldest and the newest. The deliberate breaks run each night.
 
+`main` takes a change only as a pull request, and only once that pull request's
+`ci result` check has passed. Nobody can push to `main`, and a merged branch is deleted
+from the repository.
+
 Run `check_all.sh` before opening a pull request that touches `src/`. A change can pass
 on the newest release and fail on the oldest: some tests search a real session, and the
 older releases have the two defects described in `docs/cases/`.
@@ -96,7 +100,11 @@ against them, and publishes both to PyPI.
 2. Run the deliberate breaks on that commit: the `mutation` workflow, from the Actions
    page. Every one has to be caught.
 3. `git tag v<version>` on that commit of `main` and push the tag. The workflow refuses a
-   tag that does not name the version in `pyproject.toml`.
+   tag that does not name the version in `pyproject.toml`, and a tag on a commit that is
+   not on `main`.
+
+A `v*` tag cannot be moved or deleted once it is pushed. A release that went out wrong is
+followed by a new version.
 
 Publishing uses a PyPI trusted publisher, which is set up once on pypi.org for the
 project `earful`: owner `smartfox96`, repository `earful`, workflow `release.yml`,
