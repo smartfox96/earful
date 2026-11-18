@@ -20,9 +20,7 @@ def check(view: View, policy: policies.A3) -> ContractResult:
                 "words": [claim["first_word"], claim["last_word"]],
             }
             base = [reply.answer, playout.utterance.event if playout.utterance else None]
-            missing = playout.unattributable or (
-                "the run ended before the reply's playout finished" if playout.pending else None
-            )
+            missing = playout.unknown
             if missing:
                 verdicts.append(
                     verdict(

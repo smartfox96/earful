@@ -567,7 +567,8 @@ def test_alignment_follows_order_and_never_guesses():
     assert either.possible and either.ambiguous == {"reply 1", "reply 2"} and not either.matched
     mixed = align(_said("one moment please", "all done"), [one, two, three])
     assert mixed.matched == {"reply 3": 1} and mixed.ambiguous == {"reply 1", "reply 2"}
-    assert align(_said("all done"), [one, three]).absent == {"reply 1"}
+    one_gone = align(_said("all done"), [one, three])
+    assert one_gone.matched == {"reply 3": 0} and not one_gone.ambiguous
     assert not align(_said("all done", "one moment"), [one, three]).possible
     assert align(_said("something else"), [one]).unmatched_items == [0]
     greeting = _thing(1, "welcome to the restaurant", reply=False)
@@ -1297,7 +1298,7 @@ def test_a_reply_whose_last_segment_never_finished_is_not_judged_on_the_part_tha
     report = check(events)
     (claim,) = report.results["A3"].verdicts
     assert claim.outcome == UNOBSERVABLE and report.results["A3"].notes == ()
-    assert "before the reply's playout finished" in claim.findings[0].detail
+    assert "before its playout finished" in claim.findings[0].detail
     last = report.results["M1"].verdicts[-1]
     assert last.outcome == UNOBSERVABLE
     assert "before its playout finished" in last.findings[0].detail

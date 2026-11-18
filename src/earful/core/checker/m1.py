@@ -30,7 +30,7 @@ def _judged_in(view: View, item: Spoken, playout: Playout) -> tuple[list[Context
     return [c for c in history if c[1]["seq"] > after], ["judged_on_final_history"]
 
 
-def _judge(
+def _compare(
     view: View,
     policy: policies.M1,
     item: Spoken,
@@ -119,7 +119,7 @@ def check(view: View, policy: policies.M1) -> ContractResult:
     judged: dict[str, tuple[list[Context], list[str]]] = {
         item.key: _judged_in(view, item, playouts[item.key])
         for item in view.spoken
-        if not (playouts[item.key].unattributable or playouts[item.key].pending)
+        if playouts[item.key].unknown is None
     }
 
     # Among identical texts, the match that agrees best with what was played is taken.
@@ -134,7 +134,7 @@ def check(view: View, policy: policies.M1) -> ContractResult:
                 contexts = judged.get(item.key, ([], []))[0]
                 if not any(c[0] == label for c in contexts):
                     return (0, 0)  # this context does not judge it
-                row, findings = _judge(view, policy, item, playouts[item.key], message, context)
+                row, findings = _compare(view, policy, item, playouts[item.key], message, context)
                 return (len(findings), abs(row["drift_us"]))
 
             alignment = align(items, said)
@@ -150,9 +150,7 @@ def check(view: View, policy: policies.M1) -> ContractResult:
         instance = item.instance
         base = [item.born, playout.utterance.event if playout.utterance else None]
         base += [s.finished for s in playout.segments]
-        missing = playout.unattributable or (
-            "the run ended before its playout finished" if playout.pending else None
-        )
+        missing = playout.unknown
         if missing:
             verdicts.append(
                 verdict(
@@ -185,7 +183,7 @@ def check(view: View, policy: policies.M1) -> ContractResult:
                 continue
             chosen = chosen or item.key in ambiguous
             at = matched.get(item.key)
-            row, found = _judge(
+            row, found = _compare(
                 view, policy, item, playout, items[at] if at is not None else None, context
             )
             rows.append(row)

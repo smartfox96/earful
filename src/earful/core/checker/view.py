@@ -245,6 +245,13 @@ class Playout:
     first_audible_us: int | None = None
     outlasted_hangup: bool = False
 
+    @property
+    def unknown(self) -> str | None:
+        """Why what was played of it cannot be told, if it cannot."""
+        if self.unattributable:
+            return self.unattributable
+        return "the run ended before its playout finished" if self.pending else None
+
 
 class View:
     def __init__(self, events: list[Event], reading: Reading | None = None) -> None:
@@ -407,9 +414,14 @@ class View:
         tools = self.intents[intent]["tools"]
         return [t.called for t in self.tools.values() if t.name in tools and t.tool not in wrote]
 
+    @cached_property
+    def invocation_of(self) -> dict[str, ToolInvocation]:
+        """Call id -> the invocation the tool witness recorded for it."""
+        return {t.call_id: t for t in self.tools.values() if t.call_id is not None}
+
     def refusal(self, call_id: str) -> Event | None:
         """The first model context showing an error result for a call no witnessed tool received."""
-        if any(t.call_id == call_id for t in self.tools.values()):
+        if call_id in self.invocation_of:
             return None
         for call in self.calls.values():
             if any(

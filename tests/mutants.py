@@ -91,20 +91,20 @@ MUTANTS = [
     Mutant(
         "M2: a call made as its tool returns is held to an order",
         "src/earful/core/checker/m2.py",
-        "                and present - turns_in[asked_in]\n",
-        "                and False\n",
+        '    if returned and returned["t_us"] == event["t_us"] and later_turn:\n',
+        "    if False:\n",
         first="later_turn_made_as_the_tool_returns or returns_as_the_next_turn",
     ),
     Mutant(
         "M2: a stand-in result is judged only once the tool is done",
         "src/earful/core/checker/m2.py",
         (
-            '            if invocation is not None and invocation.called["seq"] < event["seq"]:\n'
-            "                continue  # judged above\n"
+            '        if invocation is not None and invocation.called["seq"] < event["seq"]:\n'
+            "            continue  # judged with its call\n"
         ),
         (
-            '            if invocation is not None and invocation.outcome is not None and invocation.outcome["seq"] < event["seq"] and invocation.outcome["kind"] != "tool.cancelled":\n'
-            "                continue\n"
+            '        if invocation is not None and invocation.outcome is not None and invocation.outcome["seq"] < event["seq"] and invocation.outcome["kind"] != "tool.cancelled":\n'
+            "            continue\n"
         ),
         first="still_running or slow_tool_interrupted",
     ),
@@ -132,7 +132,7 @@ MUTANTS = [
     Mutant(
         "L1: a reply generated again is not followed",
         "src/earful/core/checker/l1.py",
-        "        if call.words and call.call not in walked:\n",
+        "        if call.words and call.call not in turn.walked:\n",
         "        if False:\n",
         first="generated_again_after_a_backchannel",
     ),
@@ -153,11 +153,8 @@ MUTANTS = [
     Mutant(
         "checker: M2 writes to the ledger it reads",
         "src/earful/core/checker/m2.py",
-        '            turns_in[event["data"]["call"]] = present\n',
-        (
-            '            turns_in[event["data"]["call"]] = present\n'
-            '            event["data"]["x"] = 1\n'
-        ),
+        "        turns = user_turns(items, delivered)\n",
+        '        turns = user_turns(items, delivered)\n        event["data"]["x"] = 1\n',
         first="never_changes_the_ledger",
     ),
     Mutant(
@@ -752,8 +749,8 @@ MUTANTS = [
     Mutant(
         "L1: a timed-out wait is not declared time",
         "src/earful/core/checker/l1.py",
-        '            e.timed_out["data"]["after_us"] if e.timed_out else e.requested["data"]["latency_us"]\n',
-        '            e.requested["data"]["latency_us"]\n',
+        '        e.timed_out["data"]["after_us"] if e.timed_out else e.requested["data"]["latency_us"]\n',
+        '        e.requested["data"]["latency_us"]\n',
         first="test_with_an_idempotency_key_sent_the_second_booking_is_gone",
     ),
     Mutant(

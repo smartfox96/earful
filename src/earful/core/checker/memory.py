@@ -89,7 +89,6 @@ class Alignment:
 
     possible: bool  # false: some assistant message is no scripted speech's prefix, in any order
     matched: dict[str, int] = field(default_factory=dict)  # spoken key -> item index
-    absent: set[str] = field(default_factory=set)
     ambiguous: set[str] = field(default_factory=set)
     unmatched_items: list[int] = field(default_factory=list)  # when not possible
 
@@ -127,11 +126,9 @@ def align(items: list[Item], spoken: list[Spoken]) -> Alignment:
     out = Alignment(True)
     for j, item in enumerate(spoken):
         ways = [before[i][j] * after[i + 1][j + 1] if fits[i][j] else 0 for i in range(a)]
-        if sum(ways) == 0:
-            out.absent.add(item.key)
-        elif total in ways:
+        if total in ways:
             out.matched[item.key] = messages[ways.index(total)][0]
-        else:
+        elif any(ways):
             out.ambiguous.add(item.key)
     return out
 
