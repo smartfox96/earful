@@ -261,7 +261,7 @@ The user does not hear that an action succeeded before the backend has recorded 
 | Policy | `claim_point`: `span_end` (default) or `span_start`. Which words make the claim is declared on the claim itself |
 | Faults | Only a commit makes a claim true. A write that was rejected, lost, or had not committed when the claim was heard does not, whatever the tool returned |
 | Hangup | A claim whose last word finished playing after the user hung up was not delivered |
-| Unobservable | The reply's audio cannot be attributed to the scripted reply; the segment never finished; or the backend received no write request for the intent, and a tool for it was called at or before the claim was heard and made no write request at all (section 2.6) |
+| Unobservable | The reply's audio cannot be attributed to the scripted reply; a segment that holds or may hold its audio never finished, even if another segment played part of it; or the backend received no write request for the intent, and a tool for it was called at or before the claim was heard and made no write request at all (section 2.6) |
 | Deliberate break | A model policy that says the booking is done in the same reply that calls the tool, with a backend that takes longer to commit than the sentence takes to play |
 | Clean control | The same backend, with the claim made only after the tool result is in context |
 
@@ -296,7 +296,7 @@ length: two words can be 0.2 s or 1.2 s.
 | Flags | `judged_on_final_history`: no model call followed the playout. `never_reached_the_output`: no audio of it reached the sink, so only the final history is judged. `stopped_as_it_ended`: every word played and a stop reached the sink as the audio ended, so rule 5 accepts either mark. `most_favourable_reading`: which copy of identical words was voiced or remembered is a reading (section 2.5). `played_on_after_the_hangup`: the sink consumed audio of it after the user had left, and `P` and `C` are what the user heard |
 | Hangup | `P` and `C` count what had played when the user hung up (section 3). The judged record is the final history, read after the session has closed. An output that plays on after the hangup, with a framework that remembers what it played, fails rule 3 |
 | Always reported | The drift, `len(R) - P` and `len(R) - (P + C)`, on every instance, pass or fail. A release that drifts inside the tolerance stays visible |
-| Unobservable | The audio cannot be attributed to anything the agent was scripted to say; or the run ended, or the final history was read, before the playout finished |
+| Unobservable | The audio cannot be attributed to anything the agent was scripted to say; or the run ended, or the final history was read, before the playout finished. A playout has not finished while a segment that holds or may hold its audio is open, even if another segment played part of it |
 | Deliberate break | A sink that tells the framework playback has started 2.5 seconds before it begins to play, as an output with an unannounced buffer would, while recording the truth |
 | Clean control | The unmodified sink |
 

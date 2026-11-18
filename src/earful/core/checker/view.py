@@ -505,8 +505,8 @@ class View:
             playout = Playout(item.key, utterance, unattributable)
             if utterance is not None:
                 self._account(playout, utterance)
-                # Its audio may be in a segment still open, so what was played is not yet known.
-                playout.pending = not playout.segments and bool(self.open_segments())
+                # With none of it in a finished segment, any segment still open may hold it.
+                playout.pending |= not playout.segments and bool(self.open_segments())
             out[item.key] = playout
         return out
 
@@ -530,6 +530,7 @@ class View:
                 and segment.started["data"]["utterance"] == utterance.utterance
             ):
                 began.append(segment.started["t_us"])
+                playout.pending |= segment.finished is None
             done = segment.finished
             # What a segment played is known only once it has finished.
             if done is None or utterance.utterance not in done["data"]["utterances"]:

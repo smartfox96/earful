@@ -1068,6 +1068,20 @@ MUTANTS = [
         first="test_a_reply_played_in_two_segments_was_first_audible_when_the_first_began",
     ),
     Mutant(
+        "view: a reply is judged on its finished segments while another is open",
+        "src/earful/core/checker/view.py",
+        "                playout.pending |= segment.finished is None\n",
+        "",
+        first="last_segment_never_finished",
+    ),
+    Mutant(
+        "view: a reply with no finished segment is judged while a segment is open",
+        "src/earful/core/checker/view.py",
+        "                playout.pending |= not playout.segments and bool(self.open_segments())\n",
+        "",
+        first="segment_that_never_started",
+    ),
+    Mutant(
         "view: the word under way at the hangup is not cut",
         "src/earful/core/checker/view.py",
         "                playout.cut = 1  # the word under way when the user left is the one they heard cut\n",
