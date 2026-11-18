@@ -122,6 +122,13 @@ lasts it tells the framework the user has been speaking since the segment began,
 included. The recognizer still delivers one transcript per speech. Which speeches make a
 segment follows from the header alone: the speeches and `min_silence_us`.
 
+The scripted VAD reports what the Silero plugin reports for a detector that is never
+wrong. From a segment's start to its end it reports every `min_speech_us`, with `speaking`
+set. The speech duration it reports keeps growing until it reports the end,
+`min_silence_us` after the last speech stopped. A framework that interrupts at a minimum
+speech duration can therefore interrupt for a speech shorter than that. The end report
+carries the segment's true length.
+
 A declared delay takes the place of what the scenario's code asks for, where it is
 applied: `llm.response` records the `ttft_us` and `duration_us` the model call had,
 `tts.synthesized` the `ttfb_us` of that utterance, and `effect.requested` the `latency_us`

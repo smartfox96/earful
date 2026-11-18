@@ -70,35 +70,42 @@ class _ScriptedVADStream(lk_vad.VADStream):
         t0 = now_us()
         vad._origin.mark("vad", t0)
         for segment in vad_segments(vad._speeches, vad._min_silence_us):
-            first, last = segment[0], segment[-1]
-            start_us, end_us = vad._speeches[first].start_us, vad._speeches[last].end_us
+            spans = [(vad._speeches[i].start_us, vad._speeches[i].end_us) for i in segment]
+            start_us, end_us = spans[0][0], spans[-1][1]
             await _sleep_until(t0, start_us + vad._min_speech_us)
-            self._emit(lk_vad.VADEventType.START_OF_SPEECH, start_us, end_us, now_us() - t0)
-            vad._ledger.append("world", "user.vad_start", speech=first)
+            self._emit(lk_vad.VADEventType.START_OF_SPEECH, spans, now_us() - t0)
+            vad._ledger.append("world", "user.vad_start", speech=segment[0])
 
             end_at = end_us + vad._min_silence_us
-            while now_us() - t0 < end_at - vad._min_speech_us * 2:
-                await asyncio.sleep(to_seconds(vad._min_speech_us))
-                self._emit(lk_vad.VADEventType.INFERENCE_DONE, start_us, end_us, now_us() - t0)
+            tick = start_us + 2 * vad._min_speech_us
+            while tick < end_at:
+                await _sleep_until(t0, tick)
+                self._emit(lk_vad.VADEventType.INFERENCE_DONE, spans, now_us() - t0)
+                tick += vad._min_speech_us
 
             await _sleep_until(t0, end_at)
-            self._emit(lk_vad.VADEventType.END_OF_SPEECH, start_us, end_us, now_us() - t0)
-            vad._ledger.append("world", "user.vad_end", speech=last)
+            self._emit(lk_vad.VADEventType.END_OF_SPEECH, spans, now_us() - t0)
+            vad._ledger.append("world", "user.vad_end", speech=segment[-1])
 
         async for _ in self._input_ch:
             pass
 
-    def _emit(self, type: lk_vad.VADEventType, start: int, end: int, at_us: int) -> None:
+    def _emit(self, type: lk_vad.VADEventType, spans: list[tuple[int, int]], at_us: int) -> None:
+        # What the Silero plugin reports for a detector that is never wrong. It counts a
+        # segment as speech, and its speech as still growing, until the end is published.
         # Durations are integer differences converted once: 500 000 us reports exactly 0.5 s.
-        speaking = at_us <= end
+        start, end = spans[0][0], spans[-1][1]
+        ended = type is lk_vad.VADEventType.END_OF_SPEECH
+        begun, last_end = max(span for span in spans if span[0] <= at_us)
         values: dict[str, Any] = {
             "type": type,
             "samples_index": 0,
             "timestamp": to_seconds(at_us),
-            "speech_duration": to_seconds(min(at_us, end) - start),
-            "silence_duration": to_seconds(max(0, at_us - end)),
-            "raw_accumulated_speech": to_seconds(at_us - start) if speaking else 0.0,
-            "raw_accumulated_silence": 0.0 if speaking else to_seconds(at_us - end),
+            "speech_duration": to_seconds((end if ended else at_us) - start),
+            "silence_duration": to_seconds(at_us - end) if ended else 0.0,
+            "raw_accumulated_speech": to_seconds(at_us - begun) if at_us <= last_end else 0.0,
+            "raw_accumulated_silence": to_seconds(max(0, at_us - last_end)),
+            "speaking": not ended,
         }
         kwargs = {k: v for k, v in values.items() if k in _VAD_EVENT_FIELDS}
         self._event_ch.send_nowait(lk_vad.VADEvent(**kwargs))

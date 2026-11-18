@@ -370,7 +370,9 @@ While the user holds the floor the agent is silent, within a declared bound.
 The **floor window** of a speech runs from the instant the scripted VAD reported speech
 to the framework until the true end of the speech. The **interruption point** is the
 speech's true start plus the declared minimum interruption duration; a speech shorter than
-that has none.
+that has none. A framework can still interrupt for a shorter speech, because a VAD
+counts a segment as speech until it reports the end (`docs/ledger.md`). L2 asks nothing
+of the framework there.
 
 A VAD hears speech that resumes within its silence window as one **segment**
 (`docs/ledger.md`), and a framework counts speech from the start of the segment. So for a
