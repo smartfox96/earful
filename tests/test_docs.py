@@ -133,31 +133,83 @@ def test_the_rules_a_test_can_allow_are_listed_and_each_is_a_row_of_its_contract
             assert any(row.startswith(rule) for row in rows), f"{contract}/{rule}"
 
 
+COMPATIBILITY = (ROOT / "docs" / "compatibility.md").read_text()
+CI = (ROOT / ".github" / "workflows" / "ci.yml").read_text()
+_PINNED = r"^\| (\d+\.\d+\.\d+) \| (\d{4}-\d\d-\d\d) \|"
+
+
+def _section(heading):
+    """The part of the compatibility page under ``## heading``."""
+    _, found, rest = COMPATIBILITY.partition(f"\n## {heading}\n")
+    assert found, heading
+    return rest.partition("\n## ")[0]
+
+
+def _job(name):
+    """The text of one job of the ci workflow."""
+    (text,) = re.findall(rf"^  {name}:\n(.*?)(?=^  [a-z_]+:\n|\Z)", CI, re.MULTILINE | re.DOTALL)
+    return text
+
+
 def test_the_supported_releases_are_the_same_everywhere_they_are_listed():
-    page = (ROOT / "docs" / "compatibility.md").read_text()
-    declared = dict(re.findall(r"^\| (\d+\.\d+\.\d+) \| (\d{4}-\d\d-\d\d) \|", page, re.MULTILINE))
+    section = _section("livekit-agents")
+    declared = dict(re.findall(_PINNED, section, re.MULTILINE))
     assert len(declared) == 5
-    workflow = (ROOT / ".github" / "workflows" / "ci.yml").read_text()
-    in_ci = dict(re.findall(r'version: "([\d.]+)", as_of: "([\d-]+)"', workflow))
+    in_ci = dict(re.findall(r'version: "([\d.]+)", as_of: "([\d-]+)"', _job("determinism")))
     assert in_ci == declared
     script = (ROOT / "scripts" / "check_all.sh").read_text()
     assert dict(re.findall(r'"([\d.]+) (\d{4}-\d\d-\d\d)"', script)) == declared
     locked = {path.name[3:-9] for path in (ROOT / "compat").glob("lk-*.lock.txt")}
     assert locked == set(declared)
     for release in declared:
-        assert f"`compat/lk-{release}.lock.txt`" in page
+        assert f"`compat/lk-{release}.lock.txt`" in section
         assert (
             f"livekit-agents=={release}\n" in (ROOT / f"compat/lk-{release}.lock.txt").read_text()
         )
     golden = {path.name.split(".book")[0][3:] for path in (ROOT / "tests/golden").glob("*.book_*")}
     assert golden == set(declared)
+    lint_env = (ROOT / "scripts" / "make_lint_env.sh").read_text()
+    assert f'"livekit-agents=={list(declared)[-1]}"' in lint_env
 
 
-def test_the_extra_accepts_the_releases_the_page_says_it_does():
-    page = (ROOT / "docs" / "compatibility.md").read_text()
+def test_the_supported_pipecat_release_is_the_same_everywhere_it_is_listed():
+    section = _section("pipecat-ai")
+    ((release, as_of),) = re.findall(_PINNED, section, re.MULTILINE)
+    assert f"`compat/pc-{release}.lock.txt`" in section
+    locks = [path.name for path in (ROOT / "compat").glob("pc-*.lock.txt")]
+    assert locks == [f"pc-{release}.lock.txt"]
+    assert f"pipecat-ai=={release}\n" in (ROOT / "compat" / locks[0]).read_text()
+    script = (ROOT / "scripts" / "make_pipecat_env.sh").read_text()
+    assert f'version="${{1:-{release}}}"\nas_of="${{2:-{as_of}}}"\n' in script
+    assert f"pipecat-ai {release} as of {as_of}, in .venvs/pc-{release}" in script
+    lint_env = (ROOT / "scripts" / "make_lint_env.sh").read_text()
+    assert f"--exclude-newer {as_of} \\\n" in lint_env and f'"pipecat-ai=={release}"' in lint_env
+
+
+def test_a_lock_file_is_the_list_the_environment_scripts_write():
+    locks = sorted((ROOT / "compat").glob("*.lock.txt"))
+    assert len(locks) == 6
+    for path in locks:
+        lines = path.read_text().splitlines()
+        assert all(re.fullmatch(r"[a-z0-9][a-z0-9.-]*==[^\s=]+", line) for line in lines), path
+        names = [line.partition("==")[0] for line in lines]
+        assert names == sorted(names) and "earful" not in names, path
+
+
+def test_each_extra_accepts_the_releases_the_page_says_it_does():
     project = (ROOT / "pyproject.toml").read_text()
     assert 'livekit = ["livekit-agents>=1.5.6,<1.9"]' in project
-    assert "from 1.5.6 up to, and not\nincluding, 1.9" in page
+    assert "from 1.5.6 up to, and not\nincluding, 1.9" in _section("livekit-agents")
+    # The Pipecat extra takes the minor series of the tested release, where pipecat-ai installs.
+    ((release, _),) = re.findall(_PINNED, _section("pipecat-ai"), re.MULTILINE)
+    major, minor = (int(part) for part in release.split(".")[:2])
+    accepted = f"pipecat-ai>={major}.{minor},<{major}.{minor + 1}"
+    assert f"pipecat = [\"{accepted}; python_version >= '3.11'\"]" in project
+    said = f"from {major}.{minor} up to, and not\nincluding, {major}.{minor + 1}, on Python 3.11"
+    assert said in _section("pipecat-ai")
+    assert (
+        'requires-python = ">=3.10"' in project and '"pipecat"' in project.split("classifiers")[0]
+    )
 
 
 def test_the_ci_table_on_the_compatibility_page_is_what_the_workflow_runs():
@@ -324,6 +376,5 @@ def test_every_page_and_command_the_readme_names_exists():
     commands = _parser()._subparsers._group_actions[0].choices
     named = set(re.findall(r"^earful ([a-z]+) ", README, re.MULTILINE))
     assert named and named <= set(commands), named - set(commands)
-    page = (ROOT / "docs" / "compatibility.md").read_text()
-    releases = re.findall(r"^\| (\d+\.\d+\.\d+) \| \d{4}", page, re.MULTILINE)
+    releases = list(dict(re.findall(_PINNED, _section("livekit-agents"), re.MULTILINE)))
     assert f"livekit-agents {', '.join(releases[:-1])} and {releases[-1]}" in README

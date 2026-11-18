@@ -117,7 +117,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v6
-      - run: scripts/make_pipecat_env.sh
+      - name: Build pinned environment, and compare it with its lock file
+        run: EARFUL_LOCK=check scripts/make_pipecat_env.sh
       - name: Exercise the Pipecat adapter without LiveKit
         run: |
           .venvs/pc-1.16.0/bin/python -c 'import importlib.util; assert importlib.util.find_spec("livekit") is None'
@@ -166,8 +167,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v6
-      - name: Build pinned environment
-        run: EARFUL_PYTHON=${{ matrix.python }} scripts/make_env.sh ${{ matrix.lk.version }} ${{ matrix.lk.as_of }}
+      - name: Build pinned environment, and compare it with its lock file on Python 3.13
+        env:
+          EARFUL_PYTHON: ${{ matrix.python }}
+          EARFUL_LOCK: ${{ matrix.python == '3.13' && 'check' || '' }}
+        run: scripts/make_env.sh ${{ matrix.lk.version }} ${{ matrix.lk.as_of }}
       - name: Tests
         run: .venvs/lk-${{ matrix.lk.version }}/bin/python -m pytest -q
       - name: Repeatability (every case, 100 in-process + 20 subprocess) and committed-hash check

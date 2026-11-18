@@ -400,3 +400,82 @@ def test_a_change_to_prose_alone_runs_every_test_file_that_reads_prose():
     }
     ran = set(re.findall(r"pytest -q tests/(test_\w+\.py)$", _jobs(CI)["docs"], re.MULTILINE))
     assert readers == ran, "the docs job of ci.yml has to run each test file that reads prose"
+
+
+def _executable(path, text):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(text)
+    path.chmod(0o755)
+
+
+@pytest.fixture
+def environment(tmp_path):
+    """An environment, and a ``uv`` first on PATH, that say what a test tells them to."""
+    _executable(tmp_path / "bin/uv", '#!/usr/bin/env bash\ncat "$STUB_HOLDS"\n')
+    _executable(tmp_path / "env/bin/python", '#!/usr/bin/env bash\necho "$STUB_PYTHON"\n')
+    holds = tmp_path / "holds"
+    wheel = "earful @ file:///somewhere/earful-0.1.1-py3-none-any.whl"
+    holds.write_text(f"attrs==26.1.0\n{wheel}\npytest==9.2.0\n")
+    return {
+        "PATH": f"{tmp_path / 'bin'}{os.pathsep}{os.environ['PATH']}",
+        "STUB_HOLDS": str(holds),
+        "STUB_PYTHON": "3.13",
+    }
+
+
+def _lock(tmp_path, env, mode):
+    return _script(
+        "env_lock.sh", str(tmp_path / "env"), str(tmp_path / "lock"), cwd=tmp_path, **env, **mode
+    )
+
+
+def test_a_lock_file_is_written_from_an_environment_and_compared_with_one(tmp_path, environment):
+    lock = tmp_path / "lock"
+    assert _lock(tmp_path, environment, {}).returncode == 0 and not lock.exists()
+    assert _lock(tmp_path, environment, {"EARFUL_LOCK": "write"}).returncode == 0
+    assert lock.read_text() == "attrs==26.1.0\npytest==9.2.0\n"
+    assert _lock(tmp_path, environment, {"EARFUL_LOCK": "check"}).returncode == 0
+
+    lock.write_text("attrs==26.1.0\npytest==9.1.0\n")
+    differs = _lock(tmp_path, environment, {"EARFUL_LOCK": "check"})
+    assert differs.returncode == 1
+    assert "-pytest==9.1.0\n+pytest==9.2.0\n" in differs.stdout
+    assert "EARFUL_LOCK=write" in differs.stderr
+    assert lock.read_text() == "attrs==26.1.0\npytest==9.1.0\n"
+    lock.unlink()
+    assert _lock(tmp_path, environment, {"EARFUL_LOCK": "check"}).returncode == 1
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        {"EARFUL_LOCK": "write", "STUB_PYTHON": "3.11"},  # resolves to another set
+        {"EARFUL_LOCK": "check", "STUB_PYTHON": "3.11"},
+        {"EARFUL_LOCK": "update"},
+    ],
+)
+def test_a_lock_file_is_refused_on_another_python_or_in_an_unknown_mode(
+    tmp_path, environment, change
+):
+    refused = _lock(tmp_path, {**environment, **change}, {})
+    assert refused.returncode == 2 and refused.stderr
+    assert not (tmp_path / "lock").exists()
+
+
+def test_a_resolve_date_means_the_same_day_on_every_machine():
+    # uv reads a date in the local time zone, so each script that passes one names UTC.
+    dated = [path for path in SCRIPTS.glob("*.sh") if "--exclude-newer" in path.read_text()]
+    assert {path.name for path in dated} >= {"make_env.sh", "make_pipecat_env.sh"}
+    for path in dated:
+        assert "\nexport TZ=UTC " in path.read_text(), path.name
+    for name, text in WORKFLOWS.items():
+        assert "--exclude-newer" not in text, f"{name} has a date that belongs in a script"
+
+
+def test_ci_compares_the_environments_it_builds_on_python_3_13_with_their_lock_files():
+    jobs = _jobs(CI)
+    assert "EARFUL_LOCK: ${{ matrix.python == '3.13' && 'check' || '' }}\n" in jobs["determinism"]
+    assert "EARFUL_LOCK=check scripts/make_pipecat_env.sh\n" in jobs["pipecat"]
+    for name in ("make_env.sh", "make_pipecat_env.sh"):
+        script = (SCRIPTS / name).read_text()
+        assert re.search(r'^\S*scripts/env_lock\.sh"? "\$env_dir" ', script, re.MULTILINE), name

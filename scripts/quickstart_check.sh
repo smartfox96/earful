@@ -3,6 +3,7 @@
 #   scripts/quickstart_check.sh
 # EARFUL_LIVEKIT and EARFUL_AS_OF pin the framework release. Needs uv.
 set -euo pipefail
+export TZ=UTC # uv reads a date in the machine's time zone
 
 root="$(cd "$(dirname "$0")/.." && pwd)"
 release="${EARFUL_LIVEKIT:-1.8.12}"

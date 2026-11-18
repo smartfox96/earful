@@ -16,8 +16,16 @@ is installed editable, so the `earful` command and the pytest plugin in that env
 run the code in your checkout.
 
 For the Pipecat-only environment, run `scripts/make_pipecat_env.sh` and
-`.venvs/pc-1.16.0/bin/python -m pytest -q tests/test_pipecat.py`. The lock records the
-Python 3.13 dependencies resolved on 2026-11-18 for Linux.
+`.venvs/pc-1.16.0/bin/python -m pytest -q tests/test_pipecat.py`. The script takes a
+pipecat-ai release and a date the same way, and with no arguments builds the supported
+release.
+
+The files in `compat/` are generated. A release and a date decide what an environment
+holds, and a lock file records what the two resolve to on Python 3.13. Nothing installs
+from a lock file. CI builds each environment on Python 3.13 with `EARFUL_LOCK=check` and
+fails if it holds anything else, so a lock file that is wrong does not merge.
+`EARFUL_LOCK=write scripts/make_env.sh <version> <date>` writes one, and
+`scripts/make_pipecat_env.sh` takes the same setting.
 
 ## The checks
 
@@ -103,8 +111,9 @@ uses fails one of them until the README is brought along.
 
 ## Adding a livekit-agents release
 
-1. `scripts/make_env.sh <version> <date>`, with a date a few days after the release. This
-   writes `compat/lk-<version>.lock.txt`.
+1. `EARFUL_LOCK=write scripts/make_env.sh <version> <date>`, with a date a few days after
+   the release. This builds `.venvs/lk-<version>` and writes
+   `compat/lk-<version>.lock.txt`.
 2. Add the release to `scripts/check_all.sh`, to the matrix in `.github/workflows/ci.yml`
    and to `docs/compatibility.md`. A test fails while the three disagree.
 3. `scripts/check_all.sh --update` records its three reference ledgers.

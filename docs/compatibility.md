@@ -7,7 +7,9 @@ is not claimed to.
 
 Five releases are supported. Each is installed with its dependencies resolved as of a
 date a few days after it came out, which gives the set the release was tested with at the
-time (`scripts/make_env.sh`). The exact set for each is in `compat/`.
+time (`scripts/make_env.sh`). The date runs to the end of that day in UTC. The set each
+release resolves to on Python 3.13 is recorded in `compat/`, and CI fails if an
+environment it builds on Python 3.13 holds anything else.
 
 | livekit-agents | Dependencies as of | Lock file | #3702 | #5509 |
 | --- | --- | --- | --- | --- |
@@ -28,10 +30,17 @@ is marked invalid and yields no verdict, so an unsupported release fails loudly.
 
 ## pipecat-ai
 
-The `pipecat` extra accepts pipecat-ai 1.16.x, which requires Python 3.11 or later.
-CI exercises 1.16.0 on Linux with Python 3.13 in a separate job. Its dependency pins
-are in `compat/pc-1.16.0.lock.txt`. Build that environment with
-`scripts/make_pipecat_env.sh` and run `.venvs/pc-1.16.0/bin/python -m pytest tests/test_pipecat.py`.
+One release is supported. It is pinned and recorded the same way
+(`scripts/make_pipecat_env.sh`).
+
+| pipecat-ai | Dependencies as of | Lock file |
+| --- | --- | --- |
+| 1.16.0 | 2026-11-18 | `compat/pc-1.16.0.lock.txt` |
+
+`pip install "earful[pipecat]"` accepts pipecat-ai from 1.16 up to, and not
+including, 1.17, on Python 3.11 or later. pipecat-ai does not support Python 3.10, and
+there the extra installs Earful alone.
+
 The adapter uses Pipecat's VAD turn-start and speech-timeout turn-stop strategies.
 [Writing a Pipecat scenario](pipecat.md)
 
