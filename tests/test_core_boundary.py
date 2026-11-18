@@ -43,7 +43,6 @@ def test_core_does_not_import_livekit():
 
 
 def test_core_imports_with_livekit_unavailable():
-    """Import every core module in a fresh interpreter in which livekit cannot be imported."""
     modules = sorted(_module(p) for p in CORE.rglob("*.py"))
     assert "earful.core.checker" in modules
     code = (

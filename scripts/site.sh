@@ -1,17 +1,6 @@
 #!/usr/bin/env bash
-# Build the example reports that the README links to, as a small static site.
-#
+# Draw the example reports the README links to, as a static site.
 #   scripts/site.sh <directory>
-#
-# Writes three pages into the directory:
-#
-#   booking.html        the failure the README's quickstart finds, as `earful report` draws it
-#   livekit-3702.html   the kept failure of tests/bundles (docs/cases), drawn the same way
-#   index.html          one page that says what the two are
-#
-# The booking report is made here, from a search of examples/booking on the newest
-# supported release, so the page is what the code draws today. The pages workflow
-# publishes the directory (.github/workflows/pages.yml).
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -24,7 +13,7 @@ bin="$PWD/.venvs/lk-1.8.12/bin"
 work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
 
-# The search exits 1: it finds the failure the example is about. --keep reduces it.
+# The search exits 1: it finds the failure the example is about.
 status=0
 (cd examples/booking && "$bin/earful" search test_booking:booking --keep A2/rule --out "$work" >/dev/null) || status=$?
 [ "$status" -eq 1 ] || { echo "the search of examples/booking exited $status, not 1" >&2; exit 1; }

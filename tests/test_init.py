@@ -12,7 +12,6 @@ from earful.livekit.scaffold import scaffold
 
 @pytest.fixture
 def here(tmp_path, monkeypatch):
-    """A project directory to run the command in."""
     monkeypatch.chdir(tmp_path)
     return tmp_path
 
@@ -52,8 +51,7 @@ def test_init_writes_a_test_from_the_agents_tools_and_says_what_to_do_next(here,
 
 
 def test_the_test_init_writes_runs_as_it_is(here, capsys):
-    """For an agent that takes no arguments, one that cannot be built without some, and
-    one with no tools. The bodies of these agents' tools fail a test that reaches them."""
+    """The tools of these agents fail a test that reaches their bodies."""
     for agent, tool in (("SupportAgent", "issue_refund"), ("BookingAgent", "create_reservation")):
         assert init(capsys, f"scaffolded:{agent}")[0] == OK
         module = written(here / scaffold(f"scaffolded:{agent}").filename)
@@ -71,12 +69,10 @@ def test_the_test_init_writes_runs_as_it_is(here, capsys):
 
 
 def test_the_model_calls_a_tool_with_a_value_for_each_argument_the_tool_requires():
-    """The first tool by name, with a value of the kind its schema asks for. An argument
-    that has a default is left out."""
+    """An argument that has a default is left out."""
     source = scaffold("scaffolded:SupportAgent").source
     assert 'call=("issue_refund", {"order": "example", "amount": 1}),' in source
     assert 'claims=["issue-refund"]' in source
-    # A whole number, one of the values allowed, a list, and a text that may be null.
     from scaffolded import SupportAgent
 
     from earful.livekit.scaffold import _arguments
@@ -127,17 +123,15 @@ def test_what_does_not_name_a_class_of_agent_is_refused(here, capsys, reference,
 
 
 def test_init_sees_that_git_leaves_the_evidence_out(here, capsys):
-    # Neither a repository nor a list of what to leave out: nothing is written.
     assert "ignored" not in init(capsys, "scaffolded:Greeter", "-o", "a.py")[1]
     assert not (here / ".gitignore").exists()
-    # A list that does not name it, whose last line has no end: it is added on its own line.
+    # The last line of this .gitignore has no newline: the entry still gets its own line.
     (here / ".gitignore").write_text("dist/\n*.pyc")
     assert (
         "ignored    .earful/ (added to .gitignore)"
         in init(capsys, "scaffolded:Greeter", "-o", "b.py")[1].splitlines()
     )
     assert (here / ".gitignore").read_text() == "dist/\n*.pyc\n.earful/\n"
-    # A list that names it already is left as it is.
     assert "ignored" not in init(capsys, "scaffolded:Greeter", "-o", "c.py")[1]
     assert (here / ".gitignore").read_text() == "dist/\n*.pyc\n.earful/\n"
 

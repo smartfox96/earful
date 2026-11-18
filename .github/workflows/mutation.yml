@@ -1,10 +1,7 @@
 name: mutation
 
-# Every deliberate break in tests/mutants.py, applied in turn: each must fail a test it
-# names. It runs each night and on request, in four parts side by side. Each part also
-# runs the unbroken suite as its control, and that is what a part waits for. The lint job
-# of ci.yml checks on every change that each break still applies to the code and that the
-# tests it names exist.
+# Every deliberate break in tests/mutants.py must fail a test it names (scripts/mutate.py).
+# Nightly and on request, in four parts.
 on:
   schedule:
     - cron: "47 4 * * *"

@@ -77,8 +77,7 @@ def test_streaming_gaps_pause_playout_without_moving_word_completion_times():
 
 
 def test_a_cleared_output_stays_paused_until_it_is_resumed():
-    """Pause belongs to the output, as in the framework's room output: clearing the paused
-    segment does not let the next one play."""
+    """Pause belongs to the output, as in the framework's room output."""
 
     async def main():
         sink, ledger = _sink([2400, 2400])
@@ -107,9 +106,8 @@ def test_a_cleared_output_stays_paused_until_it_is_resumed():
 
 
 def test_a_sample_counts_once_it_has_played_in_full():
-    """At 44.1 kHz a sample lasts 22.68 us. A 100-sample word is complete at the first
-    microsecond its last sample has played (2268 us), and one microsecond earlier it is cut
-    with 99 samples consumed."""
+    """At 44.1 kHz a sample lasts 22.68 us, so a 100-sample word is complete at 2268 us.
+    One microsecond earlier it is cut, with 99 samples consumed."""
 
     async def run(clear_after):
         sink, ledger = _sink([100, 341], rate=44100)

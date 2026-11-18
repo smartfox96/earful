@@ -1,38 +1,4 @@
-"""Tool witness: records each call of a function tool as the world saw it.
-
-Inside an Earful run, each call is recorded as ``tool.called`` followed by exactly one of
-``tool.returned``, ``tool.raised`` or ``tool.cancelled``, carrying the call id the model
-assigned. Outside a run the wrapper only passes the call through.
-
-An agent needs no changes to be witnessed. The harness calls ``witness_agent_tools`` on
-the agent it is given, which replaces each of the agent's function tools with a recording
-copy through the agent's public ``tools`` and ``update_tools``.
-
-Tools the harness cannot reach, such as those of an agent created during the run, can be
-wrapped where they are defined:
-
-    class BookingAgent(lk.Agent):
-        @lk.function_tool
-        @witnessed
-        async def create_reservation(self, party_size: int) -> str: ...
-
-A tool can also stand for one durable write (``earful.core.backend.Effect``). In a run, a
-call of such a tool makes the write in place of the tool's body; outside a run the tool is
-untouched. The write is declared by the scenario, by tool name, or where the tool is
-defined:
-
-    class BookingAgent(lk.Agent):
-        @lk.function_tool
-        @effect_tool("book-table-1", key=lambda args: f"table-for-{args['party_size']}")
-        async def create_reservation(self, party_size: int) -> str: ...
-
-Where both declare one for the same tool, the scenario's is used.
-
-The call id comes from the public ``RunContext`` the framework injects into tools that ask
-for one. If the tool does not declare a ``RunContext`` parameter, the wrapper declares a
-keyword-only one and removes it before calling the tool: the technique livekit-agents
-itself uses to add a parameter to a tool. Nothing in the framework is patched.
-"""
+"""Tool witness: records each call of a function tool as the world saw it."""
 
 from __future__ import annotations
 
@@ -66,13 +32,8 @@ def _plain(value: Any) -> bool:
 
 
 def model_text(value: Any) -> str | None:
-    """The text livekit-agents shows the model for a tool's return value: ``str(value)``,
-    and the empty string for a tool that returns nothing.
-
-    Computed here from the value the tool returned, independently of the framework. Null
-    for a value whose ``str`` is not a stable function of its content (an object, an agent
-    handoff).
-    """
+    """The text livekit-agents shows the model for a tool's return value, or None for a
+    value whose ``str`` is not a stable function of its content."""
     if value is None:
         return ""
     if not _plain(value):
@@ -82,12 +43,7 @@ def model_text(value: Any) -> str | None:
 
 def expects_reply(outcome: Any) -> bool:
     """Whether livekit-agents gives the model another call after a tool ends this way.
-
-    A tool that returns nothing, or raises ``StopResponse``, asks for silence: its result
-    is kept but no reply is generated. A release that lets a result say so itself
-    (``reply_required``) is taken at its word. Everything else, errors included, is
-    reported to the model, which answers.
-    """
+    A tool that returns nothing, or raises ``StopResponse``, asks for silence."""
     if isinstance(outcome, lk.StopResponse) or outcome is None:
         return False
     required = getattr(outcome, "reply_required", None)
@@ -95,10 +51,7 @@ def expects_reply(outcome: Any) -> bool:
 
 
 class ToolWitness:
-    """Per-run record of tool invocations. The harness installs one for each run.
-
-    ``effects`` maps a tool name to the write the scenario declares for that tool.
-    """
+    """Per-run record of tool invocations. ``effects`` maps a tool name to its declared write."""
 
     def __init__(self, ledger: Ledger, effects: Mapping[str, Effect] | None = None) -> None:
         self._ledger = ledger
@@ -107,9 +60,7 @@ class ToolWitness:
         self._running: dict[int, asyncio.Task[Any] | None] = {}
 
     async def cancel_running(self) -> None:
-        """Cut off every tool still running, in the order they were called. Each is
-        recorded as cancelled. The harness does this when the scenario is over, so that a
-        tool that never returns cannot hold the session open."""
+        """Cancel every tool still running, in the order they were called."""
         tasks = [task for _tool, task in sorted(self._running.items()) if task is not None]
         for task in tasks:
             task.cancel()
@@ -185,11 +136,9 @@ def _hints(fn: Callable[..., Any]) -> dict[str, Any]:
 def witnessed(
     fn: Callable[..., Any], *, name: str | None = None, effect: Effect | None = None
 ) -> Callable[..., Any]:
-    """Wrap an async tool so that each call is recorded. Wrapping twice is a no-op.
-
-    With ``effect``, or where the scenario declares one for a tool of this name, a call in
-    a run makes that write in place of calling ``fn``.
-    """
+    """Wrap an async tool so that each call in a run is recorded. Wrapping twice is a no-op.
+    With ``effect``, a call in a run makes that write in place of calling ``fn``.
+    Raises ``TypeError`` for a function that is not async."""
     if getattr(fn, _MARK, False):
         return fn
     if inspect.isfunction(fn) and not inspect.iscoroutinefunction(fn):
@@ -203,8 +152,7 @@ def witnessed(
     receiver = next(iter(signature.parameters), None)
     receiver = receiver if receiver in ("self", "cls") else None
 
-    # A framework tool object keeps its own state in ``__dict__`` (including a copy of the
-    # annotations); only a plain function's ``__dict__`` belongs on the wrapper.
+    # A framework tool object keeps its own state in ``__dict__``, which must not be copied.
     updated = functools.WRAPPER_UPDATES if inspect.isfunction(fn) else ()
 
     @functools.wraps(fn, updated=updated)
@@ -225,8 +173,7 @@ def witnessed(
         if receiver is not None:
             bound.pop(receiver, None)
         call = getattr(context, "function_call", None)
-        # The name the model called the tool by, which is the name the scenario and the
-        # header use. A tool registered under another name than its function's has both.
+        # The name the model called the tool by, which may differ from the function's.
         called_as = getattr(call, "name", None) or tool_name
         tool = witness.called(called_as, getattr(call, "call_id", None), bound)
         write = witness.effects.get(called_as, effect)
@@ -247,6 +194,7 @@ def witnessed(
         witness.returned(tool, called_as, result)
         return result
 
+    # The call id comes from RunContext: a tool that declares none is shown with one.
     if declared is None:
         params = list(signature.parameters.values())
         extra = inspect.Parameter(
@@ -259,12 +207,8 @@ def witnessed(
     else:
         shown = signature
         annotations = dict(hints)
-    # ``inspect.signature`` reads ``__signature__``. The stubs of ``functools.wraps`` declare
-    # neither it nor ``__annotate__`` on the function returned, hence the two ignores.
     wrapper.__signature__ = shown  # type: ignore[attr-defined]
-    # Python 3.14 (PEP 649) reads a function's annotations through ``__annotate__``, and
-    # ``functools`` copies that instead of ``__annotations__``. Set both, in this order:
-    # assigning ``__annotations__`` clears ``__annotate__`` on 3.14.
+    # In this order: on Python 3.14 (PEP 649) assigning ``__annotations__`` clears ``__annotate__``.
     wrapper.__annotations__ = annotations
     wrapper.__annotate__ = lambda _format=1: dict(annotations)  # type: ignore[attr-defined]
     setattr(wrapper, _MARK, True)
@@ -280,12 +224,9 @@ def effect_tool(
     result: Callable[[str, Arguments], Any] | None = None,
     latency: float = 0.0,
 ) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
-    """Declare, where a tool is defined, that a call of it is one durable write for
-    ``intent``. The arguments are those of ``earful.core.backend.Effect``.
-
-    In a run the tool is witnessed and the write is made in place of its body. Outside a
-    run the decorated function is the tool as written.
-    """
+    """Declare that a call of the decorated tool is one durable write for ``intent``.
+    The arguments are those of ``earful.core.backend.Effect``. In a run the write is made
+    in place of the tool's body. Raises ``TypeError`` on a tool that is already witnessed."""
     declared = Effect(intent, payload=payload, key=key, result=result, latency=latency)
 
     def decorate(fn: Callable[..., Any]) -> Callable[..., Any]:
@@ -311,17 +252,13 @@ def witness_tool(tool: Any) -> Any:
         return tool
     if getattr(tool, _MARK, False):
         return tool
-    # The same constructor ``function_tool`` uses, so the copy keeps the tool's own info
-    # (name, description, schema, flags) on every supported release. mypy cannot tell that
-    # ``type(tool)`` and ``tool.info`` are of the same kind of tool, and checks each
-    # constructor against the other's info.
+    # The constructor ``function_tool`` uses, so the copy keeps the tool's info on every release.
     return type(tool)(witnessed(tool, name=tool.info.name), tool.info)  # type: ignore[arg-type]
 
 
 async def witness_agent_tools(agent: lk.Agent) -> dict[str, Effect | None]:
-    """Replace each of ``agent``'s function tools with a recording copy. Returns the names
-    of the tools now witnessed, each with the write ``effect_tool`` declared for it where
-    the tool is defined, if it did."""
+    """Replace each of ``agent``'s function tools with a recording copy. Returns each
+    tool's name with the write ``effect_tool`` declared for it, if any."""
     originals = list(agent.tools)
     await agent.update_tools([witness_tool(t) for t in originals])
     return {

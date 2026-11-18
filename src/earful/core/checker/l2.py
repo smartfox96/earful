@@ -44,12 +44,9 @@ def check(view: View, policy: policies.L2) -> ContractResult:
             notes.append(f"speech {speech.index}: the run ended before the VAD reported it")
             continue
 
-        # The floor opens when the VAD has told the framework, and not before the user is
-        # in fact speaking: a speech that resumes inside a segment the VAD already reported
-        # holds the floor from its own start.
+        # The floor opens when the VAD has reported the speech, and no earlier than its start.
         opened, closed = max(speech.vad_start["t_us"], speech.start), speech.end
-        # The framework counts speech from the start of the VAD's segment. This speech is
-        # the one that interrupts if the count reaches the minimum while it is under way.
+        # The framework counts speech from the start of the VAD's segment, not of this speech.
         reached = max(speech.segment_start + minimum, speech.start)
         point = (
             reached

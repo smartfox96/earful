@@ -1,5 +1,4 @@
-"""The scripted model written as rules: what a context is read as, which rule answers,
-and that it is a model policy like any other."""
+"""The scripted model written as rules: how a context is read and which rule answers."""
 
 from pathlib import Path
 
@@ -46,8 +45,6 @@ def result(name, output="ok", *, failed=False, call_id="c1"):
 
 CALL = {"type": "function_call", "name": "book", "arguments": "{}", "call_id": "c1"}
 
-# --------------------------------------------------------------------------- the context
-
 
 def test_a_context_is_the_items_read_once():
     context = Context.of(
@@ -79,9 +76,6 @@ def test_an_empty_context_has_no_turns_and_an_empty_last_turn():
 
 def test_a_message_without_text_reads_as_empty_text():
     assert Context.of([{"type": "message", "role": "user", "text": None}]).user_turns == ("",)
-
-
-# --------------------------------------------------------------------------- conditions
 
 
 def test_user_said_reads_the_latest_turn_and_user_ever_said_reads_every_turn():
@@ -125,9 +119,6 @@ def test_conditions_combine_and_say_what_they_are():
     assert (~tool_returned()).name == "not tool_returned()"
 
 
-# --------------------------------------------------------------------------- replies
-
-
 def test_a_reply_is_built_from_plain_values():
     assert reply("Hello.") == Reply(text="Hello.")
     assert reply(call="book") == Reply(tool_calls=(ToolCall("book", "{}"),))
@@ -148,9 +139,6 @@ def test_a_reply_is_built_from_plain_values():
     timed = reply("Slow.", ttft=0.4, duration=1.2)
     assert (timed.ttft, timed.duration) == (0.4, 1.2)
     assert (reply("Fast.").ttft, reply("Fast.").duration) == (Reply().ttft, Reply().duration)
-
-
-# --------------------------------------------------------------------------- the model
 
 
 def test_the_first_rule_that_holds_answers_and_otherwise_answers_when_none_does():
@@ -203,8 +191,6 @@ def test_a_rule_that_could_not_be_reached_or_has_no_reply_is_refused():
         ScriptedModel().when(user_said("menu"), Reply(text="Soup."), say="Soup.")
 
 
-# --------------------------------------------------------------------------- in a run
-
 BOOKING_AS_RULES = (
     ScriptedModel()
     .when(tool_returned(), say="Your table is booked.", claims=[BOOKING_INTENT])
@@ -214,8 +200,6 @@ BOOKING_AS_RULES = (
 
 
 def test_a_scenario_whose_model_is_written_as_rules_gives_the_very_same_ledger():
-    """The booking scenario's policy, rewritten as rules, reproduces the committed
-    reference ledger line for line."""
     case = CASES["book_then_interrupt"]()
     case.policy = BOOKING_AS_RULES
     path = GOLDEN / f"lk-{lk.__version__}.book_then_interrupt.ledger.normalized.jsonl"

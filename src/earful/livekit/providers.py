@@ -1,12 +1,5 @@
 """Scripted VAD, STT, LLM and TTS for a real AgentSession.
-
-Built only on livekit-agents' public plugin base classes. Each provider writes what it
-did to the ledger as a "world" (or "llm") event, so the checker never has to ask the
-framework what happened at its edges.
-
-Authors give times in seconds. Every provider converts them to integer microseconds once
-and computes in integers; see ``earful.core.timebase``.
-"""
+Authors give times in seconds; the providers compute in integer microseconds."""
 
 from __future__ import annotations
 
@@ -33,13 +26,9 @@ from .clock import now_us
 
 
 async def _sleep_until(t0_us: int, at_us: int) -> None:
-    """Sleep until ``at_us`` microseconds after ``t0_us``."""
     delay_us = t0_us + at_us - now_us()
     if delay_us > 0:
         await asyncio.sleep(to_seconds(delay_us))
-
-
-# --------------------------------------------------------------------------- user speech
 
 
 @dataclass(frozen=True)
@@ -74,13 +63,8 @@ class UserSpeech:
 
 
 class WorldOrigin:
-    """The instant the scripted user's clock starts: the first audio frame a scripted
-    provider receives. Every scripted speech time is an offset from it.
-
-    VAD and STT each start their own clock at their first frame; both must agree, or the
-    scripted world is inconsistent and the run is invalid. On the virtual clock they must
-    agree exactly; ``tolerance_us`` exists for real-clock control runs.
-    """
+    """The instant the scripted user's clock starts: the first audio frame a provider gets.
+    VAD and STT must agree on it, or the run is invalid; ``tolerance_us`` is for real-clock runs."""
 
     def __init__(self, ledger: Ledger, errors: list[str], *, tolerance_us: int = 0) -> None:
         self._ledger = ledger
@@ -110,9 +94,8 @@ def _check_speeches(speeches: list[UserSpeech]) -> list[UserSpeech]:
 
 
 def vad_segments(speeches: list[UserSpeech], min_silence_us: int) -> list[list[int]]:
-    """Which speeches a VAD hears as one: the indices of ``speeches`` (in order of start),
-    grouped. A VAD reports the end of speech only after ``min_silence_us`` of silence, so
-    speech that resumes sooner belongs to the segment before it."""
+    """The indices of ``speeches``, grouped into what a VAD hears as one segment: speech
+    that resumes within ``min_silence_us`` belongs to the segment before it."""
     segments: list[list[int]] = []
     for index, speech in enumerate(speeches):
         if segments and speech.start_us - speeches[segments[-1][-1]].end_us < min_silence_us:
@@ -132,8 +115,7 @@ class ScriptedVAD(lk_vad.VAD):
         min_speech_duration: float = 0.05,
         min_silence_duration: float = 0.5,
     ) -> None:
-        # While the user speaks, the stream reports once every ``min_speech_duration``.
-        # That is the interval declared to the framework, which paces its VAD metrics by it.
+        # The framework paces its VAD metrics by this interval.
         capabilities = lk_vad.VADCapabilities(update_interval=min_speech_duration)
         super().__init__(capabilities=capabilities)
         self._ledger = ledger
@@ -168,9 +150,6 @@ class _ScriptedVADStream(lk_vad.VADStream):
         t0 = now_us()
         vad._origin.mark("vad", t0)
         for segment in vad_segments(vad._speeches, vad._min_silence_us):
-            # One segment: from the start of its first speech to the end of its last. The
-            # pauses inside it are shorter than the VAD's silence window, so to the VAD the
-            # user never stopped.
             first, last = segment[0], segment[-1]
             start_us, end_us = vad._speeches[first].start_us, vad._speeches[last].end_us
             await _sleep_until(t0, start_us + vad._min_speech_us)
@@ -190,13 +169,7 @@ class _ScriptedVADStream(lk_vad.VADStream):
             pass
 
     def _emit(self, type: lk_vad.VADEventType, start: int, end: int, at_us: int) -> None:
-        """Report to the framework at ``at_us`` microseconds after the origin, for a
-        segment of speech from ``start`` to ``end``.
-
-        Durations are differences of integers, converted once. A speech that has lasted
-        500 000 us reports exactly 0.5 s, so the framework's own thresholds are decided by
-        the scripted times and not by float rounding.
-        """
+        # Durations are integer differences converted once: 500 000 us reports exactly 0.5 s.
         speaking = at_us <= end
         values: dict[str, Any] = {
             "type": type,
@@ -221,8 +194,7 @@ def _speech_data(text: str) -> lk_stt.SpeechData:
     return lk_stt.SpeechData(text=text, language=language)
 
 
-# The type argument of STT, LLM and TTS names the events a provider emits beyond the base
-# class's own. The scripted providers emit none: NoReturn, as Python 3.10 spells Never.
+# The type argument names a provider's extra events: none here (NoReturn is 3.10's Never).
 class ScriptedSTT(lk_stt.STT[NoReturn]):
     def __init__(self, ledger: Ledger, speeches: list[UserSpeech], origin: WorldOrigin) -> None:
         super().__init__(capabilities=lk_stt.STTCapabilities(streaming=True, interim_results=False))
@@ -281,9 +253,6 @@ class _ScriptedRecognizeStream(lk_stt.RecognizeStream):
         self._event_ch.send_nowait(lk_stt.SpeechEvent(type=kind, alternatives=[_speech_data(text)]))
 
 
-# --------------------------------------------------------------------------- LLM
-
-
 def summarize_item(item: Any) -> dict[str, Any]:
     """A chat-context item reduced to the fields contracts care about."""
     out: dict[str, Any] = {"type": item.type, "id": getattr(item, "id", None)}
@@ -305,9 +274,7 @@ def summarize_item(item: Any) -> dict[str, Any]:
 
 @dataclass(frozen=True)
 class ToolCall:
-    """A tool call in a scripted reply. Leave ``call_id`` out and the scripted model
-    assigns one, unique to the model call, as a real model does. A policy is a function of
-    the context alone, so an id it invents repeats whenever the same context does."""
+    """A tool call in a scripted reply. The scripted model assigns ``call_id`` if left out."""
 
     name: str
     arguments: str  # JSON text
@@ -317,9 +284,7 @@ class ToolCall:
 @dataclass(frozen=True)
 class Claim:
     """A span of a reply that tells the user ``intent`` succeeded.
-
-    Word indices are 0-based and inclusive; ``last_word=None`` means the reply's last word.
-    """
+    Word indices are 0-based and inclusive; ``last_word=None`` means the reply's last word."""
 
     intent: str
     first_word: int = 0
@@ -349,14 +314,8 @@ class ReplyRegister:
     def attribute(
         self, text: str, *, eligible: set[int] | None = None
     ) -> tuple[int | None, str, list[int]]:
-        """Which reply a synthesized text belongs to, and every reply it could be.
-
-        Only replies not yet synthesized are candidates. ``unique``: exactly one has this
-        text. ``prefix``: none matches in full but exactly one starts with it (generation
-        stopped early). ``ambiguous``: more than one candidate fits. ``none``: nothing fits.
-        The register never chooses between candidates: it names them all, and whoever reads
-        the ledger decides what follows from that.
-        """
+        """Which unsynthesized reply a text belongs to, how it matched, and every candidate.
+        A ``prefix`` match is a reply whose generation stopped early."""
         words = _words(text)
         open_ = [
             c
@@ -377,8 +336,7 @@ class ReplyRegister:
         return None, "none", []
 
 
-# A model policy: a pure function of the context the framework presents. It sees item
-# summaries, not framework objects, so the same policy can run against any adapter.
+# A model policy: a pure function of the context, which it sees as item summaries.
 Policy = Callable[[list[dict[str, Any]]], Reply]
 
 
@@ -504,8 +462,6 @@ class _ScriptedLLMStream(lk_llm.LLMStream):
         )
 
 
-# --------------------------------------------------------------------------- TTS
-
 MAX_STAMP = 32767  # int16; 0 is reserved for "no word"
 
 
@@ -536,15 +492,7 @@ def letters(word: str) -> int:
 
 class StampedTTS(lk_tts.TTS[NoReturn]):
     """Emits PCM in which every sample's value is the stamp of the word it belongs to.
-
-    The audio itself carries the ground truth, so the sink needs no side channel and no
-    framework estimate to know which words it consumed.
-
-    A word's audio is as long as its letters: "I" is short and "reservation" is long, as
-    in speech. A voice that gave every word the same length would be unlike any real one,
-    and a framework that estimates what was spoken from the text would drift from it for
-    that reason alone.
-    """
+    A word's audio lasts ``seconds_per_letter`` for each of its letters."""
 
     def __init__(
         self,
@@ -586,13 +534,7 @@ class StampedTTS(lk_tts.TTS[NoReturn]):
 
 
 class _Synthesis:
-    """One utterance, recorded once when its input ends or synthesis is cancelled.
-
-    The ledger is append-only: a word list cannot be known at the first audio frame.
-    ``started_us`` preserves that earlier boundary without rewriting a snapshot. Only
-    replies already available at that boundary may later be attributed to this stream.
-    """
-
+    # One utterance, recorded once at its end. Only replies known at its start are eligible.
     def __init__(self, tts: StampedTTS, utterance: int) -> None:
         self.tts, self.utterance = tts, utterance
         self.started_us = tts._ledger.now_us()

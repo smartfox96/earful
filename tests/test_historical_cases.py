@@ -1,9 +1,4 @@
-"""The two historical defects, red on affected releases and green on repaired ones.
-
-The expectation is derived from the installed livekit-agents version. The case, the
-contracts and the checker are identical on both sides of each fix: nothing here knows
-which defect it is looking for.
-"""
+"""The two historical defects: red on affected releases, green on repaired ones."""
 
 import livekit.agents as lk
 

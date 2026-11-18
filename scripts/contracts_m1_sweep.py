@@ -1,10 +1,6 @@
-"""How far does remembered text drift from played audio?
+"""Measure how far remembered text drifts from played audio, to set M1's default tolerances.
 
-Interrupts a reply at every 50 ms, for several sentences, and reports the drift between
-what the framework remembers and what the sink played, as contract M1 measures it: in
-audio time, and in words. The result sets M1's default tolerances in docs/contracts.md.
-
-    python scripts/contracts_m1_sweep.py [seconds_per_letter]
+python scripts/contracts_m1_sweep.py [seconds_per_letter]
 """
 
 import json

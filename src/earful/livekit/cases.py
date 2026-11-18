@@ -33,15 +33,7 @@ def _barge_in_policy(items: list[dict[str, Any]]) -> Reply:
 
 
 def barge_in_mid_word() -> Case:
-    """One user turn, a long reply, and an interruption that lands inside a word.
-
-    Timeline (seconds from the first audio frame):
-      0.5 - 2.5   user: "Tell me about the menu."
-      3.2         agent starts a 7.44 s reply (29 words, 0.06 s per letter)
-      5.0 - 6.0   user: "Stop." -> the framework pauses output after 0.5 s of speech
-                  (5.5), 2.3 s into the reply: inside the tenth word, "then"
-                  (2.28 - 2.52 s).
-    """
+    """One user turn, a long reply, and an interruption that lands inside a word."""
     return Case(
         name="barge_in_mid_word",
         agent=lambda: lk.Agent(instructions="You are a restaurant host."),
@@ -61,16 +53,14 @@ BOOKING_ACK = (
 
 
 class Reservations:
-    """Stands in for the reservation service: a booking is one write to the backend of
-    the run in progress."""
+    """Stands in for the reservation service: a booking is one backend write."""
 
     async def create(self, party_size: int) -> str:
         return await effect(BOOKING_INTENT, {"party_size": party_size})
 
 
 class BookingAgent(lk.Agent):
-    """An agent as an application writes one: it is handed the service it books with and
-    knows nothing of Earful."""
+    """An agent as an application writes one: it knows nothing of Earful."""
 
     def __init__(self, reservations: Reservations) -> None:
         super().__init__(instructions="You take restaurant reservations.")
@@ -87,13 +77,8 @@ class BookingAgent(lk.Agent):
         return f"Reservation {receipt} confirmed for {party_size} guests."
 
 
+# Books again when it sees no tool result: the model behaviour in livekit/agents#3702.
 def _booking_policy(items: list[dict[str, Any]]) -> Reply:
-    """A model that books when asked and it sees no evidence a booking was made.
-
-    This is the behavior reported in livekit/agents#3702: the model is not told the tool
-    already ran, so it runs it again. A duplicate effect therefore depends on this policy;
-    the missing tool result in the context does not.
-    """
     booked = any(i["type"] == "function_call_output" for i in items)
     if booked:
         return Reply(text="Your table is booked.", claims=(Claim(BOOKING_INTENT),))
@@ -112,16 +97,7 @@ def _booking_policy(items: list[dict[str, Any]]) -> Reply:
 
 
 def book_then_interrupt() -> Case:
-    """The playout variant of livekit/agents#3702, reached by scripted timing alone.
-
-    Timeline (seconds from the first audio frame):
-      0.5 - 2.5   user: "Book a table for six tonight."
-      ~3.0        model replies with speech plus a create_reservation call
-      ~3.0        tool runs; the backend commits one reservation
-      3.2 - 8.4   agent speaks the acknowledgement
-      5.0 - 6.0   user interrupts while the agent is still speaking
-      ~6.5        next model call: does it see the tool result?
-    """
+    """livekit/agents#3702: the user interrupts while the agent acknowledges a booking."""
     return Case(
         name="book_then_interrupt",
         agent=lambda: BookingAgent(Reservations()),
@@ -145,17 +121,7 @@ def _slow_menu_policy(items: list[dict[str, Any]]) -> Reply:
 
 
 def speak_over_new_turn() -> Case:
-    """livekit/agents#5509: a reply still being generated starts playing over a new user turn.
-
-    Timeline (seconds from the first audio frame):
-      0.5 - 2.5   user: "Tell me about the menu."
-      2.7 - 3.3   model generates the reply; the voice accepts words as they arrive
-      3.2 - 4.6   user starts a new turn: "Actually what about dessert?"
-      3.25        user state becomes "speaking" (0.05 s of detected speech)
-      ~3.51       first audio of the now-stale reply is ready (0.5 s voice TTFB)
-      3.7         0.5 s of speech reached: the framework's interruption threshold
-    The question: does any playout start between 3.25 and the end of the user's turn?
-    """
+    """livekit/agents#5509: a reply still being generated starts playing over a new user turn."""
     return Case(
         name="speak_over_new_turn",
         agent=lambda: lk.Agent(instructions="You are a restaurant host."),
@@ -164,8 +130,7 @@ def speak_over_new_turn() -> Case:
             UserSpeech(start=3.2, end=4.6, transcript="Actually what about dessert?"),
         ],
         policy=_slow_menu_policy,
-        # Streaming makes words available before generation finishes. Keep the first
-        # audio after the new VAD start, so this still exercises the same upstream race.
+        # Puts the first audio after the new turn's VAD start, which is the upstream race.
         tts_ttfb=0.5,
     )
 

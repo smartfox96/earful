@@ -1,20 +1,5 @@
-"""Virtual time for a real LiveKit AgentSession.
-
-Adapted from ``tests/virtual_time.py`` in livekit/agents (Apache-2.0, see NOTICE). The
-upstream helper is a pytest fixture that only exists from livekit-agents 1.6.0 and is not
-shipped in the wheel. This version has no pytest dependency, tolerates modules that are
-missing in older releases, and reports what it patched so a run can record it.
-
-Two things are controlled:
-
-1. The event loop clock. ``VirtualTimeLoop`` never sleeps: when it has nothing ready it jumps
-   its clock to the next scheduled timer. Order of timer firings is therefore fixed by their
-   scheduled times, not by scheduler jitter.
-2. Wall-clock reads. The voice module reads ``time.time()`` / ``time.perf_counter()``
-   directly in ~100 places and captures ``time.time`` as a pydantic ``default_factory`` on
-   event and chat-context models. Both are pointed at the loop's virtual clock for the
-   duration of a run.
-"""
+"""Virtual time for a real LiveKit AgentSession: the event loop clock and wall-clock reads.
+Adapted from ``tests/virtual_time.py`` in livekit/agents (Apache-2.0, see NOTICE)."""
 
 from __future__ import annotations
 
@@ -41,30 +26,21 @@ if TYPE_CHECKING:
 
 T = TypeVar("T")
 
-# A fixed epoch so patched time.time() looks like a real timestamp. Only differences matter.
+# A fixed epoch, so that a patched time.time() looks like a real timestamp.
 WALL_CLOCK_EPOCH = 1_700_000_000.0
 
 _REAL_TIME = time.time
 _REAL_PERF = time.perf_counter
 _REAL_TIME_NS = time.time_ns
 
-# Smallest separation between two wall-clock reads at the same loop instant. Items created
-# synchronously still need distinct, ordered created_at values (ChatContext orders by it).
+# Gap between wall-clock reads at one loop instant: ChatContext orders items by created_at.
 _TICK_EPSILON = 1e-6
 
-# Virtual time is an integer count of 1 us ticks. The float the loop reports is always
-# ticks / 1e6, so the time at an instant does not depend on the sequence of float additions
-# that led to it, and a timer due "at 5.5 s" fires with loop.time() == 5.5 however its due
-# time was computed. Timers are ordered by tick, then by scheduling order.
+# Virtual time is an integer count of 1 us ticks, so an instant never depends on float sums.
 _TICKS_PER_SECOND = 1_000_000
 _HALF_TICK = 0.5 / _TICKS_PER_SECOND
 
-
-# Real seconds the loop may sit idle with no timer due and no ready callback before the run
-# is declared stalled. Inside the deterministic boundary nothing can wake an idle loop (no
-# work runs on threads), so idling means the run is deadlocked: typically a scripted
-# provider raised inside the framework and the session is waiting for audio that will never
-# come. Failing beats hanging a CI job.
+# Real seconds an idle loop with nothing scheduled may wait before the run counts as deadlocked.
 STALL_SECONDS = 60.0
 
 
@@ -90,26 +66,20 @@ class _VirtualClock:
         return self._ticks / _TICKS_PER_SECOND
 
     def advance_to_tick_of(self, t: float) -> None:
-        """Jump forward to the tick nearest ``t``; never move backwards.
-
-        A due time exactly half a tick past a tick rounds down, yet a timer there is not
-        ready until the clock passes it; take the next tick so the loop cannot stall on it.
-        """
         tick = _tick(t)
+        # A due time half a tick past a tick rounds down, and its timer would never be ready.
         if t >= tick / _TICKS_PER_SECOND + _HALF_TICK:
             tick += 1
         self._ticks = max(self._ticks, tick)
 
     def read(self) -> float:
-        """Wall-clock view: strictly increasing, even within one loop instant."""
+        # Strictly increasing, even within one loop instant.
         now = self.time()
         self._read = now if now > self._read else self._read + _TICK_EPSILON
         return self._read
 
 
 class _AutojumpSelector(selectors.BaseSelector):
-    """Never blocks for a timer: jumps the virtual clock to it instead."""
-
     def __init__(self, clock: _VirtualClock) -> None:
         self._clock = clock
         self._real = selectors.DefaultSelector()
@@ -140,7 +110,7 @@ class _AutojumpSelector(selectors.BaseSelector):
         return []
 
     def _idle(self) -> list[tuple[selectors.SelectorKey, int]]:
-        """Nothing is ready or scheduled: only an off-loop wakeup can make progress."""
+        # Nothing is ready or scheduled: only an off-loop wakeup can make progress.
         ready = self._real.select(STALL_SECONDS)
         if not ready:
             raise VirtualTimeStall(
@@ -157,14 +127,7 @@ class _AutojumpSelector(selectors.BaseSelector):
 
 
 class _OrderedTimerHandle(asyncio.TimerHandle):
-    """A timer ordered by (grid tick of its due time, scheduling order).
-
-    asyncio orders its timer heap by due time alone and the heap is not stable, so two
-    timers due at the same instant could fire in either order, and float noise decides
-    which of two timers meant for the same instant comes first. This handle puts timers
-    due within the same microsecond in the order they were scheduled.
-    """
-
+    # asyncio's timer heap is not stable: timers due in one microsecond fire in scheduling order.
     __slots__ = ("_order", "_tick")
 
     if TYPE_CHECKING:
@@ -206,11 +169,7 @@ class _OrderedTimerHandle(asyncio.TimerHandle):
 
 
 class VirtualTimeLoop(asyncio.SelectorEventLoop):
-    """A SelectorEventLoop whose clock advances only when the loop would otherwise sleep.
-
-    The clock jumps to the 1 us tick of the next timer. Timers due within the same
-    microsecond fire in the order they were scheduled.
-    """
+    """A SelectorEventLoop whose clock jumps to the next timer when it would otherwise sleep."""
 
     if TYPE_CHECKING:
         # BaseEventLoop internals that call_at uses. asyncio's stubs leave them out.
@@ -233,7 +192,7 @@ class VirtualTimeLoop(asyncio.SelectorEventLoop):
         return self._virtual_clock.time()
 
     def time_us(self) -> int:
-        """Virtual time as the exact integer the clock holds."""
+        """Virtual time in integer microseconds."""
         return self._virtual_clock.ticks()
 
     def wall_read(self) -> float:
@@ -246,8 +205,7 @@ class VirtualTimeLoop(asyncio.SelectorEventLoop):
         *args: Unpack[Ts],
         context: Context | None = None,
     ) -> asyncio.TimerHandle:
-        # Same steps as BaseEventLoop.call_at, with a handle that keeps same-instant timers
-        # in scheduling order.
+        # BaseEventLoop.call_at, with a handle that keeps same-instant timers in scheduling order.
         if when is None:
             raise TypeError("when cannot be None")
         self._check_closed()
@@ -265,8 +223,7 @@ class VirtualTimeLoop(asyncio.SelectorEventLoop):
     def run_in_executor(
         self, executor: Executor | None, func: Callable[[Unpack[Ts]], T], *args: Unpack[Ts]
     ) -> asyncio.Future[T]:
-        # Work handed to a thread runs in real time and escapes the virtual clock. Count it
-        # so a run can report that it left the deterministic boundary.
+        # Thread work runs in real time: counted so that a run can report it.
         self.executor_calls += 1
         return super().run_in_executor(executor, func, *args)
 
@@ -306,8 +263,7 @@ class ClockPatchReport:
 
     # Model fields whose default captured a real clock, now read from the virtual one.
     model_fields: list[str] = field(default_factory=list)
-    # Such fields on a model that could not be given a virtual clock. A run with any is
-    # not valid evidence.
+    # Such fields that could not be patched. A run with any is not valid evidence.
     unpatched: list[str] = field(default_factory=list)
     otel_patched: bool = False
 
@@ -333,7 +289,6 @@ _REPORT = ClockPatchReport()
 
 
 def _models() -> Iterator[type[BaseModel]]:
-    """Every pydantic model class there is in this process, wherever it was defined."""
     from pydantic import BaseModel
 
     seen: set[type[BaseModel]] = set()
@@ -347,14 +302,7 @@ def _models() -> Iterator[type[BaseModel]]:
 
 
 def _patch_new_models() -> None:
-    """Build a virtual-clock validator for every model that captured a real clock and
-    has not been looked at yet.
-
-    A field declared ``default_factory=time.time`` holds the real function from the
-    moment its class is defined, so pointing ``time.time`` elsewhere does not reach it.
-    This runs at the start of every run and looks at every model class in the process,
-    so a model imported since the last run, from any module, is found.
-    """
+    # A field with default_factory=time.time holds the real function: patching time.time misses it.
     from pydantic_core import SchemaValidator
 
     unpatched = []
@@ -369,8 +317,7 @@ def _patch_new_models() -> None:
         names = [f"{model.__module__}.{model.__qualname__}.{name}" for name in fields]
         if fields:
             try:
-                # A model whose build pydantic deferred is built here: its validator is
-                # what gets replaced.
+                # A model whose build pydantic deferred has no validator to replace yet.
                 if not model.__pydantic_complete__:
                     model.model_rebuild()
                 schema = _to_plain(model.__pydantic_core_schema__)
@@ -424,10 +371,7 @@ def virtual_wall_clock() -> Iterator[ClockPatchReport]:
 
 
 def run_virtual(main: Callable[[], Coroutine[Any, Any, T]]) -> T:
-    """Run ``main()`` to completion on a fresh VirtualTimeLoop with the wall clock patched.
-
-    Every run gets a new loop, so no timer, task or clock state carries over between runs.
-    """
+    """Run ``main()`` to completion on a fresh VirtualTimeLoop with the wall clock patched."""
     loop = VirtualTimeLoop()
     try:
         asyncio.set_event_loop(loop)
@@ -447,11 +391,7 @@ def run_virtual(main: Callable[[], Coroutine[Any, Any, T]]) -> T:
 
 
 def now_us() -> int:
-    """The running loop's time in integer microseconds.
-
-    On the virtual clock this is the clock's own integer, with no float in between. It is
-    the only time Earful's providers, sink and ledger read.
-    """
+    """The running loop's time in integer microseconds."""
     loop = asyncio.get_running_loop()
     if isinstance(loop, VirtualTimeLoop):
         return loop.time_us()

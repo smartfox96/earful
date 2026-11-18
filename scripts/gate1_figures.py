@@ -1,18 +1,6 @@
 """Measure the figures that docs/gate1-core.md states, on the release this runs with.
 
-    .venvs/lk-1.8.12/bin/python scripts/gate1_figures.py
-
-Prints one JSON document. Each key is a section of that page:
-
-    deliberate_break   "A deliberate break, found from a scenario that passes as written"
-    default_search     the size of a search with every default variable
-    known_defects      "The two known defects are found on the releases that have them"
-    faults             "Faults"
-    hangup             "Hangup"
-
-The scenarios are those of tests/breaks.py and earful.livekit.cases. Times are in
-microseconds. Run it on each release to fill a table that has a row per release. Each
-section reports the rules its table on the page names, and no other.
+.venvs/lk-1.8.12/bin/python scripts/gate1_figures.py
 """
 
 from __future__ import annotations
@@ -57,8 +45,7 @@ def windows(found: Exploration, predicate: Predicate) -> list[dict[str, Any]]:
 
 
 def broken(found: Exploration, *rules: Predicate) -> dict[str, Any]:
-    """For each of ``rules``, the rules the page's table names: how many candidates broke
-    it, under which fault, and how wide the failure is."""
+    """How many candidates broke each rule, under which fault, and how wide the failure is."""
     return {
         str(p): {
             "candidates": len(found.breaking(p)),
@@ -114,8 +101,7 @@ def main() -> int:
             "seconds": round(time.perf_counter() - started, 1),
         }
 
-        # Each reference case from a start that passes everywhere: its second speech moved
-        # to long after everything, then moved back to every boundary.
+        # Each case starts with its second speech long after everything, where it passes.
         out["known_defects"] = {}
         for name, rules in (
             ("book_then_interrupt", (BOOKED_TWICE, LOST_RESULT)),

@@ -1,12 +1,8 @@
 #!/usr/bin/env bash
-# Build one pinned environment per livekit-agents release.
-#
-#   scripts/make_env.sh <livekit-agents version> <resolve-as-of date, YYYY-MM-DD>
-#
-# The date matters. Old livekit-agents releases import packages they never declared
-# (1.6.5 imports httpx, which only arrived through openai's dependencies at the time).
-# Resolving "as of" a few days after the release reproduces the dependency set the
-# release was actually tested with; resolving against today's index does not import.
+# Build the pinned environment for one livekit-agents release.
+#   scripts/make_env.sh <version> <resolve-as-of date, YYYY-MM-DD>
+# The date reproduces what the release shipped with: old releases import packages
+# they never declared.
 set -euo pipefail
 
 version="$1"
@@ -16,7 +12,6 @@ env_dir="$root/.venvs/lk-$version"
 
 rm -rf "$env_dir"
 uv venv -q --python "${EARFUL_PYTHON:-3.13}" "$env_dir"
-# Earful's own dependencies are resolved together with the release, as of the same date.
 VIRTUAL_ENV="$env_dir" uv pip install -q --exclude-newer "$as_of" \
   -e "$root" "livekit-agents==$version" pytest pytest-asyncio
 VIRTUAL_ENV="$env_dir" uv pip freeze --exclude-editable > "$root/compat/lk-$version.lock.txt"

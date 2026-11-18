@@ -1,5 +1,4 @@
-"""The example the README walks through: it fails as shipped, for the reason the README
-gives, and passes with the one-line fix the README gives."""
+"""The README's booking example fails as shipped and passes with the README's fix."""
 
 import re
 import shutil
@@ -49,7 +48,7 @@ def test_as_shipped_the_conversation_passes_and_the_search_finds_a_second_bookin
 
 
 SKILL = EXAMPLE.parents[1] / "skills" / "earful" / "SKILL.md"
-# An agent with the tool the skill's test names, as an application would have written it.
+# An agent with the tool the skill's test names.
 SUPPORT_AGENT = '''
 import livekit.agents as lk
 
@@ -70,9 +69,7 @@ class SupportAgent(lk.Agent):
 
 
 def test_the_test_the_skill_shows_a_coding_assistant_runs_as_written(pytester):
-    """skills/earful/SKILL.md shows an assistant one test to write others from. It is run
-    here as the page gives it. Only the run of the conversation as written is asserted:
-    what a search of it meets on an older release is not the skill's subject."""
+    """Only the conversation as written is run: what a search of it finds depends on the release."""
     (shown, *_others) = re.findall(r"```python\n(.*?)```", SKILL.read_text(), flags=re.DOTALL)
     (pytester.path / "myapp").mkdir()
     (pytester.path / "myapp" / "__init__.py").write_text("")
@@ -85,10 +82,8 @@ def test_the_test_the_skill_shows_a_coding_assistant_runs_as_written(pytester):
 
 
 def test_with_an_idempotency_key_sent_the_second_booking_is_gone(example):
-    """The example is about one failure, and the fix removes it on every release. That
-    the whole search then passes is asserted for the release the quickstart is written
-    against: what else a search of this conversation meets on an older release is not
-    this example's subject."""
+    """The fix removes A2/rule on every release. The whole search is asserted to pass only
+    from the release the quickstart is written against."""
     agent = example.path / "agent.py"
     source = agent.read_text()
     assert source.count(AS_SHIPPED) == 1

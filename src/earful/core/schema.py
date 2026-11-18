@@ -1,12 +1,4 @@
-"""Validation of earful.ledger/1, and the one definition of a valid run.
-
-The shape of every event is defined by a JSON Schema document shipped with this package
-(``schemas/earful.ledger-1.schema.json``), so any language can validate a ledger line
-with a standard validator. This module applies that schema and adds the rules a
-per-line schema cannot express: order, and references between events.
-
-Framework-independent: this module must never import livekit.
-"""
+"""Validation of earful.ledger/1, and the one definition of a valid run."""
 
 from __future__ import annotations
 
@@ -40,12 +32,7 @@ def _validator() -> Draft202012Validator:
 
 @cache
 def _validator_for(kind: str) -> Draft202012Validator:
-    """The schema with only the rules that can apply to an event of ``kind``.
-
-    The schema has one ``if kind is K then ...`` rule per kind. For an event of one kind
-    every other such rule is skipped, so leaving them out gives the same errors, and
-    testing 27 conditions per event was most of the cost of checking a ledger.
-    """
+    # Rules for other kinds cannot apply, and testing them all was most of the cost.
     schema = load_schema()
     rules = [
         rule
@@ -164,9 +151,7 @@ def _check_ledger(events: list[Event], errors: list[str]) -> None:
         elif header["clock"] == "virtual" and (
             e["t_us"] != origins[0]["t_us"] + scenario["hangup_us"]
         ):
-            # To the microsecond, which only a virtual clock can keep. A real-clock ledger
-            # is not evidence in any case; how near its hangup came is for whoever
-            # compares it with the virtual run.
+            # To the microsecond, which only a virtual clock can keep.
             errors.append(
                 f"{where}: not at the declared time, {scenario['hangup_us']} us after the origin"
             )
@@ -338,9 +323,7 @@ def _check_ledger(events: list[Event], errors: list[str]) -> None:
                     f"{where}: completion times must be in order and no later than the event"
                 )
 
-    # A streaming utterance is finalized after its first audio, including on cancellation.
-    # Resolve those references after reading the ledger; the start and TTFB still bound
-    # the first playout, and every word must belong to a recorded utterance.
+    # A streaming utterance is recorded after its first audio, so playouts are resolved last.
     for e in playouts:
         d, where = e["data"], _where(e["seq"], e)
         if e["kind"] == "playout.started":
@@ -362,11 +345,7 @@ def _check_ledger(events: list[Event], errors: list[str]) -> None:
 
 
 def validity(events: list[Event]) -> list[str]:
-    """Every reason this run may not produce verdicts. An empty list means the run is valid.
-
-    This is the single definition of a valid run (``docs/contracts.md``, section 2.4). It
-    reads only the ledger.
-    """
+    """Every reason this run may not produce verdicts. An empty list means the run is valid."""
     errors = validate(events)
     reasons = [f"schema: {e}" for e in errors]
     header = events[0].get("data") if events and isinstance(events[0], dict) else None

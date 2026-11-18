@@ -1,11 +1,4 @@
-"""A ledger, read once into the records the contracts reason about.
-
-Nothing here judges anything. It indexes a valid ledger: scripted speeches with their true
-times, model calls, synthesized utterances, playout segments, tool invocations and backend
-writes.
-
-Framework-independent: this module must never import livekit.
-"""
+"""A ledger, read once into the records the contracts reason about."""
 
 from __future__ import annotations
 
@@ -16,21 +9,13 @@ from itertools import islice
 from typing import Any
 
 Event = dict[str, Any]
-Reading = dict[int, int]  # utterance -> the model call it is read as being the reply of
+Reading = dict[int, int]  # utterance -> model call
 
-# A ledger with more ways than this to read its ambiguous audio is not read every way.
 MAX_READINGS = 512
 
 
 def candidates(events: list[Event]) -> dict[int, list[int]]:
-    """For each ambiguously attributed text, by utterance, the replies it could be.
-
-    The ledger names every reply with the text's words that had not been spoken
-    (``candidates``). Two kinds of reply among them cannot be the text. One that another
-    text is attributed to outright was that other text. One whose first token came after
-    the text was synthesized did not exist yet: ``llm.response`` is recorded when the
-    model decides its answer, and the first token is out ``ttft_us`` later.
-    """
+    """For each ambiguously attributed text, by utterance, the replies it could be."""
     taken = {
         e["data"]["call"]
         for e in events
@@ -53,19 +38,7 @@ def candidates(events: list[Event]) -> dict[int, list[int]]:
 
 
 def readings(events: list[Event]) -> list[Reading]:
-    """Every way to say which reply each ambiguously attributed text was.
-
-    The scripted voice is given a text, not the model call it came from. When more than
-    one reply not yet spoken has that text, the ledger names them all, and ``candidates``
-    keeps those the text could be. A reading gives each such text one of them, no reply
-    twice. Which reading is true cannot be observed, and makes no difference to what was
-    heard.
-
-    Always holds at least one reading. With nothing ambiguous that is the empty one. If
-    there are more than ``MAX_READINGS``, or none fits, it is the empty one too, and the
-    ambiguous texts stay unattributed. None fits when a text is left with no reply it
-    could be.
-    """
+    """Every way to give each ambiguous text one candidate reply; ``[{}]`` if none or too many."""
     open_ = list(candidates(events).items())
 
     def assign(at: int, used: frozenset[int]) -> Iterator[Reading]:
@@ -86,22 +59,20 @@ def readings(events: list[Event]) -> list[Reading]:
 class Speech:
     index: int
     start: int  # true start, absolute microseconds
-    end: int  # true end
+    end: int
     transcript: str
     expects_reply: bool
     backchannel: bool
     retires: tuple[str, ...]
-    # A VAD hears speeches separated by less than its silence window as one segment, and
-    # reports the segment: its start when the first speech begins, its end after the last.
-    vad_start: Event | None = None  # the scripted VAD told the framework of the segment
+    # The VAD reports speeches closer than its silence window as one segment.
+    vad_start: Event | None = None
     vad_end: Event | None = None
-    segment_start: int = 0  # true start of the segment's first speech
-    segment_end: int = 0  # true end of its last
-    final: Event | None = None  # the final transcript was delivered
+    segment_start: int = 0
+    segment_end: int = 0
+    final: Event | None = None
 
     @property
     def delivery(self) -> Event:
-        """The delivery of the final transcript. Raises for a speech that never had one."""
         if self.final is None:
             raise ValueError(f"speech {self.index} was not delivered")
         return self.final
@@ -123,7 +94,6 @@ class ModelCall:
 
     @property
     def answer(self) -> Event:
-        """The response. Raises for a call that never got one."""
         if self.response is None:
             raise ValueError(f"model call {self.call} was not answered")
         return self.response
@@ -158,15 +128,13 @@ class Utterance:
 
 @dataclass
 class Spoken:
-    """Something the agent was scripted to say: a reply the model gave, or text the
-    application spoke itself (a greeting, a fixed phrase). Both are played by the sink and
-    both are remembered, so the memory contracts judge both."""
+    """Something the agent was scripted to say: a model reply, or text the application spoke."""
 
     key: str  # "reply 3" or "utterance 5"
-    instance: dict[str, int]  # how verdicts name it
+    instance: dict[str, int]
     words: list[str]
     born: Event  # llm.response, or tts.synthesized for text the application spoke
-    call: int | None  # the model call, for a reply
+    call: int | None
 
 
 @dataclass
@@ -177,14 +145,13 @@ class Segment:
     finished: Event | None = None
 
     def audible(self, until: int) -> list[tuple[int, int]]:
-        """Intervals during which the segment was audible. One that was still audible when
-        the run ended is closed at ``until``."""
+        """Intervals in which the segment was audible; one still open is closed at ``until``."""
         if self.started is None:
             return []
         out, opened = [], self.started["t_us"]
         for paused, resumed in self.pauses:
             if resumed is not None and resumed["t_us"] == paused["t_us"]:
-                continue  # no time elapsed between pause and resume
+                continue
             out.append((opened, paused["t_us"]))
             if resumed is None:
                 return out
@@ -199,7 +166,7 @@ class ToolInvocation:
     name: str
     call_id: str | None
     called: Event
-    outcome: Event | None = None  # tool.returned, tool.raised or tool.cancelled
+    outcome: Event | None = None
 
 
 @dataclass
@@ -207,7 +174,7 @@ class Effect:
     request: int
     intent: str
     requested: Event
-    outcome: Event | None = None  # effect.committed, effect.deduplicated or effect.failed
+    outcome: Event | None = None
     timed_out: Event | None = None  # the caller stopped waiting; the write may still commit
 
     @property
@@ -220,17 +187,17 @@ class Playout:
     """What the sink did with one thing the agent was scripted to say."""
 
     key: str
-    utterance: Utterance | None  # None: no synthesized text was attributed to it
+    utterance: Utterance | None
     unattributable: str | None  # why its audio cannot be told apart, if it cannot
-    interrupted: bool = False  # a segment holding it was cleared before its audio ended
-    segments: list[Segment] = field(default_factory=list)  # segments holding its audio
+    interrupted: bool = False
+    segments: list[Segment] = field(default_factory=list)
     settled: Event | None = None  # the event after which nothing more of it can play
     pending: bool = False  # the run ended while its audio may still have been in the sink
     played: int = 0  # words whose last sample was consumed
     cut: int = 0  # 1 if playout stopped inside one of its words
     completed_us: dict[int, int] = field(default_factory=dict)  # word index -> completion time
-    first_audible_us: int | None = None  # when it began to play; None if it never did
-    outlasted_hangup: bool = False  # the sink went on playing it after the user had left
+    first_audible_us: int | None = None
+    outlasted_hangup: bool = False
 
 
 class View:
@@ -246,13 +213,13 @@ class View:
         self.providers = self.scenario["providers"]
         self.end = events[-1]
         self.origin: Event | None = None
-        self.hangup: Event | None = None  # the user left; nothing after it was heard
+        self.hangup: Event | None = None
         self.calls: dict[int, ModelCall] = {}
         self.utterances: dict[int, Utterance] = {}
         self.segments: dict[int, Segment] = {}
         self.tools: dict[int, ToolInvocation] = {}
         self.effects: dict[int, Effect] = {}
-        self.commands: list[Event] = []  # sink.pause, sink.resume, sink.clear, sink.flush
+        self.commands: list[Event] = []
         self.history: Event | None = None
         self.intents: dict[str, dict[str, Any]] = {
             it["intent"]: it for it in self.scenario["intents"]
@@ -326,8 +293,7 @@ class View:
                 )
             )
 
-        # The VAD's segments, from what the run declared: its report of a segment's start
-        # carries the first speech, its report of the end carries the last.
+        # Speeches of one VAD segment share its start and end reports.
         min_silence = self.providers["vad"]["min_silence_us"]
         heard: list[list[Speech]] = []
         for speech in sorted(self.speeches, key=lambda sp: sp.start):
@@ -343,17 +309,12 @@ class View:
     def _segment(self, number: int) -> Segment:
         return self.segments.setdefault(number, Segment(number))
 
-    # ------------------------------------------------------------------ derived records
-
     @cached_property
     def replies(self) -> list[ModelCall]:
-        """Model calls that answered with text, in the order the model gave them."""
         return [c for c in self.calls.values() if c.words]
 
     @cached_property
     def spoken(self) -> list[Spoken]:
-        """Everything the agent was scripted to say, in the order it came to be: the
-        model's replies, and synthesized texts that no reply accounts for."""
         out = [
             Spoken(f"reply {c.call}", {"reply": c.call}, c.words, c.answer, c.call)
             for c in self.replies
@@ -366,8 +327,7 @@ class View:
         return sorted(out, key=lambda item: item.born["seq"])
 
     def end_us(self, item: Spoken, utterance: Utterance | None, words: int) -> int:
-        """How much audio the first ``words`` words of something said take: as
-        synthesized, and as the scripted voice would make any words that never were."""
+        """Microseconds of audio in the first ``words`` words; unsynthesized words are estimated."""
         if utterance is not None:
             d = utterance.event["data"]
             samples, rate = d["word_samples"], d["sample_rate"]
@@ -379,8 +339,7 @@ class View:
         return known + sum((sum(ch.isalnum() for ch in word) or 1) * per_letter for word in rest)
 
     def audio_us(self, call: ModelCall) -> int:
-        """How long a reply's audio is: as synthesized, or as the scripted voice would
-        make it if it never was."""
+        """Microseconds of audio in a reply: as synthesized, else estimated."""
         utterance = next((u for u in self.utterances.values() if u.call == call.call), None)
         if utterance is not None:
             return utterance.audio_us
@@ -389,16 +348,13 @@ class View:
 
     @cached_property
     def witnessed_tools(self) -> set[str]:
-        """Tools whose every call the ledger records with the call id the model gave: those
-        of the agent the run started with, and any other seen being called with one."""
+        """Tools whose every call the ledger records with the call id the model gave."""
         seen = {t.name for t in self.tools.values() if t.call_id is not None}
         unlinked = {t.name for t in self.tools.values() if t.call_id is None}
         return (set(self.scenario["witnessed_tools"]) | seen) - unlinked
 
     def refusal(self, call_id: str) -> Event | None:
-        """The first model context that shows an error result for a tool call no witnessed
-        tool received: the framework answered the call itself, as it does for arguments the
-        tool cannot take or a tool that does not exist."""
+        """The first model context showing an error result for a call no witnessed tool received."""
         if any(t.call_id == call_id for t in self.tools.values()):
             return None
         for call in self.calls.values():
@@ -411,13 +367,11 @@ class View:
 
     @cached_property
     def end_of_turn_us(self) -> int:
-        """The longest the framework can take, once the user stops, to decide the turn is
-        over: the scripted VAD's silence plus the session's endpointing delay."""
+        """The longest the framework can take, once the user stops, to decide the turn is over."""
         return self.providers["vad"]["min_silence_us"] + self.session["min_endpointing_delay_us"]
 
     def turn_over_us(self, speech: Speech) -> int:
-        """The latest instant at which the framework can decide that the user's turn
-        holding ``speech`` is over. Speech that begins before then extends the turn."""
+        """The latest instant the framework can decide the turn holding ``speech`` is over."""
 
         def stopped(s: Speech) -> int:
             return max(s.end, s.final["t_us"]) if s.final else s.end
@@ -432,9 +386,7 @@ class View:
         return over
 
     def stopped_as_it_ended(self, playout: Playout) -> bool:
-        """Whether a pause or clear reached the sink at the very instant the audio of
-        ``playout`` ended. Which came first is then decided by nothing the scenario
-        controls, so neither reading of that instant is held against the framework."""
+        """Whether a pause or clear reached the sink at the instant the playout's audio ended."""
         ended = playout.settled
         if ended is None:
             return False
@@ -448,13 +400,11 @@ class View:
 
     @cached_property
     def delivered(self) -> list[Speech]:
-        """Speeches whose final transcript reached the framework, in order of delivery."""
         return sorted((s for s in self.speeches if s.final), key=lambda s: s.delivery["seq"])
 
     @cached_property
     def contexts(self) -> list[tuple[str, Event, list[dict[str, Any]]]]:
-        """Every record of what the agent remembers: each model context, then the final
-        chat history. ``(label, event, items)``."""
+        """Each model context, then the final chat history, as ``(label, event, items)``."""
         out = [(f"call {c.call}", c.request, c.items) for c in self.calls.values()]
         if self.history is not None:
             out.append(("final history", self.history, self.history["data"]["items"]))
@@ -470,14 +420,12 @@ class View:
         }
 
     def audible(self) -> list[tuple[int, int, Segment]]:
-        """Every interval in which the sink was audible, in time order."""
         until = self.end["t_us"]
         spans = [(a, b, seg) for seg in self.segments.values() for a, b in seg.audible(until)]
         return sorted(spans, key=lambda span: span[0])
 
     @cached_property
     def playouts(self) -> dict[str, Playout]:
-        """For each thing the agent was scripted to say (by key), what the sink did with it."""
         by_call = {u.call: u for u in self.utterances.values() if u.call is not None}
         loose = [u for u in self.utterances.values() if u.call is None]
         unsynthesized = [r for r in self.replies if r.call not in by_call]
@@ -489,8 +437,7 @@ class View:
                 if utterance is None and any(
                     u.event["data"]["started_us"] >= item.born["t_us"] for u in loose
                 ):
-                    # Its text may have been altered on the way to the voice. Earful does
-                    # not guess whether a later unattributed text was this reply.
+                    # Its text may have been altered on the way to the voice; Earful does not guess.
                     unattributable = (
                         "a synthesized text that was not attributed could be this reply"
                     )
@@ -505,8 +452,7 @@ class View:
             playout = Playout(item.key, utterance, unattributable)
             if utterance is not None:
                 self._account(playout, utterance)
-                # Synthesized, in no finished segment, and some segment is still open: its
-                # audio may be in that segment, so what was played is not yet known.
+                # Its audio may be in a segment still open, so what was played is not yet known.
                 playout.pending = not playout.segments and bool(self.open_segments())
             out[item.key] = playout
         return out
@@ -517,16 +463,14 @@ class View:
     def _account(self, playout: Playout, utterance: Utterance) -> None:
         index_of = {stamp: i for i, stamp in enumerate(utterance.stamps)}
         first_stamp = utterance.stamps[0] if utterance.stamps else None
-        # What the user heard ends when they leave. A word the sink finished after that
-        # was not played to anyone, and audio that began then was never audible.
+        # What the user heard ends when they leave.
         left = self.hangup["t_us"] if self.hangup else None
 
         def heard(at: int | None) -> int | None:
             return None if at is None or (left is not None and at >= left) else at
 
         for segment in self.segments.values():
-            # A segment says which utterance it began with as soon as it is audible, even
-            # if the run ends before it finishes.
+            # A started segment names its first utterance even if the run ends before it finishes.
             if (
                 segment.started is not None
                 and segment.started["data"]["utterance"] == utterance.utterance
@@ -543,7 +487,7 @@ class View:
                 if stamp not in index_of:
                     continue
                 if left is not None and at > left:
-                    playout.outlasted_hangup = True  # the user was gone before it ended
+                    playout.outlasted_hangup = True
                     continue
                 playout.played += 1
                 playout.completed_us[index_of[stamp]] = at
@@ -553,8 +497,7 @@ class View:
                 playout.cut = 1  # the word under way when the user left is the one they heard cut
             if segment.started is not None and playout.first_audible_us is None:
                 if d["utterances"][0] == utterance.utterance:
-                    # First in a segment that became audible: it began when the segment did,
-                    # even if less than one whole sample of it then played.
+                    # First in its segment: it began when the segment did.
                     playout.first_audible_us = heard(segment.started["t_us"])
                 elif first_stamp in d["words_played"]:
                     # Not first in its segment: it began when the word before it completed.
@@ -567,7 +510,6 @@ class View:
                 playout.settled = done
 
     def open_segments(self) -> list[int]:
-        """Segments the sink had begun that had not finished when the run ended."""
         seen = {e["data"]["segment"] for e in self.commands if e["data"]["segment"] is not None}
         seen |= set(self.segments)
         return sorted(

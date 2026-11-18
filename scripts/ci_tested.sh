@@ -1,16 +1,8 @@
 #!/usr/bin/env bash
-# Has CI already passed on exactly these files?
-#
+# Has CI already passed on exactly these files? Prints tested=true or tested=false.
 #   scripts/ci_tested.sh <commit on main> [owner/repo]
-#
-# Prints tested=true if the commit came from a pull request whose head has the same tree
-# and on which the ci workflow succeeded as a pull request. The run on main would repeat
-# that one file for file, so the workflow skips it. Prints tested=false in every other
-# case: no pull request, a head whose files differ (main had moved on, so the merge is a
-# combination nothing has run), a run that failed or had not finished when the pull
-# request was merged, or a question GitHub did not answer.
-#
-# Needs the gh CLI and a token that can read pull requests and workflow runs (GH_TOKEN).
+# True only for a commit from a pull request with the same tree, on which ci passed.
+# Needs gh and GH_TOKEN.
 set -uo pipefail
 
 commit="$1"

@@ -1,17 +1,10 @@
-"""The LiveKit Agents adapter: what a test of a LiveKit agent imports.
-
-    from earful.livekit import Case, ScriptedModel, UserSpeech, explore, run, user_said
-
-Needs livekit-agents, which the ``livekit`` extra installs:
-
-    pip install "earful[livekit]"
-"""
+"""The LiveKit Agents adapter. Needs livekit-agents: pip install "earful[livekit]"."""
 
 try:
     import livekit.agents as _lk  # noqa: F401
 except ModuleNotFoundError as exc:
     if (exc.name or "").split(".")[0] != "livekit":
-        raise  # livekit-agents is there, and something it needs is not
+        raise  # livekit-agents is installed; one of its own imports failed
     raise ImportError(
         "earful.livekit needs livekit-agents, which is not installed. "
         'Install it with: pip install "earful[livekit]"'

@@ -1,13 +1,7 @@
 #!/usr/bin/env bash
-# Build the wheel and the source distribution, install the wheel alone in a fresh
-# environment outside the repository, and check what a release must not get wrong: the package imports with nothing but its own
-# dependencies, the schemas and the typing marker are in it, the command and the pytest
-# plugin are registered, and nothing in it reaches for this repository's tests/ or scripts/.
-#
+# Build the wheel and sdist, install the wheel alone outside the repository, check it.
 #   scripts/wheel_smoke.sh
-#
-# The framework is left out on purpose: importing Earful and checking a ledger must work
-# without it. Needs uv.
+# The framework is left out on purpose: checking a ledger must work without it. Needs uv.
 set -euo pipefail
 
 root="$(cd "$(dirname "$0")/.." && pwd)"
@@ -61,7 +55,6 @@ echo "ok: $version"
 uv venv -q --python "${EARFUL_PYTHON:-3.13}" "$work/venv"
 VIRTUAL_ENV="$work/venv" uv pip install -q "$wheel" pytest
 
-# A ledger to check, taken out of the repository: nothing below runs inside it.
 cp "$root/tests/golden/lk-1.8.12.barge_in_mid_word.ledger.normalized.jsonl" "$work/run.jsonl"
 cp "$root/tests/golden/lk-1.5.6.book_then_interrupt.ledger.normalized.jsonl" "$work/broken.jsonl"
 cd "$work"
@@ -111,8 +104,7 @@ venv/bin/earful check run.jsonl >/dev/null
 status=0
 venv/bin/earful check broken.jsonl >/dev/null || status=$?
 [ "$status" -eq 1 ] || { echo "earful check exited $status for a broken ledger, not 1" >&2; exit 1; }
-# Output is captured before it is searched: grep -q would close the pipe on its first
-# match and fail the command that was still writing.
+# Captured first: grep -q would close the pipe and fail the command still writing.
 reported="$(venv/bin/earful report run.jsonl)"
 grep -q "^case       barge_in_mid_word" <<<"$reported"
 status=0

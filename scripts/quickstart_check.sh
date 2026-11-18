@@ -1,12 +1,7 @@
 #!/usr/bin/env bash
-# The README's quickstart, as a newcomer runs it: the wheel, installed with the framework
-# in a fresh environment outside the repository, and the two files of examples/booking.
-# Each numbered step is the README's, and has to come out as the README says.
-#
+# The README's quickstart as a newcomer runs it: from the wheel, outside the repository.
 #   scripts/quickstart_check.sh
-#
-# The framework release is pinned so that the check says the same thing every day:
-# EARFUL_LIVEKIT (default 1.8.12) with its dependencies as of EARFUL_AS_OF. Needs uv.
+# EARFUL_LIVEKIT and EARFUL_AS_OF pin the framework release. Needs uv.
 set -euo pipefail
 
 root="$(cd "$(dirname "$0")/.." && pwd)"

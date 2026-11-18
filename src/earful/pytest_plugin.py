@@ -1,28 +1,5 @@
 """The pytest plugin: the ``earful`` fixture, and the evidence of a failing test.
-
-    def test_a_booking_is_made_once(earful):
-        earful.run(case).assert_contracts()
-        earful.explore(case).assert_contracts()
-
-The fixture's ``run``, ``explore``, ``keep`` and ``replay`` are those of the framework
-adapter (``earful.livekit``). What the fixture adds: when the test fails, the ledger of
-each run it made, and an example of each rule a search of its found broken, are written
-under ``--earful-out`` (``.earful`` by default), each with a report to open in a
-browser, and the failure says where.
-
-    --earful-out DIR       where the evidence of failing tests goes
-    --earful-workers N     worker processes for searches that do not say (default auto)
-
-``auto`` gives a search one worker process per processor where that can work, and runs
-it in the test's process where it cannot: a scenario built inline, which a worker could
-not build again; a test run that pytest-xdist has already spread over the processors; a
-machine that does not allow worker processes. The environment variable
-``EARFUL_WORKERS`` gives ``auto`` a number to use in place of one per processor, for a
-machine that is running several test runs at once.
-
-This module is loaded by pytest in every project that has Earful installed, so it
-imports the adapter, and with it the framework, only when a test asks for the fixture.
-"""
+Pytest loads it wherever Earful is installed, so the adapter is imported only when used."""
 
 from __future__ import annotations
 
@@ -67,7 +44,6 @@ def pytest_addoption(parser: pytest.Parser) -> None:
 
 
 def _workers(text: str) -> int | None:
-    """What ``--earful-workers`` was given: a number of processes, or None for ``auto``."""
     if text == "auto":
         return None
     try:
@@ -90,8 +66,7 @@ class Earful:
         self.searches: list[Exploration] = []
 
     def run(self, scenario: Source, *, case: dict[str, Any] | None = None, seed: int = 0) -> Any:
-        """Run a scenario once: ``earful.livekit.run``. The result is kept, also when the
-        run is not valid evidence."""
+        """Run a scenario once: ``earful.livekit.run``."""
         from . import livekit
 
         try:
@@ -103,10 +78,8 @@ class Earful:
         return result
 
     def explore(self, scenario: Source, **options: Any) -> Any:
-        """Search a scenario: ``earful.livekit.explore``, with the number of workers the
-        call names, or else the number the command line gave. Where neither says, a
-        scenario that can be imported is searched in one worker per processor, and in
-        this process if workers cannot be started here."""
+        """Search a scenario: ``earful.livekit.explore``. Where neither the call nor the
+        command line gives ``workers``, an importable scenario gets one per processor."""
         from . import livekit
 
         if "workers" in options or self.workers is not None:
@@ -121,7 +94,6 @@ class Earful:
         return found
 
     def _suited(self, scenario: Source) -> int:
-        """How many workers suit a search of ``scenario`` that nobody gave a number for."""
         from . import livekit
         from .core.search import default_workers
 
@@ -133,8 +105,8 @@ class Earful:
     def keep(
         self, found: Exploration, rule: Predicate | str, directory: Path | str | None = None
     ) -> bundle.Bundle:
-        """Keep a failure as a bundle: ``earful.livekit.keep``. Without a directory it
-        goes under this test's evidence directory, named after the rule."""
+        """Keep a failure as a bundle: ``earful.livekit.keep``. The default directory is
+        under this test's evidence directory, named after the rule."""
         from . import livekit
 
         if directory is None:
@@ -148,8 +120,7 @@ class Earful:
         return livekit.replay(directory, repeats=repeats)
 
     def evidence(self) -> list[str]:
-        """Write what the test ran to its directory and say what was written, one line
-        each. Called when the test has failed."""
+        """Write what the test ran to its directory and return a line for each file."""
         lines: list[str] = []
 
         def write(name: str, events: list[dict[str, Any]]) -> None:
@@ -185,7 +156,6 @@ class Earful:
 
 
 def _shown(path: Path) -> str:
-    """A path as a person would type it: from the working directory where it is under it."""
     try:
         return str(path.relative_to(Path.cwd()))
     except ValueError:

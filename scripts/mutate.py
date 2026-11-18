@@ -1,31 +1,9 @@
 """Break the code on purpose, one place at a time, and check that a test fails each time.
 
-Each mutant in tests/mutants.py replaces one piece of source text with a broken version.
-The mutant is applied in a copy of the repository and the tests are run there. Run it with
-the interpreter of a pinned environment:
-
-    .venvs/lk-1.8.12/bin/python scripts/mutate.py              every mutant
-    .venvs/lk-1.8.12/bin/python scripts/mutate.py --verify     only check that each still applies
-    .venvs/lk-1.8.12/bin/python scripts/mutate.py --only L1    mutants whose name contains "L1"
-    .venvs/lk-1.8.12/bin/python scripts/mutate.py --shard 2/4  the second quarter of them
-
-Each mutant names the tests that should catch it, and only those are run against it:
-a few seconds, where the whole suite takes minutes. The whole suite is run only if they
-pass, so a wrong name costs time and never hides a survivor. A mutant is
-
-    caught     if a test it names fails. The failing test is printed.
-    misnamed   if the tests it names pass and another test fails: the name is wrong.
-    survived   if every test passes: the break is one no test notices.
-    invalid    if its text is not found exactly once, if the broken file does not compile,
-               if a word of its ``first`` is part of no test's name, or if pytest stops
-               for a reason other than a failing test.
-
-The unbroken code is run as a control: it must pass, or a failure says nothing. The
-control is the whole suite, and it is what a run waits for. ``--shard K/N`` takes every
-Nth mutant, starting at the Kth, so that N runs side by side cover them all; each runs
-the control. Each line ends with the seconds its mutant took.
-
-The exit status is 0 if the control passes and every mutant is caught, and 1 otherwise.
+.venvs/lk-1.8.12/bin/python scripts/mutate.py              every mutant
+.venvs/lk-1.8.12/bin/python scripts/mutate.py --verify     only check that each still applies
+.venvs/lk-1.8.12/bin/python scripts/mutate.py --only L1    mutants whose name contains "L1"
+.venvs/lk-1.8.12/bin/python scripts/mutate.py --shard 2/4  the second quarter of them
 """
 
 from __future__ import annotations
@@ -47,7 +25,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "tests"))
 
-from mutants import MUTANTS, Mutant  # tests/ is put on the path above
+from mutants import MUTANTS, Mutant
 
 _LEFT_OUT = shutil.ignore_patterns(
     ".git", ".venvs", "__pycache__", ".*_cache", ".hypothesis", "out", "evidence"
@@ -63,7 +41,7 @@ class Result:
     name: str
     outcome: str  # caught, misnamed, survived or invalid; passed or failed for the control
     detail: str  # the failing test, or why the mutant is invalid
-    seconds: float = 0.0  # how long it took
+    seconds: float = 0.0
 
 
 @functools.cache
@@ -116,12 +94,11 @@ def _pytest(copy: Path, *selection: str) -> tuple[int, str]:
 
 
 def _judge(code: int, output: str) -> tuple[str, str] | None:
-    """The outcome of one pytest run: caught, invalid, or None if every test passed.
-    The failing test is the last one the output names: a test that runs pytest on a
-    project of its own prints that project's failures before its own."""
+    """The outcome of one pytest run: caught, invalid, or None if every test passed."""
     if code == 0:
         return None
     if code == 1:
+        # The last failure named: a pytester test prints its project's failures before its own.
         failed = _FAILED.findall(output)
         return "caught", failed[-1] if failed else "a test failed"
     last = output.strip().splitlines()[-1] if output.strip() else "no output"
@@ -129,8 +106,7 @@ def _judge(code: int, output: str) -> tuple[str, str] | None:
 
 
 def run(mutant: Mutant | None, scratch: Path, number: int) -> Result:
-    """Apply ``mutant`` in a fresh copy of the repository and run the tests there.
-    ``None`` is the control: nothing is broken, and every test must pass."""
+    """Run the tests against ``mutant`` in a fresh copy. ``None`` is the control."""
     started = time.monotonic()
     outcome, detail = _outcome(mutant, scratch / f"copy-{number}")
     name = mutant.name if mutant else "control: nothing is broken"
@@ -147,6 +123,7 @@ def _outcome(mutant: Mutant | None, copy: Path) -> tuple[str, str]:
             return ("failed", judged[1]) if judged else ("passed", "")
         target = copy / mutant.path
         target.write_text(target.read_text().replace(mutant.old, mutant.new))
+        # The whole suite runs only if the named tests pass, so a wrong name hides no survivor.
         judged = _judge(*_pytest(copy, "-k", mutant.first))
         if judged is not None and judged[0] == "caught":
             return judged

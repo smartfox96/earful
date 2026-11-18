@@ -1,12 +1,5 @@
 """L1. Progress: a turn that is owed a response gets one within its budget, and nothing
-blocks the turns after it.
-
-The budget is built from what the scenario declared, never from what the framework did:
-the end-of-turn delay, the scripted delays of each step taken so far, and one allowance of
-slack. Three milestones are timed against it: a model call that sees the turn; each round
-of tool calls being made, finishing and being followed by a further model call; and the
-first word of a reply starting to play.
-"""
+blocks the turns after it."""
 
 from __future__ import annotations
 
@@ -23,19 +16,15 @@ Step = tuple[str, str, int | None, int]  # (milestone, status, reached, deadline
 
 
 def _milestone(step: str) -> str:
-    """Which of the three milestones a step belongs to: the rule a finding names."""
     if step == AUDIO:
         return "milestone 3"
     return "milestone 2" if step.startswith("round ") else "milestone 1"
 
 
 class _Budget:
-    """The deadline for a milestone, and what excuses missing it."""
-
     def __init__(self, view: View, policy: policies.L1, speech: Speech) -> None:
-        self.clock = max(speech.end, speech.delivery["t_us"])  # the later of the two, both world
+        self.clock = max(speech.end, speech.delivery["t_us"])
         self._base = self.clock
-        # End of turn can be no later than the VAD's silence plus the endpointing delay.
         self._end_of_turn = view.end_of_turn_us
         self._slack = policy.slack_us
         self._resume = view.session["false_interruption_timeout_us"] or 0
@@ -49,8 +38,7 @@ class _Budget:
         self._left = view.hangup["t_us"] if view.hangup else None
 
     def settle(self, reached: int | None, chain_us: int) -> tuple[str, int]:
-        """Was a milestone, reached at ``reached`` (or never), on time? ``chain_us`` is the
-        sum of the scripted delays on the way to it."""
+        """Status and deadline of a milestone; ``chain_us`` sums the scripted delays before it."""
         while True:
             deadline = self._base + self._end_of_turn + chain_us + self._slack
             if reached is not None and reached <= deadline:
@@ -63,8 +51,7 @@ class _Budget:
             ):
                 if nxt.expects_reply:
                     return SUPERSEDED, deadline  # the later speech carries the obligation
-                # Noise or a backchannel holds the agent up without taking the turn: the
-                # clock restarts once the framework can tell it was not an interruption.
+                # Noise or a backchannel restarts the clock once it is known not to interrupt.
                 self._used += 1
                 self._base = max(self._base, nxt.end + self._resume)
                 continue
@@ -82,16 +69,13 @@ class _Budget:
 def _judge(
     view: View, policy: policies.L1, speech: Speech, chain: list[ModelCall], calls: list[ModelCall]
 ) -> tuple[_Budget, list[Step], list[Event | None], bool]:
-    """Time the milestones of one turn. Returns the budget, the steps, the events used and
-    whether the turn's tools asked for silence."""
+    """Returns the budget, the steps, the events used and whether a tool asked for silence."""
     budget = _Budget(view, policy, speech)
     steps: list[Step] = []
     used: list[Event | None] = [speech.delivery]
     by_call_id = {t.call_id: t for t in view.tools.values() if t.call_id is not None}
 
     def ttfb_of(call: ModelCall | None) -> int:
-        """The voice's time to first audio for a reply: as applied when it was
-        synthesized, or as the scenario declared for the voice if it never was."""
         said = next(
             (u for u in view.utterances.values() if call is not None and u.call == call.call), None
         )
@@ -111,10 +95,10 @@ def _judge(
     assert first is not None
     used.append(first.request)
     spoke: list[tuple[ModelCall, int]] = []  # replies with text, and the delays before each
-    elapsed = 0  # scripted delays on the chain so far
-    walked = {first.call}  # calls reached by following the turn's tool rounds
+    elapsed = 0
+    walked = {first.call}
     progress = [(first.request["seq"], 0)]  # (seq, scripted delays on the chain by then)
-    silenced = False  # a tool asked for no reply
+    silenced = False
     on_track = True
     current: ModelCall | None = first
     rounds = 0
@@ -128,10 +112,7 @@ def _judge(
             progress.append((current.response["seq"], elapsed))
             break
         rounds += 1
-        # Each call the model asked for either reached its tool, or was answered by the
-        # framework itself (arguments the tool cannot take, a tool that does not exist).
-        # A refusal has no event of its own; it happened when the model finished asking,
-        # and the context that first shows it is the call that follows it.
+        # A refused call has no event of its own: it is timed when the model finished asking.
         asked = current.response["t_us"] + data["duration_us"]
         ran = [
             by_call_id[tc["call_id"]] for tc in data["tool_calls"] if tc["call_id"] in by_call_id
@@ -154,8 +135,7 @@ def _judge(
             break
         used += [t.called for t in ran] + refused
         ids = {t.tool for t in ran}
-        # What each write cost its caller: its latency, or the wait after which the
-        # caller was told it timed out.
+        # A write costs its caller its latency, or the wait before it was told of a timeout.
         latency = sum(
             e.timed_out["data"]["after_us"] if e.timed_out else e.requested["data"]["latency_us"]
             for e in view.effects.values()
@@ -164,7 +144,6 @@ def _judge(
         # The framework finishes speaking a reply before it takes the next step.
         audio = ttfb_of(current) + view.audio_us(current) if current.words else 0
         elapsed += data["duration_us"] + audio + latency
-        # A tool cancelled when the scenario ended never finished.
         outcomes = [t.outcome for t in ran if t.outcome is not None]
         done = len(outcomes) == len(ran) and all(o["kind"] != "tool.cancelled" for o in outcomes)
         finished = max([o["t_us"] for o in outcomes] + [asked for _ in refused]) if done else None
@@ -190,16 +169,13 @@ def _judge(
         if current is not None:
             walked.add(current.call)
 
-    # Replies of this turn the walk did not reach: the framework called the model again
-    # for the same turn, as it does after a backchannel, or when what it had generated
-    # ahead of time was out of date. Each is budgeted from the chain as it stood then.
+    # A reply from a repeat call for the same turn is budgeted from the chain as it stood then.
     for call in chain:
         if call.words and call.call not in walked:
             before = max((spent for seq, spent in progress if seq < call.request["seq"]), default=0)
             spoke.append((call, before))
 
-    # The first word of a reply in the chain starts playing. Any reply of the chain will
-    # do: the one whose audio started first is the one that counts.
+    # Milestone 3: of the chain's replies, the one whose audio started first counts.
     def budget_of(call: ModelCall, before: int) -> int:
         return before + call.answer["data"]["duration_us"] + ttfb_of(call)
 
@@ -225,8 +201,7 @@ def _judge(
     elif spoke:
         record(AUDIO, None, max(budget_of(call, before) for call, before in spoke))
     elif on_track and not silenced:
-        # Nothing was said, and nothing excuses it: however the chain ended, the turn is
-        # still owed its first word.
+        # Nothing was said and nothing excuses it: the turn is still owed its first word.
         record(AUDIO, None, elapsed + ttfb_of(None))
     return budget, steps, used, silenced
 
@@ -234,8 +209,7 @@ def _judge(
 def check(view: View, policy: policies.L1) -> ContractResult:
     verdicts, notes = [], []
     calls = list(view.calls.values())
-    # A model call belongs to the latest turn in its context that is owed a reply. A
-    # backchannel or other speech that expects none does not take the call over.
+    # A model call belongs to the latest turn in its context that is owed a reply.
     latest_turn: dict[int, int | None] = {}
     for call in calls:
         seen = user_turns(
@@ -270,7 +244,7 @@ def check(view: View, policy: policies.L1) -> ContractResult:
         }
         flags = ["silenced_by_a_tool"] if silenced else []
         if any(c.call in view.read_calls for c in chain):
-            flags.append("most_favourable_reading")  # which of its replies was voiced is a reading
+            flags.append("most_favourable_reading")
 
         missed = [s for s in steps if s[1] == MISSED]
         if missed:

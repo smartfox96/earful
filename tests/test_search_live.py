@@ -1,12 +1,4 @@
-"""The boundary scheduler, the shrinker and the bundle against a real session.
-
-A deliberate break is found by the search from a scenario that passes as written, its
-window is measured, the case is reduced to the author's scenario with the one change the
-failure needs, and that case replays to the very same ledger. The control, the same
-scenario without the break, is searched the same way and nothing is found. The two
-historical defects are found on the releases that have them and not on the releases that
-repaired them.
-"""
+"""The boundary scheduler, the shrinker and the bundle against a real session."""
 
 import functools
 from pathlib import Path
@@ -42,8 +34,7 @@ REPLY_STARTS_US = 3_200_000  # the long reply's first audio, in every release
 
 
 def late(reference):
-    """A reference case with its second speech moved to long after everything, where it
-    interrupts nothing: a starting point that passes on every release."""
+    """A reference case with its second speech moved to 30 s, where it interrupts nothing."""
     return cases.with_value(scenario.default(reference), STOP, 30_000_000)
 
 
@@ -51,9 +42,7 @@ _POOL = None
 
 
 def side_by_side(*args):
-    """What a search's ``each`` takes: one pool of worker processes for every test in this
-    file. Starting a pool means starting interpreters that import the framework, and a
-    pool per test was a fifth of the time these tests took."""
+    """A search's ``each``: one worker pool for the whole file, since starting one is slow."""
     global _POOL
     if _POOL is None:
         _POOL = scenario.pool(4)
@@ -68,8 +57,7 @@ def _workers():
 
 
 def interruptions(reference, **options):
-    """Search a scenario by moving "Stop." so that its interruption point falls on each
-    boundary. As written, the scenarios in breaks.py say "Stop." after the reply is over."""
+    """Search a scenario by moving "Stop." so its interruption point falls on each boundary."""
     return explore(
         scenario.default(reference),
         scenario.run,
@@ -80,9 +68,6 @@ def interruptions(reference, **options):
         each=side_by_side,
         **options,
     )
-
-
-# --------------------------------------------------------------------------- a case is data
 
 
 def test_a_case_run_from_its_data_is_the_case_run_directly():
@@ -126,8 +111,6 @@ def test_data_that_cannot_be_run_is_refused_with_a_value_error():
 
 
 def test_a_declared_delay_takes_the_place_of_what_the_code_asks_for():
-    """The booking scenario's tool commits at once and its model takes 0.3 s. Declared as
-    data, each delay is applied, recorded where it is applied, and stated in the header."""
     case = CASES["book_then_interrupt"]()
     case.delays = [
         Delay("backend.latency", 1, 1.5),
@@ -163,9 +146,6 @@ def test_a_delay_that_is_no_delay_is_refused():
         case.delays = [bad]
         with pytest.raises(ValueError, match=message):
             run_case(case)
-
-
-# --------------------------------------------------------------------------- the search
 
 
 def test_the_scenarios_pass_as_written_before_any_search():
@@ -206,22 +186,18 @@ def test_the_search_finds_nothing_in_the_control(searched):
 
 
 def test_the_window_of_a_break_is_measured_not_guessed(searched):
-    """Slow to stop whenever the reply is interrupted: from the first audio to the last
-    word. The window is located to a millisecond."""
     (found,) = searched.windows(SLOW_TO_STOP)
     assert found.variable == STOP and not found.instant
     assert (found.lo_end, found.hi_end) == (
         "passes",
         "passes",
-    )  # a passing run was met on both sides
-    # from an interruption point early in the reply to one in its last word
+    )
     assert REPLY_STARTS_US - 500_000 <= found.lo_us <= REPLY_STARTS_US
     assert found.width_us > 6_500_000 and found.resolution_us == 1_000
 
 
 def test_a_break_that_lasts_30_ms_at_a_boundary_is_found_and_its_width_measured():
-    """A fixed step would have to land inside 30 ms. The boundary search goes to the end
-    of each word, and finds it at the boundary and 10 ms after."""
+    """The break is found at the end of the word and 10 ms after it: two breaking cases."""
     found = interruptions("breaks:slow_to_stop_for_30ms")
     assert SLOW_TO_STOP in found.predicates()
     assert len(found.breaking(SLOW_TO_STOP)) == 2
@@ -231,7 +207,6 @@ def test_a_break_that_lasts_30_ms_at_a_boundary_is_found_and_its_width_measured(
     )  # "Stop." starts 0.5 s before its interruption point
     assert (measured.lo_us, measured.hi_us) == (opens, opens + 29_000)  # located to a millisecond
     assert not measured.instant
-    # Asserted, the search fails the test, and says what was moved and how wide it is.
     with pytest.raises(ContractFailure) as caught:
         found.assert_contracts()
     message = str(caught.value)
@@ -242,13 +217,11 @@ def test_a_break_that_lasts_30_ms_at_a_boundary_is_found_and_its_width_measured(
 
 
 def test_a_break_at_one_microsecond_is_an_instant_and_is_called_one():
-    """It fails with the interruption exactly at the end of the word, and not a
-    microsecond either side: a tie between two events, and nothing about the system."""
     found = interruptions("breaks:slow_to_stop_on_an_instant")
     assert len(found.breaking(SLOW_TO_STOP)) == 1
     (measured,) = found.windows(SLOW_TO_STOP)
     assert measured.instant and measured.width_us == 0 and measured.resolution_us == 1
-    # Such a break is reported and not counted: asserting the search does not fail.
+    # An instant is reported and not counted: asserting the search does not fail.
     (one,) = [b for b in found.breaks() if b.predicate == SLOW_TO_STOP]
     assert one.instants_only and "same-instant order" in found.describe()
     found.assert_contracts(allow=KNOWN_ON_THIS_RELEASE)
@@ -258,9 +231,8 @@ def test_a_break_at_one_microsecond_is_an_instant_and_is_called_one():
 
 
 def test_the_search_reaches_the_boundaries_of_a_tool_and_says_what_it_did_not_reach():
-    """The booking's tool is called and commits half a second after the user stops, as the
-    turn is committed. The user's next speech can be put there, because a VAD hears speech
-    that resumes that soon as one; and the commit can be put anywhere after its request."""
+    """The booking's tool is called and commits half a second after the user stops. The next
+    speech can be put there because a VAD hears speech that resumes that soon as one."""
     case = scenario.default("earful.livekit.cases:book_then_interrupt")
     found = explore(
         case,
@@ -286,15 +258,9 @@ def test_the_search_reaches_the_boundaries_of_a_tool_and_says_what_it_did_not_re
     assert all(d["us"] >= 0 for t in found.tried for d in t.candidate.case["delays"])
 
 
-# --------------------------------------------------------------------------- reduction and replay
-
-
 def test_a_found_case_reduces_to_the_authors_scenario_with_the_one_change_it_needs(
     searched, tmp_path
 ):
-    """The case the search found, with a noise, a late remark, changed settings, a looser
-    policy, a declared delay and another seed added, comes back to the scenario as written
-    with "Stop." moved; and "Stop." is left well inside the window, on a round time."""
     author = scenario.default("breaks:slow_to_stop")
     found = nearest(author, [t.candidate.case for t in searched.breaking(SLOW_TO_STOP)])
     start = found["speeches"][1]["start_us"]
@@ -346,17 +312,16 @@ def test_a_found_case_reduces_to_the_authors_scenario_with_the_one_change_it_nee
     assert {
         **minimal,
         "speeches": author["speeches"],
-    } == author  # everything but the speeches is the author's
+    } == author
     assert minimal["speeches"][0] == author["speeches"][0]
 
-    # "Stop." sits on a whole second, well inside the window the manifest records for it
     stop = minimal["speeches"][1]["start_us"]
     measured = next(w for w in manifest["windows"] if w["variable"] == "speech.position 1")
     assert (
         stop % 1_000_000 == 0 and measured["lo_us"] + 50_000 <= stop <= measured["hi_us"] - 50_000
     )
     assert measured["width_us"] > 6_500_000 and not measured["instant"]
-    for shift in (-50_000, -1, 1, 50_000):  # and so it still fails if it moves
+    for shift in (-50_000, -1, 1, 50_000):
         assert SLOW_TO_STOP.holds(
             check(scenario.run(cases.with_value(minimal, STOP, stop + shift)))
         )
@@ -385,8 +350,7 @@ def test_removing_either_speech_from_the_reduced_case_makes_it_pass(searched):
 
 
 def test_a_scenario_that_fails_as_written_reduces_to_itself():
-    """On every release an output that is slow to stop fails the reference barge-in as
-    written. However the case was found, the reduction is the author's scenario."""
+    """On every release an output that is slow to stop fails the reference barge-in as written."""
     author = scenario.default("breaks:interrupted_and_slow_to_stop")
     assert SLOW_TO_STOP.holds(check(scenario.run(author)))
     moved = cases.with_value(author, STOP, 6_130_000)
@@ -417,12 +381,8 @@ def test_measuring_a_window_needs_a_case_that_breaks():
         window(Runner(scenario.run), scenario.default("breaks:host"), STOP, SLOW_TO_STOP)
 
 
-# --------------------------------------------------------------------------- the historical defects
-
-
 def _positions(name):
-    """A reference case with its second speech moved out of the way, then searched by
-    moving it back, with every one of its moments, to every boundary."""
+    """Search a reference case by moving its second speech back from 30 s to every boundary."""
     return explore(
         late(f"earful.livekit.cases:{name}"),
         scenario.run,
@@ -458,8 +418,6 @@ def test_the_search_finds_the_reply_over_a_new_turn_only_where_it_exists():
         assert over not in found.predicates()
 
 
-# --------------------------------------------------------------------------- the reference bundles
-
 BUNDLES = Path(__file__).parent / "bundles"
 
 
@@ -473,9 +431,7 @@ BUNDLES = Path(__file__).parent / "bundles"
 def test_a_reference_bundle_is_red_where_the_defect_is_and_green_where_it_was_repaired(
     name, repaired_in
 ):
-    """The bundles in tests/bundles/ were made on 1.5.6. Replayed here, each fails on
-    every release that has its defect and passes on every release that repaired it; on
-    1.5.6 it gives the very ledger recorded, on any platform."""
+    """The bundles were made on 1.5.6, where a replay gives the very ledger recorded."""
     kept = bundle.load(BUNDLES / name)
     again = bundle.replay(kept, scenario.run, fingerprint=scenario.fingerprint)
     assert again.repeatable and not again.invalid and again.scenario_changed is False
@@ -483,18 +439,13 @@ def test_a_reference_bundle_is_red_where_the_defect_is_and_green_where_it_was_re
     assert again.identical == (lk.__version__ == kept.manifest["framework"]["version"])
 
 
-# --------------------------------------------------------------------------- faults
-
 CONFIRMED_BUT_NOT_DONE = Predicate("A3", "rule")
 BOOKED_TWICE = Predicate("A2", "rule")
 
 
 @functools.cache
 def faults_of(reference, words=True):
-    """Search a scenario by adding faults to its backend writes and moving nothing else.
-    Each scenario is searched once for all the tests below. ``words=False`` leaves the
-    end of every played word out of the boundaries: three quarters of the runs, and of no
-    use where no rule in question depends on what had been played."""
+    """Search a scenario by adding faults to its backend writes and moving nothing else."""
     return explore(
         scenario.default(reference), scenario.run, variables=(), words=words, each=side_by_side
     )
@@ -527,7 +478,6 @@ def test_a_fault_search_runs_every_fault_on_every_write_and_every_run_is_judged(
         "backend.timeout 1, commit later",
     }
     assert all(tried.outcome.ran for tried in found.tried)
-    # The moment the caller gives up, and the commit of a write that timed out, are moved.
     moved = {tried.candidate.variable.kind for tried in found.tried if tried.candidate.variable}
     assert moved == {"backend.wait", "backend.latency"}
 
@@ -536,7 +486,6 @@ def test_a_confirmation_of_a_write_that_failed_is_found_and_the_control_is_clean
     found = faults_of("breaks:confirms_a_failed_booking")
     assert found.predicates() == [CONFIRMED_BUT_NOT_DONE]
     under = bases(found, CONFIRMED_BUT_NOT_DONE)
-    # Nothing was written: the backend refused, or the write was lost.
     assert {"backend.error 1", "backend.drop 1"} <= set(under)
     # A timeout whose write commits before the claim is heard is not a false confirmation.
     assert "backend.timeout 1, commit later" not in under
@@ -545,9 +494,6 @@ def test_a_confirmation_of_a_write_that_failed_is_found_and_the_control_is_clean
 
 
 def test_faults_are_searched_on_a_write_the_scenario_declares_for_a_tool():
-    """The agent has nothing of Earful in it; its booking is an effect the scenario
-    declares. The search treats that write as any other: every fault, and the same
-    failure, under the same faults, as for the agent that writes through a stand-in."""
     found = faults_of("breaks:as_written_confirms_a_failed_booking")
     assert {tried.candidate.base for tried in found.tried} == {
         "backend.error 1",
@@ -564,9 +510,6 @@ def test_faults_are_searched_on_a_write_the_scenario_declares_for_a_tool():
 
 
 def test_a_claim_heard_before_a_timed_out_write_commits_is_found_with_its_window():
-    """The caller gives up, the model confirms anyway, and the write commits only later.
-    The search moves the commit past the moment the claim is heard and measures from where
-    on that fails."""
     found = faults_of("breaks:confirms_a_failed_booking")
     commit = Variable("backend.latency", 1)
     after_the_claim = [
@@ -587,7 +530,6 @@ def test_a_retry_after_a_timeout_books_twice_without_a_key_and_once_with_one():
     # How many writes commit does not depend on what had been played: no word ends.
     found = faults_of("breaks:retries_without_a_key", words=False)
     assert BOOKED_TWICE in found.predicates()
-    # Both orders of a timeout: the write had committed, or was still going to.
     assert {"backend.timeout 1, commit first", "backend.timeout 1, commit later"} <= set(
         bases(found, BOOKED_TWICE)
     )
@@ -613,7 +555,6 @@ def test_a_case_found_with_a_fault_reduces_to_the_fault_and_replays(tmp_path):
     assert [(f["of"], f["nth"]) for f in kept.minimal["faults"]] == [("backend.drop", 1)]
     assert manifest["minimal"]["faults"] == 1 and kept.minimal["speeches"] == author["speeches"]
     assert kept.minimal["delays"] == author["delays"]
-    # Without the fault the reduced case is the author's, which passes.
     assert {**kept.minimal, "faults": []} == author
     again = bundle.replay(kept, scenario.run)
     assert again.reproduced and again.identical
@@ -673,16 +614,13 @@ def test_profiles_are_the_same_for_the_same_seed_and_move_every_speech():
     assert all(t.outcome.ran for t in first.tried)
 
 
-# --------------------------------------------------------------------------- hangup
-
 LOST_RESULT = Predicate("M2", "rule d")  # livekit/agents#3702, which a hangup also reaches
 HANGUP = Variable("user.hangup", 0)
 
 
 @functools.cache
 def hangups_of(reference):
-    """Search a scenario by moving the moment the user hangs up, and nothing else. The
-    ends of played words are left out of the boundaries: no assertion below needs them."""
+    """Search a scenario by moving the moment the user hangs up, and nothing else."""
     return explore(
         scenario.default(reference),
         scenario.run,
@@ -731,8 +669,6 @@ def test_a_hangup_search_closes_the_session_at_every_boundary_after_the_last_spe
 
 
 def test_a_booking_made_again_because_the_user_left_is_found_with_its_window():
-    """The agent books again on exit unless it told the user the table is booked. The
-    search finds it by moving the hangup, and measures from when to when it happens."""
     found = hangups_of("breaks:books_again_if_the_user_left")
     assert found.original.failures == ()
     assert BOOKED_TWICE in found.predicates()
@@ -762,7 +698,6 @@ def test_a_case_found_with_a_hangup_reduces_to_the_hangup_and_replays(tmp_path):
     (difference,) = manifest["reduction"]["differences"]
     assert difference == f"the user hangs up at {left} us"
     measured = next(w for w in manifest["windows"] if w["variable"] == "user.hangup 0")
-    # Settled on a whole second, well inside the window.
     assert (
         left % 1_000_000 == 0
         and measured["lo_us"] + 1_000_000 < left < measured["hi_us"] - 1_000_000
@@ -771,17 +706,13 @@ def test_a_case_found_with_a_hangup_reduces_to_the_hangup_and_replays(tmp_path):
     assert again.reproduced and again.identical
 
 
-# --------------------------------------------------------------------------- a write in flight
-
 CUT_SHORT = "breaks:books_again_if_cut_short"
 SLOW_WRITE = "backend.latency 1, stretched"
 
 
 @functools.cache
 def hangups_and_writes_of(reference, pairs=False):
-    """Search a scenario by moving the moment the user hangs up and the time its write
-    takes. With ``pairs`` the hangup is moved again with each write and each generation
-    stretched. The ends of played words are left out: no assertion below needs them."""
+    """Search a scenario by moving the hangup and the time its write takes, in pairs if asked."""
     return explore(
         scenario.default(reference),
         scenario.run,
@@ -804,8 +735,6 @@ def test_the_scenarios_of_a_write_in_flight_pass_as_written():
 
 
 def test_moving_one_thing_at_a_time_never_hangs_up_during_a_write():
-    """A search without pairs moves the hangup, and makes the write slow, and never does
-    both. The booking made again is not found."""
     found = hangups_and_writes_of(CUT_SHORT)
     assert BOOKED_TWICE not in found.predicates()
     assert all(t.outcome.ran for t in found.tried)
@@ -817,9 +746,6 @@ def test_moving_one_thing_at_a_time_never_hangs_up_during_a_write():
 
 
 def test_a_booking_made_again_because_the_user_left_during_a_slow_write_is_found_by_pairs():
-    """The agent books again if its reply was cut short while the write was under way.
-    With the write stretched to 1.5 s, the search finds it by moving the hangup, and
-    measures from when to when it happens."""
     found = hangups_and_writes_of(CUT_SHORT, pairs=True)
     assert found.original.failures == ()
     assert found.summary()["found"]["A2/rule"]["changed"] == [f"{SLOW_WRITE} + user.hangup 0"]
@@ -833,12 +759,10 @@ def test_a_booking_made_again_because_the_user_left_during_a_slow_write_is_found
     # From the write being requested, at 3 s, until it commits 1.5 s later.
     assert 3_000_000 <= measured.lo_us <= 3_001_000
     assert 4_499_000 <= measured.hi_us < 4_500_000
-    # What pairs add is all they change: the rest is the search without them.
     alone = hangups_and_writes_of(CUT_SHORT)
     assert [cases.canonical(t.candidate.case) for t in found.tried if not t.candidate.base] == [
         cases.canonical(t.candidate.case) for t in alone.tried
     ]
-    # The control sends a key with both writes, so the same search finds no second booking.
     control = hangups_and_writes_of("breaks:books_again_if_cut_short_with_a_key", pairs=True)
     assert BOOKED_TWICE not in control.predicates()
     assert [t.candidate.what for t in control.tried] == [t.candidate.what for t in found.tried]

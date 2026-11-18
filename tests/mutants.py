@@ -1,14 +1,6 @@
-"""Deliberate breaks of the code, one place each. ``scripts/mutate.py`` applies each in a
-copy of the repository and checks that a test fails.
+"""Deliberate breaks of the code: each must fail a test it names (scripts/mutate.py)."""
 
-A mutant is a piece of source text, what replaces it, and the tests that should fail when
-it does. The text must occur exactly once in its file and each word of ``first`` must be
-part of a test's name: ``scripts/mutate.py --verify`` checks both, and the lint job runs
-it, so a change that moves a mutant's text or renames its test fails until the mutant is
-brought along.
-"""
-
-# ruff: noqa: E501  (each string is source text, copied exactly)
+# ruff: noqa: E501  (source text, copied exactly)
 
 from __future__ import annotations
 
@@ -17,11 +9,11 @@ from dataclasses import dataclass
 
 @dataclass(frozen=True)
 class Mutant:
-    name: str  # what is broken, as "<part>: <the break>"
+    name: str  # "<part>: <the break>"
     path: str  # the file, from the repository root
-    old: str  # the text as it is: found exactly once in the file
+    old: str  # found exactly once in the file
     new: str  # the text that breaks it
-    first: str  # a pytest -k expression: the tests that should catch it, run before any other
+    first: str  # pytest -k expression: the tests that should catch it
 
 
 MUTANTS = [
@@ -52,7 +44,7 @@ MUTANTS = [
         "src/earful/core/checker/m2.py",
         (
             '            if invocation is not None and invocation.called["seq"] < event["seq"]:\n'
-            "                continue  # a witnessed call that had been made: judged above\n"
+            "                continue  # judged above\n"
         ),
         (
             '            if invocation is not None and invocation.outcome is not None and invocation.outcome["seq"] < event["seq"] and invocation.outcome["kind"] != "tool.cancelled":\n'

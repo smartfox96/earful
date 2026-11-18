@@ -1,5 +1,4 @@
-"""M2. Turn integrity: each model call is shown the conversation that happened: every user
-turn, every reply and every completed tool call, once each, in order."""
+"""M2. Turn integrity: each model call is shown the conversation that happened, in order."""
 
 from __future__ import annotations
 
@@ -12,7 +11,6 @@ from .view import Event, View
 def check(view: View, policy: policies.M2) -> ContractResult:
     verdicts = []
     by_call_id = {t.call_id: t for t in view.tools.values() if t.call_id is not None}
-    # The model call that asked for each tool call, and the user turns each call was shown.
     requested_by = {tc["call_id"]: c.call for c in view.calls.values() for tc in c.tool_calls}
     turns_in: dict[int, set[int]] = {}  # model call -> speeches its context held
 
@@ -36,9 +34,7 @@ def check(view: View, policy: policies.M2) -> ContractResult:
                 )
             )
 
-        # Rule b: a delivered transcript is not lost. It is owed a place once the user's
-        # turn can be over; until then the framework may still be holding it, and a call
-        # made meanwhile for an earlier turn need not show it.
+        # Rule b: a delivered transcript is not lost once the user's turn can be over.
         for speech in delivered:
             if speech.index in present or speech.backchannel:
                 continue
@@ -54,8 +50,7 @@ def check(view: View, policy: policies.M2) -> ContractResult:
                     )
                 )
 
-        # Rule c: the assistant messages are what the agent was scripted to say (the
-        # model's replies and text the application spoke), one to one and in order.
+        # Rule c: the assistant messages are the scripted speech, one to one and in order.
         spoken = [s for s in view.spoken if s.born["seq"] < event["seq"]]
         alignment = align(items, spoken)
         if not alignment.possible:
@@ -91,7 +86,7 @@ def check(view: View, policy: policies.M2) -> ContractResult:
                 if it["type"] == "function_call_output" and it["call_id"] == tool.call_id
             ]
             if not returned and not calls and not outputs:
-                continue  # it had not returned and nothing is shown for it: nothing to judge
+                continue
             asked_in = requested_by.get(tool.call_id)
             if (
                 returned
@@ -99,10 +94,7 @@ def check(view: View, policy: policies.M2) -> ContractResult:
                 and asked_in in turns_in
                 and present - turns_in[asked_in]
             ):
-                # Requested at the very instant the tool returned, for a later user turn
-                # than the one the tool was called in: the framework was answering that
-                # turn as the result arrived, and cannot be held to an order nothing in
-                # the scenario decides. The call that follows up the tool's own turn is.
+                # Requested for a later turn the instant the tool returned: no order is owed.
                 returned = None
                 if not calls and not outputs:
                     continue
@@ -110,9 +102,7 @@ def check(view: View, policy: policies.M2) -> ContractResult:
             seqs = tuple(e["seq"] for e in (tool.called, done, event) if e is not None)
             name = f"{tool.name} ({tool.call_id})"
             state = "finished" if done is not None else "was called"
-            # Only a call that returned is owed its call and its result. For one that raised,
-            # was cancelled or is still running, whether and what the model is shown is the
-            # framework's choice; it may still not be shown twice or out of order.
+            # Only a call that returned is owed its call and result; none may be shown twice.
             if len(calls) > 1 or len(outputs) > 1 or (returned and (not calls or not outputs)):
                 findings.append(
                     Finding(
@@ -128,8 +118,7 @@ def check(view: View, policy: policies.M2) -> ContractResult:
                     Finding("rule d", f"the result of {name} comes before its call", seqs)
                 )
             if not returned:
-                # A result shown for a call that is still running, or was cancelled, stands
-                # in for one that does not exist yet. What it says is not judged.
+                # A result shown for a running or cancelled call is a stand-in and is not judged.
                 stand_ins += bool(outputs) and (done is None or done["kind"] == "tool.cancelled")
                 continue
             shown = items[outputs[0]]
@@ -157,11 +146,9 @@ def check(view: View, policy: policies.M2) -> ContractResult:
                 continue
             invocation = by_call_id.get(item["call_id"])
             if invocation is not None and invocation.called["seq"] < event["seq"]:
-                continue  # a witnessed call that had been made: judged above
+                continue  # judged above
             if invocation is None and item["is_error"]:
-                # No tool received this call, and the model is told it failed: the framework
-                # answered the call itself (arguments the tool cannot take, a tool that does
-                # not exist). That is its account of a call that never ran, and is not judged.
+                # The framework answered a call no tool received: its own account, not judged.
                 refused += 1
             elif invocation is None and item.get("name") not in view.witnessed_tools:
                 unknown.append(

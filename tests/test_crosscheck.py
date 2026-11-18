@@ -1,9 +1,4 @@
-"""The comparison of a real-clock run with the virtual run of the same case.
-
-Most tests here make the "real" ledger from a committed virtual one: marked as a
-real-clock run, drifted in time, and then changed in the one way the test is about. One
-test at the end makes a real run on the real clock.
-"""
+"""The comparison of a real-clock run with the virtual run of the same case."""
 
 import copy
 from pathlib import Path
@@ -32,8 +27,7 @@ def renumbered(events):
 
 
 def as_real(events, *, drift_us=3_000, change=None):
-    """``events`` as a real-clock run would record them: the header says so, every event
-    after the first is ``drift_us`` later, and ``change`` then alters the copy."""
+    """A copy of ``events`` marked as a real-clock run, ``drift_us`` late, altered by ``change``."""
     events = copy.deepcopy(events)
     events[0]["data"]["clock"] = "real"
     for event in events[1:]:
@@ -56,9 +50,6 @@ def aspects(comparison):
     return sorted({d.aspect for d in comparison.differences}, key=ASPECTS.index)
 
 
-# --------------------------------------------------------------------------- agreement
-
-
 def test_a_real_clock_run_that_does_the_same_a_little_later_agrees():
     real = as_real(VIRTUAL)
     assert validity(real) == ["the run was on the real clock"]
@@ -77,9 +68,6 @@ def test_the_drift_is_the_largest_distance_of_an_event_from_its_virtual_time():
     assert comparison.agrees and comparison.drift_us == 40_000
 
 
-# --------------------------------------------------------------------------- timing, order
-
-
 def test_an_event_further_from_its_virtual_time_than_the_tolerance_is_a_difference():
     def late(events):
         for event in events[first(events, "history.final")["seq"] :]:
@@ -94,8 +82,6 @@ def test_an_event_further_from_its_virtual_time_than_the_tolerance_is_a_differen
 
 
 def test_two_events_the_virtual_clock_puts_together_may_come_in_either_order():
-    """The commit and the tool's return are at one instant on the virtual clock."""
-
     def swapped(events):
         committed = first(events, "effect.committed", request=1)["seq"]
         returned = first(events, "tool.returned", tool=1)["seq"]
@@ -126,9 +112,6 @@ def test_an_event_only_one_clock_has_is_named():
     assert [d.detail for d in comparison.on("order")] == [
         "sink.flush 1 happened on the virtual clock only"
     ]
-
-
-# --------------------------------------------------------------------------- audible
 
 
 def cut(words):
@@ -176,9 +159,6 @@ def test_a_segment_cut_short_on_one_clock_only_is_a_difference():
     assert said.detail == "segment 1 was not cut short, unlike on the virtual clock"
 
 
-# --------------------------------------------------------------------------- memory
-
-
 def remembered(words):
     """Every context and the final history, with the interrupted reply ``words`` shorter."""
 
@@ -213,9 +193,6 @@ def test_a_context_with_another_item_or_another_user_text_is_a_difference():
     assert said.detail.startswith("model call 2, item ")
 
 
-# --------------------------------------------------------------------------- effects, verdicts
-
-
 def test_a_write_that_did_not_commit_on_the_real_clock_is_a_difference_and_changes_the_verdict():
     def uncommitted(events):
         del events[first(events, "effect.committed", request=2)["seq"]]
@@ -227,9 +204,6 @@ def test_a_write_that_did_not_commit_on_the_real_clock_is_a_difference_and_chang
     assert comparison.rules == RULES and "A2/rule" not in comparison.real_rules
     (verdict,) = comparison.on("verdicts")
     assert verdict.detail.endswith("the virtual run broke A2/rule, M2/rule d")
-
-
-# --------------------------------------------------------------------------- not comparable
 
 
 def test_runs_that_are_not_a_virtual_and_a_real_run_of_one_case_are_refused():
@@ -257,8 +231,7 @@ def test_a_real_clock_run_that_is_not_a_complete_run_for_another_reason_is_unusa
 
 
 def test_a_real_clock_hangup_need_not_fall_on_its_declared_microsecond():
-    """The validator holds a hangup to its declared time exactly, on the virtual clock.
-    On the real clock it is compared like every other time."""
+    """On the virtual clock the validator holds a hangup to its declared time exactly."""
     from earful.core.schema import validate
 
     hung_up = copy.deepcopy(ledger("1.8.12", "barge_in_mid_word"))
@@ -285,13 +258,9 @@ def test_a_real_clock_hangup_need_not_fall_on_its_declared_microsecond():
     late = as_real(hung_up, change=a_little_late)
     assert validity(late) == ["the run was on the real clock"]
     assert compare(hung_up, late).agrees and compare(hung_up, late).drift_us == 4_000
-    # On the virtual clock the same lateness is not a ledger.
     virtual_and_late = copy.deepcopy(hung_up)
     first(virtual_and_late, "user.hangup")["t_us"] += 4_000
     assert any("not at the declared time" in error for error in validate(virtual_and_late))
-
-
-# --------------------------------------------------------------------------- several runs
 
 
 def test_a_cross_check_says_how_many_runs_agree_and_how_each_differs():
@@ -314,8 +283,7 @@ def test_a_cross_check_says_how_many_runs_agree_and_how_each_differs():
 
 @pytest.mark.slow
 def test_a_scenario_is_run_on_both_clocks_and_the_real_run_is_never_evidence():
-    """One run on the real clock: it takes as long as the conversation. What it agrees on
-    depends on the machine, so only what must hold on any machine is asserted."""
+    """Agreement depends on the machine, so only what holds on any machine is asserted."""
     from earful.livekit.api import cross_check as on_both_clocks
 
     checked = on_both_clocks("earful.livekit.cases:speak_over_new_turn", runs=1)

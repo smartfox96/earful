@@ -1,7 +1,4 @@
-"""Append-only event ledger, its normalizer and its hash.
-
-Framework-independent: this module must never import livekit.
-"""
+"""Append-only event ledger, its normalizer and its hash."""
 
 from __future__ import annotations
 
@@ -20,8 +17,7 @@ SCHEMA_MINOR = 0
 # Who observed the event. The checker treats these as independent witnesses.
 SOURCES = ("world", "llm", "sink", "backend", "framework", "harness")
 
-# Random identifiers: an alphabetic prefix ending in "_" followed by 12 hex characters
-# (livekit's utils.shortuuid). Replaced by "<prefix>#<n>", n = order of first appearance.
+# Random identifiers such as livekit's shortuuid: a prefix ending in "_", then 12 hex digits.
 DEFAULT_ID_PATTERN = re.compile(r"\b([A-Za-z][A-Za-z_]*_)[0-9a-f]{12}\b")
 
 
@@ -30,8 +26,8 @@ def _canonical(value: Any) -> str:
 
 
 def json_value(value: Any) -> Any:
-    """``value`` as JSON can hold it. Anything else becomes ``{"unrepresentable": <type>}``:
-    a default ``repr`` would put a memory address in the ledger."""
+    """``value`` as JSON can hold it. Anything else becomes ``{"unrepresentable": <type>}``,
+    since a default ``repr`` would put a memory address in the ledger."""
     if value is None or isinstance(value, (bool, int, float, str)):
         return value
     if isinstance(value, dict):
@@ -47,31 +43,21 @@ def json_value(value: Any) -> Any:
 
 
 def run_id(header: dict[str, Any]) -> str:
-    """The identity of a run: a digest of everything ``run.start`` declares.
-
-    Two runs share an id exactly when they declare the same case, seed, framework release,
-    clock, scenario and contract policy. What then happened is identified by the ledger
-    hash, not by this.
-    """
+    """The identity of a run: a digest of everything ``run.start`` declares."""
     return "run-" + hashlib.sha256(_canonical(header).encode("ascii")).hexdigest()[:16]
 
 
 class Ledger:
     """Ordered list of events. ``seq`` is assigned on append and is the total order.
-
-    Each event is a snapshot. ``append`` stores a copy of the data as JSON would hold it,
-    so nothing a caller does to its own objects afterwards can alter the record, and data
-    that cannot be written to a ledger file is refused where it is produced.
-    """
+    ``append`` snapshots its data as JSON and raises ``TypeError`` for data JSON cannot hold."""
 
     def __init__(self, clock_us: Callable[[], int], *, run: str | None = None) -> None:
         self._clock_us = clock_us
-        self.run = run  # set by run.start unless given (a ledger fragment in a unit test)
+        self.run = run  # set by run.start unless given
         self.events: list[dict[str, Any]] = []
 
     def now_us(self) -> int:
-        """The time an event recorded now would carry. Witnesses that compute times of
-        their own read this clock, so those times and ``t_us`` share one base."""
+        """The time an event recorded now would carry."""
         return self._clock_us()
 
     def append(self, source: str, kind: str, /, **data: Any) -> dict[str, Any]:
@@ -137,8 +123,7 @@ def ledger_hash(events: Iterable[dict[str, Any]]) -> str:
 def write_jsonl(
     events: Iterable[dict[str, Any]], path: str | os.PathLike[str], *, normalized: bool = False
 ) -> None:
-    """Write a ledger file: one event per line. ``normalized`` replaces random
-    identifiers by the order they first appear in, which is the form that is hashed."""
+    """Write a ledger file, one event per line. ``normalized`` writes the form that is hashed."""
     events = list(events)
     lines = normalize(events) if normalized else [_canonical(e) for e in events]
     path = Path(path)
@@ -153,14 +138,8 @@ def read_jsonl(path: str | os.PathLike[str]) -> list[dict[str, Any]]:
 
 
 def compare_view(events: Iterable[dict[str, Any]]) -> list[dict[str, Any]]:
-    """The ledger without the fields that differ between framework releases for reasons
-    unrelated to behaviour, for comparing one case across releases.
-
-    Removed: the release itself (``run.start``'s ``framework``, and the run id derived
-    from it), and the framework's own ``created_us``. Each release reads the wall clock a
-    different number of times per step, so those values drift by microseconds even when
-    behaviour is identical. Every other field is kept, including virtual time ``t_us``.
-    """
+    """The ledger without the fields that differ between framework releases whatever the
+    behaviour: the release, the run id derived from it and the framework's ``created_us``."""
     view = []
     for event in events:
         event = {k: v for k, v in event.items() if k != "run"}

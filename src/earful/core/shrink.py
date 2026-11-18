@@ -1,35 +1,5 @@
 """The shrinker: reduce a failing case to the smallest one that fails the same way, and
-set it where it will keep failing.
-
-A case found by a search is the scenario its author wrote, changed. The shrinker asks
-which of the changes the failure needs, and after every step runs the real system again:
-a step is kept only if the run still breaks the same rule of the same contract.
-
-1. **Isolate.** List every difference between the found case and the author's scenario:
-   a speech moved, lengthened, added or dropped; a hangup; a delay declared; a fault
-   added; a setting, a contract policy or the seed changed. Delta debugging (Zeller and
-   Hildebrandt's *ddmin*) over that list gives a smallest set of differences that still
-   fails. The result is the author's scenario with only those changes, and if the
-   author's scenario fails as written it is the author's scenario.
-2. **Remove.** ddmin again, over the speeches, the declared delays and the faults that
-   remain, the author's own included: the fewest that still fail. Then the hangup, if
-   the case still fails with a user who stays.
-3. **Settle.** For each time that still differs from the author's, measure the window in
-   which the failure holds. If the failure has an edge along that time, put the time on
-   the roundest value in the middle half of the window. A reduced case that sat on the
-   edge of its window would stop failing at the smallest change to the system or to
-   Earful, for no reason anyone could read from it.
-
-The result is 1-minimal: undoing any one remaining difference, or removing any one
-remaining speech or declared delay, makes it pass.
-
-Two things a reduction cannot promise. It cannot reduce the scenario's code: the agent
-and the model policy are not data. And it follows a rule, not a mechanism: if the same
-rule can be broken two ways, a reduction may end at the other one. The findings of the
-case as found and as reduced are kept side by side so that this can be seen.
-
-Framework-independent: this module must never import livekit.
-"""
+set its times away from the edges of the failure."""
 
 from __future__ import annotations
 
@@ -52,15 +22,13 @@ MARGIN_US = 50_000
 
 
 def _keeping(case: cases.Case, name: str, keep: Sequence[int]) -> cases.Case:
-    """A copy of ``case`` with only the items of its list ``name`` at the positions ``keep``."""
     return {**copy.deepcopy(case), name: [copy.deepcopy(case[name][i]) for i in keep]}
 
 
 def ddmin(items: Sequence[T], fails: Callable[[list[T]], bool]) -> list[T]:
-    """A smallest sub-list of ``items``, in order, for which ``fails`` is true, such that
-    removing any single item makes it false (1-minimal). ``fails(list(items))`` must be
-    true. This is Zeller and Hildebrandt's ddmin, which takes for granted that nothing at
-    all does not fail; here that is tried first, and if it fails the answer is nothing."""
+    """Zeller and Hildebrandt's ddmin: a 1-minimal sub-list of ``items``, in order, for which
+    ``fails`` is true. Raises ``ValueError`` if ``fails(list(items))`` is false. The empty
+    list is tried first, which ddmin itself takes for granted does not fail."""
     current = list(items)
     if not fails(current):
         raise ValueError("ddmin needs a failing start")
@@ -89,9 +57,6 @@ def ddmin(items: Sequence[T], fails: Callable[[list[T]], bool]) -> list[T]:
     return current
 
 
-# --------------------------------------------------------------------------- differences
-
-
 @dataclass(frozen=True)
 class Difference:
     """One way a case differs from the scenario its author wrote."""
@@ -102,9 +67,7 @@ class Difference:
 
 
 def _pairs(author: cases.Case, found: cases.Case) -> list[tuple[int | None, int | None]]:
-    """Which speech of ``found`` is which speech of ``author``: in order, the first not
-    yet claimed with the same words. ``(author index, found index)``, either side None for
-    a speech the other does not have."""
+    # (author index, found index) pairs; None on a side for a speech the other does not have.
     taken: set[int] = set()
     out: list[tuple[int | None, int | None]] = []
     for j, theirs in enumerate(found["speeches"]):
@@ -124,8 +87,7 @@ def _pairs(author: cases.Case, found: cases.Case) -> list[tuple[int | None, int 
 
 
 def differences(author: cases.Case, found: cases.Case) -> list[Difference]:
-    """Every difference between ``found`` and ``author``, each small enough to be undone
-    on its own. Applying all of them to ``author`` gives ``found`` again."""
+    """Every difference between ``found`` and ``author``, each small enough to undo alone."""
     out: list[Difference] = []
     for i, j in _pairs(author, found):
         if j is None:
@@ -222,8 +184,7 @@ def differences(author: cases.Case, found: cases.Case) -> list[Difference]:
 
 
 def applied(author: cases.Case, chosen: Sequence[Difference]) -> cases.Case:
-    """``author`` with the ``chosen`` differences and no others. The result may not be a
-    valid case: two speeches moved without a third may overlap it."""
+    """``author`` with only the ``chosen`` differences. The result may not be a valid case."""
     out = copy.deepcopy(author)
     drafts: list[dict[str, Any] | None] = [
         {**s, "length": s["end_us"] - s["start_us"]} for s in out["speeches"]
@@ -272,10 +233,7 @@ def applied(author: cases.Case, chosen: Sequence[Difference]) -> cases.Case:
 
 
 def nearest(author: cases.Case, found: Sequence[cases.Case]) -> cases.Case:
-    """Of several failing cases, the one to reduce: the one that differs from the
-    author's scenario in the fewest ways, and among those by the least time. A reduction
-    can only undo differences, so it ends nearest the author's scenario if it starts
-    there."""
+    """The failing case nearest ``author``: fewest differences, then least time moved."""
 
     def distance(case: cases.Case) -> tuple[int, int]:
         moved = sum(
@@ -288,17 +246,10 @@ def nearest(author: cases.Case, found: Sequence[cases.Case]) -> cases.Case:
     return min(found, key=distance)
 
 
-# --------------------------------------------------------------------------- settling
-
-
 def settled(found: Window, at: int) -> int | None:
-    """The value to leave a variable at, given the window it fails in and where it is
-    now: the roundest value in the middle half of the window, nearest its centre. None if
-    the window has no inside to speak of.
-
-    An end the search gave up on is no edge. With one such end the value is taken from
-    the second just inside the other; with two, from the second around where it is now.
-    """
+    """Where to leave a variable that is now ``at``: the roundest value in the middle half
+    of its window, nearest the centre, or None for a window with no width. An end the search
+    gave up on is no edge: the value then comes from within a second of the other, or of ``at``."""
     if found.width_us <= 0:
         return None
     lo_edge, hi_edge = found.lo_end != "reach", found.hi_end != "reach"
@@ -326,16 +277,13 @@ def settled(found: Window, at: int) -> int | None:
 
 
 def _up_to(found: Window, most: int) -> Window | None:
-    """``found`` cut off at ``most``, for choosing where to leave a delay. The cut is not
-    an edge of the failure: it is as if the search for that end had given up there. None
-    if the whole window lies beyond ``most``."""
+    # The cut is no edge of the failure, so it is marked as an end the search gave up on.
     if found.hi_us <= most:
         return found
     return replace(found, hi_us=most, hi_end="reach") if found.lo_us <= most else None
 
 
 def _moved_times(author: cases.Case | None, case: cases.Case) -> list[Variable]:
-    """The times of ``case`` that are not the author's: what a reduction settles."""
     out: list[Variable] = []
     pairs = _pairs(author, case) if author else [(None, j) for j in range(len(case["speeches"]))]
     for i, j in pairs:
@@ -371,16 +319,12 @@ def _moved_times(author: cases.Case | None, case: cases.Case) -> list[Variable]:
 
 @dataclass
 class Shrunk:
-    case: cases.Case  # the reduced case
+    case: cases.Case
     steps: list[str] = field(default_factory=list)  # what was done, in order
     runs: int = 0  # how many times the system was run
     complete: bool = True  # false: the run budget was spent before nothing more could go
-    differences: list[str] = field(
-        default_factory=list
-    )  # how the reduced case differs from the author's
-    windows: list[Window] = field(
-        default_factory=list
-    )  # how far each speech and each settled time can move
+    differences: list[str] = field(default_factory=list)  # from the author's scenario
+    windows: list[Window] = field(default_factory=list)  # how far each time can move
 
 
 def shrink(
@@ -392,17 +336,9 @@ def shrink(
     max_runs: int = 600,
     delay_limit_us: int = DELAY_LIMIT_US,
 ) -> Shrunk:
-    """Reduce ``case`` while running it still breaks ``predicate``.
-
-    ``author`` is the scenario as its author wrote it: what the reduction measures the
-    case against. Without it differences cannot be isolated; speeches, delays, faults and
-    the hangup are removed and every time is settled. ``max_runs`` bounds the work; if it
-    is spent, the case reduced so far is returned and ``complete`` is false. No delay or
-    wait is settled longer than ``delay_limit_us``, the longest a search makes one, unless
-    the case already has it longer.
-
-    Raises ``ValueError`` if ``case`` does not break ``predicate`` to begin with.
-    """
+    """Reduce ``case`` towards ``author``, the scenario as written, while it still breaks
+    ``predicate``. Once ``max_runs`` is spent, returns what it has with ``complete`` false.
+    Raises ``ValueError`` if ``case`` does not break ``predicate`` to begin with."""
     runner = run if isinstance(run, Runner) else Runner(run)
     start = runner.runs
     if cases.validate(case) or not runner.breaks(case, predicate):
@@ -416,7 +352,6 @@ def shrink(
     def breaks(candidate: cases.Case) -> bool:
         return not cases.validate(candidate) and not spent() and runner.breaks(candidate, predicate)
 
-    # 1. Isolate: the fewest differences from the author's scenario that still fail.
     if author is not None:
         all_of_them = differences(author, current)
         if all_of_them and breaks(applied(author, all_of_them)):
@@ -428,7 +363,6 @@ def shrink(
                     "from the author's scenario"
                 )
 
-    # 2. Remove: the fewest speeches, declared delays and faults, the author's own included.
     for name, plural in (
         ("speeches", "speeches"),
         ("delays", "declared delays"),
@@ -449,19 +383,15 @@ def shrink(
         current = cases.without_hangup(current)
         steps.append("removed the hangup")
 
-    # 3. Settle: each time that is not the author's, on a round value in the middle of the
-    # window in which the failure holds.
     windows: list[Window] = []
     for variable in _moved_times(author, current):
         if spent():
             break
         found = window(runner, current, variable, predicate)
-        # A time is moved only if the failure has an edge along it. Where it holds as far
-        # as the scenario can go, the failure does not depend on that time.
+        # A time is moved only if the failure has an edge along it.
         depends = "passes" in (found.lo_end, found.hi_end)
         at = cases.value(current, variable) or 0
-        # A failure can hold for delays far longer than any a search makes. The middle of
-        # such a window is no place to leave a delay: it is chosen below the limit.
+        # A delay is settled below the limit, even where the failure holds far beyond it.
         waits = variable.kind in (*cases.DELAY_KINDS, cases.WAIT)
         inside = _up_to(found, max(delay_limit_us, at)) if waits else found
         to = settled(inside, at) if depends and inside is not None else None
@@ -471,8 +401,7 @@ def shrink(
                 current = candidate
                 steps.append(f"{variable}: settled at {to} us, inside {found.lo_us}..{found.hi_us}")
         windows.append(found)
-    # How far each speech that was left where the author put it can move: nothing to
-    # settle, but worth knowing of a case that is going to be kept.
+    # Speeches left where the author put them are measured too, for the record.
     for index in range(len(current["speeches"])):
         variable = Variable("speech.position", index)
         if spent() or any(w.variable == variable for w in windows):

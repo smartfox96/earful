@@ -1,12 +1,5 @@
-"""What it means for two runs to fail the same way.
-
-A failure is named by the contract and the rule that broke: ``A2/rule``, ``L2/rule b``.
-The instance (which speech, which reply, which context) is left out on purpose: a search
-moves speeches in time and a reduction removes them, so instances are renumbered while
-the failure stays the same failure.
-
-Framework-independent: this module must never import livekit.
-"""
+"""What it means for two runs to fail the same way: the same contract and rule, such as
+``L2/rule b``. The instance is left out, since searching and shrinking renumber speeches."""
 
 from __future__ import annotations
 
@@ -38,8 +31,7 @@ class Predicate:
 
 
 def failures(report: Report) -> set[Predicate]:
-    """Every contract rule ``report`` says was broken. Empty for an invalid run, which
-    yields no verdicts."""
+    """Every contract rule ``report`` says was broken. Empty for an invalid run."""
     return {
         Predicate(verdict.contract, finding.rule)
         for verdict in report.failures

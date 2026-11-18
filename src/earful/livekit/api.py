@@ -1,17 +1,4 @@
-"""What a test calls: run a scenario, search it, keep a failure, replay one.
-
-    from earful.livekit.api import explore, run
-
-    def test_a_booking_is_made_once():
-        run(case).assert_contracts()        # the scenario as written
-        explore(case).assert_contracts()    # and at every timing and fault near it
-
-A scenario is given as a ``Case``, as a function that returns one, or by the
-``module:function`` name of such a function (``earful.livekit.scenario``). A ``Case`` or a
-function defined inside a test runs in the process of the test. Keeping a failure as a
-bundle, and searching in worker processes, need a scenario that can be imported: both
-refuse one that cannot, before anything runs, and say what to change.
-"""
+"""What a test calls: run a scenario, search it, keep a failure, replay one."""
 
 from __future__ import annotations
 
@@ -32,16 +19,12 @@ from .scenario import Scenario, Source
 
 
 class WorkersUnavailable(RuntimeError):
-    """A search was asked to run in worker processes and they could not be started, or
-    one died before it ran a case. ``workers=0`` runs the same search in this process."""
+    """Worker processes could not be started, or one died before it ran a case."""
 
 
 @contextlib.contextmanager
 def _quiet_framework() -> Iterator[None]:
-    """Keep the framework's log records from the root logger while a search's case
-    runs. A search makes hundreds of runs, and the framework logs every tool error with
-    its traceback: under pytest that buries the failure of the test. The harness still
-    counts the warnings of each run, and a single ``run`` is left as it is."""
+    # A search makes hundreds of runs, and the framework logs a traceback per tool error.
     logger = logging.getLogger("livekit")
     before = logger.propagate
     logger.propagate = False
@@ -51,20 +34,16 @@ def _quiet_framework() -> Iterator[None]:
         logger.propagate = before
 
 
+# At module level so that it can be sent to a worker process.
 def _run_quietly(data: cases.Case) -> list[dict[str, Any]]:
-    """``scenario.run``, quietly. At the top level of the module, so that it can be sent
-    to a worker process."""
     with _quiet_framework():
         return scenario.run(data)
 
 
 def run(source: Source, *, case: cases.Case | None = None, seed: int = 0) -> RunResult:
     """Run a scenario once and return its ledger, with the verdicts on ``report``.
-
-    ``case`` is the data of a case of this scenario (earful.case/1), such as one a search
-    found; without it the scenario runs as written. Raises ``InvalidRun`` if the run may
-    not be used as evidence, and ``ValueError`` if the scenario or the case is refused.
-    """
+    ``case`` is case data (earful.case/1), such as one a search found. Raises ``InvalidRun``
+    if the run is not valid evidence, ``ValueError`` if the scenario or case is refused."""
     found = Scenario.of(source)
     if case is None:
         return run_case(found.make(), seed=seed)
@@ -86,28 +65,15 @@ def explore(
     words: bool = True,
 ) -> search.Exploration:
     """Search a scenario for the timings and faults at which it breaks a contract.
-
-    The options are those of ``earful.core.search.explore``. ``case`` starts the search
-    from the data of a case of this scenario, in place of the scenario as written.
-
-    ``workers`` is how many worker processes run the cases, side by side. The default,
-    0, runs them one after another in this process. Worker processes build the scenario
-    from its name, so a scenario that is not importable raises ``ValueError`` before
-    anything runs. Each worker is a fresh interpreter that imports the main module of
-    this process: a script that searches with workers needs the usual
-    ``if __name__ == "__main__":`` guard.
-
-    Raises ``ValueError``, before anything is run or started, for a case, a variable or
-    a fault there is not. Raises ``WorkersUnavailable`` if worker processes cannot be
-    started here, as in a sandbox that does not allow them, or if one dies.
-    """
+    ``workers`` above 0 runs cases in that many processes and needs an importable scenario.
+    Raises ``ValueError`` for a bad argument, ``WorkersUnavailable`` if workers cannot run."""
     found = Scenario.of(source)
     if workers < 0:
         raise ValueError(f"workers is a number of processes, 0 for this one; got {workers}")
     if workers:
         scenario.importable(found.reference, "search in worker processes")
     start = found.default(seed) if case is None else case
-    # Checked here as well as by the search itself: before any worker process is started.
+    # Checked here too, before any worker process is started.
     variables, faults = search.check_arguments(start, variables, faults)
     options: dict[str, Any] = {
         "variables": variables,
@@ -118,8 +84,6 @@ def explore(
         "moments": moments,
         "words": words,
     }
-    # Every run a search makes is quiet: those of the search itself, and those made
-    # later from its result, to measure a window or to reduce a case.
     if workers == 0:
 
         def quietly(data: cases.Case) -> list[dict[str, Any]]:
@@ -127,14 +91,11 @@ def explore(
                 return found.run(data)
 
         return search.explore(start, quietly, **options)
-    # The workers live for this search only. Each is a fresh interpreter, so it runs the
-    # scenario's code as it is now: workers kept between searches would go on running
-    # what they first imported.
+    # A fresh pool per search, so workers run the scenario's code as it is now.
     try:
         pool = scenario.pool(workers)
     except (OSError, NotImplementedError, ImportError) as exc:
-        # No semaphores, no shared memory, no permission to start a process: a sandbox, a
-        # locked-down container, some serverless runners.
+        # A sandbox or a locked-down container that may not start processes.
         raise WorkersUnavailable(
             f"worker processes cannot be started here ({type(exc).__name__}: {exc}). "
             "workers=0 runs the search in this process"
@@ -160,15 +121,9 @@ def cross_check(
     runs: int = 3,
     tolerance: crosscheck.Tolerance | None = None,
 ) -> crosscheck.CrossCheck:
-    """Run a scenario once on the virtual clock and ``runs`` times on the real clock,
-    with nothing patched, and compare each real-clock run with the virtual one
-    (``earful.core.crosscheck``).
-
-    A real-clock run takes as long as the conversation it scripts, and is never evidence
-    on its own. ``case`` is the data of a case of this scenario, such as one a search
-    found. Raises ``InvalidRun`` if the virtual run is not valid evidence, and
-    ``ValueError`` if the scenario or the case is refused.
-    """
+    """Compare one virtual-clock run of a scenario with ``runs`` real-clock runs.
+    A real-clock run takes as long as the conversation it scripts. Raises ``InvalidRun``
+    if the virtual run is not valid evidence, ``ValueError`` if the case is refused."""
     found = Scenario.of(source)
     if runs < 1:
         raise ValueError(f"a cross-check makes at least one real-clock run; got {runs}")
@@ -193,12 +148,8 @@ def keep(
     *,
     repeats: int = 3,
 ) -> bundle.Bundle:
-    """Reduce a case that breaks ``rule`` to the smallest that still does, check that it
-    repeats, and write it to ``directory`` as a bundle (earful.bundle/1).
-
-    Raises ``ValueError``, before anything runs, if the scenario is not importable or the
-    search found no case that breaks the rule.
-    """
+    """Reduce a case that breaks ``rule`` and write it to ``directory`` as a bundle.
+    Raises ``ValueError`` if the scenario is not importable or no case breaks the rule."""
     predicate = Predicate.parse(rule) if isinstance(rule, str) else rule
     reference = scenario.importable(found.case["scenario"], "keep a failure as a bundle")
     breaking = [tried.candidate.case for tried in found.breaking(predicate)]
@@ -222,9 +173,8 @@ def keep(
 
 
 def replay(directory: Path | str, *, repeats: int = 3) -> bundle.Replay:
-    """Run a bundle's reduced case again and say whether it still breaks its rule,
-    whether the runs repeat, and whether the ledger is the one recorded. Replaying
-    imports and runs the scenario the bundle names: replay only bundles you trust."""
+    """Run a bundle's reduced case again and say whether it still breaks its rule.
+    This imports and runs the scenario the bundle names: replay only bundles you trust."""
     kept = bundle.load(Path(directory))
     return bundle.replay(kept, scenario.run, repeats=repeats, fingerprint=scenario.fingerprint)
 

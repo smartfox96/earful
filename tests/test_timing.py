@@ -17,8 +17,7 @@ def test_conversion_is_exact_for_decimal_seconds():
     assert to_seconds(to_us(4.1) - to_us(3.6)) == 0.5
 
 
-# 3.6 and 3.85 are start times at which float subtraction puts a 0.5 s speech just under
-# the framework's 0.5 s interruption threshold, delaying the interruption by one VAD tick.
+# At 3.6 and 3.85, float subtraction puts a 0.5 s speech just under the 0.5 s threshold.
 @pytest.mark.parametrize("start", [3.5, 3.6, 3.85, 4.1, 4.35, 5.0, 5.3])
 def test_interruption_lands_exactly_on_the_declared_threshold(start):
     case = Case(

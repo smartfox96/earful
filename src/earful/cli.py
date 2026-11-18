@@ -1,31 +1,5 @@
 """The ``earful`` command.
-
-    earful check LEDGER...         the verdicts for recorded ledgers
-    earful run SCENARIO            run a scenario once and print its verdicts
-    earful search SCENARIO         search a scenario for the timings and faults that break it
-    earful replay BUNDLE           run a kept failure again
-    earful crosscheck SCENARIO     run a case on the real clock too, and compare
-    earful report LEDGER|BUNDLE    a run, drawn as one HTML page or written out as text
-
-A SCENARIO is ``module:function``: a function that takes no arguments and returns the
-case. Running one imports and calls it, and replaying a bundle imports and runs the
-scenario the bundle names, so run only code you trust.
-
-``check`` and ``report`` read files and need nothing else. ``run``, ``search``,
-``replay`` and ``crosscheck`` run an agent and need the framework adapter:
-``pip install "earful[livekit]"``.
-
-Exit status, for every command:
-
-    0   nothing broke, or what happened is what was expected; for ``report``, the
-        report was written, whatever it says
-    1   a contract rule broke, a replay did not do what --expect names, or a real-clock
-        run did not agree with the virtual one
-    2   the command could not be carried out: bad arguments, a file that is not what it
-        should be, a scenario that does not exist
-    3   there is no verdict: a run was not valid evidence, did not repeat, or could not
-        be compared
-"""
+Exit status: 0 nothing broke, 1 a rule broke, 2 the command was refused, 3 no verdict."""
 
 from __future__ import annotations
 
@@ -57,12 +31,7 @@ class Refused(Exception):
 
 
 def _adapter() -> ModuleType:
-    """The LiveKit adapter, imported only by the commands that run an agent.
-
-    Those commands name a scenario as ``module:function``, so the directory the command
-    is run from is put on the import path, as ``python -m`` and pytest put it there. The
-    installed ``earful`` script would otherwise not find a module beside it.
-    """
+    # The installed script would not otherwise find a scenario's module in this directory.
     here = os.getcwd()
     if here not in sys.path:
         sys.path.insert(0, here)
@@ -101,7 +70,7 @@ def _case(path: Path | None) -> cases.Case | None:
 
 
 def _status(reports: Sequence[Report], allow: Sequence[str] = ()) -> int:
-    """A rule that broke outranks a run that could not be judged."""
+    # A rule that broke outranks a run that could not be judged.
     if any(rule not in allowed(allow) for report in reports for rule in report.broken()):
         return BROKEN
     return NO_VERDICT if any(not report.valid for report in reports) else OK
@@ -109,9 +78,6 @@ def _status(reports: Sequence[Report], allow: Sequence[str] = ()) -> int:
 
 def _rules(text: list[str] | None) -> list[str]:
     return [str(Predicate.parse(rule)) for rule in text or []]
-
-
-# --------------------------------------------------------------------------- check
 
 
 def _check(args: argparse.Namespace) -> int:
@@ -126,9 +92,6 @@ def _check(args: argparse.Namespace) -> int:
         for line in report.lines(measures=args.measures):
             print(f"   {line}")
     return _status(reports, _rules(args.allow))
-
-
-# --------------------------------------------------------------------------- run
 
 
 def _run(args: argparse.Namespace) -> int:
@@ -147,9 +110,6 @@ def _run(args: argparse.Namespace) -> int:
         if args.ledger is not None:
             print(f"\nledger     {args.ledger}")
     return _status([report], _rules(args.allow))
-
-
-# --------------------------------------------------------------------------- search
 
 
 def _search(args: argparse.Namespace) -> int:
@@ -225,9 +185,6 @@ def _search(args: argparse.Namespace) -> int:
     return BROKEN if counted else OK
 
 
-# --------------------------------------------------------------------------- replay
-
-
 def _replay(args: argparse.Namespace) -> int:
     adapter = _adapter()
     try:
@@ -265,9 +222,6 @@ def _replay(args: argparse.Namespace) -> int:
     return OK if result.reproduced == (args.expect == "reproduced") else BROKEN
 
 
-# --------------------------------------------------------------------------- crosscheck
-
-
 def _crosscheck(args: argparse.Namespace) -> int:
     adapter = _adapter()
     reference: str = args.source
@@ -303,9 +257,6 @@ def _crosscheck(args: argparse.Namespace) -> int:
     return NO_VERDICT if checked.unusable else BROKEN
 
 
-# --------------------------------------------------------------------------- report
-
-
 def _report(args: argparse.Namespace) -> int:
     kept = args.source.is_dir()
     if kept:
@@ -315,7 +266,6 @@ def _report(args: argparse.Namespace) -> int:
             raise Refused(f"cannot read the bundle in {args.source}: {exc.strerror}") from exc
     else:
         events = _ledger(args.source)
-    # A page where the output is a page, text where it is a terminal or a text file.
     as_page = args.format == "html" or (
         args.format is None
         and args.output is not None
@@ -336,12 +286,8 @@ def _report(args: argparse.Namespace) -> int:
     return OK  # the report was written; what it says is not this command's status
 
 
-# --------------------------------------------------------------------------- init
-
-
 def _ignored(directory: Path) -> str | None:
-    """See that git leaves ``.earful/`` out, where ``directory`` is under git or already
-    has a ``.gitignore``. Returns what was done, if anything was."""
+    # Adds ``.earful/`` to ``.gitignore`` where there is one or the directory is under git.
     listing = directory / ".gitignore"
     if listing.exists():
         text = listing.read_text(encoding="utf-8")
@@ -377,9 +323,6 @@ def _init(args: argparse.Namespace) -> int:
         print(f"ignored    .earful/ ({done})")
     print(f"next       pytest {target}")
     return OK
-
-
-# --------------------------------------------------------------------------- the command
 
 
 def _parser() -> argparse.ArgumentParser:

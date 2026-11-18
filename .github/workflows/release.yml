@@ -1,9 +1,7 @@
 name: release
 
-# Pushing a tag v<version> builds the wheel and the source distribution, checks them as a
-# newcomer would use them, and publishes them to PyPI. Publishing goes through a trusted
-# publisher (OpenID Connect): no token is stored in this repository. CONTRIBUTING.md,
-# "Releasing", says what has to be set up on PyPI once.
+# A tag v<version> builds, checks and publishes to PyPI through a trusted publisher:
+# no token is stored here. See CONTRIBUTING.md, "Releasing".
 on:
   push:
     tags: ["v*"]

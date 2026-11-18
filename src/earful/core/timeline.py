@@ -1,7 +1,4 @@
-"""A ledger as text, for a person: what was run, the verdicts, and every event in order.
-
-Framework-independent: this module must never import livekit.
-"""
+"""A ledger as text, for a person: what was run, the verdicts, and every event in order."""
 
 from __future__ import annotations
 
@@ -15,8 +12,7 @@ Event = dict[str, Any]
 
 
 def heading(events: list[Event]) -> list[str]:
-    """What the ledger is a run of: the case, the seed, the framework, the clock and the
-    hash. Empty for a ledger that does not begin with a header."""
+    """What the ledger is a run of. Empty for a ledger that does not begin with a header."""
     first = events[0] if events else {}
     if first.get("kind") != "run.start":
         return []
@@ -32,8 +28,7 @@ def heading(events: list[Event]) -> list[str]:
 
 
 def rows(events: list[Event], *, width: int = 150) -> list[str]:
-    """One line per event: its place, its time in seconds, who saw it, what happened and
-    its data, cut to ``width`` characters."""
+    """One line per event, its data cut to ``width`` characters."""
     out = []
     for event in events:
         data = json.dumps(event.get("data"), sort_keys=True)

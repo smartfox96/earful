@@ -1,30 +1,7 @@
-"""Repeatability check.
+"""Run each case many times, in this process and in subprocesses, and compare ledger hashes.
 
-Runs each case many times and compares normalized ledger hashes:
-
-  * N runs in this process, each on a fresh virtual-time loop;
-  * M runs in fresh subprocesses, each with a different PYTHONHASHSEED, so set and dict
-    iteration order, object addresses and import order all vary between them.
-
-Every run must also be valid: its ledger validates against the schema and its validity
-counters are zero (earful.core.schema.validity).
-
-With --check DIR, the hash must also equal the SHA-256 of the ledger committed in DIR for
-the same release and case. That is the cross-platform and cross-Python assertion: the
-committed ledgers (tests/golden/) were recorded on one machine and every other machine
-must reproduce them. Checking never writes to DIR.
-
-With --update DIR, the ledger is written to DIR instead, and only if every run agreed.
-This is the one way the committed ledgers change; review the diff before committing it.
-
-With --out DIR, a summary and the ledger are written as evidence of this machine's result.
-
-Exit code 0 only if every hash is identical, for every case.
-
-    python scripts/repeat.py [case ...] [--in-process N] [--subprocess M]
-                             [--check DIR | --update DIR] [--out DIR]
-
-With no case named, all cases run.
+python scripts/repeat.py [case ...] [--in-process N] [--subprocess M]
+                         [--check DIR | --update DIR] [--out DIR]
 """
 
 from __future__ import annotations
@@ -104,6 +81,7 @@ def _repeat(case: str, args: argparse.Namespace) -> bool:
     in_process_seconds = time.perf_counter() - started
 
     def spawn(i: int) -> subprocess.CompletedProcess[str]:
+        # A hash seed of its own, so that set and dict order vary between subprocesses.
         env = dict(os.environ, PYTHONHASHSEED=str(1000 + i * 7919))
         return subprocess.run(
             [sys.executable, __file__, case, "--one"],
@@ -114,7 +92,6 @@ def _repeat(case: str, args: argparse.Namespace) -> bool:
             check=False,  # a failed run is reported below, with its stderr
         )
 
-    # Separate processes share nothing, so running them side by side changes only the wait.
     # At most eight at once, and no more than EARFUL_WORKERS allows.
     with ThreadPoolExecutor(max_workers=max(1, min(8, default_workers()))) as pool:
         for i, proc in enumerate(pool.map(spawn, range(args.subprocess))):
@@ -156,8 +133,7 @@ def _repeat(case: str, args: argparse.Namespace) -> bool:
         "clock_model_fields_unpatched": reference.clock.unpatched,
         "virtual_seconds_per_run": reference.ledger.events[-1]["t_us"] / 1e6,
     }
-    # Wall time and the --check outcome are printed but kept out of the written evidence,
-    # so that reproducing a result rewrites the evidence files byte for byte.
+    # Printed only: without these, a rerun rewrites the evidence files byte for byte.
     printed = {
         **summary,
         "matches_committed": committed_matches,

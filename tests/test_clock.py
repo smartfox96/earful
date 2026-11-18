@@ -1,5 +1,4 @@
-"""The virtual clock: exact grid time, scheduling-order ties, and the models that captured
-the real clock."""
+"""The virtual clock, and the patch that makes pydantic models read it."""
 
 import asyncio
 import time
@@ -13,8 +12,6 @@ from earful.livekit.harness import InvalidRun, run_case
 
 
 def test_time_is_exact_on_the_grid():
-    """However a due time was computed, the callback sees the grid value."""
-
     async def main():
         loop = asyncio.get_running_loop()
         seen = []
@@ -29,9 +26,6 @@ def test_time_is_exact_on_the_grid():
 
 
 def test_same_microsecond_fires_in_scheduling_order():
-    """Two timers meant for the same instant, reached by different float paths, fire in
-    the order they were scheduled, not in the order float noise would put them."""
-
     async def main():
         loop = asyncio.get_running_loop()
         order = []
@@ -61,8 +55,6 @@ def test_cancelled_timers_do_not_fire():
 
 
 def test_due_time_half_a_tick_past_the_grid_does_not_stall():
-    """A timer due exactly half a microsecond past a grid point must still fire."""
-
     async def main():
         loop = asyncio.get_running_loop()
         fired = []
@@ -81,7 +73,7 @@ def test_a_deadlocked_run_fails_instead_of_hanging(monkeypatch):
     monkeypatch.setattr(clock, "STALL_SECONDS", 0.2)
 
     async def main():
-        await asyncio.get_running_loop().create_future()  # nothing will ever set it
+        await asyncio.get_running_loop().create_future()
 
     with pytest.raises(clock.VirtualTimeStall):
         run_virtual(main)
@@ -92,10 +84,9 @@ async def _nothing():
 
 
 def test_a_model_defined_after_the_first_run_reads_the_virtual_clock():
-    """A field declared ``default_factory=time.time`` holds the real function. The patch
-    looks at every model class at the start of every run, so a model that arrived since
-    the last run is found, in whatever module it was defined."""
-    run_virtual(_nothing)  # the patch has looked at every model there was
+    """A ``default_factory=time.time`` field holds the real function, so every run patches
+    the model classes that arrived since the last."""
+    run_virtual(_nothing)
 
     class Late(BaseModel):
         at: float = Field(default_factory=time.time)
@@ -121,10 +112,9 @@ def test_a_model_that_cannot_be_patched_is_reported_and_makes_a_run_invalid():
         with pytest.raises(InvalidRun, match=r"Unbuilt\.at reads the wall clock"):
             run_case(CASES["barge_in_mid_word"]())
     finally:
-        NotDefinedYet = int  # the name the annotation asks for
+        NotDefinedYet = int
         Unbuilt.model_rebuild()
 
-    # Built, it is patched at the start of the next run, and runs are valid again.
     async def main():
         await asyncio.sleep(2)
         return Unbuilt(other=1).at
