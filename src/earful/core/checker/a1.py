@@ -9,20 +9,13 @@ from .view import View
 
 def check(view: View, policy: policies.A1) -> ContractResult:
     verdicts = []
-    wrote = {e.requested["data"]["tool"] for e in view.effects.values()}
     for speech in view.delivered:
         for intent in speech.retires:
             point = speech.delivery
             instance = {"speech": speech.index, "intent": intent}
             effects = [e for e in view.effects.values() if e.intent == intent]
-            tools = view.intents[intent]["tools"]
-            # A call that wrote nothing is unobservable; one that wrote for another intent is not.
-            called_after = [
-                t.called
-                for t in view.tools.values()
-                if t.name in tools and t.called["seq"] > point["seq"] and t.tool not in wrote
-            ]
-            if not effects and called_after:
+            called_after = [c for c in view.unaccounted_calls(intent) if c["seq"] > point["seq"]]
+            if called_after:
                 verdicts.append(
                     verdict(
                         "A1",

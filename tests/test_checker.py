@@ -177,10 +177,62 @@ def _without_backend(events):
     return seal([e for e in events if not e["kind"].startswith("effect.")])
 
 
-def test_a1_and_a2_are_unobservable_when_the_tool_does_not_write_through_the_backend(affected):
+def test_an_intent_is_unobservable_when_its_tool_does_not_write_through_the_backend(affected):
     report = check(_without_backend(retire(affected)))
     assert report.outcome("A1") == UNOBSERVABLE
     assert report.outcome("A2") == UNOBSERVABLE
+    assert report.outcome("A3") == UNOBSERVABLE
+    reasons = {v.findings[0].detail for name in ("A2", "A3") for v in report.results[name].verdicts}
+    assert reasons == {"a tool for the intent was called but nothing reached the backend"}
+
+
+def _moved(events, event, t_us):
+    event["t_us"] = t_us
+    return seal(sorted(events, key=lambda e: e["t_us"]))
+
+
+@pytest.mark.parametrize("off_us, outcome", [(-1, UNOBSERVABLE), (0, UNOBSERVABLE), (1, FAIL)])
+def test_a3_a_tool_first_called_after_the_claim_was_heard_cannot_have_made_it_true(
+    fixed, off_us, outcome
+):
+    """The claim is heard at 7.92 s. A write the backend cannot see needs a call by then."""
+    events = _without_backend(fixed)
+    heard = of(events, "playout.finished", 1)["data"]["words_completed_us"][-1]
+    events = _moved(events, of(events, "tool.returned"), heard + off_us)
+    events = _moved(events, of(events, "tool.called"), heard + off_us)
+    (claim,) = check(events).results["A3"].verdicts
+    assert claim.outcome == outcome
+    if outcome == FAIL:
+        assert "never committed" in claim.findings[0].detail
+
+
+def test_once_the_backend_has_a_write_for_an_intent_a_call_that_wrote_nothing_wrote_nothing(
+    affected,
+):
+    """The second booking leaves no request: the backend's record of the intent is complete."""
+    events = retire(affected)
+    second = of(events, "effect.requested", 1)["data"]["request"]
+    kept = [
+        e
+        for e in events
+        if not (e["kind"].startswith("effect.") and e["data"]["request"] == second)
+    ]
+    assert (
+        len(kept) == len(events) - 2 and len([e for e in kept if e["kind"] == "tool.called"]) == 2
+    )
+    report = check(seal(kept))
+    assert (report.outcome("A1"), report.outcome("A2"), report.outcome("A3")) == (PASS, PASS, PASS)
+
+
+def test_a3_any_commit_for_the_intent_makes_a_later_claim_true(affected):
+    """The second authorized booking fails just before the claim is heard; the first stands."""
+    affected[0]["data"]["scenario"]["intents"][0]["authorized"] = 2
+    second = of(affected, "effect.committed", 1)
+    second["kind"] = "effect.failed"
+    del second["data"]["receipt"], second["data"]["count_for_intent"]
+    report = check(seal(affected))
+    assert report.outcome("A3") == PASS
+    assert report.results["A2"].verdicts[0].measures["failed"] == 1
 
 
 def test_a2_counts_against_the_authorized_number(affected):

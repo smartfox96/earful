@@ -58,6 +58,22 @@ def check(view: View, policy: policies.A3) -> ContractResult:
                 )
                 continue
 
+            unseen = [c for c in view.unaccounted_calls(intent) if c["t_us"] <= heard_at]
+            if unseen:
+                verdicts.append(
+                    verdict(
+                        "A3",
+                        instance,
+                        f"cannot tell whether {intent!r} was committed before the claim was heard",
+                        events=[*base, *finishes, *unseen],
+                        unobservable=(
+                            "a tool for the intent was called but nothing reached the backend"
+                        ),
+                        measures={"claim_heard_us": heard_at},
+                    )
+                )
+                continue
+
             commits = sorted(
                 (e.committed for e in view.effects.values() if e.intent == intent and e.committed),
                 key=lambda c: c["seq"],

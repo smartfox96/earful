@@ -9,17 +9,11 @@ from .view import View
 
 def check(view: View, policy: policies.A2) -> ContractResult:
     verdicts = []
-    wrote = {e.requested["data"]["tool"] for e in view.effects.values()}
     for intent, declared in view.intents.items():
         instance = {"intent": intent}
         effects = [e for e in view.effects.values() if e.intent == intent]
         if not effects:
-            # A call that wrote nothing is unobservable; one that wrote for another intent is not.
-            calls = [
-                t.called
-                for t in view.tools.values()
-                if t.name in declared["tools"] and t.tool not in wrote
-            ]
+            calls = view.unaccounted_calls(intent)
             if calls:
                 verdicts.append(
                     verdict(

@@ -399,6 +399,14 @@ class View:
         unlinked = {t.name for t in self.tools.values() if t.call_id is None}
         return (set(self.scenario["witnessed_tools"]) | seen) - unlinked
 
+    def unaccounted_calls(self, intent: str) -> list[Event]:
+        """Calls of the intent's tools that made no write, if the backend saw none for it."""
+        if any(e.intent == intent for e in self.effects.values()):
+            return []  # the backend is where this intent is written: its record is complete
+        wrote = {e.requested["data"]["tool"] for e in self.effects.values()}
+        tools = self.intents[intent]["tools"]
+        return [t.called for t in self.tools.values() if t.name in tools and t.tool not in wrote]
+
     def refusal(self, call_id: str) -> Event | None:
         """The first model context showing an error result for a call no witnessed tool received."""
         if any(t.call_id == call_id for t in self.tools.values()):
