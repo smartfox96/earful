@@ -87,18 +87,26 @@ def capture(
     environment: dict[str, str] | None = None,
     scenario_digest: str = "",
 ) -> dict[str, Any]:
-    """Reduce a failing ``case``, write the bundle to ``directory`` and return its manifest.
-    Raises ``ValueError`` if ``case`` does not break ``predicate``, or if the reduced case
-    does not give the same ledger in each of ``repeats`` runs."""
+    """Reduce a failing ``case``, write the bundle to ``directory`` and return its manifest."""
+    if repeats < 1:
+        raise ValueError(f"a bundle's case is run again at least once; got repeats={repeats}")
     runner = run if isinstance(run, Runner) else Runner(run)
     shrunk = shrink(case, runner, predicate, author=author, max_runs=max_runs)
+    not_kept = "a case that does not repeat is not kept as a bundle"
     found_events = runner.ledger(case)
-    if found_events is None:  # shrink has checked that the case breaks the rule
-        raise ValueError("the case cannot be judged")
+    if found_events is None or ledger_hash(found_events) != runner.outcome(case).hash:
+        raise ValueError(
+            f"the case as found did not give the ledger that broke {predicate} when it was "
+            f"run again; {not_kept}"
+        )
     runs = [runner.run(shrunk.case) for _ in range(repeats)]
-    distinct = len({ledger_hash(events) for events in runs})
-    if distinct != 1:
-        raise ValueError(f"the reduced case gave {distinct} different ledgers in {repeats} runs")
+    reduced = runner.outcome(shrunk.case).hash  # of the run the reduction judged
+    same = sum(ledger_hash(events) == reduced for events in runs)
+    if same != repeats:
+        raise ValueError(
+            f"the reduced case gave the ledger that broke {predicate} in {same} of the "
+            f"{repeats} runs made after the reduction; {not_kept}"
+        )
     minimal_events = runs[0]
     header = minimal_events[0]["data"]
     manifest = {
@@ -133,7 +141,7 @@ def capture(
             "differences": shrunk.differences,
         },
         "windows": [found.to_json() for found in shrunk.windows],
-        "replay": {"repeats": repeats, "distinct_hashes": distinct},
+        "replay": {"repeats": repeats, "distinct_hashes": 1},
     }
     directory.mkdir(parents=True, exist_ok=True)
     for name in (MANIFEST, *(f for pair in FILES.values() for f in pair)):

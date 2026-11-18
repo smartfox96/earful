@@ -1238,16 +1238,50 @@ def test_a_bundle_holds_the_failure_and_replays(tmp_path):
     assert repaired.framework["version"] == "1.8.12"
 
 
+def held(run, case):
+    """A runner that already holds the ledger of ``case``, as a search does of what it found."""
+    runner = Runner(run)
+    assert runner.ledger(case) is not None
+    return runner
+
+
 def test_a_case_that_does_not_repeat_is_not_kept(tmp_path):
     def unsteady(case):
         unsteady.runs += 1
         events = copy.deepcopy(ledger("1.5.6", "book_then_interrupt"))
-        events[5]["t_us"] += unsteady.runs % 2  # a different ledger every other run
+        said = next(e for e in events if e["source"] == "framework")
+        said["data"]["created_us"] += unsteady.runs  # a different ledger every run
         return events
 
     unsteady.runs = 0
-    with pytest.raises(ValueError, match="different ledgers"):
-        bundle.capture(tmp_path / "kept", a_case(BOOK, WINDOW), unsteady, A2)
+    case = a_case(BOOK, WINDOW)
+    with pytest.raises(ValueError) as refused:
+        bundle.capture(tmp_path / "kept", case, held(unsteady, case), A2)
+    assert str(refused.value).startswith(
+        "the reduced case gave the ledger that broke A2/rule in 0 of the 3 runs made after "
+    )  # every run broke the rule, and that is not enough
+    assert str(refused.value).endswith("a case that does not repeat is not kept as a bundle")
+    assert not (tmp_path / "kept").exists()
+    with pytest.raises(ValueError, match="at least once; got repeats=0"):
+        bundle.capture(tmp_path / "kept", case, answers(INTERRUPTS), A2, repeats=0)
+
+
+@pytest.mark.slow
+def test_a_failure_that_does_not_come_back_is_not_kept(tmp_path):
+    failing, passing = (ledger(release, "book_then_interrupt") for release in ("1.5.6", "1.8.12"))
+    seen = []
+
+    def once_per_case(case):
+        seen.append(cases.canonical(case))
+        return failing if INTERRUPTS(case) and seen.count(seen[-1]) == 1 else passing
+
+    case = a_case(BOOK, WINDOW)
+    # Three runs after the reduction that agree with each other, and none breaks the rule.
+    with pytest.raises(ValueError, match="broke A2/rule in 0 of the 3 runs made after"):
+        bundle.capture(tmp_path / "kept", case, held(once_per_case, case), A2)
+    seen.clear()
+    with pytest.raises(ValueError, match="the case as found did not give the ledger that broke"):
+        bundle.capture(tmp_path / "kept", case, once_per_case, A2)
     assert not (tmp_path / "kept").exists()
 
 

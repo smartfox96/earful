@@ -457,8 +457,29 @@ MUTANTS = [
     Mutant(
         "bundle: an unsteady case is kept",
         "src/earful/core/bundle.py",
-        "    if distinct != 1:\n",
+        "    if same != repeats:\n",
         "    if False:\n",
+        first="test_a_case_that_does_not_repeat_is_not_kept",
+    ),
+    Mutant(
+        "bundle: runs that agree with each other are kept, whatever the reduction judged",
+        "src/earful/core/bundle.py",
+        "    reduced = runner.outcome(shrunk.case).hash  # of the run the reduction judged\n",
+        "    reduced = ledger_hash(runs[0])\n",
+        first="does_not_come_back_is_not_kept",
+    ),
+    Mutant(
+        "bundle: the case as found is kept with a ledger that was not judged",
+        "src/earful/core/bundle.py",
+        "    if found_events is None or ledger_hash(found_events) != runner.outcome(case).hash:\n",
+        "    if found_events is None:\n",
+        first="does_not_come_back_is_not_kept",
+    ),
+    Mutant(
+        "bundle: a bundle is made without running its case again",
+        "src/earful/core/bundle.py",
+        "    if repeats < 1:\n        raise ValueError(f\"a bundle's case",
+        "    if repeats < 0:\n        raise ValueError(f\"a bundle's case",
         first="test_a_case_that_does_not_repeat_is_not_kept",
     ),
     Mutant(

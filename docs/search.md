@@ -334,10 +334,16 @@ The manifest freezes the failure. Its shape is
 | `original`, `minimal` | Per case: the ledger `hash`, the `case_digest` of its case file, how many `speeches`, declared `delays` and `faults` it has, and the checker's `findings` for the frozen rule, in its own words |
 | `reduction` | `runs`: how many times the system was run. `complete`: false if the budget was spent first. `steps`: what was done, in order. `differences`: every way the reduced case differs from the author's scenario |
 | `windows` | For each speech of the reduced case, and each time the reduction settled: the `variable`, `lo_us`, `hi_us`, `width_us`, `lo_end`, `hi_end`, `resolution_us`, and whether it is an `instant` |
-| `replay` | `repeats`: how many times the reduced case was run when the bundle was made. `distinct_hashes`: how many different ledgers that gave, always 1 |
+| `replay` | `repeats`: how many times the reduced case was run again when the bundle was made. `distinct_hashes`: how many different ledgers that gave, always 1 |
 
 The seed and the contract policy are in the case files. A bundle holds no timestamp and
-no path. A reduced case that does not give the same ledger every time is not written.
+no path.
+
+A bundle is written only for a failure that repeats. The reduction judged one run of the
+reduced case, and that run broke the rule. The reduced case is then run `repeats` more
+times, three by default, and each run has to give the ledger of the run that was judged.
+The case as found is run again in the same way. If any run gives another ledger, nothing
+is written and the error says how many runs agreed.
 
 **Reading** a bundle checks all five files before anything is done with it:
 

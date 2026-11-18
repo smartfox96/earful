@@ -285,9 +285,10 @@ again = replay("failures/double-booking")
 assert again.reproduced and again.identical
 ```
 
-`keep` reduces a case that breaks the rule to the smallest that still does, checks that
-it gives the same ledger each time, and writes it as a bundle (`docs/search.md`,
-section 6). `replay` runs the reduced case again on whatever release is installed:
+`keep` reduces a case that breaks the rule to the smallest that still does, runs it three
+more times, and writes it as a bundle if every run gives the ledger that broke the rule
+(`docs/search.md`, section 6). A failure that does not repeat raises `ValueError` and
+nothing is written. `replay` runs the reduced case again on whatever release is installed:
 `reproduced` says whether it still breaks the rule, and `identical` whether the ledger is
 the one recorded.
 
