@@ -6,10 +6,12 @@ import asyncio
 import dataclasses
 import json
 import time
+from collections import Counter
 from collections.abc import AsyncGenerator
 from dataclasses import dataclass, field
 from typing import Any, cast
 
+from pipecat.adapters.llm.schemas.direct_function import DirectFunctionWrapper
 from pipecat.frames.frames import (
     Frame,
     FunctionCallFromLLM,
@@ -248,23 +250,35 @@ class ScriptedLLM(LLMService):
         self._ttft_us, self._duration_us = ttft_us, duration_us
         self._call_ids: set[str] = set()
         self._calls = 0
+        self._witnessed: list[object] = []  # handlers the witness is already around
         self.generating = 0
         self.register = ReplyRegister()
 
-    def register_function(self, function_name: str | None, handler: Any, **options: Any) -> None:
-        name = function_name or "*"
-        super().register_function(function_name, self._witness.wrap(handler), **options)
-        self._witness.names.add(name)
-
-    def unregister_function(self, function_name: str | None) -> None:
-        super().unregister_function(function_name)
-        self._witness.names.discard(function_name or "*")
+    def witness_tools(self, advertised: Any = None) -> None:
+        """Put the witness around every function the application has registered, however
+        it did so. ``advertised`` is a context's tools, whose handlers Pipecat registers
+        when it first sees the context."""
+        if advertised is not None:
+            self._sync_registered_tool_handlers(advertised)
+        for name, item in self._functions.items():
+            if name in self._cancel_tool_names or item.handler in self._witnessed:
+                continue  # Pipecat's own tool, or one already wrapped
+            if isinstance(item.handler, DirectFunctionWrapper):
+                item.handler.function = self._witness.wrap(item.handler.function, direct=True)
+                self._witnessed.append(item.handler)
+            else:
+                item.handler = self._witness.wrap(item.handler)
+                self._witnessed.append(item.handler)
+        self._witness.names = {
+            name or "*" for name in self._functions if name not in self._cancel_tool_names
+        }
 
     async def process_frame(self, frame: Frame, direction: FrameDirection) -> None:
         await super().process_frame(frame, direction)
         if not isinstance(frame, LLMContextFrame):
             await self.push_frame(frame, direction)
             return
+        self.witness_tools()  # the base class has just registered what this context advertises
         await self.push_frame(LLMFullResponseStartFrame())
         self.generating += 1
         try:
@@ -382,33 +396,37 @@ class StampedTTS(TTSService):
         if (SAMPLE_RATE * self._letter_us + 500_000) // 1_000_000 < SHORTEST:
             raise ValueError(f"seconds_per_letter is shorter than {SHORTEST} audio samples")
         self._utterances = 0
-        self._open: dict[str, _Utterance] = {}
+        self._replies = 0
+        self._reply: str | None = None  # the model reply being generated, if one is
+        self._open: dict[str, _Utterance] = {}  # by reply, or by audio context outside one
         self.synthesizing = 0
         self.table = StampTable(sample_rate=SAMPLE_RATE)
 
     async def run_tts(self, text: str, context_id: str) -> AsyncGenerator[Frame | None, None]:
-        # Pipecat hands over one sentence at a time, and keeps one context for a reply.
-        # An utterance is the context: its sentences are one utterance, as a reply's
-        # stream is one in the LiveKit adapter.
-        one = self._open.get(context_id)
-        first = one is None
+        # Pipecat hands over one sentence at a time. A reply's sentences are one utterance,
+        # as a reply's stream is one in the LiveKit adapter, even where Pipecat ends an
+        # audio context between two of them because the model was slow.
+        key = self._reply or context_id
+        one = self._open.get(key)
         if one is None:
             self._utterances += 1
-            one = self._open[context_id] = _Utterance(
+            one = self._open[key] = _Utterance(
                 number=self._utterances,
                 started_us=self._ledger.now_us(),
                 ttfb_us=self._ttfb_by_utterance.get(self._utterances, self._ttfb_us),
                 eligible=set(self._register.replies),
             )
+        first = context_id not in one.contexts
+        one.contexts.add(context_id)
         t0, starts, pcm = now_us(), [], bytearray()
         for word in text.split():
             samples = (SAMPLE_RATE * letters(word) * self._letter_us + 500_000) // 1_000_000
             stamp = self.table.add(one.number, len(one.words), word, samples)
-            starts.append((word, one.samples / SAMPLE_RATE))  # from the context's first audio
+            starts.append((word, one.spoken[context_id] / SAMPLE_RATE))  # from its first audio
             one.words.append(word)
             one.stamps.append(stamp)
             one.word_samples.append(samples)
-            one.samples += samples
+            one.spoken[context_id] += samples
             pcm.extend(self.table.audio(stamp).tobytes())
         self.synthesizing += 1
         try:
@@ -425,20 +443,31 @@ class StampedTTS(TTSService):
         self, frame: Frame, direction: FrameDirection = FrameDirection.DOWNSTREAM
     ) -> None:
         if isinstance(frame, TTSStoppedFrame) and frame.context_id is not None:
-            self.close(frame.context_id)  # the reply's last sentence has been synthesized
+            for key, one in list(self._open.items()):
+                one.contexts.discard(frame.context_id)
+                if not one.contexts and key != self._reply:
+                    self.close(key)  # the reply's last sentence has been synthesized
         await super().push_frame(frame, direction)
 
     async def process_frame(self, frame: Frame, direction: FrameDirection) -> None:
         if isinstance(frame, InterruptionFrame):
             self.close_all()  # nothing more of these replies will be synthesized
+            self._reply = None
+        elif isinstance(frame, LLMFullResponseStartFrame):
+            self._replies += 1
+            self._reply = f"reply {self._replies}"
         await super().process_frame(frame, direction)
+        if isinstance(frame, LLMFullResponseEndFrame) and self._reply is not None:
+            reply, self._reply = self._reply, None
+            if reply in self._open and not self._open[reply].contexts:
+                self.close(reply)  # its audio contexts had all ended before the reply did
 
     def close_all(self) -> None:
-        for context_id in list(self._open):
-            self.close(context_id)
+        for key in list(self._open):
+            self.close(key)
 
-    def close(self, context_id: str) -> None:
-        one = self._open.pop(context_id, None)
+    def close(self, key: str) -> None:
+        one = self._open.pop(key, None)
         if one is None:
             return
         text = " ".join(one.words)
@@ -468,4 +497,5 @@ class _Utterance:
     words: list[str] = field(default_factory=list)
     stamps: list[int] = field(default_factory=list)
     word_samples: list[int] = field(default_factory=list)
-    samples: int = 0
+    contexts: set[str] = field(default_factory=set)  # audio contexts still open
+    spoken: Counter[str] = field(default_factory=Counter)  # samples so far, by context

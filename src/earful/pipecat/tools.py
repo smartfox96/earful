@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import dataclasses
 import json
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from functools import wraps
 from typing import Any
 
@@ -28,69 +28,79 @@ class ToolWitness:
         self.exceptions: list[Exception] = []
         self.names: set[str] = set()
 
-    def wrap(self, handler: Callable[[FunctionCallParams], Any]) -> Any:
+    def wrap(self, handler: Callable[..., Any], *, direct: bool = False) -> Any:
+        """``handler`` with its calls recorded. A direct function also takes its arguments
+        by name; a registered handler takes the call's parameters alone."""
+
         @wraps(handler)
-        async def witnessed(params: FunctionCallParams) -> None:
-            self._invocations += 1
-            tool = self._invocations
-            self._ledger.append(
-                "world",
-                "tool.called",
-                tool=tool,
-                name=params.function_name,
-                call_id=params.tool_call_id,
-                arguments=json_value(dict(params.arguments)),
-            )
-            report = params.result_callback
-            told = False
+        async def witnessed(params: FunctionCallParams, **arguments: Any) -> None:
+            await self._call(params, lambda told: handler(told, **arguments))
 
-            async def callback(result: Any, *, properties: Any = None) -> None:
-                nonlocal told
-                if not told and (properties is None or properties.is_final):
-                    told = True
-                    self._ledger.append(
-                        "world",
-                        "tool.returned",
-                        tool=tool,
-                        name=params.function_name,
-                        output=json_value(result),
-                        text=json.dumps(result, ensure_ascii=False)
-                        if result is not None
-                        else "COMPLETED",
-                        expects_reply=properties is None or properties.run_llm is not False,
-                    )
-                await report(result, properties=properties)
+        @wraps(handler)
+        async def witnessed_handler(params: FunctionCallParams) -> None:
+            await self._call(params, handler)
 
-            token = current_tool.set(tool)
-            self.in_flight += 1
-            try:
-                declared = self._effects.get(params.function_name)
-                if declared is None:
-                    await handler(dataclasses.replace(params, result_callback=callback))
-                else:
-                    await callback(await declared.make(dict(params.arguments)))
-            except asyncio.CancelledError:
-                if not told:
-                    self._ledger.append(
-                        "world", "tool.cancelled", tool=tool, name=params.function_name
-                    )
-                raise
-            except Exception as exc:
-                self.exceptions.append(exc)
-                if told:
-                    raise
+        return witnessed if direct else witnessed_handler
+
+    async def _call(
+        self, params: FunctionCallParams, run: Callable[[FunctionCallParams], Awaitable[Any]]
+    ) -> None:
+        self._invocations += 1
+        tool = self._invocations
+        self._ledger.append(
+            "world",
+            "tool.called",
+            tool=tool,
+            name=params.function_name,
+            call_id=params.tool_call_id,
+            arguments=json_value(dict(params.arguments)),
+        )
+        report = params.result_callback
+        told = False
+
+        async def callback(result: Any, *, properties: Any = None) -> None:
+            nonlocal told
+            if not told and (properties is None or properties.is_final):
+                told = True
                 self._ledger.append(
                     "world",
-                    "tool.raised",
+                    "tool.returned",
                     tool=tool,
                     name=params.function_name,
-                    error=type(exc).__name__,
-                    message=str(exc),
-                    expects_reply=True,
+                    output=json_value(result),
+                    text=json.dumps(result, ensure_ascii=False)
+                    if result is not None
+                    else "COMPLETED",
+                    expects_reply=properties is None or properties.run_llm is not False,
                 )
-                raise
-            finally:
-                self.in_flight -= 1
-                current_tool.reset(token)
+            await report(result, properties=properties)
 
-        return witnessed
+        token = current_tool.set(tool)
+        self.in_flight += 1
+        try:
+            declared = self._effects.get(params.function_name)
+            if declared is None:
+                await run(dataclasses.replace(params, result_callback=callback))
+            else:
+                await callback(await declared.make(dict(params.arguments)))
+        except asyncio.CancelledError:
+            if not told:
+                self._ledger.append("world", "tool.cancelled", tool=tool, name=params.function_name)
+            raise
+        except Exception as exc:
+            self.exceptions.append(exc)
+            if told:
+                raise
+            self._ledger.append(
+                "world",
+                "tool.raised",
+                tool=tool,
+                name=params.function_name,
+                error=type(exc).__name__,
+                message=str(exc),
+                expects_reply=True,
+            )
+            raise
+        finally:
+            self.in_flight -= 1
+            current_tool.reset(token)

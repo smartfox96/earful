@@ -4,13 +4,13 @@ from __future__ import annotations
 
 import asyncio
 import random
+import re
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 from functools import cached_property
 from typing import Any, ClassVar
 
 import pipecat
-from loguru import logger
 from pipecat.frames.frames import (
     BotStartedSpeakingFrame,
     BotStoppedSpeakingFrame,
@@ -206,6 +206,8 @@ def _header(case: Case, tools: set[str]) -> dict[str, Any]:
 
 
 QUIET_FOR_US = 1_000_000
+# Pipecat names an audio context by a random id and a processor by a count kept per process.
+_UNSTABLE = re.compile(r"[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}|(?<=#)\d+")
 
 
 async def _quiet(busy: Callable[[], bool]) -> None:
@@ -275,11 +277,11 @@ async def _run(case: Case, seed: int) -> RunResult:
     )
     output = ClockedOutput(ledger, voice.table)
 
-    warnings: list[str] = []
-    handler_id = logger.add(warnings.append, level="WARNING", filter="pipecat", format="{message}")
     token = backends.install(backend)
+    reported = 0  # errors the pipeline reported about itself
     try:
         context = case.bot(model)
+        model.witness_tools(context.tools)
         header = _header(case, witness.names)
         pair = LLMContextAggregatorPair(
             context,
@@ -322,8 +324,20 @@ async def _run(case: Case, seed: int) -> RunResult:
         )
 
         def pipeline_error(_worker: PipelineWorker, frame: ErrorFrame) -> None:
-            if not any(exc is frame.exception for exc in witness.exceptions):
-                errors.append(frame.error)
+            nonlocal reported
+            if any(exc is frame.exception for exc in witness.exceptions):
+                return  # a tool raised: the witness has recorded it
+            if frame.exception is not None or frame.fatal:
+                errors.append(_UNSTABLE.sub("#", frame.error))  # a processor broke
+                return
+            # Something Pipecat says of itself, such as a voice that sent no audio in time.
+            reported += 1
+            ledger.append(
+                "framework",
+                "fw.error",
+                created_us=ledger.now_us(),
+                error=_UNSTABLE.sub("#", frame.error),
+            )
 
         worker.add_event_handler("on_pipeline_error", pipeline_error)
         ledger.append(
@@ -400,7 +414,6 @@ async def _run(case: Case, seed: int) -> RunResult:
             items=summarize(context.get_messages(), model.error_results, model.interrupted),
         )
     finally:
-        logger.remove(handler_id)
         await backend.cancel_in_flight()
         backends.uninstall(token)
     ledger.append(
@@ -410,7 +423,7 @@ async def _run(case: Case, seed: int) -> RunResult:
         executor_calls=loop.executor_calls if isinstance(loop, VirtualTimeLoop) else None,
         underruns=0,
         harness_errors=errors,
-        framework_warnings=len(warnings),
+        framework_warnings=reported,
     )
     return RunResult(
         case.name, seed, ledger, ledger_hash(ledger.events), validity(ledger.events), errors

@@ -16,6 +16,9 @@ import pytest
 
 pytest.importorskip("pipecat")
 
+from loguru import logger
+from pipecat.adapters.llm.schemas.function_schema import FunctionSchema
+from pipecat.adapters.llm.schemas.tools_schema import ToolsSchema
 from pipecat.frames.frames import CancelFrame, FunctionCallResultProperties, OutputAudioRawFrame
 from pipecat.processors.aggregators.llm_context import LLMContext
 
@@ -303,9 +306,23 @@ def test_pipecat_search_keeps_and_replays_a_booking_bundle(earful, tmp_path, cap
 
 
 @pytest.mark.slow
-def test_pipecat_workers_run_an_importable_scenario_in_a_fresh_interpreter():
-    found = pc.explore("test_pipecat:greeting", variables=(), faults=(), words=False, workers=1)
-    assert found.original.ran and found.original.hash == pc.run(greeting).hash
+def test_pipecat_workers_run_an_importable_scenario_in_a_fresh_interpreter(monkeypatch):
+    from concurrent.futures import ProcessPoolExecutor
+
+    sent = []
+    submit = ProcessPoolExecutor.submit
+
+    def counted(pool, *args, **kwargs):
+        sent.append(args)
+        return submit(pool, *args, **kwargs)
+
+    monkeypatch.setattr(ProcessPoolExecutor, "submit", counted)
+    options = {"variables": ("llm.ttft",), "faults": (), "words": False}
+    found = pc.explore("test_pipecat:greeting", workers=1, **options)
+    here = pc.explore(greeting, workers=0, **options)
+    assert sent and len(found.tried) == len(here.tried) > 0
+    assert [t.outcome.hash for t in found.tried] == [t.outcome.hash for t in here.tried]
+    assert found.original.hash == pc.run(greeting).hash
 
 
 @pytest.mark.slow
@@ -383,3 +400,124 @@ def test_pipecat_recognizes_a_framework_refusal_without_an_application_tool():
     result = pc.run(built)
     assert not events(result, "tool.called")
     assert events(result, "llm.response")[-1]["text"] == "I could not do that."
+
+
+async def _book(params):
+    await params.result_callback(await pc.effect("table", dict(params.arguments)))
+
+
+async def book(params, seats: int):
+    """Book a table.
+
+    Args:
+        seats: How many people.
+    """
+    await params.result_callback(await pc.effect("table", {"seats": seats}))
+
+
+def _registered(llm):
+    llm.register_function("book", _book)
+    return LLMContext()
+
+
+def _direct(llm):
+    return LLMContext(tools=ToolsSchema(standard_tools=[book]))
+
+
+def _advertised(llm):
+    schema = FunctionSchema(
+        name="book",
+        description="Book a table.",
+        properties={"seats": {"type": "integer"}},
+        required=["seats"],
+        handler=_book,
+    )
+    return LLMContext(tools=ToolsSchema(standard_tools=[schema]))
+
+
+@pytest.mark.parametrize("bot", [_registered, _direct, _advertised])
+@pytest.mark.parametrize("declared", [False, True])
+def test_pipecat_witnesses_a_tool_however_it_is_registered(bot, declared):
+    built = replace(booking(), bot=bot, backend_mode="plain")
+    if not declared:
+        built.effects, built.intents = {}, [pc.Intent("table")]
+    result = pc.run(built)
+    result.assert_contracts()
+    assert result.events[0]["data"]["scenario"]["witnessed_tools"] == ["book"]
+    (called,) = events(result, "tool.called")
+    (returned,) = events(result, "tool.returned")
+    (requested,) = events(result, "effect.requested")
+    assert called["name"] == "book" and called["arguments"] == {"seats": 4}
+    assert requested["tool"] == called["tool"] == returned["tool"] and returned["output"] == "R1"
+    outcomes = result.report.outcomes()
+    assert outcomes["A2"] == outcomes["M2"] == outcomes["L1"] == "pass"
+
+
+def interruption():
+    return pc.Case(
+        "interruption",
+        lambda llm: LLMContext(),
+        [pc.UserSpeech(0.25, 0.75, "What is on the menu?"), pc.UserSpeech(3.0, 4.0, "Stop.")],
+        pc.ScriptedModel()
+        .when(pc.user_said("Stop"), say="Okay.")
+        .otherwise(say="Tonight we have a roasted squash soup to start. Then a grilled sea bass."),
+        tts_word_timestamps=True,
+    )
+
+
+def test_pipecat_a_user_who_speaks_over_a_reply_cuts_it_and_the_bot_remembers_what_played():
+    result = pc.run(interruption)
+    result.assert_contracts()
+    assert result.hash == pc.run(interruption).hash
+    origin = next(e["t_us"] for e in result.events if e["kind"] == "user.origin")
+    cut, after = events(result, "playout.finished")
+    assert cut["interrupted"] and cut["text_played"] == "Tonight we have a"
+    assert (cut["word_cut"], cut["word_cut_samples"]) == (5, 9600) and not after["interrupted"]
+    clears = [e["t_us"] - origin for e in result.events if e["kind"] == "sink.clear"]
+    assert clears[-1] == 3_200_000  # the VAD reports the second speech 0.2 s after it starts
+    history = events(result, "history.final")[0]["items"]
+    replies = [(i["text"], i["interrupted"]) for i in history if i.get("role") == "assistant"]
+    assert replies == [("Tonight we have a roasted", True), ("Okay.", False)]
+    outcomes = result.report.outcomes()
+    assert outcomes["M1"] == outcomes["M2"] == outcomes["L1"] == outcomes["L2"] == "pass"
+
+
+def test_pipecat_a_reply_spoken_across_two_audio_contexts_is_one_utterance():
+    """Pipecat ends an audio context that waits 3 s for its next sentence."""
+    built = greeting()
+    built.policy = pc.ScriptedModel().otherwise(say="Good morning to you. How are you today?")
+    built.delays = [pc.Delay("llm.duration", 1, 8.0)]
+    result = pc.run(built)
+    result.assert_contracts()
+    (utterance,) = events(result, "tts.synthesized")
+    assert utterance["text"] == "Good morning to you. How are you today?"
+    assert utterance["attribution"] == "unique"
+    first, second = events(result, "playout.finished")
+    assert first["utterances"] == second["utterances"] == [utterance["utterance"]]
+    assert first["words_played"] + second["words_played"] == utterance["stamps"]
+
+
+def test_pipecat_a_voice_slower_than_pipecat_waits_is_judged():
+    """Pipecat reports an audio context that got no audio within 3 s. The run is still
+    evidence: what Pipecat said of itself is an event, without the context's random id."""
+    built = greeting()
+    built.delays = [pc.Delay("tts.ttfb", 1, 3.3)]
+    result = pc.run(built)
+    assert result.report.valid and result.hash == pc.run(built).hash
+    (reported,) = events(result, "fw.error")
+    assert reported["error"] == "TTS context # completed with no audio"
+    assert result.events[-1]["data"]["framework_warnings"] == 1
+
+
+def test_pipecat_search_is_quiet():
+    logged = []
+    sink = logger.add(lambda message: logged.append(message.record["name"]), level="DEBUG")
+    try:
+        pc.explore(greeting, variables=("llm.ttft",), faults=(), words=False)
+        during = [name for name in logged if name.startswith("pipecat")]
+        logged.clear()
+        pc.run(greeting)
+        after = [name for name in logged if name.startswith("pipecat")]
+    finally:
+        logger.remove(sink)
+    assert not during and after

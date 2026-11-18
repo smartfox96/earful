@@ -43,12 +43,18 @@ The CLI and fixture select the adapter from the case. The same scenario works wi
 A case object or local factory can also run in the test process. Worker searches and
 saved bundles need an importable factory such as `test_greeting:greeting`.
 
-Register callback-style tools with `llm.register_function(name, handler)`. The
-handler receives Pipecat's `FunctionCallParams` and delivers its result with
+Earful records every call of a function the bot registers, however it registers it:
+`llm.register_function(name, handler)`, a direct function listed in the context's tools,
+or a `FunctionSchema` that carries its handler. A handler delivers its result with
 `await params.result_callback(value)`. To stand in for a service, pass
 `effects={"create_reservation": Effect("book-table")}` on the case. Earful makes the
-declared write in place of that registered function and gives its receipt to the
-callback. A handler can also call `earful.effect` itself.
+declared write in place of that function and gives its receipt to the callback. A handler
+can also call `earful.effect` itself.
+
+A search is quiet: Pipecat's logging is off while it runs. A single run logs as Pipecat
+does, and `LOGURU_LEVEL=WARNING` in the environment turns that down. An error Pipecat
+reports about itself, such as an audio context that got no audio in time, is recorded as
+an `fw.error` event and counted in `run.end`. The run is still judged.
 
 All case times are in seconds. `vad_start_secs` and `vad_stop_secs` set the scripted
 VAD timing. `user_speech_timeout` and `user_turn_stop_timeout` configure Pipecat's
