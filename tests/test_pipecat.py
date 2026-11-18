@@ -99,7 +99,11 @@ def test_pipecat_fixture_builds_once_and_plays_a_whole_reply_as_one_utterance(ea
 def test_pipecat_booking_effect_is_linked_to_its_callback_and_keyed_retry():
     built = booking()
     result = pc.run(built)
-    result.assert_contracts()
+    result.assert_contracts(require=["A2", "A3"])
+    with pytest.raises(pc.ContractFailure, match=r"booking \(seed 0, pipecat-ai .*required A1\n"):
+        result.assert_contracts(require=["A1"])
+    with pytest.raises(ValueError, match="no contract rule 'A2'"):
+        result.assert_contracts(allow=["A2"])
     header = result.events[0]["data"]["scenario"]
     assert header["effects"] == [{"tool": "book", "intent": "table"}]
     assert header["intents"] == [{"intent": "table", "tools": ["book"], "authorized": 1}]

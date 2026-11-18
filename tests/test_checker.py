@@ -4,13 +4,32 @@ import copy
 import itertools
 import json
 import random
+import re
 from pathlib import Path
 
 import pytest
 
-from earful.core.checker import FAIL, NOT_EXERCISED, PASS, UNOBSERVABLE, PolicyError, check
+from earful.core.checker import (
+    FAIL,
+    NOT_EXERCISED,
+    PASS,
+    UNOBSERVABLE,
+    ContractFailure,
+    PolicyError,
+    check,
+)
 from earful.core.checker.memory import align, favourable, user_turns
-from earful.core.checker.report import ContractResult, Finding, split, verdict
+from earful.core.checker.policy import POLICIES
+from earful.core.checker.report import (
+    RULES,
+    ContractResult,
+    Finding,
+    allowed,
+    required,
+    rule_names,
+    split,
+    verdict,
+)
 from earful.core.checker.view import MAX_READINGS, Speech, Spoken, View, readings
 from earful.core.ledger import read_jsonl, run_id
 
@@ -106,6 +125,71 @@ def test_an_invalid_run_yields_no_verdicts(fixed):
     report = check(fixed)
     assert not report.valid and report.results == {}
     assert "reached the sink altered" in report.invalid[0]
+
+
+CHECKER = Path(__file__).resolve().parents[1] / "src" / "earful" / "core" / "checker"
+
+
+def test_the_rules_that_can_break_are_those_the_checker_names(fixed):
+    assert list(RULES) == list(POLICIES) == list(check(fixed).results)
+    for contract, rules in RULES.items():
+        source = (CHECKER / f"{contract.lower()}.py").read_text()
+        named = set(re.findall(r'Finding\(\s*"([^"]+)"', source))
+        named |= set(re.findall(r'"(milestone \d)"', source))
+        assert named == set(rules), contract
+    assert "M2/rule d" in rule_names() and len(rule_names()) == sum(map(len, RULES.values()))
+    with pytest.raises(ValueError, match="A2 has no rule 'rule z'; its rules are"):
+        verdict("A2", {}, "", findings=[Finding("rule z", "")])
+
+
+def test_a_rule_that_is_allowed_or_a_contract_that_is_required_has_to_exist(fixed):
+    report = check(fixed)
+    assert allowed(["A2/rule", "M2/rule d"]) == allowed("A2/rule") | {"M2/rule d"}
+    assert required("A2") == ["A2"] and required(["L1", "A3"]) == ["L1", "A3"]
+    for nothing in (["A3"], ["Z9/rule"], ["A2/rule b"], ["nonsense"], ["/rule"]):
+        # Refused although nothing broke: the name is checked before the run is judged.
+        with pytest.raises(ValueError, match="no contract rule .* one of: A1/rule, .*L2/rule b$"):
+            report.assert_contracts(allow=nothing)
+    for nothing in (["A9"], ["A2/rule"], [""]):
+        with pytest.raises(ValueError, match="no contract .* are: A1, A2, A3, M1, M2, L1, L2$"):
+            report.assert_contracts(require=nothing)
+
+
+def test_a_required_contract_that_was_not_exercised_fails_the_assertion_and_says_why(fixed):
+    report = check(fixed)
+    assert report.outcome("A1") == NOT_EXERCISED and report.outcome("A2") == PASS
+    report.assert_contracts(require=["A2", "A3"])
+    why = "was not exercised: the run has no speech that retires an intent and whose"
+    assert list(report.unjudged(["A2", "A1"])) == ["A1"] and why in report.unjudged("A1")["A1"]
+    with pytest.raises(ContractFailure) as caught:
+        report.assert_contracts(require=["A2", "A1"], what="the booking")
+    said = str(caught.value).split("\n\n")
+    assert said[0] == "the booking has no pass or fail for the required A1"
+    assert said[1].startswith(f"A1 {why}") and said[2].startswith("A1  not_exercised\nA2  pass")
+
+
+def test_a_required_contract_that_is_unobservable_fails_the_assertion_and_says_why(affected):
+    hidden = check(_without_backend(retire(affected)))
+    assert hidden.outcome("A2") == hidden.outcome("A3") == UNOBSERVABLE
+    assert hidden.broken() == ["M2/rule d"]
+    hidden.assert_contracts(allow=["M2/rule d"])
+    with pytest.raises(ContractFailure) as caught:
+        hidden.assert_contracts(require=["A2", "M2"])
+    head, why, _ = str(caught.value).split("\n\n", 2)
+    assert head == "the run breaks M2/rule d and has no pass or fail for the required A2"
+    assert why == (
+        "A2 is unobservable: a tool for the intent was called but nothing reached the backend"
+    )
+
+
+def test_a_required_contract_that_fails_by_an_allowed_rule_was_judged(affected):
+    report = check(affected)
+    assert report.outcome("A2") == FAIL
+    report.assert_contracts(allow=["A2/rule", "M2/rule d"], require=["A2", "M2"])
+    cut = check(affected[:-1])
+    assert cut.unjudged(["A2"]) == {}
+    with pytest.raises(ContractFailure, match="not valid evidence"):
+        cut.assert_contracts(require=["A2"])
 
 
 def test_a_verdict_cites_the_events_and_witnesses_it_rests_on(affected):

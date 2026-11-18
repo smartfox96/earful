@@ -89,6 +89,28 @@ def test_a_broken_contract_fails_the_test_and_says_which_rule_and_why():
     result.assert_contracts(allow=[CONFIRMED_BUT_NOT_DONE])
 
 
+def test_a_model_that_calls_a_tool_the_agent_lacks_fails_a_test_that_requires_the_write():
+    misspelt = (
+        ScriptedModel()
+        .when(lambda context: bool(context.assistant_turns), say="Your table is booked.")
+        .when(user_ever_said("table"), reply(BOOKING_ACK, call="create_reservatoin"))
+        .otherwise(say="How can I help?")
+    )
+    result = run(booking(misspelt))
+    result.assert_contracts()  # nothing was written, so nothing about a write broke
+    with pytest.raises(ContractFailure) as caught:
+        result.assert_contracts(require=["A2", "L1"])
+    head, why, _ = str(caught.value).split("\n\n", 2)
+    assert head == (
+        f"inline_booking (seed 0, livekit-agents {lk.__version__}) "
+        "has no pass or fail for the required A2"
+    )
+    assert why == "A2 was not exercised: the run has no write request for a declared intent"
+    run(booking(READS_THE_ERROR)).assert_contracts(require=["A2", "A3"])
+    with pytest.raises(ValueError, match="no contract rule 'A3'"):
+        result.assert_contracts(allow=["A3"])
+
+
 def test_a_ledger_that_is_not_a_valid_run_fails_the_assertion_and_says_why():
     events = run(booking(READS_THE_ERROR)).events[:-1]  # cut off before run.end
     with pytest.raises(ContractFailure, match="not valid evidence.*\n.*run.end"):

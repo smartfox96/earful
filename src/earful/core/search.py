@@ -588,8 +588,11 @@ class Exploration:
         moved = f"{candidate.variable} at {_seconds(candidate.value_us)} ({written})"
         return f"{candidate.base} + {moved}" if candidate.base else moved
 
-    def describe(self, found: list[Break] | None = None) -> str:
-        """What the search found, as text for a person."""
+    def describe(
+        self, found: list[Break] | None = None, unjudged: dict[str, str] | None = None
+    ) -> str:
+        """What the search found, as text for a person. ``unjudged`` is what ``require`` asked
+        of the case as given and did not get."""
         found = self.breaks() if found is None else found
         header = (self.runner.ledger(self.case) or [{"data": {}}])[0]["data"]
         framework = header.get("framework", {})
@@ -621,26 +624,36 @@ class Exploration:
                 for w in one.windows
             ]
             lines += list(dict.fromkeys(widths))  # the same window under two faults is one line
-        unjudged = {k: counts[k] for k in ("refused", "error", "invalid") if counts[k]}
-        if unjudged:
+        skipped = {k: counts[k] for k in ("refused", "error", "invalid") if counts[k]}
+        if skipped:
             lines.append("")
             lines.append(
-                "not judged: " + ", ".join(f"{n} {why}" for why, n in sorted(unjudged.items()))
+                "not judged: " + ", ".join(f"{n} {why}" for why, n in sorted(skipped.items()))
             )
+        if unjudged:
+            lines += ["", "required, with no pass or fail in the case as given:"]
+            lines += [f"    {contract} {why}" for contract, why in unjudged.items()]
         return "\n".join(lines)
 
-    def assert_contracts(self, *, allow: Iterable[Any] = ()) -> None:
-        """Raise ``ContractFailure`` if the search found a rule broken. Rules that break only at
-        single instants, or are named in ``allow`` as ``CONTRACT/RULE``, are not counted."""
+    def unjudged(self, require: Iterable[str] | str) -> dict[str, str]:
+        """Each contract in ``require`` that the case as given has no pass or fail for, and why."""
+        ledger = self.runner.ledger(self.case)
+        return check(ledger).unjudged(require) if ledger is not None else {}
+
+    def assert_contracts(
+        self, *, allow: Iterable[Predicate | str] | str = (), require: Iterable[str] | str = ()
+    ) -> None:
+        """Raise ``ContractFailure`` if the search found a rule broken, or if the case as given
+        has no pass or fail for a contract in ``require``. Rules that break only at single
+        instants, or are named in ``allow`` as ``CONTRACT/RULE``, are not counted."""
         __tracebackhide__ = True  # pytest then shows the test's own line, not this one
+        allowing, unjudged = allowed(allow), self.unjudged(require)
         found = self.breaks()
         counted = [
-            one
-            for one in found
-            if not one.instants_only and str(one.predicate) not in allowed(allow)
+            one for one in found if not one.instants_only and str(one.predicate) not in allowing
         ]
-        if counted:
-            raise ContractFailure(self.describe(found))
+        if counted or unjudged:
+            raise ContractFailure(self.describe(found, unjudged))
 
     def summary(self) -> dict[str, Any]:
         counts = {"ran": 0, "refused": 0, "error": 0, "invalid": 0}

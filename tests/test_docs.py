@@ -117,6 +117,22 @@ def test_every_command_and_option_the_testing_page_names_exists():
 ROOT = Path(__file__).resolve().parents[1]
 
 
+def test_the_rules_a_test_can_allow_are_listed_and_each_is_a_row_of_its_contract():
+    from earful.core.checker.report import RULES, rule_names
+
+    assert set(re.findall(r"`([AML]\d/[a-z0-9 -]+)`", TESTING_DOC)) == set(rule_names())
+    page = (ROOT / "docs" / "contracts.md").read_text()
+    sections = dict(
+        re.findall(r"^### ([AML]\d)\. .*?\n(.*?)(?=^##)", page, re.MULTILINE | re.DOTALL)
+    )
+    for contract, rules in RULES.items():
+        rows = [
+            row.lower() for row in re.findall(r"^\| ([^|]+) \|", sections[contract], re.MULTILINE)
+        ]
+        for rule in rules:
+            assert any(row.startswith(rule) for row in rows), f"{contract}/{rule}"
+
+
 def test_the_supported_releases_are_the_same_everywhere_they_are_listed():
     page = (ROOT / "docs" / "compatibility.md").read_text()
     declared = dict(re.findall(r"^\| (\d+\.\d+\.\d+) \| (\d{4}-\d\d-\d\d) \|", page, re.MULTILINE))

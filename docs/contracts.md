@@ -200,7 +200,8 @@ if any instance was unobservable, otherwise `pass`.
 
 A contract with no instances in a run is reported as **not exercised**. A test may
 require that a contract is exercised, so a scenario that never reaches the behaviour does
-not pass.
+not pass: `assert_contracts(require=["A2"])` fails unless A2 ended with a pass or a fail
+(`docs/testing.md`, section 4).
 
 Every verdict carries: the contract, the instance, a one-sentence summary, the rule each
 finding broke, the `seq` of each event it rests on, the witnesses those events came from,

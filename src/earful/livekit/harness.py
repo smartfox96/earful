@@ -19,6 +19,7 @@ from ..core import backend as backends
 from ..core.backend import BackendMode, Effect, EffectBackend
 from ..core.checker import Report, check
 from ..core.ledger import Ledger, ledger_hash
+from ..core.predicate import Predicate
 from ..core.schema import validity
 from ..core.timebase import to_seconds, to_us
 from ..scripted.case import DELAYS, Delay, Fault, Intent, InvalidRun, check_case, declared_intents
@@ -135,13 +136,18 @@ class RunResult:
         """The verdict of every contract for this run."""
         return check(self.ledger.events)
 
-    def assert_contracts(self, *, allow: Iterable[Any] = ()) -> None:
+    def assert_contracts(
+        self, *, allow: Iterable[Predicate | str] | str = (), require: Iterable[str] | str = ()
+    ) -> None:
         """Raise ``ContractFailure``, an ``AssertionError``, if a contract rule broke.
-        ``allow`` names rules that may break, as ``CONTRACT/RULE``."""
+        ``allow`` names rules that may break, as ``CONTRACT/RULE``. ``require`` names
+        contracts, such as ``A2``, that must get a pass or a fail."""
         __tracebackhide__ = True  # pytest then shows the test's own line, not this one
         framework = self.versions["livekit-agents"]
         self.report.assert_contracts(
-            allow=allow, what=f"{self.case} (seed {self.seed}, livekit-agents {framework})"
+            allow=allow,
+            require=require,
+            what=f"{self.case} (seed {self.seed}, livekit-agents {framework})",
         )
 
 

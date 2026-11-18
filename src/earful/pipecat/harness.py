@@ -41,6 +41,7 @@ from ..core import backend as backends
 from ..core.backend import BackendMode, Effect, EffectBackend
 from ..core.checker import Report, check
 from ..core.ledger import Ledger, ledger_hash
+from ..core.predicate import Predicate
 from ..core.schema import validity
 from ..core.timebase import to_seconds, to_us
 from ..scripted.case import Delay, Fault, Intent, InvalidRun, check_case, declared_intents
@@ -124,11 +125,17 @@ class RunResult:
     def report(self) -> Report:
         return check(self.ledger.events)
 
-    def assert_contracts(self, *, allow: Iterable[Any] = ()) -> None:
-        """Raise ContractFailure for any broken rule outside allow."""
+    def assert_contracts(
+        self, *, allow: Iterable[Predicate | str] | str = (), require: Iterable[str] | str = ()
+    ) -> None:
+        """Raise ``ContractFailure``, an ``AssertionError``, if a contract rule broke.
+        ``allow`` names rules that may break, as ``CONTRACT/RULE``. ``require`` names
+        contracts, such as ``A2``, that must get a pass or a fail."""
         __tracebackhide__ = True
         self.report.assert_contracts(
-            allow=allow, what=f"{self.case} (seed {self.seed}, pipecat-ai {pipecat.__version__})"
+            allow=allow,
+            require=require,
+            what=f"{self.case} (seed {self.seed}, pipecat-ai {pipecat.__version__})",
         )
 
 

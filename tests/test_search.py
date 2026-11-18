@@ -180,8 +180,9 @@ def test_a_predicate_names_a_contract_rule_and_no_instance():
         Predicate.parse("L2/rule b") == Predicate("L2", "rule b")
         and str(Predicate("L2", "rule b")) == "L2/rule b"
     )
-    with pytest.raises(ValueError, match="CONTRACT/RULE"):
-        Predicate.parse("L2")
+    for nothing in ("L2", "L2/rule z", "Z9/rule"):
+        with pytest.raises(ValueError, match="no contract rule .* CONTRACT/RULE, one of: A1/rule"):
+            Predicate.parse(nothing)
 
 
 def test_transitions_are_the_events_of_a_run_and_the_moments_the_ledger_states():
@@ -355,6 +356,39 @@ def test_exploring_runs_every_candidate_and_reports_what_broke_and_what_was_reac
     # the interruption point cannot go where the question would lie inside the booking
     assert summary["impossible_placements"] == len(found.impossible) > 0
     assert all(p.transition.t_us < 3_500_000 for p in found.impossible)
+
+
+def test_a_search_requires_a_contract_of_the_case_as_given():
+    """The stand-in books a table only in the case as given: no moved case exercises A2."""
+    booked, greeted = (
+        ledger("1.8.12", "book_then_interrupt"),
+        ledger("1.8.12", "barge_in_mid_word"),
+    )
+    case = a_case(BOOK, WINDOW)
+    found = explore(
+        case,
+        lambda moved: booked if moved == case else greeted,
+        variables=["speech.position"],
+        speeches=[1],
+        moments=["interrupt"],
+        words=False,
+    )
+    assert found.tried and all(t.outcome.outcomes["A2"] == "not_exercised" for t in found.tried)
+    found.assert_contracts(require=["A2"])
+    assert list(found.unjudged(["A2", "A1"])) == ["A1"]
+    with pytest.raises(ContractFailure) as caught:
+        found.assert_contracts(require=["A2", "A1"])
+    head, required = str(caught.value).split("\n\n")
+    assert head.endswith("judged, 0 contract rule(s) broken")
+    assert required == (
+        "required, with no pass or fail in the case as given:\n"
+        "    A1 was not exercised: the run has no speech that retires an intent and whose "
+        "transcript was delivered"
+    )
+    with pytest.raises(ValueError, match="no contract rule 'A3'"):
+        found.assert_contracts(allow=["A3"])
+    with pytest.raises(ValueError, match="no contract 'A9'"):
+        found.assert_contracts(require=["A9"])
 
 
 @pytest.mark.slow

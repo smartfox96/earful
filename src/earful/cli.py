@@ -15,7 +15,7 @@ from . import __version__, _adapters
 from .core import bundle, crosscheck, html, timeline
 from .core import case as cases
 from .core.checker import Report, check
-from .core.checker.report import allowed
+from .core.checker.report import RULES, allowed, required
 from .core.ledger import read_jsonl, write_jsonl
 from .core.predicate import Predicate
 from .core.search import default_workers
@@ -61,18 +61,25 @@ def _case(path: Path | None) -> cases.Case | None:
     return dict(data)
 
 
-def _status(reports: Sequence[Report], allow: Sequence[str] = ()) -> int:
+def _status(reports: Sequence[Report], allow: set[str], require: list[str]) -> int:
     # A rule that broke outranks a run that could not be judged.
-    if any(rule not in allowed(allow) for report in reports for rule in report.broken()):
+    if any(rule not in allow for report in reports for rule in report.broken()):
         return BROKEN
-    return NO_VERDICT if any(not report.valid for report in reports) else OK
+    unjudged = any(not report.valid or report.unjudged(require) for report in reports)
+    return NO_VERDICT if unjudged else OK
 
 
-def _rules(text: list[str] | None) -> list[str]:
-    return [str(Predicate.parse(rule)) for rule in text or []]
+def _asked(args: argparse.Namespace) -> tuple[set[str], list[str]]:
+    """What ``--allow`` and ``--require`` name, checked before anything runs."""
+    return allowed(args.allow or ()), required(args.require or ())
+
+
+def _required(report: Report, require: list[str]) -> list[str]:
+    return [f"required   {contract} {why}" for contract, why in report.unjudged(require).items()]
 
 
 def _check(args: argparse.Namespace) -> int:
+    allow, require = _asked(args)
     reports = []
     for path in args.ledger:
         report = check(_ledger(path))
@@ -81,12 +88,13 @@ def _check(args: argparse.Namespace) -> int:
             print(json.dumps({"ledger": path.name, **report.to_json()}))
             continue
         print(f"== {path.name}")
-        for line in report.lines(measures=args.measures):
+        for line in (*report.lines(measures=args.measures), *_required(report, require)):
             print(f"   {line}")
-    return _status(reports, _rules(args.allow))
+    return _status(reports, allow, require)
 
 
 def _run(args: argparse.Namespace) -> int:
+    allow, require = _asked(args)
     case = _case(args.case)
     adapter, source = _adapters.select(args.scenario)
     try:
@@ -99,13 +107,17 @@ def _run(args: argparse.Namespace) -> int:
     if args.json:
         print(json.dumps({"case": result.case, "hash": result.hash, **report.to_json()}))
     else:
+        unjudged = _required(report, require)
         print("\n".join([*timeline.heading(result.events), "", *report.lines()]))
+        if unjudged:
+            print("\n" + "\n".join(unjudged))
         if args.ledger is not None:
             print(f"\nledger     {args.ledger}")
-    return _status([report], _rules(args.allow))
+    return _status([report], allow, require)
 
 
 def _search(args: argparse.Namespace) -> int:
+    allow, require = _asked(args)
     keep = [Predicate.parse(rule) for rule in args.keep or []]
     if keep and args.out is None:
         raise Refused("--keep needs --out, the directory to write bundles to")
@@ -154,8 +166,10 @@ def _search(args: argparse.Namespace) -> int:
             "replay": manifest["replay"],
         }
 
+    unjudged = found.unjudged(require)
     if args.json:
         summary = {"scenario": args.scenario, **found.summary(), "coverage": found.coverage()}
+        summary["unjudged"] = unjudged
         for one in broken:
             if not args.no_windows or one.predicate in keep:
                 entry = summary["found"][str(one.predicate)]
@@ -164,18 +178,15 @@ def _search(args: argparse.Namespace) -> int:
         summary["bundles"] = kept
         print(json.dumps(summary, indent=2))
     else:
-        print(found.describe(broken))
+        print(found.describe(broken, unjudged))
         for rule, entry in kept.items():
             print(f"\nkept {rule} in {entry['directory']}")
         missing = [str(p) for p in keep if str(p) not in kept]
         if missing:
             print(f"\nnot kept, since no case broke them: {', '.join(missing)}")
-    counted = [
-        one
-        for one in broken
-        if not one.instants_only and str(one.predicate) not in allowed(_rules(args.allow))
-    ]
-    return BROKEN if counted else OK
+    if any(not one.instants_only and str(one.predicate) not in allow for one in broken):
+        return BROKEN
+    return NO_VERDICT if unjudged else OK
 
 
 # What the directory of a kept bundle begins with, for each framework.
@@ -356,12 +367,19 @@ def _parser() -> argparse.ArgumentParser:
         sub.set_defaults(run=run)
         return sub
 
-    def allow(sub: Any) -> None:
+    def allow(sub: Any, required_of: str) -> None:
         sub.add_argument(
             "--allow",
             action="append",
             metavar="CONTRACT/RULE",
             help="a rule that may break without failing the command (repeatable)",
+        )
+        sub.add_argument(
+            "--require",
+            action="append",
+            metavar="CONTRACT",
+            help=f"a contract, one of {', '.join(RULES)}, that {required_of} must get a pass "
+            "or a fail for; unobservable or not exercised then exits 3 (repeatable)",
         )
 
     def scenario(sub: Any) -> None:
@@ -385,13 +403,13 @@ def _parser() -> argparse.ArgumentParser:
     sub.add_argument("ledger", nargs="+", type=Path, metavar="LEDGER")
     sub.add_argument("--json", action="store_true", help="one JSON report per ledger")
     sub.add_argument("--measures", action="store_true", help="what each verdict measured")
-    allow(sub)
+    allow(sub, "each ledger")
 
     sub = command("run", _run, "Run a scenario once and print its verdicts.")
     scenario(sub)
     sub.add_argument("--ledger", type=Path, metavar="FILE", help="write the ledger here")
     sub.add_argument("--json", action="store_true", help="the report as JSON")
-    allow(sub)
+    allow(sub, "the run")
 
     sub = command(
         "search", _search, "Search a scenario for the timings and faults that break a contract."
@@ -442,7 +460,7 @@ def _parser() -> argparse.ArgumentParser:
         "or this process where worker processes cannot be started; 0 runs in this process)",
     )
     sub.add_argument("--json", action="store_true", help="the whole result as JSON")
-    allow(sub)
+    allow(sub, "the case as given")
 
     sub = command("replay", _replay, "Run a kept failure's reduced case again.")
     sub.add_argument("bundle", type=Path, metavar="BUNDLE_DIR")

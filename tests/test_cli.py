@@ -91,6 +91,48 @@ def test_what_cannot_be_read_or_is_not_a_ledger_is_refused_with_status_2(capsys,
     assert status == REFUSED and "CONTRACT/RULE" in err
 
 
+def test_a_rule_or_a_contract_that_does_not_exist_is_refused_before_anything_runs(
+    capsys, monkeypatch, tmp_path
+):
+    def ran(source):
+        raise AssertionError(f"{source} was built")
+
+    monkeypatch.setattr("earful._adapters.select", ran)
+    reference = "earful.livekit.cases:barge_in_mid_word"
+    for refused in (
+        ("check", CLEAN, "--allow", "Z9/rule"),
+        ("check", CLEAN, "--require", "A9"),
+        ("run", reference, "--allow", "nonsense"),
+        ("run", reference, "--require", "A2/rule"),
+        ("search", reference, "--allow", "A3"),
+        ("search", reference, "--require", "Z9"),
+        ("search", reference, "--keep", "Z9/rule", "--out", tmp_path),
+    ):
+        status, out, err = earful(capsys, *refused)
+        assert status == REFUSED and out == "", refused
+        rules, contracts = "one of: A1/rule, A1/in-flight", "are: A1, A2, A3, M1, M2, L1, L2"
+        assert err.startswith("earful: no contract "), err
+        assert (contracts if "--require" in refused else rules) in err, err
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_a_required_contract_with_no_pass_or_fail_exits_3_and_says_why(capsys):
+    assert earful(capsys, "check", CLEAN, "--require", "A2", "--require", "A3")[0] == OK
+    status, out, _ = earful(capsys, "check", CLEAN, "--require", "A2", "--require", "A1")
+    assert status == NO_VERDICT
+    assert "\n   required   A1 was not exercised: the run has no speech that retires" in out
+    assert "required   A2" not in out
+    # A rule that broke outranks a contract that was not judged.
+    assert earful(capsys, "check", BOOKED_TWICE, "--require", "A1")[0] == BROKEN
+    reference = "earful.livekit.cases:barge_in_mid_word"
+    assert earful(capsys, "run", reference, "--require", "L2")[0] == OK
+    status, out, _ = earful(capsys, "run", reference, "--require", "A2")
+    assert status == NO_VERDICT
+    assert out.endswith(
+        "\n\nrequired   A2 was not exercised: the run has no write request for a declared intent\n"
+    )
+
+
 def test_a_command_that_does_not_exist_is_a_usage_error(capsys):
     with pytest.raises(SystemExit) as stopped:
         main(["frobnicate"])
@@ -234,6 +276,23 @@ def test_a_search_starts_a_worker_per_processor_or_as_many_as_the_environment_sa
     monkeypatch.setenv("EARFUL_WORKERS", "-4")
     status, _, err = earful(capsys, "search", reference, *narrow)
     assert status == REFUSED and "EARFUL_WORKERS is a number of processes" in err
+
+
+def test_a_search_exits_3_when_the_case_as_given_has_no_pass_or_fail_for_a_required_contract(
+    capsys,
+):
+    narrow = ("--variables", "none", "--faults", "backend.error", "--no-words", "--workers", "0")
+    reference = "breaks:as_written_reads_the_error"
+    assert earful(capsys, "search", reference, *narrow, "--require", "A2")[0] == OK
+    status, out, _ = earful(capsys, "search", reference, *narrow, "--require", "A1")
+    assert status == NO_VERDICT
+    assert out.endswith(
+        "\n\nrequired, with no pass or fail in the case as given:\n"
+        "    A1 was not exercised: the run has no speech that retires an intent and whose "
+        "transcript was delivered\n"
+    )
+    status, out, _ = earful(capsys, "search", reference, *narrow, "--require", "A1", "--json")
+    assert status == NO_VERDICT and list(json.loads(out)["unjudged"]) == ["A1"]
 
 
 def test_where_workers_cannot_be_started_the_search_runs_in_this_process_unless_told_a_number(

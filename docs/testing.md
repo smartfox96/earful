@@ -213,8 +213,36 @@ L2  pass
 ```
 
 `assert_contracts(allow=["L2/rule b"])` lets a named rule break, for a known defect of a
-release under test. A run that is not valid evidence raises `InvalidRun` and yields no
-verdicts (`docs/ledger.md`, Validity).
+release under test. A rule is named by its contract and by what the report calls it:
+
+| Contract | Rules |
+| --- | --- |
+| A1 | `A1/rule`, `A1/in-flight` |
+| A2 | `A2/rule` |
+| A3 | `A3/rule` |
+| M1 | `M1/rule 2`, `M1/rule 3`, `M1/rule 4`, `M1/rule 5` |
+| M2 | `M2/rule a`, `M2/rule b`, `M2/rule c`, `M2/rule d`, `M2/rule e` |
+| L1 | `L1/milestone 1`, `L1/milestone 2`, `L1/milestone 3` |
+| L2 | `L2/rule a`, `L2/rule b` |
+
+Only a failed contract fails the assertion. A contract that is `not_exercised` or
+`unobservable` does not, so a run in which the model calls a tool the agent does not have
+writes nothing, leaves A2 not exercised and passes. `require` names the contracts a test
+is about. Each must end with a pass or a fail:
+
+```python
+result.assert_contracts(require=["A2", "A3"])
+```
+
+```
+booking (seed 0, livekit-agents 1.8.12) has no pass or fail for the required A2
+
+A2 was not exercised: the run has no write request for a declared intent
+```
+
+The verdicts follow, as above. A rule in `allow` or a contract in `require` that does not
+exist raises `ValueError`, which lists those that do. A run that is not valid evidence
+raises `InvalidRun` and yields no verdicts (`docs/ledger.md`, Validity).
 
 ## 5. A search
 
@@ -235,6 +263,11 @@ A3/rule  in 29 case(s)
 
 A rule that breaks only where two events fall on the same microsecond is reported and
 not counted (`docs/search.md`, section 4).
+
+On a search, `require` is asked of the case as written: the run the search starts from
+must give each named contract a pass or a fail. The cases a search tries are not held to
+it. A fault can remove what a contract judges, as a rejected write leaves no confirmation
+for A3 to check.
 
 `found.breaks()` gives each broken rule with an example case, as data. `run(case,
 case=example)` runs that example again.
@@ -401,14 +434,16 @@ earful report failures/lk-1.8.12.booking.A3-rule -o report.html
 A scenario is named `module:function` on the command line, so it has to be importable
 from where the command runs. `check` and `report` read files and work without the
 framework installed. `--allow CONTRACT/RULE` on `check`, `run` and `search` lets a named
-rule break.
+rule break. `--require CONTRACT` on the same three asks for a pass or a fail of that
+contract, of each ledger, of the run, or of the case a search starts from. Both are
+checked before anything runs.
 
 | Exit status | Meaning |
 | --- | --- |
 | 0 | Nothing broke, or the replay did what `--expect` names. For `report`: the report was written |
 | 1 | A contract rule broke, the replay did not do what `--expect` names, or a real-clock run did not agree with the virtual one |
 | 2 | The command could not be carried out: bad arguments, a file that is not what it should be, a bundle with a file that is not what its manifest records, a scenario that does not exist |
-| 3 | No verdict: a run was not valid evidence, did not repeat, or could not be compared |
+| 3 | No verdict: a run was not valid evidence, did not repeat, or could not be compared, or a required contract got no pass or fail |
 
 A rule that broke outranks a run without a verdict.
 
