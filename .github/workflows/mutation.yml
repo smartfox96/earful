@@ -10,6 +10,11 @@ on:
 permissions:
   contents: read
 
+# Named, so that every step runs with pipefail: a failure before a pipe fails the step.
+defaults:
+  run:
+    shell: bash
+
 jobs:
   mutants:
     name: mutants ${{ matrix.part }}/4

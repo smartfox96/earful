@@ -9,6 +9,11 @@ on:
 permissions:
   contents: read
 
+# Named, so that every step runs with pipefail: a failure before a pipe fails the step.
+defaults:
+  run:
+    shell: bash
+
 concurrency:
   group: pages
   cancel-in-progress: true
