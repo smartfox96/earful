@@ -13,6 +13,13 @@ in a ledger. It checks seven contracts against that ledger, searches the timings
 backend faults near your scenario for a run that breaks one, and reduces what it finds to
 a small case that replays the same way every time.
 
+[![The report of a failing run. The timeline shows one table booked twice: the first write commits after its caller stopped waiting, and the retry commits a second.](https://raw.githubusercontent.com/smartfox96/earful/main/docs/img/report-booking.png)](https://smartfox96.github.io/earful/booking.html)
+
+A failing test leaves a report: one HTML page with the run as a timeline, the verdict of
+each contract and every event. The picture is the failure the quickstart below finds.
+[Open that report](https://smartfox96.github.io/earful/booking.html) and select a verdict to see what it rests on, or
+look at [a known defect of livekit-agents 1.5.6](https://smartfox96.github.io/earful/livekit-3702.html) drawn the same way.
+
 ## Quickstart
 
 Ten minutes, Python 3.10 or later. The two files below are in

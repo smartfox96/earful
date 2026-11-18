@@ -176,6 +176,9 @@ jobs:
       - name: Negative control (real clock must change the hash)
         if: matrix.os == 'ubuntu-latest' && matrix.python == '3.13' && matrix.lk.version == '1.8.12'
         run: .venvs/lk-${{ matrix.lk.version }}/bin/python scripts/realtime_control.py 2
+      - name: The example reports the README links to still build (scripts/site.sh)
+        if: matrix.os == 'ubuntu-latest' && matrix.python == '3.13' && matrix.lk.version == '1.8.12'
+        run: scripts/site.sh "$RUNNER_TEMP/site"
       - uses: actions/upload-artifact@v4
         with:
           name: evidence-${{ matrix.lk.version }}-${{ matrix.os }}-py${{ matrix.python }}

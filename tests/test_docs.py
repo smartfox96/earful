@@ -274,15 +274,31 @@ def _commands():
 def test_every_page_and_command_the_readme_names_exists():
     from earful.cli import _parser
 
-    # Every link is absolute, so that it also works on the package index page, and each
-    # points at a file or a directory of this repository.
+    # Every link is absolute, so that it also works on the package index page. Each
+    # points at a file or a directory of this repository, at a picture in it, or at a
+    # page of the site that scripts/site.sh builds and the pages workflow publishes.
     targets = re.findall(r"\]\(([^)#]+)\)", README)
     assert targets
+    site = (ROOT / "scripts" / "site.sh").read_text()
+    published = set(re.findall(r'"\$out/([a-z0-9-]+\.html)"', site))
+    assert {"index.html", "booking.html"} <= published
+    kinds = set()
     for target in targets:
+        page = re.fullmatch(r"https://smartfox96\.github\.io/earful/(.+)", target)
+        picture = re.fullmatch(
+            r"https://raw\.githubusercontent\.com/smartfox96/earful/main/(.+\.png)", target
+        )
         found = re.fullmatch(r"https://github\.com/smartfox96/earful/(blob|tree)/main/(.+)", target)
-        assert found, f"{target} is not a link into the repository"
-        path = ROOT / found.group(2)
-        assert path.is_dir() if found.group(1) == "tree" else path.is_file(), target
+        if page:
+            assert page.group(1) in published, f"scripts/site.sh builds no {page.group(1)}"
+        elif picture:
+            assert (ROOT / picture.group(1)).is_file(), target
+        else:
+            assert found, f"{target} is not a link into the repository or its site"
+            path = ROOT / found.group(2)
+            assert path.is_dir() if found.group(1) == "tree" else path.is_file(), target
+        kinds.add("page" if page else "picture" if picture else "file")
+    assert kinds == {"page", "picture", "file"}
     commands = _parser()._subparsers._group_actions[0].choices
     named = set(re.findall(r"^earful ([a-z]+) ", README, re.MULTILINE))
     assert named and named <= set(commands), named - set(commands)

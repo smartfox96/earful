@@ -1,0 +1,49 @@
+name: pages
+
+# The example reports the README links to, drawn from the code on main and published as
+# a GitHub Pages site (scripts/site.sh). Runs when main changes and on request. The ci
+# workflow builds the same pages on every pull request, so a change that breaks them
+# fails before it is merged.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# One publication at a time; a newer commit on main replaces the one in progress.
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: draw the example reports
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - name: Build pinned environment
+        run: scripts/make_env.sh 1.8.12 2026-11-14
+      - name: Draw the reports (scripts/site.sh)
+        run: scripts/site.sh site
+      - uses: actions/upload-pages-artifact@v5
+        with:
+          path: site
+
+  publish:
+    name: publish to GitHub Pages
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      pages: write
+      id-token: write # the proof of which workflow is publishing
+    environment:
+      name: github-pages
+      url: ${{ steps.publish.outputs.page_url }}
+    steps:
+      - id: publish
+        uses: actions/deploy-pages@v5

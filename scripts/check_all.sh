@@ -24,6 +24,9 @@ done
 scripts/lint.sh
 scripts/wheel_smoke.sh
 scripts/quickstart_check.sh
+SITE="$(mktemp -d)"
+scripts/site.sh "$SITE" >/dev/null
+rm -rf "$SITE"
 
 # Run one command per release at once; fail if any of them fails.
 side_by_side() {
