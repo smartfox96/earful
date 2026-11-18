@@ -61,6 +61,27 @@ MUTANTS = [
         first="flush_as_the_audio_ends",
     ),
     Mutant(
+        "M1: a reply that never reached the output is judged on the final history alone",
+        "src/earful/core/checker/m1.py",
+        '        return [c for c in calls if c[1]["seq"] > after] + history, flags\n',
+        "        return history, flags\n",
+        first="never_reached_the_output_in_every_context_after_it",
+    ),
+    Mutant(
+        "M1: a reply that never reached the output is not judged on the final history",
+        "src/earful/core/checker/m1.py",
+        '        return [c for c in calls if c[1]["seq"] > after] + history, flags\n',
+        '        return [c for c in calls if c[1]["seq"] > after] or history, flags\n',
+        first="failure_stands_when_every_reading_fails",
+    ),
+    Mutant(
+        "M1: a reply that never reached the output is judged in the contexts before it",
+        "src/earful/core/checker/m1.py",
+        '        return [c for c in calls if c[1]["seq"] > after] + history, flags\n',
+        "        return calls + history, flags\n",
+        first="never_reached_the_output_in_every_context_after_it",
+    ),
+    Mutant(
         "M1: rule 4 goes by audio consumed",
         "src/earful/core/checker/m1.py",
         "if playout.first_audible_us is None:",

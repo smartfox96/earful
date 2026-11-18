@@ -54,9 +54,11 @@ Each contract compares a **judged record** with a **reference record**.
   that reached the store (`backend`).
 - `framework` events never decide a verdict. They are attached to a verdict as
   explanation, and they may supply correlation identifiers.
-- The final chat history (`harness`) is framework state read back by Earful. It is used
-  as the judged record only when no later model call exists, and a verdict that rests on
-  it says so.
+- The final chat history (`harness`) is framework state read back by Earful. M2 judges
+  it as a context of its own: it is what the next model call would have been shown, and
+  the last turn of a run is in no other context. M1 judges a text against it when no
+  model call followed the text's playout, and always for a text of which no audio reached
+  the sink. A verdict that rests on it says so, in its instance or in a flag.
 - The checker does not use the framework's own estimate of what was played.
 
 ### 2.3 Order and time
@@ -286,14 +288,14 @@ length: two words can be 0.2 s or 1.2 s.
 | --- | --- |
 | Instance | Each scripted reply with text and each text the application spoke, once its playout has finished or it has been abandoned |
 | Reference record | `sink`: `P`, `C`, and whether the segment was cleared before its audio ended; `world`: the length of each word's audio |
-| Judged record | Every model context requested after the playout finished; the final chat history if there is none and it was read after the playout finished |
+| Judged record | Every model context requested after the playout finished; the final chat history if there is none and it was read after the playout finished. For a text of which no audio reached the sink: every model context requested after the text came to be (the model's response, or the synthesis of a text the application spoke), and the final history as well |
 | Rule 1 | `R` is a prefix of `W`. This is how a message is attributed at all (M2, rule c), so a message that is not a prefix of what was said fails M2 and leaves M1 unobservable in that context |
 | Rule 2 | Memory is not more than `behind_us` of audio behind what was played |
 | Rule 3 | Memory is not more than `ahead_us` of audio ahead of what was played |
 | Rule 4 | If it never became audible, it is absent from memory. No tolerance applies. A reply that became audible and was stopped before one whole sample had played is judged by rules 2 and 3 instead: the framework was told playback had begun |
 | Rule 5 | The message is marked interrupted exactly when the playout was cut short: a word was left unplayed, or the sink was cleared before the audio ended. The second case covers an interruption in the silence after the last word, however long after. If every word played and a pause or clear reached the sink at the instant the audio ended, either mark is accepted (section 2.3). The audio ended when its last word finished playing. For a segment that played out, the instant the sink reported it finished counts too: that is when the framework learns of it |
 | Policy | `ahead_us` (default 1 000 000). `behind_us` (default 1 000 000). `check_interrupted_flag` (default true). A scenario that needs exact agreement sets both to 0 |
-| Flags | `judged_on_final_history`: no model call followed the playout. `never_reached_the_output`: no audio of it reached the sink, so only the final history is judged. `stopped_as_it_ended`: every word played and a stop reached the sink as the audio ended, so rule 5 accepts either mark. `most_favourable_reading`: which copy of identical words was voiced or remembered is a reading (section 2.5). `played_on_after_the_hangup`: the sink consumed audio of it after the user had left, and `P` and `C` are what the user heard |
+| Flags | `judged_on_final_history`: the final history is among the contexts judged, because no model call followed the playout or because no audio reached the sink. `never_reached_the_output`: no audio of it reached the sink, so it is judged from the moment it came to be. `stopped_as_it_ended`: every word played and a stop reached the sink as the audio ended, so rule 5 accepts either mark. `most_favourable_reading`: which copy of identical words was voiced or remembered is a reading (section 2.5). `played_on_after_the_hangup`: the sink consumed audio of it after the user had left, and `P` and `C` are what the user heard |
 | Hangup | `P` and `C` count what had played when the user hung up (section 3). The judged record is the final history, read after the session has closed. An output that plays on after the hangup, with a framework that remembers what it played, fails rule 3 |
 | Always reported | The drift, `len(R) - P` and `len(R) - (P + C)`, on every instance, pass or fail. A release that drifts inside the tolerance stays visible |
 | Unobservable | The audio cannot be attributed to anything the agent was scripted to say; or the run ended, or the final history was read, before the playout finished. A playout has not finished while a segment that holds or may hold its audio is open, even if another segment played part of it |

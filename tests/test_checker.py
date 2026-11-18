@@ -333,6 +333,45 @@ def test_m1_fails_when_a_reply_that_never_played_is_remembered():
     assert rules(report, "M1") == ["rule 4"]
 
 
+def _never_voiced(events, call=1, segment=1):
+    """The reply of model call ``call`` is given and never reaches the voice or the sink."""
+    return seal(
+        [
+            e
+            for e in events
+            if not (
+                (e["kind"] == "tts.synthesized" and e["data"]["call"] == call)
+                or (e["kind"].startswith(("playout.", "sink.")) and e["data"]["segment"] == segment)
+            )
+        ]
+    )
+
+
+def test_m1_judges_a_reply_that_never_reached_the_output_in_every_context_after_it(barge):
+    """Call 2 is shown all 29 words of a reply nobody heard; the final history has dropped it."""
+    remembered(barge, 2)["text"] = of(barge, "llm.response")["data"]["text"]
+    history = of(barge, "history.final")["data"]["items"]
+    history.remove(next(i for i in history if i.get("role") == "assistant"))
+    report = check(_never_voiced(barge))
+    assert report.outcome("M2") == PASS
+    first = report.results["M1"].verdicts[0]
+    assert first.flags == ("never_reached_the_output", "judged_on_final_history")
+    assert [row["context"] for row in first.measures["contexts"]] == ["call 2", "final history"]
+    (finding,) = first.findings
+    assert finding.rule == "rule 4" and "call 2: it never became audible, yet 29" in finding.detail
+
+
+def test_m1_judges_a_reply_that_never_reached_the_output_on_the_final_history_if_no_call_follows(
+    barge,
+):
+    events = _never_voiced(barge, call=2, segment=2)
+    last = check(copy.deepcopy(events)).results["M1"].verdicts[-1]
+    assert last.flags == ("never_reached_the_output", "judged_on_final_history")
+    assert [f.rule for f in last.findings] == ["rule 4"]  # "Okay, stopping." is remembered
+    _forget(of(events, "history.final")["data"]["items"], "Okay, stopping.")
+    assert check(events).results["M1"].verdicts[-1].outcome == PASS
+
+
 def test_m1_checks_the_interrupted_mark_unless_told_not_to(barge):
     remembered(barge, 2)["interrupted"] = False
     assert rules(check(copy.deepcopy(barge)), "M1") == ["rule 5"]

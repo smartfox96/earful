@@ -63,7 +63,7 @@ FLAGS = {
         "No model call followed the playout, so the final chat history is the judged record."
     ),
     "never_reached_the_output": (
-        "No audio of it reached the sink, so only the final history is judged."
+        "No audio of it reached the sink, so it is judged from the moment it came to be."
     ),
     "stopped_as_it_ended": (
         "Every word played and a stop reached the sink as the audio ended. "
