@@ -9,18 +9,21 @@ the interpreter of a pinned environment:
     .venvs/lk-1.8.12/bin/python scripts/mutate.py --only L1    mutants whose name contains "L1"
     .venvs/lk-1.8.12/bin/python scripts/mutate.py --shard 2/4  the second quarter of them
 
-A mutant is
+Each mutant names the tests that should catch it, and only those are run against it:
+a few seconds, where the whole suite takes minutes. The whole suite is run only if they
+pass, so a wrong name costs time and never hides a survivor. A mutant is
 
-    caught     if a test fails. The first failing test is printed.
+    caught     if a test it names fails. The failing test is printed.
+    misnamed   if the tests it names pass and another test fails: the name is wrong.
     survived   if every test passes: the break is one no test notices.
     invalid    if its text is not found exactly once, if the broken file does not compile,
-               or if pytest stops for a reason other than a failing test.
+               if a word of its ``first`` is part of no test's name, or if pytest stops
+               for a reason other than a failing test.
 
-The unbroken code is run first, as a control: it must pass, or a failure says nothing.
-A mutant that names tests to try first is run against those, and against the whole suite
-only if they pass, so a wrong hint costs time and never hides a survivor. ``--shard K/N``
-takes every Nth mutant, starting at the Kth, so that N runs side by side cover them all;
-each runs the control.
+The unbroken code is run as a control: it must pass, or a failure says nothing. The
+control is the whole suite, and it is what a run waits for. ``--shard K/N`` takes every
+Nth mutant, starting at the Kth, so that N runs side by side cover them all; each runs
+the control. Each line ends with the seconds its mutant took.
 
 The exit status is 0 if the control passes and every mutant is caught, and 1 otherwise.
 """
@@ -28,6 +31,7 @@ The exit status is 0 if the control passes and every mutant is caught, and 1 oth
 from __future__ import annotations
 
 import argparse
+import functools
 import json
 import os
 import re
@@ -35,6 +39,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import asdict, dataclass
 from pathlib import Path
@@ -49,17 +54,30 @@ _LEFT_OUT = shutil.ignore_patterns(
 )
 _PYTEST = ["-m", "pytest", "-q", "-x", "-p", "no:cacheprovider"]
 _FAILED = re.compile(r"^(?:FAILED|ERROR) (\S+::\S+)", re.MULTILINE)
+_TEST = re.compile(r"^\s*(?:async )?def (test_\w+)", re.MULTILINE)
+_WORD = re.compile(r"[^\s()]+")
 
 
 @dataclass
 class Result:
     name: str
-    outcome: str  # caught, survived or invalid; passed or failed for the control
-    detail: str  # the first failing test, or why the mutant is invalid
+    outcome: str  # caught, misnamed, survived or invalid; passed or failed for the control
+    detail: str  # the failing test, or why the mutant is invalid
+    seconds: float = 0.0  # how long it took
+
+
+@functools.cache
+def _test_names(root: Path) -> frozenset[str]:
+    """The name of every test function under ``root``, in lower case."""
+    return frozenset(
+        name.lower()
+        for path in (root / "tests").glob("test_*.py")
+        for name in _TEST.findall(path.read_text())
+    )
 
 
 def problem(mutant: Mutant, root: Path = ROOT) -> str | None:
-    """Why ``mutant`` cannot be applied to the code under ``root``, or None if it can."""
+    """Why ``mutant`` cannot be run against the code under ``root``, or None if it can."""
     path = root / mutant.path
     if not path.is_file():
         return f"{mutant.path} does not exist"
@@ -73,6 +91,13 @@ def problem(mutant: Mutant, root: Path = ROOT) -> str | None:
         compile(text.replace(mutant.old, mutant.new), mutant.path, "exec")
     except SyntaxError as exc:
         return f"the broken file does not compile: {exc.msg} (line {exc.lineno})"
+    # pytest -k takes a word as part of a name, whatever its case.
+    words = [w for w in _WORD.findall(mutant.first) if w not in ("and", "or", "not")]
+    if not words:
+        return "it names no test to catch it"
+    for word in words:
+        if not any(word.lower() in name for name in _test_names(root)):
+            return f"{word!r} in its first is part of no test's name"
     return None
 
 
@@ -91,12 +116,14 @@ def _pytest(copy: Path, *selection: str) -> tuple[int, str]:
 
 
 def _judge(code: int, output: str) -> tuple[str, str] | None:
-    """The outcome of one pytest run: caught, invalid, or None if every test passed."""
+    """The outcome of one pytest run: caught, invalid, or None if every test passed.
+    The failing test is the last one the output names: a test that runs pytest on a
+    project of its own prints that project's failures before its own."""
     if code == 0:
         return None
     if code == 1:
-        failed = _FAILED.search(output)
-        return "caught", failed.group(1) if failed else "a test failed"
+        failed = _FAILED.findall(output)
+        return "caught", failed[-1] if failed else "a test failed"
     last = output.strip().splitlines()[-1] if output.strip() else "no output"
     return "invalid", f"pytest exited with status {code}: {last}"
 
@@ -104,23 +131,31 @@ def _judge(code: int, output: str) -> tuple[str, str] | None:
 def run(mutant: Mutant | None, scratch: Path, number: int) -> Result:
     """Apply ``mutant`` in a fresh copy of the repository and run the tests there.
     ``None`` is the control: nothing is broken, and every test must pass."""
+    started = time.monotonic()
+    outcome, detail = _outcome(mutant, scratch / f"copy-{number}")
     name = mutant.name if mutant else "control: nothing is broken"
+    return Result(name, outcome, detail, round(time.monotonic() - started, 1))
+
+
+def _outcome(mutant: Mutant | None, copy: Path) -> tuple[str, str]:
     if mutant is not None and (why := problem(mutant)) is not None:
-        return Result(name, "invalid", why)
-    copy = scratch / f"copy-{number}"
+        return "invalid", why
     shutil.copytree(ROOT, copy, ignore=_LEFT_OUT)
     try:
-        if mutant is not None:
-            target = copy / mutant.path
-            target.write_text(target.read_text().replace(mutant.old, mutant.new))
-            if mutant.first:
-                judged = _judge(*_pytest(copy, "-k", mutant.first))
-                if judged is not None and judged[0] == "caught":
-                    return Result(name, *judged)
-        judged = _judge(*_pytest(copy))
         if mutant is None:
-            return Result(name, "failed" if judged else "passed", judged[1] if judged else "")
-        return Result(name, *(judged or ("survived", "every test passes")))
+            judged = _judge(*_pytest(copy))
+            return ("failed", judged[1]) if judged else ("passed", "")
+        target = copy / mutant.path
+        target.write_text(target.read_text().replace(mutant.old, mutant.new))
+        judged = _judge(*_pytest(copy, "-k", mutant.first))
+        if judged is not None and judged[0] == "caught":
+            return judged
+        judged = _judge(*_pytest(copy))
+        if judged is None:
+            return "survived", "every test passes"
+        if judged[0] == "caught":
+            return "misnamed", f"no test it names fails, and this one does: {judged[1]}"
+        return judged
     finally:
         shutil.rmtree(copy, ignore_errors=True)
 
@@ -171,14 +206,13 @@ def main(argv: list[str]) -> int:
         futures = {pool.submit(run, job, Path(scratch), n): n for n, job in enumerate(jobs)}
         for future in as_completed(futures):
             result = done[futures[future]] = future.result()
-            print(f"{result.outcome:9} {result.name}: {result.detail}".rstrip(": "), flush=True)
+            line = f"{result.outcome:9} {result.name}: {result.detail}".rstrip(": ")
+            print(f"{line} ({result.seconds:.0f} s)", flush=True)
 
     control, *judged = (done[n] for n in range(len(jobs)))
-    counts = {o: sum(r.outcome == o for r in judged) for o in ("caught", "survived", "invalid")}
-    print(
-        f"{len(judged)} mutants: {counts['caught']} caught, "
-        f"{counts['survived']} survived, {counts['invalid']} invalid"
-    )
+    outcomes = ("caught", "misnamed", "survived", "invalid")
+    counts = {o: sum(r.outcome == o for r in judged) for o in outcomes}
+    print(f"{len(judged)} mutants: " + ", ".join(f"{counts[o]} {o}" for o in outcomes))
     if control.outcome != "passed":
         print("the control failed: the unbroken code does not pass, so the results mean nothing")
     if args.json:

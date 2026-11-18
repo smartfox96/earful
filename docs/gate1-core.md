@@ -243,18 +243,21 @@ earful replay tests/bundles/lk-1.5.6.book_then_interrupt.A2-rule
 text and what replaces it: the offsets of a search ignored, the delay limit removed, a
 window's ends mislabelled, a reduction kept without the failure it needs, a timed-out
 write that never commits, a hangup that excuses a turn already overdue.
-`scripts/mutate.py` runs the unbroken code as a control, then applies each break in a
-copy of the repository and runs the tests there.
+`scripts/mutate.py` runs the unbroken code as a control, and applies each break in a
+copy of the repository. Each break names the tests that should catch it, and those are
+the tests run against it. The whole suite is run against a break only if they pass, so
+a wrong name is reported and never hides a break that no test notices.
 
 ```bash
 .venvs/lk-1.8.12/bin/python scripts/mutate.py
 ```
 
 On livekit-agents 1.8.12 the control passes and each of the 241 broken versions fails at
-least one test. CI runs it each night, in four parts (`.github/workflows/mutation.yml`). On every change the lint
-job checks that the text of each break is still found exactly once in its file
-(`scripts/mutate.py --verify`), so a change that moves the code under a break fails
-until the break is brought along.
+least one of the tests it names. CI runs it each night, in four parts
+(`.github/workflows/mutation.yml`). On every change the lint job checks that the text of
+each break is still found exactly once in its file and that the tests it names exist
+(`scripts/mutate.py --verify`), so a change that moves the code under a break or renames
+its test fails until the break is brought along.
 
 ## Limits
 

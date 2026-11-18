@@ -1,9 +1,10 @@
 name: mutation
 
-# Every deliberate break in tests/mutants.py, applied in turn: each must fail a test.
-# The whole run takes too long for every change, so it runs each night and on request,
-# in four parts side by side. The lint job of ci.yml checks on every change that each
-# break still applies to the code.
+# Every deliberate break in tests/mutants.py, applied in turn: each must fail a test it
+# names. It runs each night and on request, in four parts side by side. Each part also
+# runs the unbroken suite as its control, and that is what a part waits for. The lint job
+# of ci.yml checks on every change that each break still applies to the code and that the
+# tests it names exist.
 on:
   schedule:
     - cron: "47 4 * * *"
@@ -16,7 +17,7 @@ jobs:
   mutants:
     name: mutants ${{ matrix.part }}/4
     runs-on: ubuntu-latest
-    timeout-minutes: 90
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
