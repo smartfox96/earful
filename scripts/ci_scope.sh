@@ -2,7 +2,8 @@
 # What a run of CI has to do. Prints code= and docs=, each true or false.
 #   scripts/ci_scope.sh <base commit> <head commit>                  from the paths that differ
 #   scripts/ci_scope.sh --event <GitHub event> [<commit before a push>]   for a run at HEAD
-# Prose is docs/, top-level Markdown, LICENSE and NOTICE. Every other path is code.
+# docs: docs/ or top-level Markdown changed, so the tests that read them run.
+# code: any other path changed, so every job runs.
 # A base that cannot be read counts as everything changed.
 set -euo pipefail
 
@@ -39,7 +40,7 @@ while IFS= read -r path; do
     "") ;;
     docs/*) docs=true ;;
     */*) code=true ;;
-    *.md | LICENSE | NOTICE) ;;
+    *.md) docs=true ;;
     *) code=true ;;
   esac
 done <<<"$paths"

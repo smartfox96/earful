@@ -85,17 +85,21 @@ EVERYTHING = {"code": "true", "docs": "true"}
 @pytest.mark.parametrize(
     ("path", "expected"),
     [
-        ("docs/pipecat.md", PROSE),
+        ("docs/pipecat.md", PROSE),  # read by tests/test_pipecat.py
         ("docs/img/report-booking.png", PROSE),
+        ("README.md", PROSE),  # read by tests/test_docs.py
+        ("CHANGELOG.md", PROSE),
         ("src/earful/cli.py", CODE),
         ("tests/test_docs.py", CODE),
-        ("skills/earful/SKILL.md", CODE),
+        ("skills/earful/SKILL.md", CODE),  # Markdown that tests/test_examples.py runs
+        ("examples/booking/agent.py", CODE),
         (".github/workflows/ci.yml", CODE),
+        ("compat/pc-1.16.0.lock.txt", CODE),
         ("pyproject.toml", CODE),
-        ("README.md", NOTHING),
+        ("LICENSE", CODE),  # the build reads it
     ],
 )
-def test_a_changed_path_is_prose_or_code(repo, path, expected):
+def test_a_changed_path_runs_the_jobs_whose_tests_read_it(repo, path, expected):
     base = _git(repo, "rev-parse", "HEAD")
     head = _commit(repo, {path: "changed\n"})
     assert _scope(repo, base, head) == (expected, 0)
@@ -362,3 +366,14 @@ def test_every_workflow_runs_its_steps_with_pipefail():
     for name, text in WORKFLOWS.items():
         assert "\ndefaults:\n  run:\n    shell: bash\n" in text, name
         assert not re.search(r"^\s+shell:(?! bash$)", text, re.MULTILINE), name
+
+
+def test_a_change_to_prose_alone_runs_every_test_file_that_reads_prose():
+    reads = re.compile(r'"docs["/]|"(README|CHANGELOG|CONTRIBUTING|SECURITY|CODE_OF_CONDUCT)\.md"')
+    readers = {
+        path.name
+        for path in (ROOT / "tests").glob("test_*.py")
+        if reads.search(path.read_text()) and path != Path(__file__).resolve()
+    }
+    ran = set(re.findall(r"pytest -q tests/(test_\w+\.py)$", _jobs(CI)["docs"], re.MULTILINE))
+    assert readers == ran, "the docs job of ci.yml has to run each test file that reads prose"
