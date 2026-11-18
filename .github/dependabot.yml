@@ -1,0 +1,11 @@
+version: 2
+updates:
+  # Each workflow pins an action to a commit. This moves the pins to new releases, in
+  # one pull request a week.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        patterns: ["*"]

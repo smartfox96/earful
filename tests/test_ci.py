@@ -545,3 +545,32 @@ def test_the_deliberate_breaks_run_for_a_pull_request_that_changes_behaviour():
     assert ".venvs/lint/bin/python scripts/mutate.py\n" in mutation
     assert ".venvs/lint/bin/python scripts/mutate.py " in (SCRIPTS / "mutate.py").read_text()
     assert "scripts/make_lint_env.sh || exit 1\n" in (SCRIPTS / "lint.sh").read_text()
+
+
+def test_every_action_is_pinned_to_a_commit_and_names_its_release():
+    pins: dict[str, set[tuple[str, str]]] = {}
+    for name, text in WORKFLOWS.items():
+        used = re.findall(r"^\s+(?:- )?uses: (\S+)(.*)$", text, re.MULTILINE)
+        assert used, name
+        for action, comment in used:
+            if action.startswith("./"):
+                continue  # a workflow of this repository, at the commit that calls it
+            repository, _, commit = action.partition("@")
+            assert re.fullmatch(r"[0-9a-f]{40}", commit), f"{name}: {action}"
+            assert re.fullmatch(r" # v\d+\.\d+\.\d+", comment), f"{name}: {action}{comment}"
+            pins.setdefault(repository, set()).add((commit, comment))
+    assert all(len(pinned) == 1 for pinned in pins.values()), pins
+    dependabot = (ROOT / ".github" / "dependabot.yml").read_text()
+    assert "  - package-ecosystem: github-actions\n    directory: /\n" in dependabot
+
+
+def test_every_workflow_installs_one_version_of_uv_and_leaves_no_credentials_behind():
+    versions = set()
+    for name, text in WORKFLOWS.items():
+        checkouts = text.count("uses: actions/checkout@")
+        assert text.count("          persist-credentials: false\n") == checkouts, name
+        installs = text.count("uses: astral-sh/setup-uv@")
+        if installs:
+            versions.update(re.findall(r'^env:\n  UV_VERSION: "(.+)"$', text, re.MULTILINE))
+            assert text.count("          version: ${{ env.UV_VERSION }}\n") == installs, name
+    assert len(versions) == 1 and re.fullmatch(r"\d+\.\d+\.\d+", versions.pop())

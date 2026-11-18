@@ -24,6 +24,9 @@ defaults:
   run:
     shell: bash
 
+env:
+  UV_VERSION: "0.13.9"
+
 jobs:
   changes:
     name: what changed
@@ -39,9 +42,10 @@ jobs:
       docs: ${{ steps.scope.outputs.docs }}
       mutants: ${{ steps.scope.outputs.mutants }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           fetch-depth: 0
+          persist-credentials: false
       - name: Decide from the event and the changed paths (scripts/ci_scope.sh)
         id: scope
         env:
@@ -62,8 +66,12 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v6
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6.8.0
+        with:
+          version: ${{ env.UV_VERSION }}
       - name: Build one pinned environment for each framework
         run: |
           scripts/make_env.sh 1.8.12 2026-11-14
@@ -80,8 +88,12 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v6
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6.8.0
+        with:
+          version: ${{ env.UV_VERSION }}
       - name: ruff format, ruff check, mypy, mutants apply (scripts/lint.sh)
         run: scripts/lint.sh
 
@@ -92,8 +104,12 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v6
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6.8.0
+        with:
+          version: ${{ env.UV_VERSION }}
       - name: Build the wheel, install it outside the repository and use it (scripts/wheel_smoke.sh)
         run: scripts/wheel_smoke.sh
 
@@ -104,8 +120,12 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v6
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6.8.0
+        with:
+          version: ${{ env.UV_VERSION }}
       - name: Install the wheel with livekit-agents and follow the README (scripts/quickstart_check.sh)
         run: scripts/quickstart_check.sh
 
@@ -127,8 +147,12 @@ jobs:
           - { os: ubuntu-latest, python: "3.13", from: checkout }
           - { os: macos-latest, python: "3.13", from: checkout }
     steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v6
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6.8.0
+        with:
+          version: ${{ env.UV_VERSION }}
       - name: Build the wheel
         if: matrix.cell.from == 'wheel'
         run: uv build --wheel --out-dir dist
@@ -196,8 +220,12 @@ jobs:
             python: "3.14"
             lk: { version: "1.8.12", as_of: "2026-11-14" }
     steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v6
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6.8.0
+        with:
+          version: ${{ env.UV_VERSION }}
       - name: Build pinned environment, and compare it with its lock file on Python 3.13
         env:
           EARFUL_PYTHON: ${{ matrix.python }}
@@ -224,7 +252,7 @@ jobs:
       - name: The example reports the README links to still build (scripts/site.sh)
         if: matrix.os == 'ubuntu-latest' && matrix.python == '3.13' && matrix.lk.version == '1.8.12'
         run: scripts/site.sh "$RUNNER_TEMP/site"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: evidence-${{ matrix.lk.version }}-${{ matrix.os }}-py${{ matrix.python }}
           path: evidence/
@@ -247,7 +275,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
       - name: Every job did what the scope asked of it (scripts/ci_result.sh)
         env:
           CODE: ${{ needs.changes.outputs.code }}
