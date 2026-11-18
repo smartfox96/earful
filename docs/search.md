@@ -274,6 +274,14 @@ The outcome depends on which of two same-instant events ran first, which nothing
 scenario decides (`docs/contracts.md`, section 2.3). An instant is repeatable on a virtual
 clock and says nothing about the system. A window of any width is a real failure.
 
+A search measures a window from every value at which a rule breaks, unless the value
+already lies in a window it measured. An instant takes four runs and is always measured.
+Of wider windows it measures three along each time, and says how many breaking values it
+left unmeasured. So a rule is reported as breaking at single instants only when every
+value at which it breaks was measured and is one. Such a rule is not counted. With
+`--no-windows`, or `breaks(windows=False)`, nothing is measured and every rule that broke
+is counted.
+
 ## 5. The shrinker
 
 A case found by a search is the author's scenario with changes. The shrinker finds which

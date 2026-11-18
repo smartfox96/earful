@@ -174,11 +174,18 @@ def _search(args: argparse.Namespace) -> int:
             if not args.no_windows or one.predicate in keep:
                 entry = summary["found"][str(one.predicate)]
                 entry["windows"] = [w.to_json() for w in one.windows]
+                entry["unmeasured"] = one.unmeasured
                 entry["instants_only"] = one.instants_only
         summary["bundles"] = kept
         print(json.dumps(summary, indent=2))
     else:
         print(found.describe(broken, unjudged))
+        unmeasured = [str(one.predicate) for one in broken if one.predicate not in keep]
+        if args.no_windows and unmeasured:
+            print(
+                "\nnot measured, so counted even if they break only at single instants: "
+                + ", ".join(unmeasured)
+            )
         for rule, entry in kept.items():
             print(f"\nkept {rule} in {entry['directory']}")
         missing = [str(p) for p in keep if str(p) not in kept]
@@ -443,7 +450,8 @@ def _parser() -> argparse.ArgumentParser:
     sub.add_argument(
         "--no-windows",
         action="store_true",
-        help="do not measure how wide each failure is (a kept one is still measured)",
+        help="do not measure how wide each failure is (a kept one is still measured). A "
+        "rule that breaks only at single instants then counts as broken",
     )
     sub.add_argument(
         "--keep",

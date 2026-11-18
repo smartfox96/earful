@@ -434,6 +434,7 @@ class Break:
     everywhere: bool  # it breaks as given and in every case tried: not a matter of timing
     changed: tuple[str, ...]  # what was changed in the cases that break it
     windows: tuple[Window, ...]  # how far each moved time can go while it still breaks
+    unmeasured: int  # values at which it breaks that lie in no window: enough were measured
     instants_only: bool  # it breaks only where two events fall on the same instant
     example: cases.Case  # a case that breaks it, with the least changed
     what: str  # what was changed in the example
@@ -488,10 +489,19 @@ class Exploration:
     def windows(
         self, predicate: Predicate, *, most: int = 3, resolution_us: int = 1_000
     ) -> list[Window]:
-        """The measured windows in which the rule breaks, at most ``most`` per variable and base."""
-        out: list[Window] = []
+        """The measured windows in which the rule breaks: every instant, and at most ``most``
+        wider windows per variable and base."""
+        return self._measured(predicate, most, resolution_us)[0]
+
+    def _measured(
+        self, predicate: Predicate, most: int = 3, resolution_us: int = 1_000
+    ) -> tuple[list[Window], int]:
+        """The windows, and how many breaking values lie in none because ``most`` was reached.
+        An instant costs four runs and is always measured, so no value is left out of a rule
+        whose windows are all instants."""
         measured: list[tuple[str, Window]] = []
-        per_variable: dict[tuple[str, Variable], int] = {}
+        wide: dict[tuple[str, Variable], int] = {}
+        left_out = 0
         moved = [t for t in self.breaking(predicate) if t.candidate.variable is not None]
         for tried in sorted(
             moved, key=lambda t: (t.candidate.base, t.candidate.variable, t.candidate.value_us)
@@ -499,22 +509,21 @@ class Exploration:
             variable, at = tried.candidate.variable, tried.candidate.value_us
             assert variable is not None and at is not None
             key = (tried.candidate.base, variable)
-            if per_variable.get(key, 0) >= most:
-                continue
             if any(
                 b == tried.candidate.base and w.variable == variable and w.lo_us <= at <= w.hi_us
                 for b, w in measured
             ):
                 continue
-            if cases.value(tried.candidate.case, variable) is None:
+            if wide.get(key, 0) >= most:
+                left_out += 1
                 continue
             found = window(
                 self.runner, tried.candidate.case, variable, predicate, resolution_us=resolution_us
             )
             measured.append((tried.candidate.base, found))
-            out.append(found)
-            per_variable[key] = per_variable.get(key, 0) + 1
-        return out
+            if not found.instant:
+                wide[key] = wide.get(key, 0) + 1
+        return [found for _base, found in measured], left_out
 
     def coverage(self) -> dict[str, dict[str, Any]]:
         """For each handle, the kinds of transition it was put beside and those it never was."""
@@ -576,7 +585,7 @@ class Exploration:
         for predicate in self.predicates():
             breaking = self.breaking(predicate)
             measure = windows is True or (wanted is not None and predicate in wanted)
-            measured = tuple(self.windows(predicate)) if measure else ()
+            measured, unmeasured = self._measured(predicate) if measure else ([], 0)
             unmoved = predicate in self.original.failures or any(
                 t.candidate.variable is None for t in breaking
             )
@@ -608,7 +617,8 @@ class Exploration:
                     candidates=len(breaking),
                     everywhere=self.everywhere(predicate),
                     changed=tuple(sorted({t.candidate.what for t in breaking})),
-                    windows=measured,
+                    windows=tuple(measured),
+                    unmeasured=unmeasured,
                     instants_only=bool(measured)
                     and not unmoved
                     and all(w.instant for w in measured),
@@ -672,6 +682,9 @@ class Exploration:
                 for w in one.windows
             ]
             lines += list(dict.fromkeys(widths))  # the same window under two faults is one line
+            if one.unmeasured:
+                more = f"{one.unmeasured} more value(s)"
+                lines.append(f"    breaks at {more}, which were not measured")
         skipped = self.not_judged()
         if skipped:
             cut = sum(group.cases for group in skipped)

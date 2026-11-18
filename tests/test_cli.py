@@ -295,6 +295,17 @@ def test_a_search_exits_3_when_the_case_as_given_has_no_pass_or_fail_for_a_requi
     assert status == NO_VERDICT and list(json.loads(out)["unjudged"]) == ["A1"]
 
 
+def test_a_search_told_not_to_measure_says_which_rules_it_counts_unmeasured(capsys):
+    narrow = ("--variables", "none", "--faults", "backend.error", "--no-words", "--workers", "0")
+    reference = "breaks:as_written_confirms_a_failed_booking"
+    status, out, _ = earful(capsys, "search", reference, *narrow, "--no-windows")
+    assert status == BROKEN and out.endswith(
+        "\n\nnot measured, so counted even if they break only at single instants: A3/rule\n"
+    )
+    status, out, _ = earful(capsys, "search", reference, *narrow)
+    assert status == BROKEN and "not measured" not in out
+
+
 def test_a_search_that_could_judge_nothing_it_tried_exits_3_and_gives_the_reasons(
     capsys, monkeypatch
 ):

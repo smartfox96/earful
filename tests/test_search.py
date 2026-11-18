@@ -1087,6 +1087,54 @@ def test_a_break_is_at_instants_only_if_nothing_else_reaches_it():
         found(by_time, by_fault).assert_contracts(allow=["M2/rule d"])
 
 
+def moved_to(fails, *values):
+    """A search whose candidates put the second speech at each of ``values``."""
+    start = a_case(BOOK, speech(9_000_000, 10_000_000, WINDOW["transcript"]))
+    runner = Runner(answers(lambda case: fails(case["speeches"][1]["start_us"])))
+    tried = []
+    for at in values:
+        moved = cases.with_value(start, SECOND, at)
+        tried.append(Tried(Candidate(moved, SECOND, at), runner.outcome(moved)))
+    return Exploration(start, runner.outcome(start), tried, [], (0,), runner)
+
+
+def test_a_wide_window_beyond_any_number_of_instants_is_measured_and_counted():
+    instants = (3_000_000, 3_100_000, 3_200_000)
+    found = moved_to(
+        lambda at: at in instants or 4_000_000 <= at <= 4_200_000,
+        *instants,
+        4_000_000,
+        4_100_000,
+        4_200_000,
+    )
+    one = found.breaks()[0]
+    assert [(w.lo_us, w.hi_us) for w in one.windows] == [
+        *((at, at) for at in instants),
+        (4_000_000, 4_200_000),
+    ]
+    assert one.predicate == A2 and not one.instants_only and one.unmeasured == 0
+    with pytest.raises(ContractFailure, match="A2/rule  in 6 case"):
+        found.assert_contracts()
+
+    five = tuple(range(3_000_000, 3_500_000, 100_000))
+    ties = moved_to(lambda at: at in five, *five)
+    one = ties.breaks()[0]
+    assert [w.instant for w in one.windows] == [True] * 5 and one.instants_only
+    ties.assert_contracts()
+
+
+def test_windows_beyond_three_along_one_time_are_counted_and_not_measured():
+    starts = (3_000_000, 3_200_000, 3_400_000, 3_600_000)
+    found = moved_to(
+        lambda at: any(start <= at <= start + 50_000 for start in starts), *starts, 3_650_000
+    )
+    one = found.breaks()[0]
+    assert [w.lo_us for w in one.windows] == list(starts[:3]) and one.unmeasured == 2
+    assert not one.instants_only
+    assert "\n    breaks at 2 more value(s), which were not measured\n" in found.describe()
+    assert [w.lo_us for w in found.windows(A2, most=4)] == list(starts)
+
+
 def test_each_end_of_a_window_says_why_the_search_stopped_there():
     """The stand-in fails everywhere, so neither end of the window is an edge of the failure."""
     always = window(
