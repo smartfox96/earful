@@ -7,8 +7,8 @@ import pytest
 from pydantic import BaseModel, Field
 
 from earful.livekit.cases import CASES
-from earful.livekit.clock import WALL_CLOCK_EPOCH, patch_report, run_virtual
 from earful.livekit.harness import InvalidRun, run_case
+from earful.scripted.clock import WALL_CLOCK_EPOCH, patch_report, run_virtual
 
 
 def test_time_is_exact_on_the_grid():
@@ -68,7 +68,7 @@ def test_due_time_half_a_tick_past_the_grid_does_not_stall():
 
 
 def test_a_deadlocked_run_fails_instead_of_hanging(monkeypatch):
-    from earful.livekit import clock
+    from earful.scripted import clock
 
     monkeypatch.setattr(clock, "STALL_SECONDS", 0.2)
 

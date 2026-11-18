@@ -300,8 +300,10 @@ and what CI runs for each.
 
 - `src/earful/core/` is the portable part: ledger, validator, contract checker, effect
   backend, case format, search, shrinker, bundle, report. It imports no framework.
-- `src/earful/livekit/` is the adapter: virtual clock, scripted providers, tool witness,
-  clocked sink, harness.
+- `src/earful/scripted/` is what every adapter shares: the virtual clock, and the
+  scripted user, model and voice. It imports no framework either.
+- `src/earful/livekit/` is the LiveKit adapter: scripted providers, tool witness, clocked
+  sink, harness.
 - `examples/` holds the quickstart. `tests/golden/` and `tests/bundles/` hold the
   reference ledgers and the two kept failures.
 

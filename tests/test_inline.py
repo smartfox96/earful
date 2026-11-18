@@ -11,15 +11,15 @@ from earful.livekit import scenario
 from earful.livekit.api import WorkersUnavailable, explore, keep, replay, run
 from earful.livekit.cases import BOOKING_ACK, BOOKING_INTENT, barge_in_mid_word
 from earful.livekit.harness import Case, Delay, Fault, Intent
-from earful.livekit.playbook import (
+from earful.livekit.providers import UserSpeech
+from earful.livekit.scenario import INLINE, Scenario
+from earful.scripted.playbook import (
     ScriptedModel,
     reply,
     tool_returned,
     tool_succeeded,
     user_ever_said,
 )
-from earful.livekit.providers import UserSpeech
-from earful.livekit.scenario import INLINE, Scenario
 
 CONFIRMED_BUT_NOT_DONE = Predicate("A3", "rule")
 

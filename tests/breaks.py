@@ -7,9 +7,9 @@ import livekit.agents as lk
 from earful.core.backend import Effect, effect
 from earful.livekit.cases import BOOKING_ACK, BOOKING_INTENT, CASES, LONG_REPLY
 from earful.livekit.harness import Case, Intent
-from earful.livekit.playbook import ScriptedModel, user_said
 from earful.livekit.providers import Claim, Reply, ToolCall, UserSpeech, letters
 from earful.livekit.sink import ClockedSink
+from earful.scripted.playbook import ScriptedModel, user_said
 
 # Audio played when the seventh word ends: a boundary with nothing else happening near it.
 SEVENTH_WORD_ENDS_US = sum(letters(word) for word in LONG_REPLY.split()[:7]) * 60_000

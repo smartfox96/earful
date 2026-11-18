@@ -8,7 +8,6 @@ from livekit.agents import llm
 
 from earful.core.ledger import Ledger
 from earful.core.schema import validate
-from earful.livekit.clock import now_us, run_virtual
 from earful.livekit.harness import Case, run_case
 from earful.livekit.providers import (
     Reply,
@@ -18,6 +17,7 @@ from earful.livekit.providers import (
     ToolCall,
     UserSpeech,
 )
+from earful.scripted.clock import now_us, run_virtual
 
 
 @pytest.mark.parametrize("ttft,duration", [(0.1, 0.4), (0, 0), (0.4, 0.1)])

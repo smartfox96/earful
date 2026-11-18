@@ -8,7 +8,8 @@ import pytest
 from earful.core.ledger import first_difference, normalize
 from earful.livekit.cases import BOOKING_ACK, BOOKING_INTENT, CASES
 from earful.livekit.harness import InvalidRun, run_case
-from earful.livekit.playbook import (
+from earful.livekit.providers import Claim, Reply, ToolCall
+from earful.scripted.playbook import (
     Context,
     NoRule,
     ScriptedModel,
@@ -20,7 +21,6 @@ from earful.livekit.playbook import (
     user_ever_said,
     user_said,
 )
-from earful.livekit.providers import Claim, Reply, ToolCall
 
 GOLDEN = Path(__file__).parent / "golden"
 

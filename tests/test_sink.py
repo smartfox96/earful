@@ -6,9 +6,9 @@ from array import array
 from livekit import rtc
 
 from earful.core.ledger import Ledger
-from earful.livekit.clock import now_us, run_virtual
 from earful.livekit.providers import StampTable
 from earful.livekit.sink import ClockedSink
+from earful.scripted.clock import now_us, run_virtual
 
 RATE = 24000
 

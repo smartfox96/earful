@@ -7,7 +7,7 @@ from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
 
-from .providers import Claim, Reply, ToolCall
+from .model import Claim, Reply, ToolCall
 
 
 @dataclass(frozen=True)

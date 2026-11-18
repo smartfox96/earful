@@ -6,10 +6,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import dataclasses
-import itertools
 from array import array
-from collections.abc import Callable
-from dataclasses import dataclass, field
 from typing import Any, NoReturn
 
 from livekit import rtc
@@ -21,88 +18,12 @@ from livekit.agents import vad as lk_vad
 
 from ..core.ledger import Ledger
 from ..core.timebase import to_seconds, to_us
+from ..scripted.clock import now_us
+from ..scripted.model import Claim, Policy, Reply, ReplyRegister, ToolCall, _words
+from ..scripted.voice import StampTable, letters
+from ..scripted.world import UserSpeech, WorldOrigin, _check_speeches, vad_segments
+from ..scripted.world import sleep_until as _sleep_until
 from ._compat import DEFAULT_API_CONNECT_OPTIONS, APIConnectOptions
-from .clock import now_us
-
-
-async def _sleep_until(t0_us: int, at_us: int) -> None:
-    delay_us = t0_us + at_us - now_us()
-    if delay_us > 0:
-        await asyncio.sleep(to_seconds(delay_us))
-
-
-@dataclass(frozen=True)
-class UserSpeech:
-    """One scripted user utterance, in seconds from the world's origin (first audio frame)."""
-
-    start: float
-    end: float
-    transcript: str  # empty: VAD fires but STT stays silent (noise)
-    stt_delay: float = 0.2
-    expects_reply: bool | None = None  # None: true for a non-empty, non-backchannel turn
-    backchannel: bool = False  # acknowledging, not taking the floor
-    retires: tuple[str, ...] = ()  # intents this turn corrects or cancels
-
-    @property
-    def start_us(self) -> int:
-        return to_us(self.start)
-
-    @property
-    def end_us(self) -> int:
-        return to_us(self.end)
-
-    @property
-    def stt_delay_us(self) -> int:
-        return to_us(self.stt_delay)
-
-    @property
-    def owes_reply(self) -> bool:
-        if self.expects_reply is not None:
-            return self.expects_reply
-        return bool(self.transcript) and not self.backchannel
-
-
-class WorldOrigin:
-    """The instant the scripted user's clock starts: the first audio frame a provider gets.
-    VAD and STT must agree on it, or the run is invalid; ``tolerance_us`` is for real-clock runs."""
-
-    def __init__(self, ledger: Ledger, errors: list[str], *, tolerance_us: int = 0) -> None:
-        self._ledger = ledger
-        self._errors = errors
-        self._tolerance_us = tolerance_us
-        self.t0_us: int | None = None
-        self.by: str | None = None
-        self.started = asyncio.Event()  # set once the origin is known
-
-    def mark(self, by: str, at_us: int) -> None:
-        if self.t0_us is None:
-            self.t0_us, self.by = at_us, by
-            self._ledger.append("world", "user.origin", by=by)
-            self.started.set()
-        elif abs(at_us - self.t0_us) > self._tolerance_us:
-            self._errors.append(
-                f"{by} started its clock at {at_us} us, {self.by} at {self.t0_us} us"
-            )
-
-
-def _check_speeches(speeches: list[UserSpeech]) -> list[UserSpeech]:
-    speeches = sorted(speeches, key=lambda s: s.start)
-    for prev, nxt in itertools.pairwise(speeches):
-        if prev.end > nxt.start:
-            raise ValueError("scripted user speeches overlap")
-    return speeches
-
-
-def vad_segments(speeches: list[UserSpeech], min_silence_us: int) -> list[list[int]]:
-    """The indices of ``speeches``, grouped into what a VAD hears as one segment: speech
-    that resumes within ``min_silence_us`` belongs to the segment before it."""
-    segments: list[list[int]] = []
-    for index, speech in enumerate(speeches):
-        if segments and speech.start_us - speeches[segments[-1][-1]].end_us < min_silence_us:
-            segments[-1].append(index)
-        else:
-            segments.append([index])
-    return segments
 
 
 class ScriptedVAD(lk_vad.VAD):
@@ -272,74 +193,6 @@ def summarize_item(item: Any) -> dict[str, Any]:
     return out
 
 
-@dataclass(frozen=True)
-class ToolCall:
-    """A tool call in a scripted reply. The scripted model assigns ``call_id`` if left out."""
-
-    name: str
-    arguments: str  # JSON text
-    call_id: str | None = None
-
-
-@dataclass(frozen=True)
-class Claim:
-    """A span of a reply that tells the user ``intent`` succeeded.
-    Word indices are 0-based and inclusive; ``last_word=None`` means the reply's last word."""
-
-    intent: str
-    first_word: int = 0
-    last_word: int | None = None
-
-
-@dataclass(frozen=True)
-class Reply:
-    text: str = ""
-    tool_calls: tuple[ToolCall, ...] = ()
-    ttft: float = 0.1  # time to first token
-    duration: float = 0.3  # total generation time
-    claims: tuple[Claim, ...] = ()
-
-
-def _words(text: str) -> list[str]:
-    return text.split()
-
-
-@dataclass
-class ReplyRegister:
-    """Every reply the scripted model gave, by call. Shared with the TTS for attribution."""
-
-    replies: dict[int, list[str]] = field(default_factory=dict)
-    synthesized: set[int] = field(default_factory=set)
-
-    def attribute(
-        self, text: str, *, eligible: set[int] | None = None
-    ) -> tuple[int | None, str, list[int]]:
-        """Which unsynthesized reply a text belongs to, how it matched, and every candidate.
-        A ``prefix`` match is a reply whose generation stopped early."""
-        words = _words(text)
-        open_ = [
-            c
-            for c in self.replies
-            if c not in self.synthesized and (eligible is None or c in eligible)
-        ]
-        kinds: tuple[tuple[str, Callable[[list[str]], bool]], ...] = (
-            ("unique", lambda w: w == words),
-            ("prefix", lambda w: len(w) > len(words) and w[: len(words)] == words),
-        )
-        for kind, fits in kinds:
-            hits = sorted(c for c in open_ if words and fits(self.replies[c]))
-            if len(hits) == 1:
-                self.synthesized.add(hits[0])
-                return hits[0], kind, hits
-            if len(hits) > 1:
-                return None, "ambiguous", hits
-        return None, "none", []
-
-
-# A model policy: a pure function of the context, which it sees as item summaries.
-Policy = Callable[[list[dict[str, Any]]], Reply]
-
-
 class ScriptedLLM(lk_llm.LLM[NoReturn]):
     """Deterministic model. Also the memory witness: it records every context it is shown."""
 
@@ -460,34 +313,6 @@ class _ScriptedLLMStream(lk_llm.LLMStream):
                 ),
             )
         )
-
-
-MAX_STAMP = 32767  # int16; 0 is reserved for "no word"
-
-
-@dataclass
-class StampTable:
-    """Every word the TTS ever synthesized, by stamp. Shared with the sink."""
-
-    sample_rate: int
-    words: dict[int, dict[str, Any]] = field(default_factory=dict)
-
-    def add(self, utterance: int, index: int, text: str, samples: int) -> int:
-        stamp = len(self.words) + 1
-        if stamp > MAX_STAMP:
-            raise OverflowError("more than 32767 words synthesized in one run")
-        self.words[stamp] = {
-            "utterance": utterance,
-            "index": index,
-            "text": text,
-            "samples": samples,
-        }
-        return stamp
-
-
-def letters(word: str) -> int:
-    """How long a word is to say, counted in letters and digits; never less than one."""
-    return sum(ch.isalnum() for ch in word) or 1
 
 
 class StampedTTS(lk_tts.TTS[NoReturn]):
@@ -660,6 +485,7 @@ __all__ = [
     "ToolCall",
     "UserSpeech",
     "WorldOrigin",
+    "letters",
     "summarize_item",
     "vad_segments",
 ]

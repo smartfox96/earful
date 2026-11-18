@@ -24,9 +24,8 @@ from ..core.checker.policy import parse_all
 from ..core.ledger import Ledger, ledger_hash
 from ..core.schema import validity
 from ..core.timebase import to_seconds, to_us
-from . import tools
-from ._compat import TranscriptSynchronizer, io
-from .clock import (
+from ..scripted.case import DELAYS, Delay, Fault, Intent, InvalidRun
+from ..scripted.clock import (
     WALL_CLOCK_EPOCH,
     ClockPatchReport,
     VirtualTimeLoop,
@@ -34,6 +33,8 @@ from .clock import (
     patch_report,
     run_virtual,
 )
+from . import tools
+from ._compat import TranscriptSynchronizer, io
 from .providers import (
     Policy,
     ScriptedLLM,
@@ -69,47 +70,6 @@ _DECLARED_OPTIONS = frozenset(
         "false_interruption_timeout",
     }
 )
-
-
-class InvalidRun(RuntimeError):
-    """The run finished but may not be used as evidence. ``result`` holds its ledger."""
-
-    def __init__(self, reasons: list[str], result: RunResult) -> None:
-        super().__init__("run is invalid: " + "; ".join(reasons))
-        self.reasons = reasons
-        self.result = result
-
-
-@dataclass(frozen=True)
-class Intent:
-    """A logical action the user wants done, carried out by the named tools."""
-
-    intent: str
-    tools: tuple[str, ...] = ()
-    authorized: int = 1  # durable effects the scenario allows for this intent
-
-
-DELAYS = ("llm.ttft", "llm.duration", "tts.ttfb", "backend.latency")
-
-
-@dataclass(frozen=True)
-class Delay:
-    """A provider delay the scenario declares as data, in seconds.
-    ``of`` is one of ``DELAYS``; ``nth`` is the occurrence, counted from 1."""
-
-    of: str
-    nth: int
-    seconds: float
-
-
-@dataclass(frozen=True)
-class Fault:
-    """A fault the scenario declares for backend write ``nth``, counted from 1.
-    A ``backend.timeout`` write still commits; ``backend.error`` and ``backend.drop`` do not."""
-
-    of: str
-    nth: int
-    seconds: float | None = None  # how long the caller waits; not used by backend.error
 
 
 @dataclass
@@ -683,3 +643,16 @@ def run_case(
     if result.invalid and require_valid:
         raise InvalidRun(result.invalid, result)
     return result
+
+
+__all__ = [
+    "DELAYS",
+    "Case",
+    "Delay",
+    "Fault",
+    "Intent",
+    "InvalidRun",
+    "RunResult",
+    "run_case",
+    "versions",
+]
