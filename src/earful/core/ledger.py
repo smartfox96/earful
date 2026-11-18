@@ -19,6 +19,9 @@ SOURCES = ("world", "llm", "sink", "backend", "framework", "harness")
 
 # Random identifiers such as livekit's shortuuid: a prefix ending in "_", then 12 hex digits.
 DEFAULT_ID_PATTERN = re.compile(r"\b([A-Za-z][A-Za-z_]*_)[0-9a-f]{12}\b")
+# Where a framework's own identifier is recorded: a chat item's id and a speech's.
+FRAMEWORK_ID_FIELDS = ("id", "speech_id")
+_LISTS_CONTEXT_ITEMS = ("llm.request", "history.final")
 
 
 def _canonical(value: Any) -> str:
@@ -97,11 +100,12 @@ class Ledger:
 def normalize(
     events: Iterable[dict[str, Any]], id_pattern: re.Pattern[str] = DEFAULT_ID_PATTERN
 ) -> list[str]:
-    """Canonical JSON lines with random identifiers replaced by first-appearance ordinals."""
+    """Canonical JSON lines, with the framework's random identifiers replaced by
+    first-appearance ordinals. Everything else, application data included, is as recorded."""
     ordinals: dict[str, str] = {}
     counters: dict[str, int] = {}
 
-    def _replace(match: re.Match[str]) -> str:
+    def _ordinal(match: re.Match[str]) -> str:
         raw = match.group(0)
         if raw not in ordinals:
             prefix = match.group(1)
@@ -109,7 +113,20 @@ def normalize(
             ordinals[raw] = f"{prefix}#{counters[prefix]}"
         return ordinals[raw]
 
-    return [id_pattern.sub(_replace, _canonical(event)) for event in events]
+    def _replaced(value: Any, is_id: bool = False) -> Any:
+        if isinstance(value, dict):
+            # In the order the line is written, so that ordinals follow first appearance.
+            return {k: _replaced(value[k], k in FRAMEWORK_ID_FIELDS) for k in sorted(value)}
+        if isinstance(value, list):
+            return [_replaced(v) for v in value]
+        return id_pattern.sub(_ordinal, value) if is_id and isinstance(value, str) else value
+
+    def _holds_ids(event: Any) -> bool:
+        if not isinstance(event, dict):
+            return False  # a line that is no event is written as it is
+        return event.get("source") == "framework" or event.get("kind") in _LISTS_CONTEXT_ITEMS
+
+    return [_canonical(_replaced(e) if _holds_ids(e) else e) for e in events]
 
 
 def ledger_hash(events: Iterable[dict[str, Any]]) -> str:

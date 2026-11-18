@@ -83,7 +83,7 @@ All are deterministic: the same run gives the same identifiers.
 | `intent` | Scenario | One logical action |
 
 Framework identifiers (chat item and speech ids) are random. Normalization replaces them
-with ordinals; see Hashing.
+with ordinals, and replaces nothing else; see Hashing.
 
 ## Event kinds
 
@@ -379,6 +379,24 @@ A ledger is normalized before hashing: keys are sorted, separators are fixed, an
 framework identifiers (`item_3f2a…`) are replaced by first-appearance ordinals
 (`item_#1`). The hash is SHA-256 over the normalized lines, each followed by a newline,
 so `shasum -a 256` of a normalized ledger file equals its hash.
+
+An identifier is replaced only where the framework's own identifiers are recorded: a field
+named `id` or `speech_id`, in a `fw.*` event or in a context item of `llm.request` or
+`history.final`. There, a letter-led prefix that ends in `_` followed by 12 lowercase
+hexadecimal digits becomes that prefix, `#` and a number: 1 for the first identifier with
+that prefix in the ledger, 2 for the next. The same identifier gets the same ordinal
+everywhere, so references between events survive.
+
+Nothing else is rewritten. A payload, a tool's arguments and output, a call id, a
+transcript and a reply are hashed as recorded, including a value that looks like a
+framework identifier. Two runs that differ in an order number have different hashes. A
+run seeds Python's `random` module with the case's seed, so an identifier the application
+draws from it repeats. One drawn from `uuid.uuid4` differs on every run, and the hash with
+it.
+
+Earful 0.1.1 and earlier replaced such a value wherever it appeared. A ledger that holds
+one in application data therefore hashes differently now. None of the reference ledgers
+does.
 
 ## Reference ledgers
 
