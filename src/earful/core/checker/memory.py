@@ -1,11 +1,5 @@
 """Reading a model context: which user turns it holds, and which scripted speech each
-assistant message is.
-
-Shared by the memory contracts (M1, M2) and by L1, which needs to know when a turn first
-appeared in a context.
-
-Framework-independent: this module must never import livekit.
-"""
+assistant message is."""
 
 from __future__ import annotations
 
@@ -31,18 +25,7 @@ class UserTurns:
 
 
 def user_turns(items: list[Item], delivered: list[Speech]) -> UserTurns:
-    """Match the user text of a context against the transcripts delivered before it.
-
-    The user text is read as one stream of words, so a framework that merges two
-    transcripts into one message, or splits one across two, is not penalized. Each
-    delivered transcript must appear whole and in order. A backchannel may be present or
-    absent. Reading stops at the first other transcript that is not there: whatever user
-    text is left over was invented, duplicated or reordered.
-
-    Where a backchannel's words could be either the backchannel or the start of the next
-    turn, the reading that leaves the least text unexplained is taken, and among those
-    the one that finds the most turns that are owed a place in memory.
-    """
+    """The delivered transcripts a context's user text holds, read as one word stream, in order."""
     stream: list[tuple[str, int]] = [
         (word, index)
         for index, item in enumerate(items)
@@ -82,18 +65,11 @@ def user_turns(items: list[Item], delivered: list[Speech]) -> UserTurns:
 
 @dataclass
 class Alignment:
-    """Which scripted speech each assistant message of a context is.
-
-    A message can only be something whose text it is a prefix of, and messages keep the
-    order the speech came to be in. Where that leaves exactly one possibility for an item
-    it is ``matched`` (to an item index) or ``absent``. Where it leaves more than one, as
-    with two replies of identical text of which only one was kept, it is ``ambiguous``:
-    Earful does not guess.
-    """
+    """Which scripted speech each assistant message is: a prefix of its speech, in speech order."""
 
     possible: bool  # false: some assistant message is no scripted speech's prefix, in any order
     matched: dict[str, int] = field(default_factory=dict)  # spoken key -> item index
-    absent: set[str] = field(default_factory=set)  # keys certainly not in the context
+    absent: set[str] = field(default_factory=set)
     ambiguous: set[str] = field(default_factory=set)
     unmatched_items: list[int] = field(default_factory=list)  # when not possible
 
@@ -146,19 +122,7 @@ Cost = tuple[int, int]
 def favourable(
     items: list[Item], spoken: list[Spoken], cost: Callable[[Spoken, Item | None], Cost]
 ) -> dict[str, int | None] | None:
-    """Of every way to say which scripted speech each assistant message is, the one that
-    costs least: for each thing said (by key), the index of its message, or None if it is
-    not in the context. None if the messages do not line up with what was said at all.
-
-    ``cost(speech, message)`` is what it costs for ``message`` (or no message) to be the
-    memory of ``speech``; costs add. As in ``align``, a message can only be something
-    whose text it is a prefix of, and messages keep the order the speech came to be in.
-    Among equal readings the one that gives each message to the earliest speech is taken.
-
-    A remembered message carries its words and its place and nothing else, so when two
-    things said have the same words there is no fact about which one a message is. Every
-    such reading describes the same memory, and the checker reports the kindest.
-    """
+    """The cheapest reading, spoken key -> item index or None; None if nothing lines up."""
     messages = [
         (index, _words(item))
         for index, item in enumerate(items)
@@ -166,8 +130,7 @@ def favourable(
     ]
     a, b = len(messages), len(spoken)
     absent = [cost(speech, None) for speech in spoken]
-    # best[i][j]: the least cost of placing messages i.. on speech j.., and whether message
-    # i is given to speech j there. None: it cannot be done.
+    # best[i][j]: (least cost of placing messages i.. on speech j.., whether i goes to j) or None.
     best: list[list[tuple[Cost, bool] | None]] = [[None] * (b + 1) for _ in range(a + 1)]
     rest: Cost = (0, 0)
     best[a][b] = (rest, False)

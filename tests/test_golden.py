@@ -1,7 +1,4 @@
-"""The committed reference ledgers: this machine reproduces them, and they validate.
-
-Change them only with ``scripts/check_all.sh --update``, and review the diff.
-"""
+"""The committed reference ledgers: this machine reproduces them, and they validate."""
 
 from pathlib import Path
 
@@ -13,6 +10,7 @@ from earful.core.schema import validity
 from earful.livekit.cases import CASES
 from earful.livekit.harness import run_case
 
+# Change these only with scripts/check_all.sh --update, and review the diff.
 GOLDEN = Path(__file__).parent / "golden"
 
 

@@ -9,7 +9,6 @@ from .view import View
 
 def check(view: View, policy: policies.A1) -> ContractResult:
     verdicts = []
-    # Tool invocations that wrote something through the backend, for any intent.
     wrote = {e.requested["data"]["tool"] for e in view.effects.values()}
     for speech in view.delivered:
         for intent in speech.retires:
@@ -17,8 +16,7 @@ def check(view: View, policy: policies.A1) -> ContractResult:
             instance = {"speech": speech.index, "intent": intent}
             effects = [e for e in view.effects.values() if e.intent == intent]
             tools = view.intents[intent]["tools"]
-            # A call of its tool that wrote nothing at all leaves no way to tell what it
-            # did. A call that wrote for another intent is accounted for.
+            # A call that wrote nothing is unobservable; one that wrote for another intent is not.
             called_after = [
                 t.called
                 for t in view.tools.values()

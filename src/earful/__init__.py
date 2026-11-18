@@ -1,19 +1,5 @@
 """Earful: deterministic regression tests for real-time voice agents.
-
-This package is the framework-independent part: the ledger, the contract checker, the
-backend a test's side effects are recorded in, and the names a stand-in service or a
-ledger file needs. It imports no voice framework.
-
-    from earful import check, read_ledger
-
-    report = check(read_ledger("run.ledger.jsonl"))
-    report.assert_contracts()
-
-Running an agent is the adapter's part. For LiveKit Agents, installed with
-``pip install "earful[livekit]"``:
-
-    from earful.livekit import Case, ScriptedModel, UserSpeech, explore, run
-"""
+This package imports no voice framework; ``earful.livekit`` is the LiveKit Agents adapter."""
 
 from importlib import metadata as _metadata
 

@@ -24,8 +24,7 @@ HAS_3702 = VERSION < (1, 6, 6)
 
 
 def earful(capsys, *argv):
-    """Run the command in this process. Returns its exit status, what it printed and what
-    it wrote to standard error."""
+    """Run the command in this process: (exit status, stdout, stderr)."""
     status = main([str(arg) for arg in argv])
     captured = capsys.readouterr()
     return status, captured.out, captured.err
@@ -33,13 +32,9 @@ def earful(capsys, *argv):
 
 @pytest.fixture
 def truncated(tmp_path):
-    """A ledger cut off before its end: not a valid run."""
     path = tmp_path / "truncated.jsonl"
     write_jsonl(read_jsonl(CLEAN)[:-1], path)
     return path
-
-
-# --------------------------------------------------------------------------- check
 
 
 def test_check_prints_each_contract_and_exits_0_when_nothing_broke(capsys):
@@ -103,9 +98,6 @@ def test_a_command_that_does_not_exist_is_a_usage_error(capsys):
     assert stopped.value.code == REFUSED
 
 
-# --------------------------------------------------------------------------- run
-
-
 def test_run_runs_the_scenario_and_writes_the_ledger_it_printed_the_hash_of(capsys, tmp_path):
     ledger = tmp_path / "out" / "run.jsonl"
     reference = "earful.livekit.cases:barge_in_mid_word"
@@ -147,9 +139,6 @@ def test_a_scenario_or_a_case_that_does_not_exist_is_refused(capsys, tmp_path):
     status, _, err = earful(capsys, "run", "breaks:host", "--case", bad)
     assert status == REFUSED and "is not an earful.case/1 document" in err
     assert earful(capsys, "run", "breaks:host", "--case", tmp_path / "none.json")[0] == REFUSED
-
-
-# --------------------------------------------------------------------------- search, replay
 
 
 @pytest.mark.slow
@@ -201,12 +190,34 @@ def test_keep_without_a_directory_and_a_search_of_no_scenario_are_refused(capsys
 
 
 def test_a_search_asked_for_what_there_is_not_starts_no_worker(capsys, monkeypatch):
-    """By default the command searches in worker processes. A request it will refuse is
-    refused before one is started."""
     started = []
     monkeypatch.setattr(scenario, "pool", lambda workers=None: started.append(workers))
     status, _, err = earful(capsys, "search", "breaks:host", "--variables", "speech.colour")
     assert status == REFUSED and "unknown variables" in err and started == []
+
+
+def test_a_search_starts_a_worker_per_processor_or_as_many_as_the_environment_says(
+    capsys, monkeypatch
+):
+    started = []
+
+    def counted(workers=None):
+        started.append(workers)
+        raise PermissionError(13, "Permission denied")  # the search then runs in this process
+
+    monkeypatch.setattr(scenario, "pool", counted)
+    monkeypatch.setattr("os.cpu_count", lambda: 6)
+    narrow = ("--variables", "none", "--faults", "backend.error", "--no-words")
+    reference = "breaks:as_written_reads_the_error"
+    monkeypatch.delenv("EARFUL_WORKERS", raising=False)
+    assert earful(capsys, "search", reference, *narrow)[0] == OK
+    monkeypatch.setenv("EARFUL_WORKERS", "2")
+    assert earful(capsys, "search", reference, *narrow)[0] == OK
+    assert earful(capsys, "search", reference, *narrow, "--workers", "3")[0] == REFUSED
+    assert started == [6, 2, 3]
+    monkeypatch.setenv("EARFUL_WORKERS", "-4")
+    status, _, err = earful(capsys, "search", reference, *narrow)
+    assert status == REFUSED and "EARFUL_WORKERS is a number of processes" in err
 
 
 def test_where_workers_cannot_be_started_the_search_runs_in_this_process_unless_told_a_number(
@@ -221,7 +232,6 @@ def test_where_workers_cannot_be_started_the_search_runs_in_this_process_unless_
     status, out, err = earful(capsys, "search", reference, *narrow)
     assert status == OK and "0 contract rule(s) broken" in out
     assert "cannot be started here" in err and "Searching in this process." in err
-    # Asked for by number, the command does not quietly do something else.
     status, out, err = earful(capsys, "search", reference, *narrow, "--workers", "2")
     assert status == REFUSED and out == "" and "cannot be started here" in err
     assert earful(capsys, "search", reference, *narrow, "--workers", "0")[0] == OK
@@ -244,13 +254,9 @@ def test_replay_of_what_is_not_a_bundle_is_refused(capsys, tmp_path):
     assert status == REFUSED and "cannot read the bundle" in err
 
 
-# --------------------------------------------------------------------------- crosscheck
-
-
 @pytest.mark.slow
 def test_crosscheck_runs_a_kept_failure_on_both_clocks_and_writes_every_ledger(capsys, tmp_path):
-    """One real-clock run, which takes as long as the conversation. Whether it agrees
-    depends on the machine: the tolerance here is wide enough for any."""
+    """Whether the real-clock run agrees depends on the machine, so the tolerance is wide."""
     kept = BUNDLES / "lk-1.5.6.speak_over_new_turn.L2-rule-b"
     wide = ("--tolerance-ms", "2000", "--words", "40")
     status, out, _ = earful(capsys, "crosscheck", kept, "--runs", "1", *wide, "--out", tmp_path)
@@ -274,9 +280,6 @@ def test_crosscheck_of_what_cannot_be_run_is_refused_or_has_no_verdict(capsys, t
     assert status == NO_VERDICT and "nothing to compare with" in out and "NoRule" in out
 
 
-# --------------------------------------------------------------------------- report
-
-
 def test_report_draws_a_page_where_the_output_is_one_and_text_elsewhere(capsys, tmp_path):
     page = tmp_path / "out" / "run.html"
     status, out, _ = earful(capsys, "report", BOOKED_TWICE, "-o", page)
@@ -286,11 +289,9 @@ def test_report_draws_a_page_where_the_output_is_one_and_text_elsewhere(capsys, 
         "<!doctype html>"
     )
     assert "book_then_interrupt" in drawn and "A2" in drawn and "://" not in drawn
-    # A bundle's page says what the bundle froze.
     kept = tmp_path / "kept.html"
     assert earful(capsys, "report", KEPT_3702, "-o", kept)[0] == OK
     assert "A2/rule" in kept.read_text(encoding="utf-8")
-    # The format can be named: a page to standard output, text to a file named .html.
     status, out, _ = earful(capsys, "report", CLEAN, "--format", "html")
     assert status == OK and "<svg" in out
     named = tmp_path / "plain.html"
@@ -313,9 +314,6 @@ def test_report_writes_a_run_out_as_text_and_exits_0_whatever_it_says(capsys, tm
     assert earful(capsys, "report", tmp_path / "missing.jsonl")[0] == REFUSED
 
 
-# --------------------------------------------------------------------------- the entry points
-
-
 def test_the_command_runs_as_a_module_and_says_its_version():
     done = subprocess.run(
         [sys.executable, "-m", "earful", "--version"], capture_output=True, text=True, check=False
@@ -324,8 +322,7 @@ def test_the_command_runs_as_a_module_and_says_its_version():
 
 
 def test_a_scenario_in_the_directory_the_command_is_run_from_is_found(tmp_path):
-    """The installed script does not have the working directory on its import path, as
-    ``python -m`` does. A scenario module beside the user is found all the same."""
+    """Unlike ``python -m``, the installed script has no working directory on its path."""
     (tmp_path / "my_scenarios.py").write_text(
         "from earful.livekit.cases import barge_in_mid_word\n\n\n"
         "def host():\n    return barge_in_mid_word()\n"
@@ -344,8 +341,6 @@ def test_a_scenario_in_the_directory_the_command_is_run_from_is_found(tmp_path):
 
 
 def test_without_the_framework_ledgers_are_checked_and_a_run_is_refused_with_what_to_install():
-    """The commands that read files need nothing but the core. Those that run an agent
-    say what is missing."""
     code = (
         "import sys\n"
         "sys.modules['livekit'] = None\n"  # any 'import livekit' now raises ImportError

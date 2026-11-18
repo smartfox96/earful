@@ -1,9 +1,4 @@
-"""Negative control: the same case on the real clock, nothing patched.
-
-If the ledger hash were insensitive to timing, these runs would hash identically too and
-the virtual-time result would prove nothing. Exit code 1 in that case, and also if a
-real-clock run were ever accepted as valid.
-"""
+"""Negative control: real-clock runs of one case must hash differently, and none may be valid."""
 
 import json
 import sys

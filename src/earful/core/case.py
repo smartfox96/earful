@@ -1,22 +1,5 @@
-"""A case as data: earful.case/1.
-
-A scenario has two parts. Its code, the agent and the model policy, is named by a
-``module:function`` reference and never leaves the module it is written in. Everything
-else is data and lives here: the scripted user's speeches and when they hang up, the
-provider delays and the faults the scenario declares, the settings, the seed and the
-contract policy.
-
-Every time in a case is a **variable**: something that can be moved on its own. Where a
-speech sits, when it ends, how long its transcript takes; when the user hangs up; how long
-a model call, a first audio or a backend write takes. The boundary scheduler moves
-variables, the shrinker moves them back, and both do it through the functions here, so
-neither needs to know what a speech or a delay is.
-
-The shape is defined by a JSON Schema document shipped with this package
-(``schemas/earful.case-1.schema.json``).
-
-Framework-independent: this module must never import livekit.
-"""
+"""A case as data (earful.case/1): everything about a scenario except its code, and the
+variables through which its times are moved."""
 
 from __future__ import annotations
 
@@ -91,27 +74,17 @@ def canonical(case: Case) -> str:
 
 
 def without_speech(case: Case, index: int) -> Case:
-    """``case`` with one speech removed."""
     out = copy.deepcopy(case)
     del out["speeches"][index]
     return out
-
-
-# --------------------------------------------------------------------------- variables
 
 
 @dataclass(frozen=True, order=True)
 class Variable:
     """One time in a case that can be moved on its own.
 
-    ``kind`` is ``speech.position`` (the whole speech, its length kept), ``speech.end``
-    (its end, so its length), ``speech.stt_delay`` (how long its transcript takes), the
-    name of a provider delay (``llm.ttft``, ``llm.duration``, ``tts.ttfb``,
-    ``backend.latency``), or ``backend.wait``: how long the caller of a write waits before
-    it is told the write timed out, for a write with a ``backend.timeout`` or
-    ``backend.drop`` fault. ``user.hangup`` is when the user hangs up. ``index`` is the
-    speech's place in the case, the occurrence from 1 of the delay or the write, and 0
-    for the hangup.
+    ``kind`` is one of ``SPEECH_KINDS``, ``DELAY_KINDS``, ``WAIT`` or ``HANGUP``. ``index`` is
+    the speech's position, the occurrence from 1 of a delay or a write, or 0 for the hangup.
     """
 
     kind: str
@@ -123,15 +96,14 @@ class Variable:
 
 SPEECH_KINDS = ("speech.position", "speech.end", "speech.stt_delay")
 DELAY_KINDS = ("llm.ttft", "llm.duration", "tts.ttfb", "backend.latency")
-WAIT = "backend.wait"
+WAIT = "backend.wait"  # how long the caller of a write with a timeout or a drop waits
 HANGUP = "user.hangup"
 FAULT_KINDS = ("backend.error", "backend.timeout", "backend.drop")
 
 
 def value(case: Case, variable: Variable) -> int | None:
     """What ``variable`` is in ``case``, in microseconds. None for a delay the case does
-    not declare: the scenario's code then chooses it. None for the hangup of a user who
-    stays."""
+    not declare, or for the hangup of a user who stays."""
     if variable.kind == HANGUP:
         return case["hangup_us"]
     if variable.kind in SPEECH_KINDS:
@@ -150,14 +122,8 @@ def value(case: Case, variable: Variable) -> int | None:
 
 
 def with_value(case: Case, variable: Variable, us: int) -> Case | None:
-    """``case`` with ``variable`` set to ``us``. None if no such case exists: a negative
-    time, a speech that would end before it starts, or one that would overlap or pass
-    another, or a hangup before the last speech is over.
-
-    The order of the speeches is part of the scenario. Moving "cancel that" to before the
-    request it cancels is not the same conversation at another timing; it is another
-    conversation.
-    """
+    """``case`` with ``variable`` set to ``us``, or None if that is not a valid case:
+    speeches keep their order and may not overlap, and a hangup follows the last speech."""
     if us < 0:
         return None
     out = copy.deepcopy(case)
@@ -199,15 +165,13 @@ def without_delay(case: Case, variable: Variable) -> Case:
 
 
 def without_hangup(case: Case) -> Case:
-    """``case`` with a user who stays to the end of the scenario."""
     out = copy.deepcopy(case)
     out["hangup_us"] = None
     return out
 
 
 def with_fault(case: Case, of: str, nth: int, us: int | None = None) -> Case | None:
-    """``case`` with a fault declared for backend write ``nth``. None if that write
-    already has one."""
+    """``case`` with a fault declared for backend write ``nth``, or None if it has one."""
     if any(f["nth"] == nth for f in case["faults"]):
         return None
     out = copy.deepcopy(case)

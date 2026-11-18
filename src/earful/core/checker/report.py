@@ -1,7 +1,4 @@
-"""What the checker returns: verdicts, per-contract results and the report for a run.
-
-Framework-independent: this module must never import livekit.
-"""
+"""What the checker returns: verdicts, per-contract results and the report for a run."""
 
 from __future__ import annotations
 
@@ -21,8 +18,7 @@ Event = dict[str, Any]
 
 
 class ContractFailure(AssertionError):
-    """A contract rule broke. What ``assert_contracts`` raises, so a test that calls it
-    fails as a test fails on any assertion."""
+    """A contract rule broke; raised by ``assert_contracts``."""
 
 
 def allowed(allow: Iterable[Any]) -> set[str]:
@@ -49,7 +45,7 @@ class Verdict:
     summary: str
     findings: tuple[Finding, ...] = ()
     evidence: tuple[int, ...] = ()  # seq of every event the verdict rests on
-    witnesses: tuple[str, ...] = ()  # the sources of those events
+    witnesses: tuple[str, ...] = ()
     measures: dict[str, Any] = field(default_factory=dict)
     flags: tuple[str, ...] = ()  # qualifications, e.g. "reference_in_doubt"
 
@@ -58,9 +54,9 @@ class Verdict:
 class ContractResult:
     contract: str
     outcome: str  # pass, fail, unobservable or not_exercised
-    policy: dict[str, Any]  # the policy values the verdicts were reached with
+    policy: dict[str, Any]
     verdicts: tuple[Verdict, ...] = ()
-    notes: tuple[str, ...] = ()  # things worth knowing that are not verdicts
+    notes: tuple[str, ...] = ()
 
     @property
     def failures(self) -> tuple[Verdict, ...]:
@@ -73,8 +69,7 @@ class Report:
     valid: bool
     invalid: tuple[str, ...]  # why the run yields no verdicts; empty when valid
     results: dict[str, ContractResult]
-    # Which reply each ambiguously attributed text was read as (utterance -> model call),
-    # and how many such readings the ledger allows. Empty and 1 when nothing is ambiguous.
+    # utterance -> model call for each ambiguous text, and how many such readings exist.
     reading: dict[int, int] = field(default_factory=dict)
     readings: int = 1
     schema: str = REPORT
@@ -100,10 +95,7 @@ class Report:
         )
 
     def lines(self, *, measures: bool = False, passes: bool = False) -> list[str]:
-        """The report as text, one line per contract and one per verdict that is not a
-        plain pass: a failure, an unobservable one, or a pass that carries a flag.
-        ``passes`` lists every passing verdict too, and ``measures`` adds what each
-        verdict measured."""
+        """The report as text: one line per contract and per verdict that is not a plain pass."""
         if not self.valid:
             return [f"invalid: {reason}" for reason in self.invalid]
         out: list[str] = []
@@ -121,9 +113,7 @@ class Report:
         return out
 
     def assert_contracts(self, *, allow: Iterable[Any] = (), what: str = "the run") -> None:
-        """Raise ``ContractFailure`` if the run is not valid evidence or a contract rule
-        broke. ``allow`` names rules that may break, as ``CONTRACT/RULE``: a known defect
-        of a release under test. ``what`` names the run in the message."""
+        """Raise ``ContractFailure`` if the run is invalid or breaks a rule not in ``allow``."""
         __tracebackhide__ = True  # pytest then shows the test's own line, not this one
         if not self.valid:
             raise ContractFailure(
@@ -148,8 +138,7 @@ def verdict(
     measures: dict[str, Any] | None = None,
     flags: Iterable[str] = (),
 ) -> Verdict:
-    """Build a verdict. It fails if any finding names a rule; it is unobservable if
-    ``unobservable`` says what evidence is missing; otherwise it passes."""
+    """Build a verdict: fail on any finding, unobservable if ``unobservable`` is set, else pass."""
     used = sorted({e["seq"]: e for e in events if e is not None}.values(), key=lambda e: e["seq"])
     findings = list(findings)
     if findings:
@@ -175,8 +164,7 @@ def verdict(
 def result(
     contract: str, policy: Any, verdicts: list[Verdict], notes: Iterable[str] = ()
 ) -> ContractResult:
-    """A contract fails if any instance failed, is otherwise unobservable if any instance
-    was, otherwise passes; with no instances it was not exercised, which is not a pass."""
+    """A contract's outcome is its worst verdict; with no verdicts it was not exercised."""
     outcomes = {v.outcome for v in verdicts}
     if not verdicts:
         outcome = NOT_EXERCISED
@@ -192,17 +180,7 @@ def result(
 def split(
     reported: dict[str, ContractResult], checked: list[dict[str, ContractResult]]
 ) -> dict[str, ContractResult]:
-    """``reported`` with what the other readings of the same ledger say against it.
-
-    ``checked`` holds the results under every reading. A verdict is compared with the
-    verdict another reading gives the same contract and instance, and is flagged
-    ``reading_split`` if that one is worse. Worse is a failure where this one is a pass
-    or unobservable, and unobservable where this one is a pass.
-
-    A reading can also judge an instance the reported one has no verdict for. There is
-    then no verdict to flag, so if that instance does not pass there, a note on its
-    contract says so.
-    """
+    """Flag each verdict of ``reported`` that another reading in ``checked`` makes worse."""
 
     def marked(v: Verdict) -> Verdict:
         worse = any(

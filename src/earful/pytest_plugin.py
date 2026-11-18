@@ -1,21 +1,5 @@
 """The pytest plugin: the ``earful`` fixture, and the evidence of a failing test.
-
-    def test_a_booking_is_made_once(earful):
-        earful.run(case).assert_contracts()
-        earful.explore(case).assert_contracts()
-
-The fixture's ``run``, ``explore``, ``keep`` and ``replay`` are those of the framework
-adapter (``earful.livekit``). What the fixture adds: when the test fails, the ledger of
-each run it made, and an example of each rule a search of its found broken, are written
-under ``--earful-out`` (``.earful`` by default), each with a report to open in a
-browser, and the failure says where.
-
-    --earful-out DIR       where the evidence of failing tests goes
-    --earful-workers N     worker processes for searches that do not say (default 0)
-
-This module is loaded by pytest in every project that has Earful installed, so it
-imports the adapter, and with it the framework, only when a test asks for the fixture.
-"""
+Pytest loads it wherever Earful is installed, so the adapter is imported only when used."""
 
 from __future__ import annotations
 
@@ -50,26 +34,39 @@ def pytest_addoption(parser: pytest.Parser) -> None:
     )
     group.addoption(
         "--earful-workers",
-        type=int,
-        default=0,
+        type=_workers,
+        default=None,
         metavar="N",
-        help="worker processes for a search that does not say how many (default: 0, "
-        "which runs it in the test's process)",
+        help="worker processes for a search that does not say how many; 0 runs it in "
+        "the test's process (default: auto, one per processor for a scenario that can "
+        "be imported, and the test's process otherwise)",
     )
+
+
+def _workers(text: str) -> int | None:
+    if text == "auto":
+        return None
+    try:
+        workers = int(text)
+    except ValueError:
+        workers = -1
+    if workers < 0:
+        raise pytest.UsageError(f"--earful-workers takes a number of processes or auto; got {text}")
+    return workers
 
 
 class Earful:
     """What a test is given as ``earful``. It remembers what the test ran."""
 
-    def __init__(self, directory: Path, workers: int) -> None:
+    def __init__(self, directory: Path, workers: int | None, *, spread: bool = False) -> None:
         self.directory = directory  # where this test's evidence goes if it fails
-        self.workers = workers
+        self.workers = workers  # None: as many as suits each search
+        self.spread = spread  # this test run already uses the processors (pytest-xdist)
         self.runs: list[RunResult] = []
         self.searches: list[Exploration] = []
 
     def run(self, scenario: Source, *, case: dict[str, Any] | None = None, seed: int = 0) -> Any:
-        """Run a scenario once: ``earful.livekit.run``. The result is kept, also when the
-        run is not valid evidence."""
+        """Run a scenario once: ``earful.livekit.run``."""
         from . import livekit
 
         try:
@@ -81,20 +78,35 @@ class Earful:
         return result
 
     def explore(self, scenario: Source, **options: Any) -> Any:
-        """Search a scenario: ``earful.livekit.explore``, with the number of workers the
-        command line gave unless the call names one."""
+        """Search a scenario: ``earful.livekit.explore``. Where neither the call nor the
+        command line gives ``workers``, an importable scenario gets one per processor."""
         from . import livekit
 
-        options.setdefault("workers", self.workers)
-        found = livekit.explore(scenario, **options)
+        if "workers" in options or self.workers is not None:
+            options.setdefault("workers", self.workers)
+            found = livekit.explore(scenario, **options)
+        else:
+            try:
+                found = livekit.explore(scenario, workers=self._suited(scenario), **options)
+            except livekit.WorkersUnavailable:
+                found = livekit.explore(scenario, workers=0, **options)
         self.searches.append(found)
         return found
+
+    def _suited(self, scenario: Source) -> int:
+        from . import livekit
+        from .core.search import default_workers
+
+        if self.spread or livekit.Scenario.of(scenario).reference is None:
+            return 0
+        workers = default_workers()
+        return workers if workers > 1 else 0  # one worker is no faster than this process
 
     def keep(
         self, found: Exploration, rule: Predicate | str, directory: Path | str | None = None
     ) -> bundle.Bundle:
-        """Keep a failure as a bundle: ``earful.livekit.keep``. Without a directory it
-        goes under this test's evidence directory, named after the rule."""
+        """Keep a failure as a bundle: ``earful.livekit.keep``. The default directory is
+        under this test's evidence directory, named after the rule."""
         from . import livekit
 
         if directory is None:
@@ -108,8 +120,7 @@ class Earful:
         return livekit.replay(directory, repeats=repeats)
 
     def evidence(self) -> list[str]:
-        """Write what the test ran to its directory and say what was written, one line
-        each. Called when the test has failed."""
+        """Write what the test ran to its directory and return a line for each file."""
         lines: list[str] = []
 
         def write(name: str, events: list[dict[str, Any]]) -> None:
@@ -145,7 +156,6 @@ class Earful:
 
 
 def _shown(path: Path) -> str:
-    """A path as a person would type it: from the working directory where it is under it."""
     try:
         return str(path.relative_to(Path.cwd()))
     except ValueError:
@@ -163,7 +173,11 @@ def earful(request: pytest.FixtureRequest) -> Earful:
     out = Path(config.getoption("--earful-out"))
     if not out.is_absolute():
         out = config.rootpath / out
-    helper = Earful(out / _slug(request.node.nodeid), config.getoption("--earful-workers"))
+    helper = Earful(
+        out / _slug(request.node.nodeid),
+        config.getoption("--earful-workers"),
+        spread=hasattr(config, "workerinput"),  # set in a worker process of pytest-xdist
+    )
     request.node.stash[_KEY] = helper
     return helper
 

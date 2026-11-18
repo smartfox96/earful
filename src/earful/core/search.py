@@ -1,36 +1,9 @@
 """The boundary scheduler: put each moment a scenario controls just before, at and just
-after every moment the system under test changes state, and check each run.
-
-A timing defect lives at a boundary: the user interrupts as the first audio arrives, a
-tool returns as the turn is being committed. Stepping one thing through time in fixed
-increments finds such a place only if a step happens to land on it. This module asks the
-ledger where the boundaries are and goes to them.
-
-A case has **variables** (``earful.core.case``): where a speech sits, when it ends, how
-long its transcript takes, how long a model call, a first audio or a backend write takes.
-Moving a variable moves one or more **handles**, the moments at which it acts on the
-system: a speech's position moves the VAD's report of it, its interruption point, its
-transcript and the end of its turn; a backend latency moves the commit.
-
-1. Run the case. Every event of the run is a **transition**; so are the moments a
-   scripted delay runs out and the end of each played word. For a speech, the run without
-   that speech is used instead: the timeline it would interrupt.
-2. For each handle, each transition and each offset (a little before, exactly at, a
-   little after), change the handle's variable so that the handle falls there. Run and
-   check.
-3. Where a contract breaks, measure the **window**: how far the variable can move while
-   the run still breaks the same rule. A window with no width is a failure that turns on
-   which of two same-instant events ran first, and says nothing about the system.
-
-The search uses everything in the ledger to decide where to look, the framework's own
-events included. What it finds is decided by the checker alone.
-
-Framework-independent: this module must never import livekit. The adapter supplies
-``run``, a function from a case (earful.case/1) to the ledger of running it.
-"""
+after every moment the system under test changes state, and check each run."""
 
 from __future__ import annotations
 
+import os
 import random
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
@@ -47,37 +20,28 @@ from .predicate import Predicate, failures
 Event = dict[str, Any]
 Run = Callable[[cases.Case], list[Event]]
 
-# A little before and a little after: one 10 ms audio frame, the finest regular step at
-# which a framework is given audio and a sink plays it.
+# One 10 ms audio frame either side: the finest step at which a framework is given audio.
 OFFSETS_US = (-10_000, 0, 10_000)
 
-# The longest a search will make a provider take. A model that answers after a minute
-# breaks things too, but that is a different scenario, not a nearby ordering of this one.
+# The longest a search will make a provider take.
 DELAY_LIMIT_US = 10_000_000
 
-# How long a search makes a backend write or a model generation take when it pairs a slow
-# one with a speech or the hangup: longer than the default interruption threshold, so
-# that a speech can interrupt while it is under way.
+# Longer than the default interruption threshold, so a speech can interrupt a stretched delay.
 STRETCH_US = 1_500_000
 STRETCHED = ("backend.latency", "llm.duration")
 
 _NOT_TRANSITIONS = {"run.start", "run.end", "user.origin", "history.final", "fw.close"}
 
 
-# --------------------------------------------------------------------------- running
-
-
 @dataclass
 class Outcome:
-    """What one run of a case came to."""
-
     case: cases.Case
     failures: tuple[Predicate, ...] = ()
     outcomes: dict[str, str] = field(default_factory=dict)  # contract -> outcome
     hash: str | None = None
     invalid: tuple[str, ...] = ()  # the run is not valid evidence
     refused: str | None = None  # the adapter would not run the case
-    error: str | None = None  # the run raised
+    error: str | None = None
 
     @property
     def ran(self) -> bool:
@@ -85,7 +49,7 @@ class Outcome:
 
     @property
     def why_not(self) -> str | None:
-        """Why nothing can be concluded from it, in a word."""
+        """Why nothing can be concluded from the run, or None if it can be judged."""
         if self.refused is not None:
             return "refused"
         if self.error is not None:
@@ -94,8 +58,7 @@ class Outcome:
 
 
 def judged(case: cases.Case, events: list[Event]) -> Outcome:
-    """What the ledger of running ``case`` comes to. A run that is not valid evidence has
-    no failures: nothing can be concluded from it."""
+    """What the ledger of running ``case`` comes to. An invalid run has no failures."""
     report = check(events)
     if not report.valid:
         return Outcome(case, invalid=report.invalid, hash=ledger_hash(events))
@@ -103,9 +66,7 @@ def judged(case: cases.Case, events: list[Event]) -> Outcome:
 
 
 def attempt(run: Run, case: cases.Case) -> tuple[Outcome, list[Event] | None]:
-    """Run a case and check it. Returns the outcome, and the ledger if the run can be
-    judged. A case the adapter refuses (``ValueError``) and a run that raises anything
-    else are recorded, not raised: one bad run must not end a search."""
+    """Run and check a case. A refused case or a run that raises is recorded, with no ledger."""
     try:
         events = run(case)
     except ValueError as exc:
@@ -117,18 +78,15 @@ def attempt(run: Run, case: cases.Case) -> tuple[Outcome, list[Event] | None]:
 
 
 def evaluate(run: Run, case: cases.Case) -> Outcome:
-    """Run a case and check it: the outcome of ``attempt``, without the ledger."""
     return attempt(run, case)[0]
 
 
-# How a batch of runs is carried out: ``map`` one after another, a process pool's ``map``
-# side by side.
+# How a batch of runs is carried out: ``map``, or a process pool's ``map``.
 Each = Callable[..., Iterable[Any]]
 
 
 class Runner:
-    """Runs cases for a search or a reduction: each case once, however often it is asked
-    for, and counted."""
+    """Runs each case once, however often it is asked for, and counts the runs."""
 
     def __init__(self, run: Run) -> None:
         self.run = run
@@ -140,7 +98,6 @@ class Runner:
         return self.many([case])[0]
 
     def many(self, wanted: list[cases.Case], each: Each = map) -> list[Outcome]:
-        """The outcome of each case. ``each`` is how the runs are carried out."""
         keys = [cases.canonical(case) for case in wanted]
         todo = {key: case for key, case in zip(keys, wanted) if key not in self._seen}
         for key, outcome in zip(todo, each(partial(evaluate, self.run), list(todo.values()))):
@@ -152,9 +109,7 @@ class Runner:
         return self.ledgers([case])[0]
 
     def ledgers(self, wanted: list[cases.Case], each: Each = map) -> list[list[Event] | None]:
-        """The ledger of each case, or None for a case whose run cannot be judged. A
-        search places candidates against these runs, so their ledgers are kept. Their
-        outcomes are kept too: a case run for its ledger is not run again for its verdict."""
+        """The ledger of each case, or None for a case whose run cannot be judged."""
         keys = [cases.canonical(case) for case in wanted]
         todo = {key: case for key, case in zip(keys, wanted) if key not in self._ledgers}
         attempts = each(partial(attempt, self.run), list(todo.values()))
@@ -168,9 +123,6 @@ class Runner:
         return predicate in self.outcome(case).failures
 
 
-# --------------------------------------------------------------------------- where to look
-
-
 @dataclass(frozen=True)
 class Transition:
     """An instant at which something in the run changed, and what did."""
@@ -180,13 +132,7 @@ class Transition:
 
 
 def transitions(events: list[Event], *, words: bool = True) -> list[Transition]:
-    """Every instant of a run that something else could race with, in time order.
-
-    Each recorded event is one. So are the moments the ledger states and no event marks:
-    the model's first token and its last, the voice's first audio, the middle of a word,
-    the end of every played word (unless ``words`` is false) and the moment a user turn
-    can be committed.
-    """
+    """Every instant of a run that something else could race with, in time order."""
     header = events[0]["data"]["scenario"]
     end_of_turn = max(
         header["providers"]["vad"]["min_silence_us"], header["session"]["min_endpointing_delay_us"]
@@ -230,11 +176,7 @@ def transitions(events: list[Event], *, words: bool = True) -> list[Transition]:
 
 def anchors(header: dict[str, Any], speech: dict[str, Any]) -> dict[str, int]:
     """The moments at which a speech acts on the system, as microseconds after its start.
-
-    ``header`` is the ``scenario`` of a ledger's ``run.start``: the delays come from what
-    the run declared, never from what the framework did. They are those of the speech on
-    its own; beside another speech the VAD may hear the two as one.
-    """
+    ``header`` is the ``scenario`` of a ledger's ``run.start``."""
     vad, session = header["providers"]["vad"], header["session"]
     length = speech["end_us"] - speech["start_us"]
     out = {"vad_start": vad["min_speech_us"]}
@@ -257,8 +199,7 @@ _MOVED_BY = {
 
 @dataclass(frozen=True)
 class Handle:
-    """One moment a case controls: which variable moves it, when it falls now, and what
-    the variable is now."""
+    """One moment a case controls, and the variable that moves it."""
 
     variable: Variable
     moment: str  # "interrupt", "transcript", ... for a speech; "done" for a delay
@@ -273,8 +214,7 @@ class Handle:
 def speech_handles(
     case: cases.Case, index: int, events: list[Event], kinds: Iterable[str]
 ) -> list[Handle]:
-    """The handles of one speech. ``events`` is any ledger of the scenario: it supplies
-    the declared delays and the origin."""
+    """The handles of one speech. ``events`` is any ledger of the scenario."""
     speech = case["speeches"][index]
     origin = next((e["t_us"] for e in events if e["kind"] == "user.origin"), 0)
     points = anchors(events[0]["data"]["scenario"], speech)
@@ -292,8 +232,7 @@ def speech_handles(
 
 
 def delay_handles(events: list[Event], kinds: Iterable[str]) -> list[Handle]:
-    """The handles of every provider delay the run applied, declared by the case or
-    chosen by the scenario's code: the ledger records each one."""
+    """The handles of every provider delay the run applied, as the ledger records them."""
     wanted, out = set(kinds), []
     for e in events:
         kind, d, t = e["kind"], e["data"], e["t_us"]
@@ -315,8 +254,7 @@ def delay_handles(events: list[Event], kinds: Iterable[str]) -> list[Handle]:
 
 
 def hangup_handle(case: cases.Case, events: list[Event]) -> Handle:
-    """The moment the user hangs up. For a user who stays it is placed from the origin,
-    so that moving it declares a hangup. ``events`` is any ledger of the scenario."""
+    """The hangup's handle. A user who stays has it at the origin, so moving it declares one."""
     origin = next((e["t_us"] for e in events if e["kind"] == "user.origin"), 0)
     at = case["hangup_us"] or 0
     return Handle(Variable(cases.HANGUP, 0), "hangup", origin + at, at)
@@ -337,14 +275,11 @@ class Candidate:
     variable: Variable | None  # the variable that was moved; None if nothing was
     value_us: int | None  # what it was moved to
     placements: list[Placement] = field(default_factory=list)
-    # What was done to the case before anything was moved: a fault, a stretched delay, a
-    # profile.
-    base: str = ""
+    base: str = ""  # what was changed before anything was moved: a fault, a stretch, a profile
 
     @property
     def what(self) -> str:
-        """What was changed, for a person: ``backend.error 1``, ``speech.position 1``,
-        ``backend.drop 1 + speech.position 1``."""
+        """What was changed, for a person, such as ``backend.drop 1 + speech.position 1``."""
         return " + ".join(
             part for part in (self.base, str(self.variable) if self.variable else "") if part
         )
@@ -359,10 +294,8 @@ def candidates(
     delay_limit_us: int = DELAY_LIMIT_US,
     base: str = "",
 ) -> tuple[list[Candidate], list[Placement]]:
-    """Every case in which one of ``handles`` falls before, at or after one of
-    ``targets``, and the placements for which no such case exists (a delay cannot be
-    negative or longer than ``delay_limit_us``, a speech cannot overlap or pass another).
-    Cases that coincide are one candidate."""
+    """Every case that puts one of ``handles`` at an offset from one of ``targets``, and the
+    placements for which no case exists. Cases that coincide are one candidate."""
     found: dict[str, Candidate] = {}
     impossible: list[Placement] = []
     offsets = tuple(offsets_us)
@@ -386,20 +319,11 @@ def candidates(
     return list(found.values()), impossible
 
 
-# --------------------------------------------------------------------------- windows
-
-
 @dataclass
 class Window:
-    """How far a variable can move while the run still breaks a rule: every value from
-    ``lo_us`` to ``hi_us`` does, as far as was probed.
-
-    Each end says why the search for it stopped. ``passes``: a run just beyond it does
-    not break the rule; this is an edge of the failure. ``blocked``: no case exists
-    beyond it (a delay at zero, a speech against another) or none could be judged; the
-    failure holds as far as the scenario can go. ``reach``: the search gave up; the
-    failure may hold further. ``resolution_us`` is how finely each end was located.
-    """
+    """How far a variable can move while the run still breaks a rule. Each end says why
+    probing stopped: ``passes`` (a run beyond it does not break the rule), ``blocked`` (no
+    case beyond it exists or can be judged) or ``reach`` (the search gave up)."""
 
     variable: Variable
     lo_us: int
@@ -414,8 +338,7 @@ class Window:
 
     @property
     def instant(self) -> bool:
-        """It breaks at one value and not a microsecond either side: a matter of which of
-        two same-instant events ran first, and nothing more."""
+        """It breaks at one value only: a matter of which of two same-instant events ran first."""
         return (
             self.width_us == 0
             and self.resolution_us == 1
@@ -444,20 +367,15 @@ def window(
     resolution_us: int = 1_000,
     reach_us: int = 30_000_000,
 ) -> Window:
-    """The window around ``case`` along ``variable``: the values, reached from the
-    case's own without a passing run between, at which running it still breaks
-    ``predicate``. ``case`` must break it.
-
-    Each end is found by doubling the step until a run does not break the rule and then
-    halving back, to within ``resolution_us``. A window narrower than that is located
-    again to the microsecond.
-    """
+    """The window around ``case`` along ``variable`` in which a run still breaks ``predicate``.
+    Raises ``ValueError`` if ``case`` does not break it. Each end is located to within
+    ``resolution_us``; a window narrower than that is located again to the microsecond."""
     at = cases.value(case, variable)
     if at is None or not runner.breaks(case, predicate):
         raise ValueError(f"the case does not break {predicate} with {variable} declared")
 
     def breaks(to: int) -> bool | None:
-        """True or false; None where there is no case, or no run that can be judged."""
+        """None where there is no case, or no run that can be judged."""
         moved = cases.with_value(case, variable, to)
         if moved is None:
             return None
@@ -493,13 +411,8 @@ def window(
     return Window(variable, lo, hi, lo_end, hi_end, resolution_us)
 
 
-# --------------------------------------------------------------------------- the search
-
-
 @dataclass
 class Tried:
-    """One candidate, run."""
-
     candidate: Candidate
     outcome: Outcome
 
@@ -513,9 +426,7 @@ class Break:
     everywhere: bool  # it breaks as given and in every case tried: not a matter of timing
     changed: tuple[str, ...]  # what was changed in the cases that break it
     windows: tuple[Window, ...]  # how far each moved time can go while it still breaks
-    # It breaks only where two events fall on the same instant: a matter of which ran
-    # first, which says nothing about the system.
-    instants_only: bool
+    instants_only: bool  # it breaks only where two events fall on the same instant
     example: cases.Case  # a case that breaks it, with the least changed
     what: str  # what was changed in the example
     details: tuple[str, ...]  # the checker's findings for the example
@@ -525,7 +436,6 @@ def _seconds(us: int) -> str:
     return f"{us / 1_000_000:.3f} s"
 
 
-# Why the search for one end of a window stopped, for a person.
 _ENDS = {
     "passes": "passes beyond it",
     "blocked": "no case exists beyond it",
@@ -550,8 +460,7 @@ class Exploration:
         return [t for t in self.tried if predicate in t.outcome.failures]
 
     def everywhere(self, predicate: Predicate) -> bool:
-        """Whether the rule breaks in the case as given and in every candidate that ran:
-        a failure that is not about timing at all."""
+        """Whether the rule breaks in the case as given and in every candidate that ran."""
         ran = [t for t in self.tried if t.outcome.ran]
         return predicate in self.original.failures and all(
             predicate in t.outcome.failures for t in ran
@@ -560,9 +469,7 @@ class Exploration:
     def windows(
         self, predicate: Predicate, *, most: int = 3, resolution_us: int = 1_000
     ) -> list[Window]:
-        """The windows in which the rule breaks, measured: at most ``most`` per variable
-        and base, each around a breaking candidate that lies in none measured before it.
-        A candidate that only added a fault moved nothing and has no window."""
+        """The measured windows in which the rule breaks, at most ``most`` per variable and base."""
         out: list[Window] = []
         measured: list[tuple[str, Window]] = []
         per_variable: dict[tuple[str, Variable], int] = {}
@@ -591,9 +498,7 @@ class Exploration:
         return out
 
     def coverage(self) -> dict[str, dict[str, Any]]:
-        """For each handle, which kinds of transition it was put beside in a run that can
-        be judged, and which it never was and why: no such case exists, the adapter
-        refused it, the run raised, or the run was not valid evidence."""
+        """For each handle, the kinds of transition it was put beside and those it never was."""
         reached: dict[str, set[str]] = {}
         missed: dict[str, dict[str, set[str]]] = {}
 
@@ -625,10 +530,8 @@ class Exploration:
         }
 
     def breaks(self, *, windows: bool | Iterable[Predicate] = True) -> list[Break]:
-        """Every rule the search found broken, with an example of each. ``windows``
-        measures how wide each failure is, which takes further runs: for every rule, for
-        none, or for the rules named. A failure that is not measured is not known to be
-        at single instants only."""
+        """Every rule the search found broken, with an example of each. ``windows`` says which
+        failures have their width measured, which takes further runs: all, none or those named."""
         wanted = None if isinstance(windows, bool) else set(windows)
         out = []
         for predicate in self.predicates():
@@ -678,7 +581,6 @@ class Exploration:
         return out
 
     def _what(self, candidate: Candidate) -> str:
-        """What a candidate changed, with the time it moved and where that time was."""
         if candidate.variable is None or candidate.value_us is None:
             return candidate.base
         was = cases.value(self.case, candidate.variable)
@@ -728,10 +630,8 @@ class Exploration:
         return "\n".join(lines)
 
     def assert_contracts(self, *, allow: Iterable[Any] = ()) -> None:
-        """Raise ``ContractFailure``, an ``AssertionError``, if the search found a rule
-        broken. A rule that breaks only at single instants is not counted. ``allow``
-        names rules that may break, as ``CONTRACT/RULE``: a known defect of a release
-        under test."""
+        """Raise ``ContractFailure`` if the search found a rule broken. Rules that break only at
+        single instants, or are named in ``allow`` as ``CONTRACT/RULE``, are not counted."""
         __tracebackhide__ = True  # pytest then shows the test's own line, not this one
         found = self.breaks()
         counted = [
@@ -768,13 +668,29 @@ DEFAULT_VARIABLES = ("speech.position", *cases.DELAY_KINDS, cases.HANGUP)
 # How long the caller of a write waits, when a search adds a timeout or a drop.
 WAIT_US = 1_000_000
 
+WORKERS_VARIABLE = "EARFUL_WORKERS"
+
+
+def default_workers() -> int:
+    """How many worker processes a search starts by default: one per processor, or what
+    ``EARFUL_WORKERS`` gives, where 0 means none. Raises ``ValueError`` for anything else."""
+    given = os.environ.get(WORKERS_VARIABLE, "").strip()
+    if not given:
+        return os.cpu_count() or 1
+    try:
+        workers = int(given)
+    except ValueError:
+        workers = -1
+    if workers < 0:
+        raise ValueError(f"{WORKERS_VARIABLE} is a number of processes, 0 for none; got {given!r}")
+    return workers
+
 
 def check_arguments(
     case: cases.Case, variables: Iterable[str], faults: Iterable[str]
 ) -> tuple[tuple[str, ...], tuple[str, ...]]:
-    """What a search is asked for, checked before anything is run or started: the case is
-    earful.case/1, and every variable and fault named is one there is. Returns the
-    variables and the faults. Raises ``ValueError`` otherwise."""
+    """Check what a search is asked for before anything runs. Returns the variables and the
+    faults. Raises ``ValueError`` for an invalid case or an unknown variable or fault."""
     errors = cases.validate(case)
     if errors:
         raise ValueError("not an earful.case/1 document: " + "; ".join(errors))
@@ -808,37 +724,10 @@ def explore(
 ) -> Exploration:
     """Search ``case`` for the timings and faults at which it breaks a contract.
 
-    **One thing at a time.** Each variable named by ``variables`` is moved so that its
-    handles fall before, at and after every transition: by default where each speech
-    sits, every provider delay, and the moment the user hangs up: the user leaves, and
-    the session is closed, at every transition after their last speech. ``speech.end``
-    and ``speech.stt_delay`` can be added.
-    Each fault named by ``faults`` is added to each backend write the run made: an error,
-    a timeout, a drop. For a timeout the write is tried committing before the caller
-    gives up and after. The moment the caller gives up is then moved to every transition,
-    and so is the commit of a write that timed out.
-
-    **Two things at a time**, if asked for. With ``pairs``, every speech (and the hangup,
-    if it is among the variables) is moved again with each fault in place, and faults are
-    added to two writes at once. Each backend write and each model generation the run
-    made is also stretched to ``stretch_us``, one per version of the case, and every
-    speech and the hangup are moved again with that delay in place: to each transition
-    itself, the ends of played words left out. A delay that is already that long is not
-    stretched. With
-    ``profiles``, every speech is moved again under that many provider-timing profiles:
-    every delay the run applied, redrawn at random from a seed, so that the same search
-    gives the same profiles.
-
-    ``speeches`` limits the speeches moved (by index) and ``moments`` the speech handles
-    used (``vad_start``, ``interrupt``, ``transcript``, ``vad_end``, ``turn_end``).
-    ``words`` adds the end of every played word to the transitions. No provider delay or
-    wait is made longer than ``delay_limit_us``, and ``wait_us`` is how long a caller
-    waits where a search adds a timeout or a drop. ``each`` is how the runs are carried
-    out: ``map`` one after another, a process pool's ``map`` side by side, provided
-    ``run`` can be sent to another process.
-
-    Raises ``ValueError`` if ``case`` is not earful.case/1 or cannot be run as given.
-    """
+    Moves each of ``variables`` beside every transition and adds each of ``faults`` to each
+    backend write. ``pairs`` also tries two changes at once, and ``profiles`` moves the
+    speeches again under that many seeded redraws of the provider delays.
+    Raises ``ValueError`` if ``case`` is not earful.case/1 or cannot be run as given."""
     kinds, fault_kinds = check_arguments(case, variables, faults)
     runner = Runner(run)
     offsets = tuple(offsets_us)
@@ -867,8 +756,7 @@ def explore(
     def place(
         on: cases.Case, handles: list[Handle], against: list[Event], base: str, coarse: bool = False
     ) -> None:
-        """Put each handle beside every transition of the run ``against``. A coarse
-        placing is at each transition itself, the ends of played words left out."""
+        """A coarse placing is at each transition itself, the ends of played words left out."""
         tried, cannot = candidates(
             on,
             handles,
@@ -906,13 +794,10 @@ def explore(
         if stays is not None:
             place(on, [hangup_handle(on, stays)], stays, base, coarse)
 
-    # One thing at a time: each delay against the run as it is, each speech against the
-    # run without it, the hangup against the run in which the user stays.
     place(case, delay_handles(events, delay_kinds), events, "")
     move_speeches(case, events, "")
     move_hangup(case, events, "")
 
-    # One fault at a time, on each write the run made.
     faulted: list[tuple[str, int, cases.Case]] = []  # (label, the write, the case with the fault)
     as_written: set[str] = set()  # the labels of timeouts whose write keeps the scenario's latency
     requests = [e["data"] for e in events if e["kind"] == "effect.requested"]
@@ -924,10 +809,7 @@ def explore(
                 continue  # the write already has a fault
             versions: list[tuple[str, cases.Case | None]] = [(f"{of} {nth}", with_one)]
             if of == "backend.timeout":
-                # The write commits at its own latency: before the caller gives up, or
-                # after. One order is the scenario's. The other is made by letting the
-                # write take 1 s longer than the wait, or the caller wait 1 s longer than
-                # the write.
+                # Both orders are tried: the write commits before the caller gives up, and after.
                 latency = request["latency_us"]
                 if latency < wait_us:
                     other = cases.with_value(
@@ -950,7 +832,6 @@ def explore(
                 if version is not None:
                     faulted.append((label, nth, version))
                     keep(Candidate(version, None, None, base=label))
-    # ... and the moment the caller gives up, to every transition.
     under: dict[str, list[Event]] = {}
     with_faults = runner.ledgers([version for _label, _nth, version in faulted], each)
     for (label, nth, version), produced in zip(faulted, with_faults):
@@ -971,19 +852,16 @@ def explore(
             )
             place(version, [handle], produced, label)
         if label in as_written:
-            # ... and the commit of a write whose caller gives up, to every transition.
             commits = [
                 h for h in delay_handles(produced, ["backend.latency"]) if h.variable.index == nth
             ]
             place(version, commits, produced, label)
 
     if pairs:
-        # A fault and a speech: every speech again, and the hangup, with each fault in place.
         for label, _nth, version in faulted:
             if label in under:
                 move_speeches(version, under[label], label)
                 move_hangup(version, under[label], label)
-        # Two faults: on two different writes.
         for i, (label, nth, version) in enumerate(faulted):
             for other_label, other_nth, other in faulted[i + 1 :]:
                 if other_nth == nth:
@@ -997,9 +875,6 @@ def explore(
                     both = cases.with_value(both, commit, later)
                 if both is not None:
                     keep(Candidate(both, None, None, base=f"{label} + {other_label}"))
-        # A slow provider and a speech: each write and each generation the run made is
-        # stretched, one per version, and every speech and the hangup are moved against
-        # the run of that version. A delay already that long is left as it is.
         to = min(stretch_us, delay_limit_us)
         slow: list[tuple[str, cases.Case]] = []
         for delay in delay_handles(events, STRETCHED):
@@ -1014,7 +889,6 @@ def explore(
                 move_speeches(longer, produced, label, coarse=True)
                 move_hangup(longer, produced, label, coarse=True)
 
-    # Every speech again, under provider delays redrawn from a seed.
     applied = delay_handles(events, cases.DELAY_KINDS)
     redrawn: list[cases.Case] = []
     for number in range(1, profiles + 1):
@@ -1043,6 +917,7 @@ __all__ = [
     "STRETCHED",
     "STRETCH_US",
     "WAIT_US",
+    "WORKERS_VARIABLE",
     "Break",
     "Candidate",
     "Each",
@@ -1058,6 +933,7 @@ __all__ = [
     "attempt",
     "candidates",
     "check_arguments",
+    "default_workers",
     "delay_handles",
     "evaluate",
     "explore",

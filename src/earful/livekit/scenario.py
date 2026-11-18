@@ -1,27 +1,5 @@
 """Between a ``Case`` and its data: the LiveKit side of earful.case/1.
-
-The core moves, reduces and saves cases as plain data (``earful.core.case``). This module
-turns a harness ``Case`` into that data and back, and runs the data: the one function the
-boundary scheduler and the shrinker need from an adapter.
-
-    data = default("earful.livekit.cases:book_then_interrupt")
-    events = run(data)          # a real AgentSession, on the virtual clock
-
-A scenario is named by ``module:function``. The function takes no arguments and returns
-a ``Case``: the agent, the model policy and the defaults. The data then overrides the
-speeches, the hangup, the declared delays and faults, the settings, the seed and the
-contract policy.
-
-A scenario can also be given as it stands, without a name: a ``Case`` built in a test, or
-a function that returns one (``Scenario.of``). It then runs in the process that built it.
-A scenario that is to be saved as a bundle, or run in worker processes, has to be
-importable, since a bundle and a worker both build it again from its name. A function
-defined at the top level of a module is; a ``Case`` object, a lambda and a function
-defined inside another are not.
-
-Running a case imports and calls the function it names. Run only cases you trust, as you
-would only run test code you trust.
-"""
+Running a case imports and calls the ``module:function`` it names: run only cases you trust."""
 
 from __future__ import annotations
 
@@ -68,8 +46,7 @@ _PLAIN: dict[str, tuple[str, type]] = {
 
 SETTINGS = (*_TIMES, *_PLAIN)
 
-# What the data of a case names as its scenario when the scenario has no name: it was
-# built in the process that runs it and cannot be built again from the data.
+# The scenario a case names when it was built inline and cannot be built again from its data.
 INLINE = "__inline__:case"
 _REFERENCE = re.compile(r"^[A-Za-z_][A-Za-z0-9_.]*:[A-Za-z_][A-Za-z0-9_.]*$")
 
@@ -77,8 +54,7 @@ Source = str | Case | Callable[[], Case]
 
 
 def resolve(scenario: str) -> Callable[[], Case]:
-    """The function a ``module:function`` reference names. Raises ``ValueError`` if there
-    is no such module or function."""
+    """The function a ``module:function`` reference names, or ``ValueError`` if there is none."""
     if scenario == INLINE:
         raise ValueError(
             "this case was built inline, in the process that ran it, so its data does not "
@@ -99,9 +75,6 @@ def resolve(scenario: str) -> Callable[[], Case]:
 
 
 def _copied(case: Case) -> Case:
-    """``case`` with every container it holds copied. The agent factory, the policy and
-    the sink class are code and are shared; the values of ``session_kwargs`` are whatever
-    the caller put there and are shared too."""
     return dataclasses.replace(
         case,
         speeches=list(case.speeches),
@@ -115,7 +88,6 @@ def _copied(case: Case) -> Case:
 
 
 def _importable(make: Callable[[], Case]) -> str | None:
-    """The ``module:function`` reference that gives ``make`` back, if there is one."""
     module, name = getattr(make, "__module__", None), getattr(make, "__qualname__", None)
     if not module or not name or module == "__main__":
         return None  # a worker process has another __main__
@@ -129,8 +101,7 @@ def _importable(make: Callable[[], Case]) -> str | None:
 
 
 def importable(reference: str | None, to: str) -> str:
-    """``reference``, for something that needs one: ``to`` says what. Raises
-    ``ValueError``, saying what to change, for a scenario built inline."""
+    """``reference``, or ``ValueError`` for a scenario built inline. ``to`` says what needs it."""
     if reference is None or reference == INLINE:
         raise ValueError(
             f"to {to}, the scenario has to be importable: define it as a function at the "
@@ -151,15 +122,8 @@ class Scenario:
     @classmethod
     def of(cls, source: Source) -> Scenario:
         """The scenario ``source`` gives: a ``module:function`` reference, a function that
-        returns a ``Case``, or a ``Case``.
-
-        A function is called once for each run, so whatever it builds is fresh each time.
-        A ``Case`` is copied for each run, with its lists and dicts copied too, so that
-        nothing a run or a hook does to them reaches the caller's ``Case`` or the next
-        run. Its agent is built anew by its own factory, and its model policy is the same
-        object in every run, which is as it should be for a policy that depends on the
-        context alone.
-        """
+        returns a ``Case``, or a ``Case``, which is copied for each run. Raises ``TypeError``
+        for anything else."""
         if isinstance(source, str):
             return cls(resolve(source), source)
         if isinstance(source, Case):
@@ -185,14 +149,12 @@ class Scenario:
         return build(data, self.make)
 
     def run(self, data: dict[str, Any]) -> list[dict[str, Any]]:
-        """Run the case ``data`` describes, in this process, and return its ledger: what a
-        search takes as ``run`` for a scenario that is not importable."""
+        """Run the case ``data`` describes, in this process, and return its ledger."""
         return run_case(self.build(data), seed=data["seed"], require_valid=False).ledger.events
 
 
 def fingerprint(scenario: str) -> str:
-    """A digest of the source of the module a scenario lives in. A saved case names its
-    code by reference; this is how a replay can tell that the code has since changed."""
+    """A digest of the source of the scenario's module, by which a replay sees it changed."""
     module = inspect.getmodule(resolve(scenario))
     try:
         source = inspect.getsource(module) if module is not None else ""
@@ -202,8 +164,7 @@ def fingerprint(scenario: str) -> str:
 
 
 def describe(case: Case, scenario: str, seed: int = 0) -> dict[str, Any]:
-    """The data of ``case``, as earful.case/1. ``scenario`` is the reference that will
-    produce its code again."""
+    """The data of ``case``, as earful.case/1, naming ``scenario`` as its code."""
     return {
         "schema": case_format.SCHEMA,
         "schema_minor": case_format.SCHEMA_MINOR,
@@ -248,11 +209,9 @@ def default(scenario: str, seed: int = 0) -> dict[str, Any]:
 
 
 def build(data: dict[str, Any], make: Callable[[], Case] | None = None) -> Case:
-    """The ``Case`` that ``data`` describes: the scenario's code, with the data's
-    speeches, hangup, delays, faults, settings and contract policy. The code is what
-    ``make`` returns, or what the scenario the data names returns. Raises ``ValueError``
-    on data that is not earful.case/1, names a setting this adapter does not have or gives
-    one the wrong kind of value, or names a scenario that does not exist."""
+    """The ``Case`` that ``data`` describes: the code ``make`` or the named scenario returns,
+    with the data's values. Raises ``ValueError`` for data that is not earful.case/1, a bad
+    setting or a scenario that does not exist."""
     errors = case_format.validate(data)
     if errors:
         raise ValueError("not an earful.case/1 document: " + "; ".join(errors))
@@ -300,22 +259,18 @@ def build(data: dict[str, Any], make: Callable[[], Case] | None = None) -> Case:
 
 
 def run(data: dict[str, Any]) -> list[dict[str, Any]]:
-    """Run the case ``data`` describes and return its ledger. A run that is not valid
-    evidence is returned all the same; the checker says why and gives no verdicts.
+    """Run the case ``data`` describes and return its ledger, valid evidence or not.
     Raises ``ValueError`` if the case is refused before it runs."""
     return run_case(build(data), seed=data["seed"], require_valid=False).ledger.events
 
 
 def pool(workers: int | None = None) -> ProcessPoolExecutor:
-    """Worker processes for running cases side by side: ``pool().map`` is what the
-    scheduler's ``each`` takes. Each worker starts as a fresh interpreter, on every
-    platform, so nothing of this process's event loops or threads is carried into it."""
+    """Worker processes for running cases side by side, each spawned as a fresh interpreter."""
     return ProcessPoolExecutor(max_workers=workers, mp_context=multiprocessing.get_context("spawn"))
 
 
 def environment() -> dict[str, str]:
-    """What a saved case was run with: the framework, Earful, the interpreter, the
-    platform, and a digest of every installed distribution and its version."""
+    """What a saved case was run with, and a digest of every installed distribution."""
     installed = sorted(
         f"{d.metadata['Name']}=={d.version}" for d in metadata.distributions() if d.metadata["Name"]
     )

@@ -1,35 +1,4 @@
-"""Effect backend: the witness for durable side effects.
-
-Tools under test write here instead of to a real service. Every write is recorded when it
-is requested and again when its outcome is known: committed, deduplicated or failed. Both
-are separate from whatever the tool goes on to return, so "the tool wrote, then its result
-was lost" is observable.
-
-A scenario can declare faults for individual writes:
-
-* ``error``: the backend rejects the write. Nothing commits, and the caller is told.
-* ``timeout``: the caller stops waiting after a given time and is told the write timed
-  out. The write itself still commits at its own latency, before or after that.
-* ``drop``: the write is lost. Nothing commits, and the caller is told it timed out.
-
-Once a write is requested it belongs to the backend. Its outcome is scheduled on the clock
-at that moment, from its latency and its fault, and nothing that happens to the caller
-afterwards changes it: a tool that is cancelled while it waits has still written.
-
-Code under test reaches the backend of the run it is in through ``effect``. Nothing has to
-be handed a backend: an agent is built as it is built anywhere, and the stand-in for the
-service it writes to calls ``effect`` where the real one would make the write durable.
-
-    class FakeReservations:
-        async def create(self, party_size: int) -> str:
-            return await effect("book-table-1", {"party_size": party_size})
-
-Where a tool talks to its service directly and has nothing to stand in for, an ``Effect``
-declares the write for the tool as a whole, and an adapter makes it in place of the tool's
-body.
-
-Framework-independent: this module must never import livekit.
-"""
+"""Effect backend: records each durable write a tool requests and what became of it."""
 
 from __future__ import annotations
 
@@ -42,8 +11,7 @@ from typing import Any, Literal
 from .ledger import Ledger, json_value
 from .timebase import to_seconds, to_us
 
-# The witnessed tool invocation currently running, if any. A framework adapter sets it
-# while a tool runs, so each write can name the invocation that made it.
+# The witnessed tool invocation currently running, if any; set by a framework adapter.
 current_tool: ContextVar[int | None] = ContextVar("earful_current_tool", default=None)
 
 BackendMode = Literal["plain", "keyed"]
@@ -59,15 +27,11 @@ class BackendTimeout(TimeoutError):
 
 
 class EffectBackend:
-    """A deterministic store.
+    """A deterministic store for the writes of one run.
 
-    ``plain``: every write commits. ``keyed``: a write whose idempotency key has already
-    committed is deduplicated and returns the original receipt.
-
-    ``latencies_us`` maps a request number (from 1) to how long that write takes, in
-    place of what the tool asked for. ``faults`` maps a request number to its fault:
-    ``("backend.error", None)``, or ``("backend.timeout", us)`` / ``("backend.drop", us)``
-    with the time after which the caller stops waiting.
+    ``plain`` commits every write; ``keyed`` deduplicates a write whose key has committed.
+    ``latencies_us`` and ``faults`` are keyed by request number, from 1. A fault is
+    ``("backend.error", None)``, or a timeout or drop with how long the caller waits, in us.
     """
 
     def __init__(
@@ -98,16 +62,9 @@ class EffectBackend:
         key: str | None = None,
         latency: float = 0.0,
     ) -> str:
-        """Request one durable effect for ``intent`` and return its receipt.
-
-        ``latency`` is the time, in seconds, the backend takes to make the write durable;
-        a latency the scenario declared for this request takes its place. A keyed backend
-        decides whether a key is a repeat at that moment, not when the write was
-        requested, so two overlapping writes with one key commit once.
-
-        Raises ``BackendError`` if the scenario declared that the backend rejects this
-        write, and ``BackendTimeout`` if it declared that the caller stops waiting.
-        """
+        """Request one durable effect for ``intent`` and return its receipt. ``latency`` is
+        in seconds; a keyed backend decides whether a key repeats when the write commits.
+        Raises ``BackendError`` or ``BackendTimeout`` for a write with a declared fault."""
         self._requests += 1
         request = self._requests
         latency_us = self._latencies_us.get(request, to_us(latency))
@@ -122,8 +79,7 @@ class EffectBackend:
             tool=current_tool.get(),
             latency_us=latency_us,
         )
-        # The outcome is the backend's from here on: scheduled now, whatever becomes of
-        # the caller. A dropped write has none.
+        # The outcome is scheduled now, whatever becomes of the caller. A dropped write has none.
         outcome: asyncio.Future[str] = asyncio.get_running_loop().create_future()
         if fault != "backend.drop":
             self._schedule(
@@ -153,8 +109,6 @@ class EffectBackend:
         *,
         rejected: bool,
     ) -> None:
-        """Decide the write's outcome ``latency_us`` from now: at once if that is zero."""
-
         def settle() -> None:
             pending = self._in_flight.pop(request, None)
             try:
@@ -216,8 +170,7 @@ class EffectBackend:
             await next(iter(self._in_flight.values()))[1]
 
     async def cancel_in_flight(self) -> None:
-        """Stop every write still under way. The harness does this when the scenario is
-        over: a write that had not committed by then has no outcome in the ledger."""
+        """Stop every write still under way: such a write has no outcome in the ledger."""
         for timer, _done in self._in_flight.values():
             timer.cancel()
         self._in_flight.clear()
@@ -226,7 +179,6 @@ class EffectBackend:
         return self._commits.get(intent, 0)
 
 
-# The backend of the run in progress, if any. A harness installs one for each run.
 _backend: ContextVar[EffectBackend | None] = ContextVar("earful_backend", default=None)
 
 
@@ -251,12 +203,8 @@ async def effect(
     key: str | None = None,
     latency: float = 0.0,
 ) -> str:
-    """Request one durable effect for ``intent`` from the backend of the run in progress
-    and return its receipt: ``EffectBackend.write``, without having been handed a backend.
-
-    Raises ``RuntimeError`` outside a run. A stand-in that calls this is test code, and a
-    write that went nowhere would leave a contract with nothing to check.
-    """
+    """``EffectBackend.write`` on the backend of the run in progress. Raises ``RuntimeError``
+    outside a run."""
     backend = _backend.get()
     if backend is None:
         raise RuntimeError(
@@ -270,20 +218,10 @@ Arguments = dict[str, Any]  # a tool call's arguments, by parameter name
 
 @dataclass(frozen=True)
 class Effect:
-    """One durable write, declared for a tool as a whole.
+    """One durable write, declared for a tool as a whole and made in place of its body.
 
-    In a run, a call of the tool makes the write in place of the tool's body, and the tool
-    returns what ``result`` makes of the receipt. Outside a run the tool is untouched.
-
-    ``intent`` is the logical action the write is for. ``payload`` gives what is written,
-    from the call's arguments: by default the arguments themselves, as JSON holds them.
-    ``key`` is the idempotency key sent with the write: one string for every call, or a
-    function of the arguments. By default no key is sent. ``result`` gives what the tool
-    returns, from the receipt and the arguments: by default the receipt. ``latency`` is
-    how long the backend takes to make the write durable, in seconds.
-
-    A write the backend rejects, or one whose caller stops waiting, raises from the tool
-    as ``BackendError`` or ``BackendTimeout``.
+    ``payload`` defaults to the call's arguments as JSON, ``key`` to no idempotency key and
+    ``result`` to the receipt. ``latency`` is in seconds.
     """
 
     intent: str

@@ -14,10 +14,7 @@ READ = "most_favourable_reading"
 
 
 def _judged_in(view: View, playout: Playout) -> tuple[list[Context], list[str]]:
-    """The contexts that judge something said, and the flags that qualify the choice:
-    every model context requested after its playout finished; the final chat history if
-    there is none. Speech whose audio never reached the output has no such moment, and is
-    judged on the final history."""
+    """The model contexts requested after the playout finished, else the final history."""
     settled = playout.settled
     flags = [] if settled is not None else ["never_reached_the_output"]
     contexts = [
@@ -44,13 +41,10 @@ def _judge(
     message: dict[str, Any] | None,
     context: Context,
 ) -> tuple[dict[str, Any], list[Finding]]:
-    """Hold one remembered message (or its absence) against what was played."""
     label, event, _items = context
     words, played, cut = item.words, playout.played, playout.cut
     remembered = len((message.get("text") or "").split()) if message else 0
-    # Drift: the audio between where memory stops and where playout stopped. The word the
-    # playout stopped inside may be remembered or not, so memory that stops on either side
-    # of it agrees exactly. Positive: memory is ahead.
+    # Positive drift: memory is ahead. The cut word may be remembered or not at no cost.
     if remembered > played + cut:
         drift = view.end_us(item, playout.utterance, remembered) - view.end_us(
             item, playout.utterance, played + cut
@@ -101,10 +95,7 @@ def _judge(
                 seqs,
             )
         )
-    # Cut short: a word was left unplayed, or the sink was cleared before the audio ended
-    # (which can happen in the silence after the last word). A stop that reached the sink
-    # at the instant the last word ended leaves the audio whole and the reply interrupted,
-    # both at once: either mark is right.
+    # A stop landing as the last word ended leaves the audio whole, so either mark is right.
     cut_short = played < len(words) or playout.interrupted
     either_mark = played == len(words) and view.stopped_as_it_ended(playout)
     if (
@@ -134,9 +125,7 @@ def check(view: View, policy: policies.M1) -> ContractResult:
         if not (playouts[item.key].unattributable or playouts[item.key].pending)
     }
 
-    # Which message of a context each thing said is. Where identical texts leave more than
-    # one answer, the one that agrees best with what was played is taken: a remembered
-    # message has no identity beyond its words and its place, so no answer is truer.
+    # Among identical texts, the match that agrees best with what was played is taken.
     read: dict[str, tuple[dict[str, int | None] | None, set[str]]] = {}
 
     def reading_of(context: Context) -> tuple[dict[str, int | None] | None, set[str]]:

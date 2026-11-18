@@ -56,9 +56,6 @@ def _one_turn(name, agent, policy, **kwargs):
     )
 
 
-# --------------------------------------------------------------------------- tools
-
-
 def test_an_agent_needs_no_changes_for_its_tools_to_be_witnessed():
     """BookingAgent's tool is a plain ``@function_tool``; the harness wraps it."""
     events = run_case(CASES["book_then_interrupt"]()).ledger.events
@@ -69,7 +66,6 @@ def test_an_agent_needs_no_changes_for_its_tools_to_be_witnessed():
     assert [e["data"]["tool"] for e in _of(events, "tool.returned")] == [
         e["data"]["tool"] for e in called
     ]
-    # each backend write names the tool invocation that made it
     assert [e["data"]["tool"] for e in _of(events, "effect.requested")] == [
         e["data"]["tool"] for e in called
     ]
@@ -112,7 +108,7 @@ def test_a_structured_result_is_recorded_as_a_value_and_as_the_text_the_model_is
         for item in e["data"]["items"]
         if item["type"] == "function_call_output"
     ]
-    # Earful computed the text from the value the tool returned; the model was shown the same
+    # the text Earful computed from the returned value is what the model was shown
     assert shown == [returned["data"]["text"]]
 
 
@@ -202,9 +198,6 @@ def test_values_json_cannot_hold_are_named_not_printed():
     assert tools.model_text(None) == ""  # a tool that returns nothing is shown as empty text
 
 
-# --------------------------------------------------------------------------- backend
-
-
 def test_keyed_backend_deduplicates():
     async def main():
         ledger = Ledger(lambda: 0, run="test")
@@ -236,9 +229,6 @@ def test_keyed_backend_deduplicates():
 
 
 def test_keyed_backend_deduplicates_writes_that_overlap():
-    """Two writes with one key, both in flight at once: both are requested before either
-    is durable, one commits and the other is deduplicated against it."""
-
     async def main():
         ledger = Ledger(now_us, run="test")
         backend = EffectBackend(ledger, mode="keyed")
@@ -347,8 +337,6 @@ def test_a_write_still_under_way_when_the_scenario_ends_has_no_outcome():
 
 
 def _abandoned(faults=None):
-    """One write that takes 2 s, whose caller is cancelled after 0.5 s."""
-
     async def main():
         ledger = Ledger(now_us, run="test")
         backend = EffectBackend(ledger, faults=faults, latencies_us={1: 2_000_000})
@@ -364,8 +352,7 @@ def _abandoned(faults=None):
 
 
 def test_a_write_commits_although_its_caller_was_cancelled():
-    """Once requested, a write is the backend's. A tool cancelled while it waits has
-    still written, as a request a real service has received is still carried out."""
+    """Once requested, a write is the backend's: a tool cancelled while waiting has written."""
     assert _abandoned() == ([("effect.requested", 0), ("effect.committed", 2_000_000)], 1)
 
 
@@ -375,9 +362,7 @@ def test_a_rejected_write_whose_caller_has_gone_is_still_recorded():
 
 
 def test_the_user_hangs_up_and_a_write_under_way_still_commits():
-    """The user leaves at 5 s, mid-reply, with a 6 s write requested at about 3 s. The
-    output stops as they leave, the write commits at its own latency, and the final
-    history is read after both."""
+    """The user leaves at 5 s, mid-reply, with a 6 s write requested at about 3 s."""
     case = CASES["book_then_interrupt"]()
     case.speeches = case.speeches[:1]
     case.delays = [Delay("backend.latency", 1, 6.0)]
@@ -445,7 +430,6 @@ def test_declared_faults_are_in_the_header_and_the_run_is_valid():
     assert (
         gave_up["data"]["after_us"] == 500_000 and committed["t_us"] - gave_up["t_us"] == 1_500_000
     )
-    # The tool was told; the model was shown an error for that call.
     raised = _of(events, "tool.raised")[0]
     assert raised["t_us"] == gave_up["t_us"]
     shown = [
@@ -507,11 +491,7 @@ def test_a_write_for_an_undeclared_intent_makes_the_run_invalid():
     assert _of(caught.value.result.ledger.events, "effect.committed")  # the evidence is kept
 
 
-# --------------------------------------------------------------------------- scenario
-
-
 def test_a_policy_that_reuses_a_tool_call_id_is_a_harness_error():
-    """A call id links an invocation to its result; a model never gives two calls one id."""
     turns = {"n": 0}
 
     def policy(items):
@@ -573,8 +553,6 @@ def test_a_scenario_that_contradicts_itself_is_refused_before_it_runs():
 
 
 def test_the_scripted_vad_declares_the_interval_it_reports_at():
-    """While the user speaks the scripted VAD reports once every ``min_speech_duration``.
-    The interval it declares to the framework is that one."""
     ledger = Ledger(lambda: 0)
     for seconds in (0.05, 0.2):
         vad = ScriptedVAD(ledger, [], WorldOrigin(ledger, []), min_speech_duration=seconds)
@@ -582,9 +560,8 @@ def test_the_scripted_vad_declares_the_interval_it_reports_at():
 
 
 def test_speech_that_resumes_within_the_vads_silence_window_is_one_segment_to_it():
-    """The user pauses for 0.3 s mid-sentence. A VAD reports the end of speech only after
-    0.5 s of silence, so it reports one segment: its start with the first speech, its end
-    after the second. The recognizer still delivers two transcripts."""
+    """The user pauses for 0.3 s mid-sentence. A VAD reports the end of speech only after 0.5 s
+    of silence, so it reports one segment; the recognizer still delivers two transcripts."""
     case = CASES["barge_in_mid_word"]()
     case.speeches = [
         UserSpeech(0.5, 1.5, "Tell me about"),
@@ -646,9 +623,6 @@ def test_header_declares_the_scenario_and_what_ran_it():
     assert len({e["run"] for e in events}) == 1
 
 
-# --------------------------------------------------------------------------- sink and TTS
-
-
 def _word_ends_us(events, utterance=0):
     """When each word of a synthesized text ends, in microseconds of audio."""
     tts = _of(events, "tts.synthesized")[utterance]["data"]
@@ -680,8 +654,7 @@ def test_word_completion_times_are_exact():
 
 
 def test_word_completion_times_skip_a_pause():
-    """Noise pauses the reply (a false interruption); it resumes and plays to the end.
-    Words after the pause complete later by exactly the length of the pause."""
+    """Noise pauses the reply (a false interruption); it resumes and plays to the end."""
     case = Case(
         name="false_interruption",
         agent=lambda: lk.Agent(instructions="You are a restaurant host."),
@@ -720,7 +693,7 @@ def test_attribution_names_every_candidate_and_chooses_none():
     assert register.attribute("all done") == (3, "unique", [3])
     assert register.attribute("all done") == (None, "none", [])  # reply 3 is already synthesized
     assert register.attribute("one moment please") == (None, "ambiguous", [1, 2])
-    assert register.attribute("one moment please") == (None, "ambiguous", [1, 2])  # still both
+    assert register.attribute("one moment please") == (None, "ambiguous", [1, 2])
     assert register.attribute("something else") == (None, "none", [])
     assert register.attribute("") == (None, "none", [])
 

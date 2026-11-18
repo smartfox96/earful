@@ -33,13 +33,12 @@ Repository = "https://github.com/smartfox96/earful"
 Issues = "https://github.com/smartfox96/earful/issues"
 
 [project.optional-dependencies]
-# From the oldest release tested to the newest line tested: docs/compatibility.md.
+# The releases tested: docs/compatibility.md.
 livekit = ["livekit-agents>=1.5.6,<1.9"]
 
 [project.scripts]
 earful = "earful.cli:main"
 
-# The `earful` fixture and its options, in any project that installs the package.
 [project.entry-points.pytest11]
 earful = "earful.pytest_plugin"
 
@@ -50,10 +49,8 @@ build-backend = "hatchling.build"
 [tool.hatch.build.targets.wheel]
 packages = ["src/earful"]
 
-# The source distribution is what the package is built from and what explains it: the
-# code, the tests, the docs and the example. Environments and caches stay out.
 [tool.hatch.build.targets.sdist]
-include = ["src", "tests", "docs", "examples", "scripts", "compat", "*.md", "LICENSE", "NOTICE"]
+include = ["src", "tests", "docs", "examples", "skills", "scripts", "compat", "*.md", "LICENSE", "NOTICE"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
@@ -73,7 +70,6 @@ target-version = "py310"
 exclude = ["*.md"]
 
 [tool.ruff.lint]
-# Ruff's default rules, and the line length for what the formatter cannot wrap.
 extend-select = ["E501"]
 
 [tool.mypy]
@@ -85,9 +81,8 @@ warn_redundant_casts = true
 # The note mypy prints for an annotation inside a function it does not check.
 disable_error_code = ["annotation-unchecked"]
 
-# The package is checked as --strict checks it. Scripts and tests are top-level modules,
-# mostly unannotated, and are checked at mypy's defaults. "strict" set in an override
-# applies to every module, so the override names each per-module flag it implies.
+# The package is checked as --strict does. "strict" in an override would apply to every
+# module, so the override names each flag it implies.
 [[tool.mypy.overrides]]
 module = "earful.*"
 disallow_any_generics = true

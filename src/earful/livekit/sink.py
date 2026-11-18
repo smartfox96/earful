@@ -1,28 +1,5 @@
-"""Clocked audio sink: the playout witness.
-
-Consumes frames on the virtual clock and reads word stamps out of the PCM itself. A word
-counts as played only when its last sample has been consumed; a word the playout position
-lands inside is recorded as cut.
-
-The sink records what it was told (``sink.pause``, ``sink.resume``, ``sink.clear``,
-``sink.flush``) separately from what it did (``playout.*``), so the delay between a command
-and silence is measurable. A segment is numbered when its first frame arrives, whether or
-not it ever becomes audible.
-
-Playout model:
-
-* Playback of a segment starts at its first frame. If streaming audio runs dry before
-  flush, playback pauses until the next frame. Word times exclude that silent interval.
-* ``flush`` ends a segment once everything pushed has played. ``clear_buffer`` ends it
-  at once.
-* Pause belongs to the output, not to a segment, as in livekit-agents' room output: once
-  paused, the output plays nothing, including a segment that arrives later, until it is
-  resumed. Clearing a segment does not resume the output.
-
-All arithmetic is in integer microseconds and whole samples. A sample counts as consumed
-once it has played in full, so a position between two samples rounds down, and a word's
-completion time is the first microsecond at which its last sample has played.
-"""
+"""Clocked audio sink, the playout witness: it reads word stamps out of the PCM itself.
+All arithmetic is in integer microseconds and whole samples."""
 
 from __future__ import annotations
 
@@ -40,8 +17,7 @@ from .providers import StampTable
 
 
 class _Segment:
-    """One playout segment: the audio between two flushes or clears."""
-
+    # One playout segment: the audio between two flushes or clears.
     __slots__ = (
         "announced",
         "flushed",
@@ -70,18 +46,17 @@ class _Segment:
         self.starved = False
 
     def pushed_us(self) -> int:
-        """Length of the audio given so far: the instant its last sample has played."""
+        # Rounded up: the instant the last sample has played in full.
         return -(-self.pushed_samples * US_PER_SECOND // self.sample_rate)
 
     def played_us(self, now: int) -> int:
-        """Audio played by ``now``; may exceed ``pushed_us`` if playout ran dry."""
+        # May exceed ``pushed_us`` if playout ran dry.
         if self.started_us is None:
             return 0
         end = self.pause_began_us if self.pause_began_us is not None else now
         return end - self.started_us - self.paused_total_us
 
     def time_of(self, played_us: int) -> int:
-        """Absolute time at which playout reached ``played_us`` of audio."""
         assert self.started_us is not None
         paused = sum(length for at, length in self.pauses if at < played_us)
         return self.started_us + played_us + paused
@@ -105,14 +80,10 @@ class ClockedSink(io.AudioOutput):
         self.stamp_errors = 0
         self.underruns = 0
 
-    # ------------------------------------------------------------------ word accounting
-
     def _words_at(
         self, segment: _Segment, position_samples: int
     ) -> tuple[list[int], list[int], int | None, int]:
-        """Words fully consumed by ``position_samples``, the time (us) each one's last sample
-        was consumed, the stamp cut there if any, and how many of its samples played.
-        """
+        # Returns the stamps fully played, when each ended (us), the stamp cut and its samples.
         consumed: dict[int, int] = {}
         last_sample: dict[int, int] = {}  # stamp -> offset just past its last consumed sample
         offset = 0
@@ -145,15 +116,12 @@ class ClockedSink(io.AudioOutput):
                     seen.append(u)
         return seen
 
-    # ------------------------------------------------------------------ segment lifecycle
-
     def _cancel_finish(self) -> None:
         if self._finish_handle is not None:
             self._finish_handle.cancel()
             self._finish_handle = None
 
     def _start(self, segment: _Segment) -> None:
-        """Tell the framework playback has started, once, and begin playing."""
         if not segment.announced:
             segment.announced = True
             self.on_playback_started(created_at=time.time())
@@ -247,26 +215,18 @@ class ClockedSink(io.AudioOutput):
             synchronized_transcript=None,
         )
 
-    # ------------------------------------------------------------------ seams for faults
-    #
-    # A real output can begin playing later than it says, or take time to obey. These two
-    # methods are where a faulty sink differs from this one. The ledger always records
-    # what truly happened: the command when it arrived, the playout when it changed.
+    # Seams for faults: a subclass overrides these two to start late or take time to obey.
 
     def _begin(self, start: Callable[[], None]) -> None:
-        """Begin playing a segment the framework has just been told is playing."""
         start()
 
     def _obey(self, action: Callable[[], None]) -> None:
-        """Carry out a pause or clear the framework asked for."""
         action()
 
     def _command(self, name: str) -> None:
         self._ledger.append(
             "sink", f"sink.{name}", segment=self._segment.number if self._segment else None
         )
-
-    # ------------------------------------------------------------------ AudioOutput API
 
     async def capture_frame(self, frame: rtc.AudioFrame) -> None:
         await super().capture_frame(frame)
@@ -282,8 +242,7 @@ class ClockedSink(io.AudioOutput):
             and segment.pause_began_us is None
             and segment.played_us(self._ledger.now_us()) > segment.pushed_us()
         ):
-            # The exhaustion timer did not stop playback at the buffer's end.
-            # Word times can no longer be trusted.
+            # Playback ran past the buffer's end: word times can no longer be trusted.
             self.underruns += 1
 
         samples = memoryview(frame.data).cast("B").cast("h")

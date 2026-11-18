@@ -1,19 +1,17 @@
-"""The pytest plugin: the ``earful`` fixture in a project of its own, and the evidence a
-failing test leaves."""
+"""The pytest plugin: the ``earful`` fixture, and the evidence a failing test leaves."""
 
 import json
+import os
 import subprocess
 import sys
 
 import pytest
 
-# The framework is imported here, before any test runs pytest on a project of its own:
-# such a run puts the imported modules back as they were when it ends, and the
-# framework's extension modules cannot be imported a second time in one process.
+# Imported before pytester runs: the framework's extension modules cannot be imported twice.
 import earful.livekit as adapter
 from earful.core.ledger import read_jsonl
 from earful.core.schema import validate
-from earful.pytest_plugin import Earful
+from earful.pytest_plugin import Earful, _workers
 
 PROJECT = '''
 import livekit.agents as lk
@@ -134,6 +132,121 @@ def test_a_search_uses_the_workers_the_command_line_gave_unless_it_names_its_own
     assert helper.searches == ["found", "found"]
 
 
+IMPORTABLE = "breaks:as_written_confirms_a_failed_booking"
+
+
+@pytest.fixture
+def processors(monkeypatch):
+    monkeypatch.delenv("EARFUL_WORKERS", raising=False)
+    monkeypatch.setattr(os, "cpu_count", lambda: 6)
+    return monkeypatch
+
+
+def test_a_search_nobody_gave_a_number_for_gets_a_worker_per_processor_if_it_can_be_imported(
+    processors, tmp_path
+):
+    monkeypatch = processors
+    asked = []
+    monkeypatch.setattr(
+        adapter, "explore", lambda scenario, **options: asked.append(options) or "found"
+    )
+    helper = Earful(tmp_path, workers=None)
+    function = adapter.Scenario.of(IMPORTABLE).make
+    helper.explore(IMPORTABLE, words=False)
+    helper.explore(function)
+    # A Case, and a function with no name of its own, can be built only where they are.
+    helper.explore(function())
+    helper.explore(lambda: function())
+    helper.explore(IMPORTABLE, workers=2)
+    assert asked == [
+        {"words": False, "workers": 6},
+        {"workers": 6},
+        {"workers": 0},
+        {"workers": 0},
+        {"workers": 2},
+    ]
+    # One processor is this process.
+    monkeypatch.setattr(os, "cpu_count", lambda: 1)
+    helper.explore(IMPORTABLE)
+    assert asked[-1] == {"workers": 0}
+
+
+def test_the_environment_says_how_many_workers_a_search_nobody_gave_a_number_for_gets(
+    processors, tmp_path
+):
+    """Test runs side by side would each take every processor; EARFUL_WORKERS shares them out."""
+    monkeypatch = processors
+    asked = []
+    monkeypatch.setattr(
+        adapter, "explore", lambda scenario, **options: asked.append(options["workers"]) or "found"
+    )
+    helper = Earful(tmp_path, workers=None)
+    for given in ("3", "1", "0"):
+        monkeypatch.setenv("EARFUL_WORKERS", given)
+        helper.explore(IMPORTABLE)
+    helper.explore(IMPORTABLE, workers=5)
+    assert asked == [3, 0, 0, 5]
+    monkeypatch.setenv("EARFUL_WORKERS", "plenty")
+    with pytest.raises(ValueError, match="EARFUL_WORKERS is a number of processes"):
+        helper.explore(IMPORTABLE)
+
+
+def test_a_test_run_that_xdist_has_spread_over_the_processors_searches_in_its_own_process(
+    processors, tmp_path
+):
+    monkeypatch = processors
+    asked = []
+    monkeypatch.setattr(
+        adapter, "explore", lambda scenario, **options: asked.append(options) or "found"
+    )
+    Earful(tmp_path, workers=None, spread=True).explore(IMPORTABLE)
+    Earful(tmp_path, workers=3, spread=True).explore(IMPORTABLE)  # the command line said
+    assert asked == [{"workers": 0}, {"workers": 3}]
+
+
+def test_where_workers_cannot_be_started_a_search_nobody_gave_a_number_for_runs_in_the_test(
+    processors, tmp_path
+):
+    monkeypatch = processors
+    asked = []
+
+    def explore(scenario, **options):
+        asked.append(options["workers"])
+        if options["workers"]:
+            raise adapter.WorkersUnavailable("no semaphores here")
+        return "found"
+
+    monkeypatch.setattr(adapter, "explore", explore)
+    helper = Earful(tmp_path, workers=None)
+    assert helper.explore(IMPORTABLE) == "found"
+    assert asked == [6, 0] and helper.searches == ["found"]
+    with pytest.raises(adapter.WorkersUnavailable):
+        helper.explore(IMPORTABLE, workers=2)
+    with pytest.raises(adapter.WorkersUnavailable):
+        Earful(tmp_path, workers=2).explore(IMPORTABLE)
+    assert asked == [6, 0, 2, 2]
+
+
+def test_the_workers_option_takes_a_number_of_processes_or_auto():
+    assert _workers("auto") is None
+    assert (_workers("0"), _workers("3")) == (0, 3)
+    for refused in ("-1", "many", ""):
+        with pytest.raises(pytest.UsageError, match="a number of processes or auto"):
+            _workers(refused)
+
+
+def test_the_fixture_is_told_what_the_command_line_and_xdist_say(pytester):
+    pytester.makeconftest("def pytest_configure(config):\n    config.workerinput = {}\n")
+    pytester.makepyfile(
+        "def test_it(earful, request):\n"
+        "    wanted = request.config.getoption('--earful-workers')\n"
+        "    assert earful.spread and earful.workers == wanted\n"
+    )
+    plain = ("-p", "no:cacheprovider", "-p", "no:asyncio")
+    pytester.runpytest_inprocess(*plain).assert_outcomes(passed=1)  # auto: no number
+    pytester.runpytest_inprocess(*plain, "--earful-workers", "2").assert_outcomes(passed=1)
+
+
 @pytest.mark.slow
 def test_a_failure_is_kept_under_the_tests_own_directory_and_replays(tmp_path):
     helper = Earful(tmp_path / "evidence", workers=0)
@@ -158,8 +271,7 @@ def test_a_run_that_is_not_valid_evidence_is_kept_as_evidence_too(tmp_path):
 
 
 def test_loading_the_plugin_does_not_import_the_framework():
-    """pytest loads the plugin in every project that has Earful installed, whether or not
-    its tests use it."""
+    """pytest loads the plugin in every project that has Earful installed."""
     code = (
         "import sys, earful.pytest_plugin\n"
         "loaded = [m for m in sys.modules if m.split('.')[0] == 'livekit']\n"

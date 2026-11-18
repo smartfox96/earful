@@ -1,9 +1,7 @@
 name: ci
 
-# A pull request is checked once, as the merge of the branch into its base. A push is
-# checked only on main, and only if those exact files have not already passed as a pull
-# request (scripts/ci_tested.sh). Closing or merging a pull request starts a run that
-# does nothing except replace the one in progress for it.
+# A push to main is skipped if the same files already passed as a pull request
+# (scripts/ci_tested.sh). Closing a pull request starts a run only to replace the one in progress.
 on:
   push:
     branches: [main]
@@ -13,9 +11,7 @@ on:
     - cron: "17 4 * * *" # nightly: catches dependency drift under the pinned releases
   workflow_dispatch:
 
-# A new run replaces the one in progress for the same pull request, and for main: the
-# newer commit on main contains the older one. A pull request is named by its number:
-# the event that closes it does not carry the same ref as the events before it.
+# A pull request is named by its number: the event that closes it carries another ref.
 concurrency:
   group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
@@ -59,7 +55,7 @@ jobs:
             *) printf 'code=true\ndocs=true\n' ;; # nightly and manual runs check everything
           esac | tee -a "$GITHUB_OUTPUT"
 
-  # A change to the pages alone: the one test file that reads them, on the latest release.
+  # A change to docs/ alone runs only the test file that reads them.
   docs:
     name: docs match the code
     needs: changes
@@ -86,7 +82,6 @@ jobs:
       - name: ruff format, ruff check, mypy, mutants apply (scripts/lint.sh)
         run: scripts/lint.sh
 
-  # What a release would ship: the wheel, installed alone outside the repository.
   wheel:
     name: wheel installs clean
     needs: changes
@@ -99,7 +94,6 @@ jobs:
       - name: Build the wheel, install it outside the repository and use it (scripts/wheel_smoke.sh)
         run: scripts/wheel_smoke.sh
 
-  # What a newcomer does: the README's quickstart, from the wheel, outside the repository.
   quickstart:
     name: quickstart from the wheel
     needs: changes
@@ -129,9 +123,8 @@ jobs:
           - { version: "1.6.5", as_of: "2026-07-20" }
           - { version: "1.6.6", as_of: "2026-07-20" }
           - { version: "1.8.12", as_of: "2026-11-14" }
-        # macOS runs the oldest and the newest release on a pull request and on a push.
-        # The nightly and manual runs add the three between: there the name below is one
-        # no job has, so nothing is left out.
+        # macOS runs only the oldest and newest release, except nightly and on request:
+        # there the os named below matches no job, so nothing is excluded.
         exclude:
           - os: ${{ (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && 'every release' || 'macos-latest' }}
             lk: { version: "1.5.7", as_of: "2026-05-06" }
@@ -139,7 +132,7 @@ jobs:
             lk: { version: "1.6.5", as_of: "2026-07-20" }
           - os: ${{ (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && 'every release' || 'macos-latest' }}
             lk: { version: "1.6.6", as_of: "2026-07-20" }
-        # Every other supported Python, once each, spread across releases.
+        # Every other supported Python, once each.
         include:
           - os: ubuntu-latest
             python: "3.10"
@@ -176,13 +169,15 @@ jobs:
       - name: Negative control (real clock must change the hash)
         if: matrix.os == 'ubuntu-latest' && matrix.python == '3.13' && matrix.lk.version == '1.8.12'
         run: .venvs/lk-${{ matrix.lk.version }}/bin/python scripts/realtime_control.py 2
+      - name: The example reports the README links to still build (scripts/site.sh)
+        if: matrix.os == 'ubuntu-latest' && matrix.python == '3.13' && matrix.lk.version == '1.8.12'
+        run: scripts/site.sh "$RUNNER_TEMP/site"
       - uses: actions/upload-artifact@v4
         with:
           name: evidence-${{ matrix.lk.version }}-${{ matrix.os }}-py${{ matrix.python }}
           path: evidence/
 
-  # One result for the whole run, whichever jobs the change needed. This is the check to
-  # require on main: a skipped job passes, a failed or cancelled one does not.
+  # The check main requires: a skipped job passes, a failed or cancelled one does not.
   result:
     name: ci result
     needs: [changes, docs, lint, wheel, quickstart, determinism]

@@ -1,6 +1,4 @@
-"""How a durable side effect reaches the backend: from a stand-in the agent is handed,
-from an effect the scenario declares for a tool, or from one declared where the tool is
-defined. In each the agent's constructor is its own."""
+"""The three ways a durable side effect reaches the backend in a run."""
 
 import asyncio
 
@@ -34,12 +32,7 @@ def _scenario(events):
     return events[0]["data"]["scenario"]
 
 
-# --------------------------------------------------------------------- declared by the scenario
-
-
 def test_an_agent_with_nothing_of_earful_in_it_runs_with_its_effect_declared():
-    """The tool's own body would reach a real service. The declared write is made in its
-    place, and the run is judged like any other."""
     events = run_case(as_written_reads_the_error()).ledger.events
     assert validate(events) == []
     assert _kinds(events, "tool.", "effect.") == [
@@ -119,9 +112,6 @@ def test_an_effect_for_a_tool_the_agent_does_not_have_is_refused_before_anything
     assert run_case(as_written_reads_the_error()).invalid == []  # the next run is unaffected
 
 
-# --------------------------------------------------------------------- the write and its caller
-
-
 def test_a_declared_latency_is_the_writes_and_a_scenario_delay_takes_its_place():
     case = as_written_reads_the_error()
     case.effects = {"create_reservation": Effect(BOOKING_INTENT, latency=1.5)}
@@ -159,8 +149,7 @@ def test_a_declared_latency_is_the_writes_and_a_scenario_delay_takes_its_place()
     ],
 )
 def test_a_fault_on_the_write_is_what_the_tool_raises(fault, kinds, error):
-    """What the backend did and what the tool was told are separate events. A write whose
-    caller gave up still commits, after the tool has raised."""
+    """A write whose caller gave up still commits, after the tool has raised."""
     case = as_written_reads_the_error()
     case.faults, case.delays = [fault], [Delay("backend.latency", 1, 2.0)]
     events = run_case(case).ledger.events
@@ -171,9 +160,6 @@ def test_a_fault_on_the_write_is_what_the_tool_raises(fault, kinds, error):
 
 
 def test_a_tool_cancelled_while_its_write_is_under_way_is_cancelled_and_the_write_commits():
-    """The caller is cut off 0.5 s into a write that takes 2 s. The tool never returns; the
-    backend records the commit all the same, at its own time."""
-
     @witnessed
     async def create_reservation(party_size: int) -> str:
         raise AssertionError("a test reached the reservation service")
@@ -205,8 +191,7 @@ def test_a_tool_cancelled_while_its_write_is_under_way_is_cancelled_and_the_writ
 
 
 def test_the_user_hangs_up_during_the_write_and_the_commit_is_recorded_apart_from_the_return():
-    """The user leaves 0.5 s into a write that takes 2 s. The framework lets the tool
-    finish: the backend's commit and the tool's return are two events from two witnesses."""
+    """The framework lets the tool finish after the user has left."""
     case = as_written_reads_the_error()
     case.delays, case.hangup = [Delay("backend.latency", 1, 2.0)], 3.5
     events = run_case(case).ledger.events
@@ -216,9 +201,6 @@ def test_the_user_hangs_up_during_the_write_and_the_commit_is_recorded_apart_fro
     assert [e["kind"] for e in happened] == list(wanted)
     assert [e["source"] for e in happened] == ["world", "backend", "world", "backend", "world"]
     assert happened[3]["t_us"] - happened[1]["t_us"] == 2_000_000
-
-
-# --------------------------------------------------------------------------- declared at the tool
 
 
 class _DeclaresItsEffect(lk.Agent):
@@ -288,8 +270,6 @@ def test_the_scenarios_declaration_is_used_where_the_tool_has_one_too():
 
 
 def test_a_scenario_that_declares_another_intent_for_the_tool_replaces_the_tools_own():
-    """The header and the write agree on which declaration was used."""
-
     def policy(items):
         if any(i["type"] == "function_call_output" for i in items):
             return Reply(text="That is done.")
@@ -323,8 +303,6 @@ class _RegisteredUnderAnotherName(lk.Agent):
 
 
 def test_a_tool_is_recorded_under_the_name_the_model_calls_it_by():
-    """The function is ``book_a_table``; the tool is ``create_reservation``. The scenario,
-    the header and every tool event use the tool's name."""
     events = run_case(_declared_at_the_tool(agent=_RegisteredUnderAnotherName)).ledger.events
     assert validate(events) == []
     assert _scenario(events)["witnessed_tools"] == ["create_reservation"]
@@ -378,8 +356,6 @@ def test_a_call_the_tool_cannot_take_raises_as_the_tool_would():
     assert run_virtual(main) == ["tool.called", "tool.raised"]
 
 
-# --------------------------------------------------------------------------- retiring an intent
-
 CANCELS = (
     ScriptedModel()
     .when(user_said("cancel"), say="Okay, cancelled.")
@@ -393,8 +369,7 @@ ASK = UserSpeech(start=0.5, end=2.5, transcript="Book a table for six tonight.")
 
 
 def _cancelled(agent, effects, retires=(BOOKING_INTENT,)):
-    """A booking, then "cancel that", which retires the booking's intent. The scenario
-    lists no intent: an effect declares it, in the scenario or on the agent's tool."""
+    """A booking, then "cancel that", which retires the booking's intent."""
     cancel = UserSpeech(start=7.0, end=8.0, transcript="Actually cancel that.", retires=retires)
     return Case(
         name="cancelled", agent=agent, effects=effects, speeches=[ASK, cancel], policy=CANCELS
@@ -428,12 +403,8 @@ def test_a_speech_that_retires_an_intent_nothing_declares_is_refused():
         run_case(_cancelled(lambda: lk.Agent(instructions="t"), {}))
 
 
-# --------------------------------------------------------------------------- from a stand-in
-
-
 class _Orders:
-    """Stands in for an ordering service. It is test code, and it writes where the real
-    service would."""
+    """Stands in for an ordering service."""
 
     async def place(self, dish: str) -> str:
         return await effect("order-1", {"dish": dish}, key=f"order-{dish}")
@@ -483,8 +454,6 @@ def test_outside_a_run_there_is_no_backend_to_write_to():
 
 
 def test_two_runs_do_not_share_a_backend():
-    """Each run builds its agent and its backend anew: the second run's first receipt is
-    R1 again."""
     receipts = [
         _of(run_case(as_written_reads_the_error()).ledger.events, "effect.committed")[0]["receipt"]
         for _ in range(2)
@@ -496,9 +465,6 @@ def test_an_agent_class_is_a_factory():
     case = as_written_reads_the_error()
     assert case.agent is TalksToItsServiceItself
     assert run_case(case).invalid == []
-
-
-# --------------------------------------------------------------------------- the validator
 
 
 @pytest.fixture(scope="module")

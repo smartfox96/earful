@@ -1,10 +1,6 @@
 """Historical case livekit/agents#3702, judged by the general contract checker.
 
-Runs the booking-then-interruption case and prints what contracts A2 (one logical effect)
-and M2 (turn integrity) conclude. Nothing here is specific to the defect: the same checker
-judges every release.
-
-    python scripts/spike_3702.py [OUT_DIR]
+python scripts/spike_3702.py [OUT_DIR]
 """
 
 import json

@@ -1,16 +1,15 @@
 #!/usr/bin/env bash
-# The static checks, the wheel and the README's quickstart, then every determinism,
-# historical and replay check on every supported release. Builds the pinned environments if they are missing. The releases are checked
-# side by side; each one's output is printed whole, in order, when all have finished.
-#
-#   scripts/check_all.sh            compare against tests/golden/ and tests/bundles/; writes nothing there
-#   scripts/check_all.sh --update   rewrite tests/golden/ and tests/bundles/ from this machine's runs, then check
-#
-# Update only when a change to the ledger is intended, and review the diff before committing.
+# Every check, on every supported release, side by side.
+#   scripts/check_all.sh            check against tests/golden/ and tests/bundles/
+#   scripts/check_all.sh --update   rewrite them from this machine's runs first
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
+# Five runs side by side share the processors.
+cores="$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 4)"
 declare -a RELEASES=("1.5.6 2026-04-30" "1.5.7 2026-05-06" "1.6.5 2026-07-20" "1.6.6 2026-07-20" "1.8.12 2026-11-14")
+shared=$(( cores / ${#RELEASES[@]} ))
+export EARFUL_WORKERS="${EARFUL_WORKERS:-$(( shared > 1 ? shared : 1 ))}"
 GOLDEN=tests/golden
 BUNDLES=tests/bundles
 OUT="$(mktemp -d)"
@@ -24,6 +23,9 @@ done
 scripts/lint.sh
 scripts/wheel_smoke.sh
 scripts/quickstart_check.sh
+SITE="$(mktemp -d)"
+scripts/site.sh "$SITE" >/dev/null
+rm -rf "$SITE"
 
 # Run one command per release at once; fail if any of them fails.
 side_by_side() {
@@ -61,8 +63,7 @@ check() {
 if [ "${1:-}" = "--update" ]; then
   # Every release first: the checks below compare each release with all committed ledgers.
   side_by_side update
-  # The reference bundles: searched for and reduced on the oldest release, which has both
-  # known defects, and replayed on every release below.
+  # The reference bundles are made on the oldest release, which has both known defects.
   echo "=== updating reference bundles: livekit-agents 1.5.6"
   rm -rf "$BUNDLES"
   # The search exits 1 when a rule breaks, which is what these two are kept for.

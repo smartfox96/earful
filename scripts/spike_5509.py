@@ -1,10 +1,6 @@
 """Historical case livekit/agents#5509, judged by the general contract checker.
 
-Runs the case in which the user takes the floor while a reply is still being generated,
-and prints what contract L2 (interruption) concludes. Nothing here is specific to the
-defect: the same checker judges every release.
-
-    python scripts/spike_5509.py [OUT_DIR] [--no-pause]
+python scripts/spike_5509.py [OUT_DIR] [--no-pause]
 """
 
 import json

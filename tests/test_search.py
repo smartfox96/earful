@@ -1,10 +1,4 @@
-"""The boundary scheduler, the shrinker and the bundle, without a framework.
-
-These tests read the committed reference ledgers and use a stand-in for the system under
-test: a function that answers a case with one recorded ledger or another. They pin the
-search and reduction logic itself; tests/test_search_live.py runs it against a real
-session.
-"""
+"""Tests of the boundary scheduler, the shrinker and the bundle, without a framework."""
 
 import copy
 import json
@@ -80,8 +74,7 @@ SECOND = Variable("speech.position", 1)
 
 
 def answers(fails):
-    """A stand-in for the system: a recorded failing ledger where ``fails(case)``, a
-    recorded passing one elsewhere. It counts its runs."""
+    """A stand-in system: the failing ledger where ``fails(case)``, the passing one elsewhere."""
     failing, passing = (
         ledger("1.5.6", "book_then_interrupt"),
         ledger("1.8.12", "book_then_interrupt"),
@@ -96,9 +89,6 @@ def answers(fails):
 
 
 def asked_about_the_window_between(lo, hi):
-    """Fails when the question about the window starts between ``lo`` and ``hi`` and the
-    booking was asked for."""
-
     def fails(case):
         said = [s["transcript"] for s in case["speeches"]]
         return BOOK["transcript"] in said and any(
@@ -111,9 +101,6 @@ def asked_about_the_window_between(lo, hi):
 
 
 INTERRUPTS = asked_about_the_window_between(3_000_000, 7_800_000)
-
-
-# --------------------------------------------------------------------------- the case format
 
 
 def test_a_case_is_validated_against_its_schema():
@@ -146,8 +133,8 @@ def test_every_time_in_a_case_is_a_variable_that_moves_on_its_own():
     assert (moved["speeches"][1]["start_us"], moved["speeches"][1]["end_us"]) == (
         3_140_000,
         4_140_000,
-    )  # its length kept
-    assert case["speeches"][1]["start_us"] == 5_000_000  # the case given is not changed
+    )
+    assert case["speeches"][1]["start_us"] == 5_000_000
 
     longer = cases.with_value(case, Variable("speech.end", 1), 7_500_000)
     assert (longer["speeches"][1]["start_us"], longer["speeches"][1]["end_us"]) == (
@@ -160,9 +147,7 @@ def test_every_time_in_a_case_is_a_variable_that_moves_on_its_own():
     declared = cases.with_value(case, Variable("backend.latency", 2), 1_500_000)
     assert declared["delays"] == [{"of": "backend.latency", "nth": 2, "us": 1_500_000}]
     again = cases.with_value(declared, Variable("backend.latency", 2), 700_000)
-    assert again["delays"] == [
-        {"of": "backend.latency", "nth": 2, "us": 700_000}
-    ]  # replaced, not repeated
+    assert again["delays"] == [{"of": "backend.latency", "nth": 2, "us": 700_000}]
     assert cases.without_delay(again, Variable("backend.latency", 2))["delays"] == []
     assert [s["transcript"] for s in cases.without_speech(case, 0)["speeches"]] == [
         WINDOW["transcript"]
@@ -176,8 +161,8 @@ def test_a_value_that_gives_no_case_gives_none():
     assert (
         cases.with_value(case, SECOND, 2_500_000) is not None
     )  # touching it is not overlapping it
-    assert cases.with_value(case, Variable("speech.end", 1), 5_000_000) is None  # no length left
-    # the order of the speeches is part of the scenario: one cannot be moved past another
+    assert cases.with_value(case, Variable("speech.end", 1), 5_000_000) is None
+    # speeches keep their order: one cannot be moved past another
     assert cases.with_value(case, Variable("speech.position", 0), 7_000_000) is None
     assert cases.with_value(case, SECOND, 0) is None
     assert cases.with_value(case, Variable("llm.ttft", 1), -5) is None
@@ -198,15 +183,12 @@ def test_a_predicate_names_a_contract_rule_and_no_instance():
         Predicate.parse("L2")
 
 
-# --------------------------------------------------------------------------- where to look
-
-
 def test_transitions_are_the_events_of_a_run_and_the_moments_the_ledger_states():
     events = ledger("1.8.12", "barge_in_mid_word")
     found = transitions(events)
     assert [t.t_us for t in found] == sorted({t.t_us for t in found})
     at = {t.t_us: t.kinds for t in found}
-    assert "llm.request" in at[2_700_000]  # recorded
+    assert "llm.request" in at[2_700_000]
     assert (
         "llm.first_token" in at[2_800_000] and "llm.done" in at[3_100_000]
     )  # 0.1 s and 0.4 s later
@@ -215,8 +197,7 @@ def test_transitions_are_the_events_of_a_run_and_the_moments_the_ledger_states()
     kinds = {kind for t in found for kind in t.kinds}
     assert {"playout.mid_word", "playout.word_end", "sink.pause", "fw.agent_state_changed"} <= kinds
     assert not kinds & {"run.start", "run.end", "history.final", "user.origin"}
-    # one per word that played: nine of the long reply before the interruption, two of the
-    # short one
+    # nine words of the long reply played before the interruption, two of the short one
     assert sum("playout.word_end" in t.kinds for t in found) == 11
     assert not any("playout.word_end" in t.kinds for t in transitions(events, words=False))
 
@@ -232,7 +213,7 @@ def test_a_speech_acts_at_its_anchors_and_each_variable_moves_some_of_them():
         "turn_end": 1_500_000,
     }
     assert "interrupt" not in anchors(header, speech(0, 300_000, "Wait."))  # too short to interrupt
-    assert "transcript" not in anchors(header, speech(0, 1_000_000, ""))  # noise has none
+    assert "transcript" not in anchors(header, speech(0, 1_000_000, ""))
 
     case = a_case(BOOK, WINDOW)
     handles = speech_handles(case, 1, events, cases.SPEECH_KINDS)
@@ -250,12 +231,12 @@ def test_a_speech_acts_at_its_anchors_and_each_variable_moves_some_of_them():
         "transcript",
         "vad_end",
         "turn_end",
-    }  # its end moves what follows its end
+    }
     assert set(by["speech.stt_delay"]) == {"transcript"}
     assert by["speech.position"]["interrupt"] == (
         5_500_000,
         5_000_000,
-    )  # when it falls; what the variable is
+    )
     assert by["speech.end"]["transcript"] == (6_200_000, 6_000_000)
     assert by["speech.stt_delay"]["transcript"] == (6_200_000, 200_000)
 
@@ -296,9 +277,7 @@ def test_every_candidate_puts_a_handle_before_at_or_after_a_transition():
                 == placement.transition.t_us + placement.offset_us - handle.t_us
             )
     assert {p.offset_us for c in found for p in c.placements} == {-10_000, 0, 10_000}
-    assert len({cases.canonical(c.case) for c in found}) == len(
-        found
-    )  # cases that coincide are one
+    assert len({cases.canonical(c.case) for c in found}) == len(found)
     # the commit cannot come before its request, and a speech cannot sit inside another
     assert all(c.value_us >= 0 for c in found)
     assert any(
@@ -329,9 +308,6 @@ def test_a_caller_is_never_made_to_wait_longer_than_the_limit():
     assert all(
         c.case["faults"] == [{"of": "backend.drop", "nth": 1, "us": c.value_us}] for c in found
     )
-
-
-# --------------------------------------------------------------------------- running
 
 
 def test_a_runner_runs_each_case_once_and_one_bad_run_does_not_end_a_search():
@@ -375,7 +351,7 @@ def test_exploring_runs_every_candidate_and_reports_what_broke_and_what_was_reac
     assert summary["found"]["A2/rule"]["changed"] == ["speech.position 1"]
     reached = found.coverage()["speech.position 1 interrupt"]
     assert {"playout.started", "tool.returned", "llm.done"} <= set(reached["reached"])
-    # the interruption point cannot be put where the speech would lie inside the other one
+    # the interruption point cannot go where the question would lie inside the booking
     assert summary["impossible_placements"] == len(found.impossible) > 0
     assert all(p.transition.t_us < 3_500_000 for p in found.impossible)
 
@@ -409,8 +385,7 @@ def test_what_cannot_be_run_is_counted_and_said():
         summary["error"] == 2 and summary["ran"] > 0 and summary["errors"] == ["RuntimeError: boom"]
     )
     assert summary["error"] + summary["ran"] == summary["candidates"]
-    # the tool's return was never reached, and the report says why: 10 ms before it the
-    # question would lie inside the booking; at it and after it the run raised
+    # before the return the question lies inside the booking; at and after it the run raised
     never = found.coverage()["speech.position 1 interrupt"]["never_reached"]
     assert never["tool.returned"] == ["error", "impossible"]
     assert "playout.started" not in never
@@ -428,16 +403,10 @@ def test_a_case_that_cannot_be_searched_is_refused_up_front():
         explore(a_case(BOOK), lambda case: (_ for _ in ()).throw(RuntimeError("deadlock")))
     nothing = explore(
         a_case(), run, variables=["speech.position", "backend.latency"], faults=[], words=False
-    )  # no speeches to move
+    )
     assert nothing.predicates() == [] and all(
         t.candidate.variable.kind in cases.DELAY_KINDS for t in nothing.tried
     )
-
-
-# --------------------------------------------------------------------------- windows
-
-
-# --------------------------------------------------------------------------- faults
 
 
 def fault(of, nth=1, us=None):
@@ -474,18 +443,14 @@ def test_a_fault_is_data_for_one_write():
 
     dropped = cases.with_fault(case, "backend.drop", 1, 500_000)
     assert dropped["faults"] == [fault("backend.drop", 1, 500_000)] and case["faults"] == []
-    assert cases.with_fault(dropped, "backend.error", 1) is None  # that write has a fault already
-    assert (
-        cases.with_fault(case, "backend.timeout", 1) is None
-    )  # a timeout says how long the caller waits
+    assert cases.with_fault(dropped, "backend.error", 1) is None
+    assert cases.with_fault(case, "backend.timeout", 1) is None
 
     wait = Variable("backend.wait", 1)
     assert cases.value(dropped, wait) == 500_000 and cases.value(case, wait) is None
     assert cases.with_value(dropped, wait, 750_000)["faults"] == [fault("backend.drop", 1, 750_000)]
-    assert cases.with_value(case, wait, 750_000) is None  # no fault, nothing waits
-    assert (
-        cases.with_value(cases.with_fault(case, "backend.error", 1), wait, 750_000) is None
-    )  # an error has no wait
+    assert cases.with_value(case, wait, 750_000) is None
+    assert cases.with_value(cases.with_fault(case, "backend.error", 1), wait, 750_000) is None
 
 
 @pytest.mark.slow
@@ -507,8 +472,7 @@ def test_a_search_adds_each_fault_to_each_write_the_run_made():
     )
     assert by_base["backend.error 1"]["faults"] == [fault("backend.error")]
     assert by_base["backend.drop 1"]["faults"] == [fault("backend.drop", 1, 1_000_000)]
-    # A timeout in both orders: the write as the scenario has it, and committing after the
-    # caller gave up.
+    # A timeout in both orders: commit as written, and commit after the caller gave up.
     assert by_base["backend.timeout 1, commit first"]["delays"] == []
     assert by_base["backend.timeout 1, commit later"]["delays"] == [
         {"of": "backend.latency", "nth": 1, "us": 2_000_000}
@@ -518,8 +482,7 @@ def test_a_search_adds_each_fault_to_each_write_the_run_made():
     # A break that moved nothing has no window to measure.
     assert found.windows(Predicate("A2", "rule")) == []
 
-    # A write as slow as the wait commits later as written. The other order has the caller
-    # wait longer.
+    # With a zero wait the write commits later as written; the other order waits longer.
     slow = explore(a_case(BOOK, WINDOW), run, variables=(), faults=["backend.timeout"], wait_us=0)
     orders = {
         t.candidate.base: t.candidate.case for t in slow.tried if t.candidate.variable is None
@@ -541,9 +504,6 @@ def test_a_search_adds_each_fault_to_each_write_the_run_made():
 
 @pytest.mark.slow
 def test_a_search_runs_no_case_twice():
-    """The case as given, the runs that candidates are placed against (the case without
-    each speech, with each fault, under each profile) and the candidates all go through
-    one runner, which runs each distinct case once and keeps the ledgers a search needs."""
     failing = answers(has_fault("backend.drop"))
     ran = []
 
@@ -563,7 +523,7 @@ def test_a_search_runs_no_case_twice():
         stretch_us=0,
     )
     assert len(ran) == len(set(ran)) == found.runner.runs
-    assert cases.canonical(author) in ran  # the case as given is one of them, once
+    assert cases.canonical(author) in ran
     assert found.runner.ledger(author) is not None  # kept: asking again runs nothing
     assert len(ran) == len(set(ran)) == found.runner.runs
 
@@ -699,7 +659,6 @@ def test_a_fault_is_a_difference_and_a_reduction_keeps_it_only_if_the_failure_ne
         if w.variable.kind == "backend.wait"
     ] == [("backend.wait 1", "blocked", "reach")]
 
-    # A fault the author declared is removed if the failure does not need it.
     faulted = {**author, "faults": [fault("backend.error")]}
     assert (
         shrink(faulted, answers(INTERRUPTS), Predicate("A2", "rule"), author=faulted).case["faults"]
@@ -711,19 +670,18 @@ HANGUP = Variable("user.hangup", 0)
 
 
 def left_between(lo_us, hi_us):
-    """Fails where the user hangs up in a stretch of time, and nowhere else."""
     return lambda case: case["hangup_us"] is not None and lo_us <= case["hangup_us"] <= hi_us
 
 
 def test_a_hangup_is_a_time_in_the_case_no_earlier_than_the_end_of_the_last_speech():
     case = a_case(BOOK, WINDOW)
-    assert cases.value(case, HANGUP) is None  # the user stays
+    assert cases.value(case, HANGUP) is None
     left = cases.with_value(case, HANGUP, 8_000_000)
     assert left["hangup_us"] == 8_000_000 and case["hangup_us"] is None
-    assert cases.with_value(case, HANGUP, 6_000_000) is not None  # as the last speech ends
-    assert cases.with_value(case, HANGUP, 5_999_999) is None  # before it is over
+    assert cases.with_value(case, HANGUP, 6_000_000) is not None
+    assert cases.with_value(case, HANGUP, 5_999_999) is None
     assert "before their last speech is over" in cases.validate({**case, "hangup_us": 3_000_000})[0]
-    assert cases.with_value(left, SECOND, 7_500_000) is None  # a speech cannot be moved past it
+    assert cases.with_value(left, SECOND, 7_500_000) is None
     assert (
         "never speaks" in cases.validate(a_case(hangup_us=1_000_000))[0]
     )  # the origin is the user's first audio
@@ -736,13 +694,11 @@ def test_a_search_moves_the_hangup_to_every_transition_after_the_last_speech():
     found = explore(a_case(BOOK, WINDOW), run, variables=["user.hangup"], faults=[], words=False)
     assert found.tried and all(t.candidate.variable == HANGUP for t in found.tried)
     assert min(t.candidate.value_us for t in found.tried) >= WINDOW["end_us"]
-    # Before the last speech is over there is no such case: counted, and not run.
     assert any(p.handle.variable == HANGUP for p in found.impossible)
     breaking = found.breaking(A2)
     assert breaking and all(7_000_000 <= t.candidate.value_us <= 9_000_000 for t in breaking)
     (measured,) = found.windows(A2)
     assert (measured.variable, measured.lo_us, measured.hi_us) == (HANGUP, 7_000_000, 9_000_000)
-    # The hangup is one of the default variables, and is left alone by a search that names others.
     assert "user.hangup" in DEFAULT_VARIABLES
     unasked = explore(
         a_case(BOOK, WINDOW), run, variables=["speech.position"], faults=[], words=False
@@ -782,9 +738,7 @@ def test_a_hangup_the_case_declares_is_moved_against_the_run_in_which_the_user_s
     leaving = a_case(BOOK, WINDOW, hangup_us=6_500_000)
     found = explore(leaving, run, variables=["user.hangup"], faults=[])
     assert None in seen  # the run without the hangup supplies the transitions
-    assert (
-        max(t.candidate.value_us for t in found.tried) > 6_500_000
-    )  # so it can be moved later, too
+    assert max(t.candidate.value_us for t in found.tried) > 6_500_000
 
 
 @pytest.mark.slow
@@ -806,21 +760,16 @@ def test_a_hangup_is_a_difference_and_a_reduction_keeps_it_only_if_the_failure_n
         (7_000_000, 9_000_000)
     ]
 
-    # Not needed: the reduced case has a user who stays.
     assert shrink(found, answers(INTERRUPTS), A2, author=author).case["hangup_us"] is None
-    # A hangup the author declared is removed if the failure does not need it.
     leaving = {**author, "hangup_us": 9_000_000}
     reduced = shrink(leaving, answers(lambda case: True), A2, author=leaving)
     assert reduced.case["hangup_us"] is None and "removed the hangup" in reduced.steps
 
 
-# --------------------------------------------------------------------------- a stretched delay
-
 SLOW_WRITE = {"of": "backend.latency", "nth": 1, "us": 1_500_000}
 
 
 def slow_write_and(fails):
-    """Fails where the first write is declared to take 1.5 s and ``fails`` holds too."""
     return lambda case: SLOW_WRITE in case["delays"] and fails(case)
 
 
@@ -828,8 +777,6 @@ def test_pairs_stretch_each_write_and_each_generation_shorter_than_the_stretch()
     run = answers(lambda case: False)
 
     def versions(**options):
-        """The label and the declared delays of each candidate, in a search that moves
-        nothing: the stretched versions of the case and no others."""
         found = explore(a_case(BOOK, WINDOW), run, variables=(), faults=[], **options)
         assert all(t.candidate.variable is None for t in found.tried)
         return {t.candidate.base: t.candidate.case["delays"] for t in found.tried}
@@ -841,10 +788,8 @@ def test_pairs_stretch_each_write_and_each_generation_shorter_than_the_stretch()
     every = (("backend.latency", 1), ("llm.duration", 1), ("llm.duration", 2))
     assert versions(pairs=True) == stretched(1_500_000, *every)
     assert versions() == {}
-    # A delay already as long as the stretch is left as it is, and is not paired.
     assert versions(pairs=True, stretch_us=300_000) == stretched(300_000, ("backend.latency", 1))
     assert versions(pairs=True, stretch_us=0) == {}
-    # No delay is stretched past the limit.
     assert versions(pairs=True, delay_limit_us=1_000_000) == stretched(1_000_000, *every)
 
 
@@ -859,7 +804,6 @@ def test_pairs_find_a_failure_that_needs_a_slow_write_and_a_speech_during_it():
         "faults": [],
         "words": False,
     }
-    # One thing at a time: the write is made slow and the question is moved, never both.
     assert explore(far, run, **options).predicates() == []
     found = explore(far, run, pairs=True, **options)
     breaking = found.breaking(A2)
@@ -867,11 +811,9 @@ def test_pairs_find_a_failure_that_needs_a_slow_write_and_a_speech_during_it():
         "backend.latency 1, stretched + speech.position 1"
     }
     assert all(t.candidate.case["delays"] == [SLOW_WRITE] for t in breaking)
-    # The stretched version alone passes, and is a candidate like any other.
     (version,) = [t for t in found.tried if t.candidate.what == "backend.latency 1, stretched"]
     assert version.candidate.case == {**far, "delays": [SLOW_WRITE]}
     assert version.candidate.variable is None and not version.outcome.failures
-    # The window is measured along the question, with the write still slow.
     (measured,) = found.windows(A2)
     assert (measured.variable, measured.lo_us, measured.hi_us) == (SECOND, 3_000_000, 7_800_000)
 
@@ -923,8 +865,7 @@ def test_under_a_stretched_delay_a_handle_is_put_at_each_transition_and_at_no_wo
 
 @pytest.mark.slow
 def test_a_case_found_under_a_stretched_delay_reduces_to_the_delay_and_the_hangup():
-    """The recorded write is requested at 3.0 s. The stand-in fails where the user hangs
-    up while a write that was declared slow is still under way."""
+    """The recorded write is requested at 3.0 s. The stand-in fails if the user leaves during it."""
 
     def left_during_the_write(case):
         took = cases.value(case, Variable("backend.latency", 1))
@@ -942,7 +883,6 @@ def test_a_case_found_under_a_stretched_delay_reduces_to_the_delay_and_the_hangu
     shrunk = shrink(padded, run, A2, author=author)
     assert shrunk.complete
     assert shrunk.steps[0] == "kept 2 of 4 differences from the author's scenario"
-    # Each time is settled inside its window: the write, then the hangup during it.
     assert shrunk.case == {
         **author,
         "hangup_us": 3_500_000,
@@ -954,13 +894,12 @@ def test_a_case_found_under_a_stretched_delay_reduces_to_the_delay_and_the_hangu
     ]
     assert run(shrunk.case) == ledger("1.5.6", "book_then_interrupt")  # it still fails
     for undone in (cases.without_hangup(shrunk.case), {**shrunk.case, "delays": []}):
-        assert run(undone) == ledger("1.8.12", "book_then_interrupt")  # and needs both
+        assert run(undone) == ledger("1.8.12", "book_then_interrupt")
 
 
 def test_a_reduction_makes_no_delay_longer_than_a_search_does():
-    """The failure holds while the write takes 0.2 to 30 s. The middle of that window is
-    a 15 s write, and a search makes none longer than 10 s. The window is cut off at the
-    limit, where it has no edge, so the write is left just inside the edge it does have."""
+    """The failure holds while the write takes 0.2 to 30 s, and a search makes none longer than
+    10 s. The window has no edge at the limit, so the write settles just inside its one edge."""
 
     def slow_enough(case):
         took = cases.value(case, Variable("backend.latency", 1))
@@ -972,11 +911,10 @@ def test_a_reduction_makes_no_delay_longer_than_a_search_does():
     shrunk = shrink(found, answers(slow_enough), A2, author=author)
     assert cases.value(shrunk.case, write) == 1_000_000
     (measured,) = [w for w in shrunk.windows if w.variable == write]
-    assert (measured.lo_us, measured.hi_us) == (200_000, 30_000_000)  # reported whole
-    # With the limit above the window, the middle of the window it is.
+    assert (measured.lo_us, measured.hi_us) == (200_000, 30_000_000)
+    # With the limit above the window, the write settles in its middle.
     roomy = shrink(found, answers(slow_enough), A2, author=author, delay_limit_us=60_000_000)
     assert cases.value(roomy.case, write) == 15_000_000
-    # A delay the case already has longer than the limit is not made longer still.
     long = cases.with_value(author, write, 20_000_000)
     assert cases.value(shrink(long, answers(slow_enough), A2, author=author).case, write) <= (
         20_000_000
@@ -1019,10 +957,6 @@ def test_a_window_narrower_than_a_millisecond_is_located_to_the_microsecond():
 
 
 def test_a_break_is_at_instants_only_if_nothing_else_reaches_it():
-    """The rule breaks with the question at exactly 5 s, and with a failed write. Reached
-    by the moved speech alone it is a tie between two events. Reached by the fault as
-    well, it is a failure of the system, whatever its width where a time was moved."""
-
     def fails(case):
         return bool(case["faults"]) or case["speeches"][1]["start_us"] == 5_000_000
 
@@ -1050,9 +984,7 @@ def test_a_break_is_at_instants_only_if_nothing_else_reaches_it():
 
 
 def test_each_end_of_a_window_says_why_the_search_stopped_there():
-    """Fails however late the question comes: upwards the search gives up at its reach.
-    Fails however early: downwards it is blocked by the speech before it, which it cannot
-    enter. Neither is an edge of the failure."""
+    """The stand-in fails everywhere, so neither end of the window is an edge of the failure."""
     always = window(
         Runner(answers(asked_about_the_window_between(0, 10**12))),
         a_case(BOOK, WINDOW),
@@ -1062,11 +994,8 @@ def test_each_end_of_a_window_says_why_the_search_stopped_there():
     )
     assert (always.lo_end, always.hi_end) == ("blocked", "reach") and not always.instant
     assert always.lo_us == 2_500_000  # touching the first speech
-    assert (
-        5_000_000 + 8_000_000 <= always.hi_us <= 5_000_000 + 16_000_000
-    )  # it stopped at its reach
+    assert 5_000_000 + 8_000_000 <= always.hi_us <= 5_000_000 + 16_000_000
     assert always.to_json()["lo_end"] == "blocked"
-    # blocked at the very first step: the question already touches the booking
     touching = window(
         Runner(answers(asked_about_the_window_between(0, 10**12))),
         a_case(BOOK, speech(2_500_000, 3_500_000, WINDOW["transcript"])),
@@ -1084,12 +1013,7 @@ def test_a_window_needs_a_case_that_breaks_and_a_variable_it_has():
             runner, a_case(BOOK, speech(20_000_000, 21_000_000, WINDOW["transcript"])), SECOND, A2
         )
     with pytest.raises(ValueError, match="does not break"):
-        window(
-            runner, a_case(BOOK, WINDOW), Variable("backend.latency", 1), A2
-        )  # not declared in the case
-
-
-# --------------------------------------------------------------------------- reducing
+        window(runner, a_case(BOOK, WINDOW), Variable("backend.latency", 1), A2)
 
 
 def test_ddmin_finds_a_one_minimal_subset():
@@ -1097,7 +1021,7 @@ def test_ddmin_finds_a_one_minimal_subset():
     assert ddmin(range(8), lambda kept: 5 in kept) == [5]
     assert ddmin(range(8), lambda kept: True) == []
     assert ddmin([1, 2, 3], lambda kept: kept == [1, 2, 3]) == [1, 2, 3]
-    # nothing at all fails, though neither half does: the answer is nothing
+    # the empty subset fails though neither half does, so the answer is empty
     assert ddmin([1, 2], lambda kept: kept in ([], [1, 2])) == []
     tried = []
     assert ddmin(list("abcdefgh"), lambda kept: tried.append(kept) or {"a", "h"} <= set(kept)) == [
@@ -1109,9 +1033,7 @@ def test_ddmin_finds_a_one_minimal_subset():
         ddmin(range(3), lambda kept: False)
 
 
-AUTHOR = a_case(
-    BOOK, speech(20_000_000, 21_000_000, WINDOW["transcript"])
-)  # as written, the question comes late
+AUTHOR = a_case(BOOK, speech(20_000_000, 21_000_000, WINDOW["transcript"]))
 FOUND = a_case(
     BOOK,
     speech(3_140_000, 4_270_000, WINDOW["transcript"], stt_delay_us=350_000, backchannel=True),
@@ -1158,7 +1080,6 @@ def test_shrinking_keeps_only_the_differences_the_failure_needs_and_settles_them
     shrunk = shrink(FOUND, run, A2, author=AUTHOR)
     assert shrunk.complete and shrunk.runs == run.runs
     assert shrunk.steps[0] == "kept 1 of 11 differences from the author's scenario"
-    # the author's scenario with the question moved, and nothing else
     assert {**shrunk.case, "speeches": AUTHOR["speeches"]} == AUTHOR
     moved = shrunk.case["speeches"][1]
     assert shrunk.case["speeches"][0] == BOOK and moved["transcript"] == WINDOW["transcript"]
@@ -1168,12 +1089,12 @@ def test_shrinking_keeps_only_the_differences_the_failure_needs_and_settles_them
     assert shrunk.steps[-1] == "speech.position 1: settled at 5000000 us, inside 3000000..7800000"
     by = {str(w.variable): (w.lo_us, w.hi_us) for w in shrunk.windows}
     assert by["speech.position 1"] == (3_000_000, 7_800_000)
-    assert "speech.position 0" in by  # how far the speech left where the author put it can move
-    assert FOUND["seed"] == 7  # the case given is not changed
+    assert "speech.position 0" in by
+    assert FOUND["seed"] == 7
 
 
 def test_shrinking_removes_a_speech_of_the_authors_that_the_failure_does_not_need():
-    def fails(case):  # the booking plays no part
+    def fails(case):
         return any(
             3_000_000 <= s["start_us"] <= 7_800_000
             for s in case["speeches"]
@@ -1194,9 +1115,7 @@ def test_a_case_whose_authors_scenario_fails_as_written_reduces_to_it():
         author=AUTHOR,
     )
     assert shrunk.steps[0] == "kept 0 of 11 differences from the author's scenario"
-    assert shrunk.differences == [
-        "speech 'Is the table by the window?' dropped"
-    ]  # nor is the question needed
+    assert shrunk.differences == ["speech 'Is the table by the window?' dropped"]
 
 
 def test_a_settled_time_is_the_roundest_in_the_middle_half_of_its_window():
@@ -1204,13 +1123,13 @@ def test_a_settled_time_is_the_roundest_in_the_middle_half_of_its_window():
         return settled(Window(SECOND, lo, hi, lo_end, hi_end, 1_000), lo if was is None else was)
 
     assert at(3_000_000, 7_800_000) == 5_000_000  # a whole second, nearest the centre
-    assert at(3_140_000, 3_260_000) == 3_200_000  # a tenth of a second
+    assert at(3_140_000, 3_260_000) == 3_200_000
     assert (
         at(3_141_000, 3_148_000) == 3_144_000
     )  # a millisecond, when that is all there is room for
     assert at(3_240_000, 3_300_000) == 3_270_000  # never an edge: 3.3 s is rounder, and is the edge
-    assert at(0, 1_140_000, "blocked", "blocked") == 500_000  # a blocked end is an end all the same
-    assert at(5_000_000, 5_000_000) is None  # an instant has no inside
+    assert at(0, 1_140_000, "blocked", "blocked") == 500_000
+    assert at(5_000_000, 5_000_000) is None
     # an end the search gave up on is no edge: just inside the one that is
     assert at(1_200_000, 31_200_000, hi_end="reach") == 2_000_000
     assert at(0, 2_500_000, lo_end="reach") == 2_000_000
@@ -1218,7 +1137,7 @@ def test_a_settled_time_is_the_roundest_in_the_middle_half_of_its_window():
         at(0, 60_000_000, "reach", "reach", was=5_030_000) == 5_000_000
     )  # no edge at all: where it was, rounded
     for lo, hi in ((3_000_000, 7_800_000), (3_140_000, 3_260_000), (3_240_000, 3_300_000)):
-        assert at(lo, hi, was=at(lo, hi)) == at(lo, hi)  # settling what is settled changes nothing
+        assert at(lo, hi, was=at(lo, hi)) == at(lo, hi)
 
 
 @pytest.mark.slow
@@ -1233,7 +1152,7 @@ def test_shrinking_without_an_authors_scenario_removes_and_settles():
     )  # nothing to restore them to
     assert shrunk.differences == []
     assert shrunk.case["speeches"][1]["start_us"] == 5_000_000
-    assert shrunk.case["speeches"][0] == BOOK  # the failure has no edge along it: it stays as found
+    assert shrunk.case["speeches"][0] == BOOK  # no edge along it, so it stays as found
     moved = shrunk.case["speeches"][1]
     assert moved["end_us"] - moved["start_us"] == 1_130_000  # nor along the length of the question
 
@@ -1244,7 +1163,7 @@ def test_shrinking_needs_a_failing_case_and_says_when_its_budget_ran_out():
     run = answers(INTERRUPTS)
     stopped = shrink(FOUND, run, A2, author=AUTHOR, max_runs=3)
     assert not stopped.complete and stopped.runs == 3 == run.runs
-    assert A2.holds(check(run(stopped.case)))  # what it returns still fails
+    assert A2.holds(check(run(stopped.case)))
 
 
 def test_the_case_to_reduce_is_the_one_nearest_the_authors():
@@ -1252,9 +1171,6 @@ def test_the_case_to_reduce_is_the_one_nearest_the_authors():
     nearer = cases.with_value(AUTHOR, SECOND, 19_000_000)
     assert nearest(AUTHOR, [FOUND, near]) == near  # fewer differences
     assert nearest(AUTHOR, [near, nearer]) == nearer  # as many, moved less
-
-
-# --------------------------------------------------------------------------- keeping
 
 
 @pytest.mark.slow
@@ -1313,7 +1229,7 @@ def test_a_bundle_holds_the_failure_and_replays(tmp_path):
     )
     assert bundle.replay(kept, run).scenario_changed is None  # nothing to compare it with
     assert bundle.replay(kept, run, fingerprint=lambda reference: "b" * 64).scenario_changed is True
-    repaired = bundle.replay(kept, answers(lambda case: False))  # a release that repaired it
+    repaired = bundle.replay(kept, answers(lambda case: False))
     assert not repaired.reproduced and repaired.repeatable and not repaired.identical
     assert repaired.framework["version"] == "1.8.12"
 
@@ -1339,7 +1255,6 @@ def test_a_bundle_that_is_not_one_is_refused(tmp_path):
 
 @pytest.mark.slow
 def test_a_manifest_cannot_point_outside_its_bundle(tmp_path):
-    """Unknown metadata cannot redirect the fixed case and ledger paths."""
     bundle.capture(tmp_path / "kept", a_case(BOOK, WINDOW), answers(INTERRUPTS), A2)
     recorded = bundle.load(tmp_path / "kept")
     path = tmp_path / "kept" / "manifest.json"
@@ -1360,7 +1275,7 @@ def test_every_reference_bundle_is_what_its_manifest_says(directory):
         events = kept.ledger(which)
         assert ledger_hash(events) == kept.manifest[which]["hash"]
         assert len(case["speeches"]) == kept.manifest[which]["speeches"]
-        assert kept.predicate.holds(check(events))  # the recorded run breaks the frozen rule
+        assert kept.predicate.holds(check(events))
         assert events[0]["data"]["framework"] == kept.manifest["framework"]
     assert kept.manifest["reduction"]["complete"] and kept.manifest["windows"]
-    assert not any(w["instant"] for w in kept.manifest["windows"])  # neither sits on a tie
+    assert not any(w["instant"] for w in kept.manifest["windows"])

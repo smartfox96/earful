@@ -86,7 +86,7 @@ def _edit_header(edit):
             lambda ev: _data(ev, "tts.synthesized")["stamps"].append("x"),
             "'x' is not of type 'integer'",
         ),
-        # nested records: the context a model was shown, tool calls, the scenario
+        # nested records
         (
             lambda ev: _data(ev, "llm.request")["items"][0].pop("role"),
             "'role' is a required property",
@@ -124,7 +124,7 @@ def _edit_header(edit):
             "one completion time",
         ),
         (lambda ev: ev.append({**copy.deepcopy(ev[-1]), "seq": len(ev)}), "only run.end"),
-        # things a real run cannot produce, which the checker need not survive
+        # things a real run cannot produce
         (
             lambda ev: _first(ev, "playout.paused").update(kind="playout.resumed"),
             "pauses while playing and resumes while paused",
@@ -184,7 +184,6 @@ def _edit_header(edit):
             _edit_header(lambda h: h["scenario"]["speeches"][1].update(start_us=2_700_000)),
             "speech 1 does not open a segment the VAD would hear",
         ),
-        # intents must be declared
         (
             lambda ev: _data(ev, "effect.requested").update(intent="book-tabel-1"),
             "undeclared intent",
@@ -208,7 +207,6 @@ def test_validator_rejects(booking, mutate, expected):
 
 @pytest.fixture(scope="module")
 def timed_out():
-    """One booking whose caller gives up after 0.5 s; the write commits at 2 s."""
     case = CASES["book_then_interrupt"]()
     case.speeches = case.speeches[:1]
     case.faults = [Fault("backend.timeout", 1, 0.5)]
@@ -217,8 +215,7 @@ def timed_out():
 
 
 def _again(kind, as_kind=None, keep=None):
-    """Record the first event of ``kind`` a second time, right after it: as another kind,
-    with only the fields in ``keep``, if given."""
+    """Repeat the first event of ``kind`` right after it, as ``as_kind`` and with only ``keep``."""
 
     def mutate(events):
         at = next(i for i, e in enumerate(events) if e["kind"] == kind)
@@ -262,7 +259,7 @@ def test_validator_rejects_a_faulted_write_that_cannot_have_happened(timed_out, 
 
 @pytest.fixture(scope="module")
 def hung_up():
-    """One booking; the user leaves at 5 s, while the reply plays."""
+    """The user leaves while the reply plays."""
     case = CASES["book_then_interrupt"]()
     case.speeches = case.speeches[:1]
     case.hangup = 5.0
@@ -326,8 +323,7 @@ def _spoiled(event):
 
 @pytest.mark.slow
 def test_an_event_checked_by_its_kind_gets_the_whole_schemas_errors(booking, timed_out, hung_up):
-    """``event_errors`` leaves out the rules of every other kind. That must change nothing:
-    the same errors, in the same order, as the whole schema gives."""
+    """``event_errors`` skips the rules of every other kind, which must change nothing."""
     whole = Draft202012Validator(load_schema())
 
     def said(errors):

@@ -1,15 +1,4 @@
-"""The contract checker: decides the seven contracts of docs/contracts.md from a ledger.
-
-    report = check(events)
-    report.outcomes()   # {"A1": "not_exercised", "A2": "fail", ...}
-    report.failures     # every failed verdict, with the events it rests on
-
-The checker reads only the ledger. It never imports the scenario or the framework under
-test, and it does not use the framework's own account of what happened: ``fw.*`` events
-decide nothing.
-
-Framework-independent: this package must never import livekit.
-"""
+"""The contract checker: decides the seven contracts of docs/contracts.md from a ledger."""
 
 from __future__ import annotations
 
@@ -34,7 +23,6 @@ from .report import (
 )
 from .view import Reading, View, readings
 
-# Each check takes the policy class of its own contract. ``parse_all`` pairs them by name.
 _CHECKS: dict[str, Callable[[View, Any], ContractResult]] = {
     "A1": a1.check,
     "A2": a2.check,
@@ -47,11 +35,9 @@ _CHECKS: dict[str, Callable[[View, Any], ContractResult]] = {
 
 
 def check(events: list[dict[str, Any]]) -> Report:
-    """Check every contract against one run's ledger.
+    """Check every contract against one run's ledger; an invalid run yields no results.
 
-    An invalid run yields no verdicts: the report says why and its results are empty.
-    Policy values come from the ledger's header; a scenario that declares one a contract
-    does not define raises ``PolicyError``.
+    Raises ``PolicyError`` for a declared policy value its contract does not define.
     """
     reasons = validity(events)
     run = events[0].get("run") if events and isinstance(events[0], dict) else None
@@ -64,16 +50,8 @@ def check(events: list[dict[str, Any]]) -> Report:
 
 
 def _judge(events: list[dict[str, Any]]) -> tuple[Reading, int, dict[str, ContractResult]]:
-    """The verdict of every contract for a well-formed ledger: the reading reported, how
-    many readings the ledger allows, and the results. It does not ask whether the run is
-    valid evidence. ``check`` does, and is what decides a run; the one other caller is
-    the comparison of a real-clock run with its virtual one (``earful.core.crosscheck``).
-    """
     policies = parse_all(events[0]["data"]["contracts"])
-    # Where the ledger cannot say which of several identical replies a text was, every
-    # reading is checked and the one most favourable to the system is reported: fewest
-    # failed verdicts, then fewest unobservable. A run fails only if every reading does.
-    # A verdict of the reported reading that another reading makes worse is flagged.
+    # Every reading is checked; the one with fewest failed, then fewest unobservable, is reported.
     possible = readings(events)
     checked: list[dict[str, ContractResult]] = []
     best: tuple[tuple[int, int], Reading, dict[str, ContractResult]] | None = None

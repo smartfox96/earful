@@ -1,12 +1,7 @@
 #!/usr/bin/env bash
-# The README's quickstart, as a newcomer runs it: the wheel, installed with the framework
-# in a fresh environment outside the repository, and the two files of examples/booking.
-# Each numbered step is the README's, and has to come out as the README says.
-#
+# The README's quickstart as a newcomer runs it: from the wheel, outside the repository.
 #   scripts/quickstart_check.sh
-#
-# The framework release is pinned so that the check says the same thing every day:
-# EARFUL_LIVEKIT (default 1.8.12) with its dependencies as of EARFUL_AS_OF. Needs uv.
+# EARFUL_LIVEKIT and EARFUL_AS_OF pin the framework release. Needs uv.
 set -euo pipefail
 
 root="$(cd "$(dirname "$0")/.." && pwd)"
@@ -76,6 +71,12 @@ PY
 output="$(pytest -q 2>&1)" || fail "pytest still fails after the fix: $output"
 grep -q "2 passed" <<<"$output" || fail "pytest did not pass both tests: $output"
 earful replay "$kept" --expect clean >/dev/null || fail "the kept failure still reproduces"
+echo "ok"
+
+echo "=== after it: earful init writes a first test for an agent, and that test passes"
+earful init agent:BookingAgent >/dev/null || fail "earful init refused the example's agent"
+output="$(pytest -q test_booking_agent.py 2>&1)" || fail "the test earful init wrote fails: $output"
+grep -q "2 passed" <<<"$output" || fail "the test earful init wrote did not pass: $output"
 echo "ok"
 
 echo "the quickstart took $(( $(date +%s) - installed )) s after a $((installed - began)) s install"

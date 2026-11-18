@@ -13,6 +13,13 @@ in a ledger. It checks seven contracts against that ledger, searches the timings
 backend faults near your scenario for a run that breaks one, and reduces what it finds to
 a small case that replays the same way every time.
 
+[![The report of a failing run. The timeline shows one table booked twice: the first write commits after its caller stopped waiting, and the retry commits a second.](https://raw.githubusercontent.com/smartfox96/earful/main/docs/img/report-booking.png)](https://smartfox96.github.io/earful/booking.html)
+
+A failing test leaves a report: one HTML page with the run as a timeline, the verdict of
+each contract and every event. The picture is the failure the quickstart below finds.
+[Open that report](https://smartfox96.github.io/earful/booking.html) and select a verdict to see what it rests on, or
+look at [a known defect of livekit-agents 1.5.6](https://smartfox96.github.io/earful/livekit-3702.html) drawn the same way.
+
 ## Quickstart
 
 Ten minutes, Python 3.10 or later. The two files below are in
@@ -206,9 +213,25 @@ earful replay failures/lk-1.8.12.booking.A2-rule --expect clean    # the kept fa
 The kept failure is now a regression test: `earful replay --expect clean` fails if the
 double booking ever comes back.
 
-To test your own agent, start from [`docs/testing.md`](https://github.com/smartfox96/earful/blob/main/docs/testing.md). A tool that
-talks to its service directly needs no stand-in: declare it as an effect in the test, and
-the agent stays as it is.
+To test your own agent, let Earful write the first test from the agent's tools:
+
+```bash
+earful init myapp.agent:SupportAgent    # writes test_support_agent.py
+pytest test_support_agent.py
+```
+
+The test it writes runs as it is. Every tool is declared an effect, so no tool body runs
+and nothing reaches a real service. The file marks what to change: what the user says,
+which tool the model calls, and which tools only read. [`docs/testing.md`](https://github.com/smartfox96/earful/blob/main/docs/testing.md) covers
+the rest.
+
+## With a coding assistant
+
+Earful is new, so an assistant such as Claude Code or Cursor has not seen its API and
+will guess at it. [`skills/earful/SKILL.md`](https://github.com/smartfox96/earful/blob/main/skills/earful/SKILL.md) is one page that tells
+it how to write and read an Earful test. Copy it to where your assistant keeps its skills
+or rules (`.claude/skills/earful/SKILL.md` for Claude Code, a file under `.cursor/rules/`
+for Cursor), then ask for a test of your agent.
 
 ## What is checked
 

@@ -1,30 +1,4 @@
-"""A scripted model written as rules: what the model is shown, and what it then says.
-
-A model policy is a function from the context the framework presents to a ``Reply``
-(``earful.livekit.providers.Policy``). ``ScriptedModel`` is one written as an ordered list
-of rules, each a condition on the context and the reply to give when it holds:
-
-    model = (
-        ScriptedModel()
-        .when(tool_succeeded("create_reservation"), say="Your table is booked.",
-              claims=["book-table-1"])
-        .when(tool_failed("create_reservation"), say="Sorry, I could not book that.")
-        .when(user_ever_said("table"), say="One moment.",
-              call=("create_reservation", {"party_size": 6}))
-        .otherwise(say="How can I help?")
-    )
-
-The first rule whose condition holds gives the reply. A context no rule matches is an
-error in the scenario, and makes the run invalid.
-
-A condition is a function of a ``Context``, the typed view of what the model was shown.
-The ones here cover what a scripted conversation usually turns on, and combine with
-``&``, ``|`` and ``~``. Any function from a ``Context`` to a bool is a condition too.
-
-A ``ScriptedModel`` cannot be changed once built: ``when`` and ``otherwise`` return a new
-one. Its reply depends on the context alone, as a policy's must, so it carries nothing
-from one model call to the next or from one run to the next.
-"""
+"""A scripted model written as rules: what the model is shown, and what it then says."""
 
 from __future__ import annotations
 
@@ -48,11 +22,7 @@ class ToolResult:
 
 @dataclass(frozen=True)
 class Context:
-    """What the model is shown for one call: the chat context, read once.
-
-    ``items`` are the item summaries a raw policy receives, in order. The rest is derived
-    from them.
-    """
+    """What the model is shown for one call. ``items`` are the summaries a policy receives."""
 
     items: tuple[Mapping[str, Any], ...]
 
@@ -175,12 +145,11 @@ Call = ToolCall | tuple[str, Mapping[str, Any]] | str
 
 
 def _tool_calls(call: Call | Sequence[Call]) -> tuple[ToolCall, ...]:
-    """One call or several, as tool calls. A name and its arguments are one call, though
-    a pair is also a sequence."""
     if isinstance(call, ToolCall):
         return (call,)
     if isinstance(call, str):
         return (ToolCall(call, "{}"),)
+    # A name with its arguments is one call, though a pair is also a sequence.
     if (
         isinstance(call, tuple)
         and len(call) == 2
@@ -199,14 +168,9 @@ def reply(
     ttft: float | None = None,
     duration: float | None = None,
 ) -> Reply:
-    """A scripted reply, from plain values.
-
-    ``say`` is the text. ``call`` is a tool call or several: a tool's name, a name with
-    its arguments as a mapping, or a ``ToolCall``. ``claims`` are the intents the text
-    tells the user succeeded: an intent's name claims it for the whole text, a ``Claim``
-    for a span of its words. ``ttft`` and ``duration`` are the model's time to first
-    token and its total generation time, in seconds, where the defaults will not do.
-    """
+    """A scripted reply from plain values. ``call`` is a tool's name, a name with its
+    arguments, a ``ToolCall``, or several of these. A claim is an intent's name, for the
+    whole text, or a ``Claim``. ``ttft`` and ``duration`` are in seconds."""
     times = {
         name: value for name, value in (("ttft", ttft), ("duration", duration)) if value is not None
     }
@@ -230,7 +194,8 @@ class NoRule(LookupError):
 
 @dataclass(frozen=True)
 class ScriptedModel:
-    """A model policy as ordered rules. Call it with the items a policy receives."""
+    """A model policy as ordered rules: the first whose condition holds gives the reply.
+    ``when`` and ``otherwise`` return a new model. A call raises ``NoRule`` if none matches."""
 
     rules: tuple[Rule, ...] = ()
     default: Reply | None = None
@@ -246,8 +211,7 @@ class ScriptedModel:
         ttft: float | None = None,
         duration: float | None = None,
     ) -> ScriptedModel:
-        """This model with one more rule, tried after those it already has. The reply is
-        ``answer``, or is built from the other arguments as ``reply`` builds one."""
+        """This model with one more rule, tried after those it already has."""
         if self.default is not None:
             raise ValueError("a rule added after otherwise() could never be reached")
         given = _given(answer, say, call, claims, ttft, duration)

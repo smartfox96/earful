@@ -1,10 +1,4 @@
-"""The policy values each contract accepts, with their defaults.
-
-A scenario declares overrides in ``run.start``'s ``contracts``; anything it does not
-declare takes the default here. Times are integer microseconds, as everywhere in Earful.
-
-Framework-independent: this module must never import livekit.
-"""
+"""The policy values each contract accepts, with their defaults."""
 
 from __future__ import annotations
 
@@ -34,8 +28,7 @@ class A3:
 
 @dataclass(frozen=True)
 class M1:
-    # How much audio the memory may run ahead of, or fall behind, what was played. The
-    # word the playout stopped inside may be remembered or not at no cost.
+    # How much audio memory may run ahead of, or fall behind, what was played.
     ahead_us: int = 1_000_000
     behind_us: int = 1_000_000
     check_interrupted_flag: bool = True

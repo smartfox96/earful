@@ -1,8 +1,4 @@
-"""The checker on recorded and hand-edited ledgers.
-
-These tests need no framework: they read the committed reference ledgers, edit them, and
-check what the contracts conclude. They pin each rule the live breaks do not reach.
-"""
+"""The checker on recorded and hand-edited ledgers."""
 
 import copy
 import json
@@ -67,11 +63,7 @@ def barge():
     return load("1.8.12", "barge_in_mid_word")
 
 
-# --------------------------------------------------------------------------- the report
-
-
 def _release(path):
-    """(1, 8, 12) from lk-1.8.12.<case>.ledger.normalized.jsonl"""
     return tuple(int(n) for n in path.name.removeprefix("lk-").split(".")[:3])
 
 
@@ -79,8 +71,6 @@ def _release(path):
     "path", sorted(GOLDEN.glob("*.jsonl")), ids=lambda p: p.name.rsplit(".", 3)[0]
 )
 def test_reference_ledgers_get_the_documented_outcomes(path):
-    """One checker, no special cases: the two historical defects fail on the releases that
-    have them and pass on the releases that repaired them."""
     release, case = _release(path), path.name.split(".")[3]
     expected = {
         "A1": NOT_EXERCISED,
@@ -141,9 +131,6 @@ def test_a_policy_value_the_contract_does_not_define_is_refused(fixed, contracts
         check(declare(fixed, **contracts))
 
 
-# --------------------------------------------------------------------------- A1
-
-
 def retire(events, speech=1):
     events[0]["data"]["scenario"]["speeches"][speech]["retires"] = [INTENT]
     return seal(events)
@@ -194,15 +181,9 @@ def test_a1_and_a2_are_unobservable_when_the_tool_does_not_write_through_the_bac
     assert report.outcome("A2") == UNOBSERVABLE
 
 
-# --------------------------------------------------------------------------- A2
-
-
 def test_a2_counts_against_the_authorized_number(affected):
     affected[0]["data"]["scenario"]["intents"][0]["authorized"] = 2
     assert check(seal(affected)).outcome("A2") == PASS
-
-
-# --------------------------------------------------------------------------- A3
 
 
 def test_a3_fails_when_nothing_was_committed_before_the_claim_was_heard(fixed):
@@ -213,7 +194,7 @@ def test_a3_fails_when_nothing_was_committed_before_the_claim_was_heard(fixed):
 
 
 def test_a3_a_claim_whose_last_word_was_not_played_was_not_made(fixed):
-    finished = of(fixed, "playout.finished", 1)["data"]  # the reply carrying the claim
+    finished = of(fixed, "playout.finished", 1)["data"]
     finished["word_cut"] = finished["words_played"].pop()
     finished["words_completed_us"].pop()
     result = check(fixed).results["A3"]
@@ -228,8 +209,7 @@ def test_a3_can_time_the_claim_at_the_start_of_its_first_word(fixed):
 
 
 def test_a3_and_m1_are_unobservable_when_the_audio_cannot_be_attributed(fixed):
-    """A text matching no reply is synthesized while a reply is still unspoken: it may be
-    that reply, altered on its way to the voice. Neither is judged."""
+    """The unmatched text may be the reply still unspoken, altered on its way to the voice."""
     synthesized = of(fixed, "tts.synthesized", 1)["data"]
     synthesized.update(call=None, attribution="none", candidates=[])
     report = check(fixed)
@@ -237,19 +217,14 @@ def test_a3_and_m1_are_unobservable_when_the_audio_cannot_be_attributed(fixed):
     assert [v.outcome for v in report.results["M1"].verdicts] == [PASS, UNOBSERVABLE, UNOBSERVABLE]
 
 
-# --------------------------------------------------------------------------- M1
-
-
 def remembered(events, call):
-    """The assistant message in the context of ``call``."""
     return next(
         i for i in context(events, call) if i["type"] == "message" and i["role"] == "assistant"
     )
 
 
 def test_m1_the_tolerance_is_audio_time_and_a_policy_choice(barge):
-    """Nine words played and the tenth was cut. Memory on either side of the cut agrees;
-    two words further ("grilled sea") is 0.6 s of audio ahead."""
+    """Nine words played and the tenth was cut; two words further is 0.6 s of audio ahead."""
     said = [
         "Tonight",
         "we",
@@ -318,11 +293,9 @@ def _last_reply(events):
 
 
 def test_m1_a_reply_cleared_in_the_silence_after_its_last_word_is_interrupted(barge):
-    """Every word played, but the output was cleared before the audio ended. The framework
-    marks the reply interrupted, and the sink agrees that it was."""
     message, segment = _last_reply(barge)
     message["interrupted"] = True
-    assert rules(check(copy.deepcopy(barge)), "M1") == ["rule 5"]  # played out, yet marked
+    assert rules(check(copy.deepcopy(barge)), "M1") == ["rule 5"]
     segment["interrupted"] = True
     assert check(barge).outcome("M1") == PASS
 
@@ -343,9 +316,6 @@ def test_m1_the_final_history_counts_only_if_read_after_the_playout_finished(bar
 
 
 def test_m1_a_stop_that_lands_as_the_audio_ends_accepts_either_mark(barge):
-    """The last reply played out at 7.73 s. Had the framework been interrupted at that
-    very instant, it would mark the reply interrupted although every sample played; which
-    of the two came first is decided by nothing the scenario controls."""
     message, _segment = _last_reply(barge)
     message["interrupted"] = True
     finished = of(barge, "playout.finished", 1)
@@ -355,7 +325,7 @@ def test_m1_a_stop_that_lands_as_the_audio_ends_accepts_either_mark(barge):
     late = copy.deepcopy(barge)
     history = of(late, "history.final")
     late.insert(late.index(history), {**clear, "t_us": finished["t_us"] + 1})
-    assert rules(check(seal(late)), "M1") == ["rule 5"]  # a microsecond later, it had ended
+    assert rules(check(seal(late)), "M1") == ["rule 5"]
 
     barge.insert(barge.index(finished) + 1, {**clear, "t_us": finished["t_us"]})
     last = check(seal(barge)).results["M1"].verdicts[-1]
@@ -363,8 +333,7 @@ def test_m1_a_stop_that_lands_as_the_audio_ends_accepts_either_mark(barge):
 
 
 def _barely_started(events):
-    """The first reply became audible and was stopped 3 us later, before one whole sample
-    had played; the framework remembers its first word."""
+    """The first reply stops 3 us in, before one sample played; its first word is remembered."""
     of(events, "playout.paused")["data"]["played_us"] = 3
     of(events, "playout.finished")["data"].update(
         position_us=3,
@@ -423,22 +392,17 @@ def test_alignment_follows_order_and_never_guesses():
     # only one kept: it could be either reply, so neither is decided
     either = align(_said("one moment please"), [one, two])
     assert either.possible and either.ambiguous == {"reply 1", "reply 2"} and not either.matched
-    # a reply with different text is unaffected by the ambiguity next to it
     mixed = align(_said("one moment please", "all done"), [one, two, three])
     assert mixed.matched == {"reply 3": 1} and mixed.ambiguous == {"reply 1", "reply 2"}
     assert align(_said("all done"), [one, three]).absent == {"reply 1"}
-    # out of order, or a message that is nothing the agent was scripted to say
     assert not align(_said("all done", "one moment"), [one, three]).possible
     assert align(_said("something else"), [one]).unmatched_items == [0]
-    # text the application spoke itself is matched like a reply
     greeting = _thing(1, "welcome to the restaurant", reply=False)
     spoke = align(_said("welcome to the restaurant", "all done"), [greeting, three])
     assert spoke.matched == {"utterance 1": 0, "reply 3": 1}
 
 
 def test_of_several_readings_of_identical_texts_the_kindest_is_taken():
-    """Two replies with the same words and one message: nothing says which reply the
-    message is, so it is the one it costs least to be."""
     said = [_thing(1, "one moment please"), _thing(2, "one moment please")]
     items = _said("one moment")
     prefer = {"reply 1": (1, 0), "reply 2": (0, 0)}  # what a message costs each reply
@@ -449,8 +413,7 @@ def test_of_several_readings_of_identical_texts_the_kindest_is_taken():
     assert favourable(items, said, lambda s, m: (0, 0)) == {
         "reply 1": 0,
         "reply 2": None,
-    }  # equal: the earliest
-    # unless forgetting reply 1 costs more still
+    }
     forgotten = {"reply 1": (2, 0), "reply 2": (0, 0)}
     assert (
         favourable(items, said, lambda s, m: prefer[s.key] if m else forgotten[s.key])["reply 1"]
@@ -460,7 +423,6 @@ def test_of_several_readings_of_identical_texts_the_kindest_is_taken():
 
 
 def _answered(*calls, t_us=0, ttft_us=0):
-    """The model's answers to ``calls``: decided at ``t_us``, first token ``ttft_us`` later."""
     return [
         {"kind": "llm.response", "t_us": t_us, "data": {"call": call, "ttft_us": ttft_us}}
         for call in calls
@@ -487,29 +449,23 @@ def test_a_reading_gives_each_ambiguous_text_one_of_its_candidates_and_no_reply_
     assert readings([*said, _synthesized(1, "ambiguous", [2, 4])]) == [{1: 2}, {1: 4}]
     both = [_synthesized(1, "ambiguous", [2, 4]), _synthesized(2, "ambiguous", [2, 4])]
     assert readings([*said, *both]) == [{1: 2, 2: 4}, {1: 4, 2: 2}]
-    # a reply that is attributed outright elsewhere is no candidate
     one_taken = [_synthesized(1, "ambiguous", [2, 4]), _synthesized(2, "unique", [2], 2)]
     assert readings([*said, *one_taken]) == [{1: 4}]
 
 
 def test_a_text_is_no_reply_whose_first_token_came_after_it_was_synthesized():
-    """The ledger names candidates by their words. A reply the model had decided on, with
-    no token of it out when the voice was handed the text, is none of them."""
     text = _synthesized(1, "ambiguous", [2, 4], t_us=500)
     # Final metadata can be recorded much later; attribution uses synthesis start.
     text["t_us"] = 900
-    text["t_us"] = 900  # final metadata can be recorded after a later call's first token
+    text["t_us"] = 900
     early, late = _answered(2, ttft_us=500), _answered(4, t_us=100, ttft_us=401)
-    # a first token that is out the instant the text is synthesized is in time
     assert readings([*early, *_answered(4, t_us=100, ttft_us=400), text]) == [{1: 2}, {1: 4}]
     assert readings([*early, *late, text]) == [{1: 2}]
-    # no reply is left that the text could be: no reading fits, and it stays unattributed
     assert readings([*_answered(2, ttft_us=501), *late, text]) == [{}]
 
 
 def _generated_twice(events):
-    """The framework asks the model again for the same turn and gets the same words: a
-    second call with the text of call 2. One text is voiced, and it could be either."""
+    """A second model call with the text of call 2, and one voiced text that could be either."""
     request = next(e for e in events if e["kind"] == "llm.request" and e["data"]["call"] == 2)
     response = of(events, "llm.response", 1)
     again = [copy.deepcopy(request), copy.deepcopy(response)]
@@ -534,9 +490,7 @@ def test_a_reply_generated_twice_with_the_same_words_is_read_the_kindest_way(bar
 
 
 def test_the_reading_that_fails_least_is_the_one_reported(barge):
-    """The first copy was generated before the second turn was in its context. If the
-    voice spoke that copy, the second turn was never answered; if it spoke the other, it
-    was. The ledger allows both, so the run is not failed."""
+    """If the voice spoke the first copy the turn went unanswered; the ledger allows either."""
     events = _generated_twice(barge)
     _forget(context(events, 2), "Stop.")
     report = check(events)
@@ -546,8 +500,6 @@ def test_the_reading_that_fails_least_is_the_one_reported(barge):
 
 
 def test_a_failure_stands_when_every_reading_fails(barge):
-    """One text was voiced, and both copies are remembered: whichever reply the audio
-    was, the other never played."""
     events = _generated_twice(barge)
     history = of(events, "history.final")["data"]["items"]
     history.append(copy.deepcopy(history[-1]))
@@ -555,9 +507,7 @@ def test_a_failure_stands_when_every_reading_fails(barge):
 
 
 def test_a_reading_that_is_not_causally_possible_excuses_nothing(barge):
-    """The second turn is answered only if the voice spoke the second copy. That copy's
-    first token came after the text was synthesized, so the text was the first copy and
-    the turn got no reply."""
+    """The second copy's first token came after the synthesis, so the text was the first copy."""
     events = _generated_twice(barge)
     _forget(context(events, 2), "Stop.")
     text, second = of(events, "tts.synthesized", 1), of(events, "llm.response", 2)
@@ -566,7 +516,7 @@ def test_a_reading_that_is_not_causally_possible_excuses_nothing(barge):
     assert report.readings == 1 and report.reading == {2: 2}
     (failed,) = report.failures
     assert (failed.contract, failed.instance) == ("L1", {"speech": 1})
-    assert failed.flags == ()  # the turn's only reply was never a candidate: nothing is read
+    assert failed.flags == ()
     # a token out one microsecond sooner, as the text is synthesized, makes it a candidate
     second["data"]["ttft_us"] -= 1
     report = check(events)
@@ -594,11 +544,10 @@ def _splits(report):
 
 
 def test_a_verdict_another_reading_makes_worse_is_marked(barge):
-    """A pass that every reading gives and a pass that one reading gives are told apart."""
     events = _generated_twice(barge)
-    agreed = check(events)  # whichever copy was voiced, every verdict is the same
+    agreed = check(events)
     assert agreed.readings == 2 and _splits(agreed) == []
-    # Now the second turn is answered only if the voice spoke the second copy.
+    # The second turn is now answered only if the voice spoke the second copy.
     _forget(context(events, 2), "Stop.")
     report = check(events)
     assert report.failures == () and _splits(report) == [("L1", {"speech": 1})]
@@ -622,7 +571,7 @@ def _turns(*outcomes):
 
 def test_a_split_is_a_worse_outcome_for_the_same_instance_under_another_reading():
     reported = _turns(PASS, PASS, UNOBSERVABLE, UNOBSERVABLE, FAIL, PASS)
-    other = _turns(UNOBSERVABLE, FAIL, FAIL, PASS, PASS, None)  # it has no verdict for the last
+    other = _turns(UNOBSERVABLE, FAIL, FAIL, PASS, PASS, None)
     marked = split(reported, [reported, other])["L1"].verdicts
     kept = ("silenced_by_a_tool",)  # a flag the verdict had stays, and comes first
     assert [v.flags for v in marked] == [(*kept, "reading_split")] * 3 + [kept] * 3
@@ -630,8 +579,6 @@ def test_a_split_is_a_worse_outcome_for_the_same_instance_under_another_reading(
 
 
 def test_an_instance_only_another_reading_judges_is_said_in_a_note():
-    """The reported reading has no verdict for it, so there is nothing to flag. A note
-    on the contract says that another reading judges it and it does not pass there."""
     reported = _turns(PASS, None, None, None)
     other = _turns(PASS, FAIL, UNOBSERVABLE, PASS)
     result = split(reported, [reported, other, other])["L1"]
@@ -640,7 +587,7 @@ def test_an_instance_only_another_reading_judges_is_said_in_a_note():
         "another reading judges speech 1, which this one does not: fail",
         "another reading judges speech 2, which this one does not: unobservable",
     )
-    assert split(reported, [reported])["L1"].notes == ()  # one reading: nothing to say
+    assert split(reported, [reported])["L1"].notes == ()
 
 
 def _speech(index, text, backchannel=False):
@@ -657,34 +604,25 @@ def test_user_text_is_read_as_one_stream():
         _speech(1, "uh huh", True),
         _speech(2, "for six"),
     )
-    merged = user_turns(
-        _user("book a table for six"), [first, ack, second]
-    )  # one message, two turns
+    merged = user_turns(_user("book a table for six"), [first, ack, second])
     assert [s.index for s in merged.present] == [0, 2] and not merged.stray
     assert user_turns(_user("book a table", "book a table"), [first]).stray == [
         "book",
         "a",
         "table",
     ]
-    assert [
-        s.index for s in user_turns(_user("for six"), [first, second]).present
-    ] == []  # out of order
+    assert [s.index for s in user_turns(_user("for six"), [first, second]).present] == []
 
 
 def test_a_backchannel_may_be_present_or_absent_even_when_the_next_turn_starts_with_its_words():
     ack, turn = _speech(0, "Stop.", True), _speech(1, "Stop. Now please.")
-    dropped = user_turns(
-        _user("Stop. Now please."), [ack, turn]
-    )  # the framework left the backchannel out
+    dropped = user_turns(_user("Stop. Now please."), [ack, turn])
     assert [s.index for s in dropped.present] == [1] and not dropped.stray
     kept = user_turns(_user("Stop.", "Stop. Now please."), [ack, turn])
     assert [s.index for s in kept.present] == [0, 1] and not kept.stray
     # identical texts and only one kept: the turn that is owed a place is taken to be it
     same = user_turns(_user("Stop."), [ack, _speech(1, "Stop.")])
     assert [s.index for s in same.present] == [1] and not same.stray
-
-
-# --------------------------------------------------------------------------- M2
 
 
 def test_m2_fails_on_user_text_nobody_said(fixed):
@@ -712,7 +650,7 @@ def test_m2_fails_on_an_assistant_message_that_is_no_reply(barge):
     remembered(barge, 2)["text"] = "I never said this"
     report = check(barge)
     assert rules(report, "M2") == ["rule c"]
-    assert report.results["M1"].verdicts[0].outcome == UNOBSERVABLE  # M1 does not guess either
+    assert report.results["M1"].verdicts[0].outcome == UNOBSERVABLE
 
 
 def shown(events, call, kind):
@@ -753,8 +691,7 @@ def test_m2_a_result_nobody_witnessed_fails_or_is_unobservable(fixed):
 
 
 def test_m2_what_the_model_is_shown_for_a_tool_that_raised_is_not_judged(fixed):
-    """A tool that raises to end the turn quietly is shown as an empty, non-error result
-    by livekit-agents. Its call and result must still be there, once and in order."""
+    """livekit-agents shows a tool that raised to end the turn as an empty, non-error result."""
     returned = of(fixed, "tool.returned")
     returned["kind"] = "tool.raised"
     returned["data"] = {
@@ -766,12 +703,11 @@ def test_m2_what_the_model_is_shown_for_a_tool_that_raised_is_not_judged(fixed):
     }
     shown(fixed, 2, "function_call_output")["output"] = ""
     assert check(copy.deepcopy(fixed)).outcome("M2") == PASS
-    # older releases keep neither the call nor a result for it; that is their choice too
+    # older releases keep neither the call nor a result for it
     gone = copy.deepcopy(fixed)
     for kind in ("function_call", "function_call_output"):
         context(gone, 2).remove(shown(gone, 2, kind))
     assert check(gone).results["M2"].verdicts[1].outcome == PASS
-    # but nothing may be shown twice
     context(fixed, 2).append(dict(shown(fixed, 2, "function_call_output")))
     assert rules(check(fixed), "M2") == ["rule d"]
 
@@ -786,8 +722,7 @@ def test_m2_a_result_marked_as_an_error_for_a_tool_that_returned_fails(fixed):
 
 
 def test_m2_a_cancelled_tool_call_needs_no_result(affected):
-    """On the affected release the first booking's result is missing from memory. Had the
-    call been cancelled instead of returning, nothing would be owed."""
+    """On the affected release the first booking's result is missing from memory."""
     assert check(copy.deepcopy(affected)).outcome("M2") == FAIL
     returned = of(affected, "tool.returned")
     returned["kind"] = "tool.cancelled"
@@ -796,8 +731,7 @@ def test_m2_a_cancelled_tool_call_needs_no_result(affected):
 
 
 def _returns_at(events, call, *, before):
-    """Move the booking's return to the instant model call ``call`` is requested: just
-    before the request in the ledger, or just after it."""
+    """Move the booking's return to just before or after the request of model call ``call``."""
     returned = of(events, "tool.returned")
     events.remove(returned)
     request = next(e for e in events if e["kind"] == "llm.request" and e["data"]["call"] == call)
@@ -807,14 +741,13 @@ def _returns_at(events, call, *, before):
 
 
 def test_m2_what_the_model_is_shown_for_a_call_still_running_is_not_judged(fixed):
-    """livekit-agents 1.8 shows a call in progress with a stand-in result. It is no
-    return value, and may be shown; it may not be shown twice."""
+    """livekit-agents 1.8 shows a call still running with a stand-in result."""
     _returns_at(fixed, 2, before=False)
     shown(fixed, 2, "function_call_output")["output"] = "The tool call is still in progress."
     report = check(copy.deepcopy(fixed))
     second = report.results["M2"].verdicts[1]
     assert second.outcome == PASS and second.measures["stand_in_results"] == 1
-    assert report.outcome("M2") == PASS  # the final history holds the value it returned
+    assert report.outcome("M2") == PASS
     context(fixed, 2).append(dict(shown(fixed, 2, "function_call_output")))
     assert rules(check(fixed), "M2") == ["rule d"]
 
@@ -827,16 +760,13 @@ def _without_the_call(events, call):
 
 
 def test_m2_a_call_for_a_later_turn_made_as_the_tool_returns_is_not_held_to_it(fixed):
-    """Call 2 answers the second user turn. Requested long after the booking returned, it
-    must show it. Requested at the very instant the booking returned, it may have been put
-    together first."""
+    """Requested at the instant the booking returned, call 2 may have been put together first."""
     assert rules(check(_without_the_call(copy.deepcopy(fixed), 2)), "M2") == ["rule d"]
     tied = _without_the_call(_returns_at(fixed, 2, before=True), 2)
     assert check(tied).results["M2"].verdicts[1].outcome == PASS
 
 
 def test_m2_an_error_result_for_a_call_no_tool_received_is_the_frameworks_account(fixed):
-    """The framework answers a call itself when the arguments do not fit the tool."""
     context(fixed, 2).append(
         {
             "type": "function_call_output",
@@ -857,8 +787,7 @@ def _forget(items, text):
 
 def test_m2_a_transcript_is_owed_once_the_turn_can_be_over(fixed):
     """The second transcript arrives at 6.2 s and its turn can be over at 7.2 s. A context
-    requested before then need not hold it, even with no lag allowed; the final history
-    must."""
+    requested before then need not hold it; the final history must."""
     early = declare(copy.deepcopy(fixed), M2={"user_commit_lag_us": 0})
     _forget(context(early, 2), "Is the table by the window?")
     assert "rule b" not in rules(check(early), "M2")
@@ -870,7 +799,7 @@ def test_speech_that_begins_before_a_turn_can_be_over_extends_it(fixed):
     view = View(fixed)
     first, second = view.speeches
     assert view.turn_over_us(first) == 3_700_000  # transcript at 2.7 s, plus 0.5 s + 0.5 s
-    second.start = 3_500_000  # the user goes on before that
+    second.start = 3_500_000
     assert view.turn_over_us(first) == view.turn_over_us(second) == 7_200_000
 
 
@@ -883,9 +812,6 @@ def test_m2_fails_when_a_reply_comes_before_the_turn_it_answered(barge):
         reply,
     )
     assert "rule e" in rules(check(barge), "M2")
-
-
-# --------------------------------------------------------------------------- L2
 
 
 def _buffer_gap(events, at, length=0):
@@ -949,9 +875,6 @@ def test_l2_reports_recognition_delay_separately_from_stop_latency(barge):
     assert measures["stop_latency_us"] == 0  # the command to silence
 
 
-# --------------------------------------------------------------------------- L1
-
-
 def test_l1_a_later_speech_carries_the_obligation():
     result = check(load("1.8.12", "speak_over_new_turn")).results["L1"]
     assert [v.instance for v in result.verdicts] == [{"speech": 1}]
@@ -965,12 +888,7 @@ def test_l1_reports_time_to_first_model_call_and_first_audio(barge):
 
 
 def test_l1_slack_is_a_policy_choice(barge):
-    """With no slack and no end-of-turn allowance left, an ordinary reply is still on time;
-    the budget is the declared delays, not a guess."""
     assert check(declare(barge, L1={"slack_us": 0})).outcome("L1") == PASS
-
-
-# --------------------------------------------------------------------------- edges found in review
 
 
 def test_a2_an_intent_that_shares_its_tool_and_was_never_acted_on_has_no_instance(fixed):
@@ -993,8 +911,6 @@ def test_a1_a_retired_intent_whose_tool_then_served_its_replacement_passes(fixed
 
 
 def _without_tool_witness(events):
-    """The same run with a tool Earful could not witness: no tool events at all, and the
-    header does not name it."""
     kept = [e for e in events if not e["kind"].startswith("tool.")]
     kept[0]["data"]["scenario"]["witnessed_tools"] = []
     for e in kept:
@@ -1011,8 +927,6 @@ def test_an_unwitnessed_tool_is_unobservable_not_a_failure(fixed):
 
 
 def test_l1_fails_when_a_witnessed_tool_is_never_called(fixed):
-    """The model asked for the booking and the framework never made the call. The header
-    says the tool is witnessed, so its absence from the ledger is evidence, not a gap."""
     kept = [e for e in fixed if not e["kind"].startswith("tool.")]
     for e in kept:
         if e["kind"] == "effect.requested":
@@ -1028,8 +942,7 @@ def test_l1_fails_when_a_witnessed_tool_is_never_called(fixed):
 
 
 def _silence_after(events, call):
-    """Drop everything the agent said from model call ``call`` on: the call was requested
-    and never answered."""
+    """Drop everything the agent said from model call ``call`` on, as if it was never answered."""
     utterance = next(
         e["data"]["utterance"]
         for e in events
@@ -1074,7 +987,7 @@ def test_l1_first_audio_counts_even_if_the_run_ends_before_the_segment_finishes(
     report = check(seal(barge))
     last = report.results["L1"].verdicts[-1]
     assert last.outcome == PASS and last.measures["time_to_first_audio_us"] == 800_000
-    assert report.results["M1"].verdicts[-1].outcome == UNOBSERVABLE  # what played is not yet known
+    assert report.results["M1"].verdicts[-1].outcome == UNOBSERVABLE
 
 
 def test_l2_a_speech_the_vad_never_reported_holds_no_floor(barge):

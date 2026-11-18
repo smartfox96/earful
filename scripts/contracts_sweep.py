@@ -1,17 +1,6 @@
-"""Does the checker hold up on ordinary agents doing ordinary things?
+"""Sweep ordinary scenario shapes, moving one user speech across each, and check every run.
 
-Runs a set of scenario shapes, moving one user speech across each in small steps, and
-checks every run. Each shape is something real agents do: a slow tool interrupted while it
-runs, a tool that raises, two rounds of tools, a backchannel, noise, an output that cannot
-pause, a greeting, a slow recognizer, a user who pauses mid-sentence. The moving speech
-starts as close to the one before it as it can. On a release without known defects nothing should
-fail; whatever does is either a defect of that release or a mistake in the checker, and
-is worth reading either way.
-
-    python scripts/contracts_sweep.py [family ...] [--step 0.05] [--dump DIR]
-
-Prints, per family, every verdict that is not a plain pass, grouped by contract, outcome
-and rule, with the timings it appeared at. ``--dump`` writes the ledger of each such run.
+python scripts/contracts_sweep.py [family ...] [--step 0.05] [--dump DIR]
 """
 
 import json
@@ -111,8 +100,7 @@ class Greeter(lk.Agent):
 
 
 def booking(ack=BOOKING_ACK, call=None):
-    """Books when asked and it sees no result; confirms once the result is the last thing
-    in its context; answers a question about the table."""
+    """Books when asked, and confirms once the tool's result is last in its context."""
 
     def policy(items):
         text = last_user(items)
@@ -212,21 +200,16 @@ def hosted(at, second, **kwargs):
 
 # family -> (first and last start of the moving speech, builder)
 FAMILIES = {
-    # The three reference cases.
     "barge_in_mid_word": (2.5, 12.0, reference("barge_in_mid_word")),
     "book_then_interrupt": (2.5, 12.0, reference("book_then_interrupt")),
     "speak_over_new_turn": (2.5, 6.0, reference("speak_over_new_turn")),
-    # A tool that takes 3 s to commit, interrupted while it runs.
     "slow_tool": (2.5, 11.0, lambda at: booker(booking(), at, latency=3.0)),
-    # The model calls the tool without saying anything.
     "silent_tool_call": (2.5, 8.0, lambda at: booker(booking(ack=""), at, latency=2.0)),
-    # The tool raises an ordinary error; the model apologizes.
     "tool_raises": (
         2.5,
         8.0,
         lambda at: booker(booking(ack="One moment please."), at, latency=1.0, fail=True),
     ),
-    # The tool returns a dict.
     "tool_returns_dict": (2.5, 8.0, lambda at: booker(booking(), at, latency=0.5, returns="dict")),
     # The model asks for a tool with an argument the tool cannot take.
     "refused_call": (
@@ -240,11 +223,8 @@ FAMILIES = {
             at,
         ),
     ),
-    # Two rounds of tools, then a confirmation.
     "two_rounds": (2.5, 12.0, lambda at: booker(two_rounds, at, latency=1.0)),
-    # Two tools called in one reply.
     "parallel_tools": (2.5, 8.0, lambda at: booker(parallel_tools, at, latency=1.5)),
-    # The user corrects the booking while it is being made.
     "retire": (
         2.5,
         11.0,
@@ -261,15 +241,12 @@ FAMILIES = {
         8.0,
         lambda at: booker(booking(ack=""), at, latency=2.0, min_endpointing_delay=2.0),
     ),
-    # A backchannel while the agent speaks.
     "backchannel": (2.5, 12.0, lambda at: hosted(at, speech(at, 0.6, "Uh huh.", backchannel=True))),
-    # Noise (the VAD fires, nothing is transcribed) while the agent speaks.
+    # Noise: the VAD fires and nothing is transcribed.
     "noise": (2.5, 12.0, lambda at: hosted(at, speech(at, 0.8, ""), drain_delay=16.0)),
     # A speech shorter than the interruption threshold.
     "short_speech": (2.5, 12.0, lambda at: hosted(at, speech(at, 0.3, "Wait."))),
-    # An output that cannot pause: the framework has to clear it.
     "no_pause": (2.5, 12.0, lambda at: hosted(at, speech(at, 1.0, "Stop."), sink_can_pause=False)),
-    # A recognizer that takes 1.2 s to deliver a transcript.
     "slow_stt": (
         2.5,
         12.0,
@@ -284,7 +261,6 @@ FAMILIES = {
             ],
         ),
     ),
-    # Other interruption thresholds.
     "quick_interrupt": (
         2.5,
         12.0,
@@ -297,7 +273,6 @@ FAMILIES = {
         12.0,
         lambda at: hosted(at, speech(at, 1.5, "Stop."), min_interruption_duration=1.0),
     ),
-    # A greeting the application speaks itself, interrupted.
     "greeting": (
         0.1,
         7.0,
@@ -325,8 +300,7 @@ FAMILIES = {
             ],
         ),
     ),
-    # The user pauses mid-sentence: the second half moves from right after the first to
-    # well after it. Under half a second apart, a VAD hears the two as one.
+    # Under half a second apart, a VAD hears the two halves as one.
     "pauses_mid_sentence": (
         1.5,
         5.0,
@@ -338,7 +312,6 @@ FAMILIES = {
             speeches=[speech(0.5, 1.0, "Tell me about"), speech(at, 1.0, "the menu please.")],
         ),
     ),
-    # The user goes on speaking, in three parts, while a slow tool returns.
     "goes_on_speaking": (
         5.0,
         9.0,
@@ -358,8 +331,7 @@ FAMILIES = {
 
 
 class _AtTheEnd:
-    """Each family as a scenario a search can name: ``contracts_sweep:at_the_end.<family>``
-    is the family with its moving speech at the last position of its sweep."""
+    """``at_the_end.<family>`` is the family with its moving speech at its last position."""
 
     def __getattr__(self, family):
         if family not in FAMILIES:
@@ -449,7 +421,6 @@ if __name__ == "__main__":
         f"livekit-agents {lk.__version__}: {runs} runs in {len(families)} families, step {step} s; "
         f"{clean} with every verdict a pass"
     )
-    # How many runs, and how many families, each kind of non-pass verdict appeared in.
     kinds = defaultdict(set)
     for family, family_runs in results.items():
         for at, res in family_runs:

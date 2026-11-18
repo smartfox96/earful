@@ -1,22 +1,4 @@
-"""A ledger as one HTML page: a timeline of the run, the verdicts and every event.
-
-    page = render(events)                    # one ledger
-    page = render_bundle(Path("bundle-dir")) # a failure bundle's reduced ledger
-
-The page is a single file with no external assets. It reads without JavaScript: a link
-from a verdict or a finding highlights the events it rests on through ``:target``.
-JavaScript adds hover details, a filter for the event table and horizontal scrolling to
-what is highlighted. The same events give the same bytes.
-
-Every string in a ledger is untrusted. All of it passes through ``_e`` before it reaches
-the page, and no ledger text is placed in a script, a style, an id or a class.
-
-The page draws any list of events, valid or not. It therefore reads the ledger
-defensively and does not use the checker's ``View``, which indexes a valid ledger. When a
-segment was audible is the one thing taken from there (``Segment.audible``).
-
-Framework-independent: this module must never import livekit.
-"""
+"""A ledger as one HTML page: a timeline of the run, the verdicts and every event."""
 
 from __future__ import annotations
 
@@ -36,10 +18,10 @@ Event = dict[str, Any]
 
 PX_PER_S = 120.0  # at this scale a word of the scripted voice is wide enough for its text
 MAX_WIDTH = 9600.0  # a longer run is drawn at a smaller scale
-LABEL_W = 172  # the column of lane names, which stays in place while the timeline scrolls
+LABEL_W = 172
 PAD_L, PAD_R = 18.0, 28.0
 AXIS_H = 26.0
-BAND_H = 20.0  # the strip that opens each lane
+BAND_H = 20.0
 CH = 6.1  # width reserved for one character of the 10px monospace labels
 ELLIPSIS = "…"
 
@@ -105,11 +87,8 @@ OUTCOME_WORDS = {
 }
 
 
-# ------------------------------------------------------------------------------ text
-
-
 def _e(value: Any) -> str:
-    """``value`` as text that is safe in HTML content and in a quoted attribute."""
+    """``value`` as text safe in HTML content and quoted attributes; all ledger text passes here."""
     text = value if isinstance(value, str) else str(value)
     text = text.encode("utf-8", "replace").decode("utf-8")  # a lone surrogate cannot be written
     text = "".join(ch if ch >= " " or ch in "\n\t" else "�" for ch in text)
@@ -121,7 +100,6 @@ def _one_line(value: Any) -> str:
 
 
 def _cells(text: str) -> int:
-    """How many monospace columns ``text`` takes."""
     return sum(2 if unicodedata.east_asian_width(ch) in "WF" else 1 for ch in text)
 
 
@@ -130,7 +108,6 @@ def _w(text: str) -> float:
 
 
 def _clip(value: Any, cells: int) -> str:
-    """``value`` on one line, cut to ``cells`` columns."""
     text = _one_line(value)
     if _cells(text) <= cells:
         return text
@@ -151,13 +128,11 @@ def _json(value: Any, *, indent: int | None = None) -> str:
 
 
 def _n(value: float) -> str:
-    """A coordinate, to a tenth of a pixel."""
     text = f"{value:.1f}"
     return text.removesuffix(".0")
 
 
 def _sec(us: int) -> str:
-    """Microseconds as seconds: milliseconds where that is exact, microseconds otherwise."""
     sign, us = ("-" if us < 0 else ""), abs(us)
     whole, part = divmod(us, 1_000_000)
     if part % 1000 == 0:
@@ -194,15 +169,10 @@ def _plural(count: int, noun: str) -> str:
     return f"{count} {noun}" if count == 1 else f"{count} {noun}s"
 
 
-# ------------------------------------------------------------------- the ledger, read
-
-
 @dataclass
 class _Ev:
-    """One line of the ledger, with what the page needs of it."""
-
     i: int  # its position in the ledger: what anchors and links use
-    seq: str  # as recorded, for display
+    seq: str
     t: int | None  # virtual time; None if the line has none
     source: str
     kind: str
@@ -212,8 +182,6 @@ class _Ev:
 
 @dataclass
 class _Pair:
-    """Something with a start and an outcome: a model call, a tool invocation, a write."""
-
     number: Any
     start: _Ev | None = None
     outcome: _Ev | None = None
@@ -229,8 +197,7 @@ class _Playout:
 
 
 class _Run:
-    """A ledger indexed for drawing. Nothing here raises on a malformed line: what cannot
-    be placed in a lane is still listed in the event table."""
+    """A ledger indexed for drawing. Nothing here raises on a malformed line."""
 
     def __init__(self, events: list[Event]) -> None:
         self.evs: list[_Ev] = []
@@ -341,7 +308,6 @@ class _Run:
 
     @property
     def speeches(self) -> list[dict[str, Any]]:
-        """The speeches the scenario declares that have a number and whole times."""
         return [
             s
             for s in _list(self.scenario, "speeches")
@@ -360,28 +326,21 @@ class _Run:
         }
 
 
-# ------------------------------------------------------- what a reader can highlight
-
-
 @dataclass
 class _Group:
-    """A set of events that one link highlights."""
-
-    anchor: str  # the id of its bar above the timeline, and the class its marks carry
+    anchor: str
     short: str  # HTML: what it is, in a few words
     title: str  # HTML: the same, with what it says
     events: list[int]
-    detail: str  # the anchor of the verdict it belongs to
+    detail: str
 
 
 class _Selections:
-    """One group per verdict and per finding, and which groups each event belongs to."""
-
     def __init__(self, run: _Run, report: Report | None) -> None:
         self.groups: list[_Group] = []
         self.of_verdict: dict[int, _Group] = {}  # id(verdict) -> group
         self.of_finding: dict[int, _Group] = {}
-        self.number: dict[int, int] = {}  # id(verdict) -> its number on the page
+        self.number: dict[int, int] = {}
         self.member: dict[int, list[_Group]] = {}  # event index -> its groups
         if report is None:
             return
@@ -414,12 +373,10 @@ class _Selections:
             self.member.setdefault(index, []).append(group)
 
     def classes(self, index: int) -> str:
-        """The classes a mark or a row of event ``index`` carries."""
         return " ".join([f"s{index}", *(g.anchor for g in self.member.get(index, []))])
 
 
 def _instance(instance: dict[str, Any]) -> str:
-    """What a verdict judged, as text: ``intent book-table-1``."""
     parts = []
     for key, value in instance.items():
         shown = value if isinstance(value, (str, int)) else _json(value)
@@ -427,13 +384,8 @@ def _instance(instance: dict[str, Any]) -> str:
     return ", ".join(parts) or "the run"
 
 
-# -------------------------------------------------------------------------- drawing
-
-
 @dataclass
 class _Item:
-    """Something drawn in a row: the pixels it spans, and how to draw it at a height."""
-
     x0: float
     x1: float
     draw: Callable[[float], str]
@@ -441,14 +393,12 @@ class _Item:
 
 @dataclass
 class _Sub:
-    """A group of rows inside a lane, with one name in the label column."""
-
     label: str  # HTML
     row_h: float
     items: list[_Item] = field(default_factory=list)
     hint: str = ""
     single_row: bool = False  # never wraps: its items were laid out not to collide
-    empty: str = ""  # what to say in the row when it has nothing
+    empty: str = ""
     label_dy: float = 0  # how far below the top of its first row the name sits
 
 
@@ -461,7 +411,6 @@ class _Lane:
 
 
 def _pack(items: list[_Item], gap: float = 10.0) -> list[list[_Item]]:
-    """Rows of items that do not overlap: each item goes in the first row with room."""
     rows: list[list[_Item]] = []
     ends: list[float] = []
     for item in sorted(items, key=lambda it: it.x0):
@@ -477,7 +426,6 @@ def _pack(items: list[_Item], gap: float = 10.0) -> list[list[_Item]]:
 
 
 def _status_shape(outcome: str) -> str:
-    """The mark of an outcome in a 12 by 12 box. Shape carries it; colour repeats it."""
     if outcome == PASS:
         return (
             '<circle class="st-pass" cx="6" cy="6" r="6"/>'
@@ -513,7 +461,6 @@ def _badge(outcome: str, text: str | None = None) -> str:
 
 
 def _glyph(name: str, x: float, y: float) -> str:
-    """A 10 by 10 mark with its top left corner at ``x``, ``y``."""
     g = f'<g transform="translate({_n(x)} {_n(y)})">'
     shapes = {
         "play": '<path class="gf" d="M1 0l8 5l-8 5z"/>',
@@ -536,8 +483,6 @@ def _glyph(name: str, x: float, y: float) -> str:
 
 
 class _Timeline:
-    """The six lanes, drawn as one SVG beside a column of lane names."""
-
     def __init__(
         self,
         run: _Run,
@@ -554,9 +499,7 @@ class _Timeline:
         self.placed: dict[int, float] = {}  # event index -> its x
         base = run.base
         lo_s = (run.t_lo - base) // 1_000_000
-        # A time the ledger implies (the end of a speech or of a generation) can fall
-        # after its last event. It widens the axis only within a minute of the events:
-        # anything further is a mistake in the ledger, and is drawn at the edge.
+        # An implied end time widens the axis by at most a minute past the events.
         implied = [base + s["end_us"] for s in run.speeches] if run.origin is not None else []
         for pair in run.calls.values():
             answer = pair.outcome
@@ -568,8 +511,6 @@ class _Timeline:
         span = hi_s - lo_s
         self.scale = PX_PER_S if span * PX_PER_S <= MAX_WIDTH else MAX_WIDTH / span
 
-    # ------------------------------------------------------------------ geometry
-
     def x(self, t: int) -> float:
         """Where a time is drawn. A time outside the axis is drawn at its nearer end."""
         lo, hi = self.lo_s * 1_000_000, self.hi_s * 1_000_000
@@ -577,8 +518,6 @@ class _Timeline:
 
     def at(self, t: int | None) -> str:
         return "no time" if t is None else _sec(t - self.run.base)
-
-    # --------------------------------------------------------------------- marks
 
     def a(self, ev: _Ev, inner: str, tip: str = "") -> str:
         """``inner`` as the mark of ``ev``: a link that highlights the event."""
@@ -598,7 +537,6 @@ class _Timeline:
         return f'<text class="{cls}" x="{_n(x)}" y="{_n(y)}"{extra}>{_e(value)}</text>'
 
     def flag(self, ev: _Ev, label: str, glyph: str = "", cls: str = "", tip: str = "") -> _Item:
-        """A point event: a pole at its instant, with its name to the right."""
         assert ev.t is not None
         x = self.x(ev.t)
         gw = 13.0 if glyph else 0.0
@@ -618,7 +556,6 @@ class _Timeline:
         return _Item(x - 3, x + width, draw)
 
     def start(self, ev: _Ev, x: float, y: float, cls: str, tip: str = "") -> str:
-        """The start of an interval: an arrow whose tip is at the instant."""
         return self.a(
             ev,
             self.hit(ev, x - 11, y + 1, 11, 18)
@@ -626,8 +563,6 @@ class _Timeline:
             f'L{_n(x - 8)} {_n(y + 16)}Z"/>',
             tip,
         )
-
-    # --------------------------------------------------------------------- lanes
 
     def user(self) -> _Lane:
         run = self.run
@@ -672,7 +607,6 @@ class _Timeline:
         return lane
 
     def _speech(self, s: dict[str, Any]) -> _Item:
-        """One scripted speech, from its true start to its true end."""
         base = self.run.base
         x0, x1 = self.x(base + s["start_us"]), self.x(base + s["end_us"])
         tags = [f"speech {s['speech']}"]
@@ -701,7 +635,6 @@ class _Timeline:
         return _Item(x0, x1 + 6 + _w(label), draw)
 
     def _window(self, window: Any) -> _Item | None:
-        """A bundle's window for where a speech sits, drawn where it is."""
         name = _str(window, "variable")
         lo, hi = _int(window, "lo_us"), _int(window, "hi_us")
         if not name.startswith("speech.position ") or lo is None or hi is None:
@@ -739,8 +672,6 @@ class _Timeline:
         return lane
 
     def _call(self, pair: _Pair) -> _Item | None:
-        """One model call: the request, the first token, the end of generation, and what
-        the model answered."""
         asked, answer = pair.start, pair.outcome
         anchor = asked or answer
         if anchor is None or anchor.t is None:
@@ -877,9 +808,6 @@ class _Timeline:
     def _interval(
         self, pair: _Pair, glyph: str, line1: str, line2: str, kind: str, solid: bool
     ) -> _Item:
-        """A tool invocation or a write: an arrow where it starts, a bar to its outcome,
-        the outcome's mark, and two lines: what was asked and what came of it. One with
-        no outcome is drawn open, to the end of the ledger."""
         begun, done = pair.start, pair.outcome
         assert begun is not None and begun.t is not None
         x0 = self.x(begun.t)
@@ -950,8 +878,6 @@ class _Timeline:
         return lane
 
     def _utterance(self, number: Any, ev: _Ev) -> _Item:
-        """One synthesized text: from the first word the voice accepted, through the wait
-        for its first audio, to the event that records it."""
         assert ev.t is not None
         d = ev.data
         started, ttfb = _int(d, "started_us"), _int(d, "ttfb_us") or 0
@@ -1001,8 +927,6 @@ class _Timeline:
         return _Item(x0 - 2, right + 8 + _w(label), draw)
 
     def _segment(self, seg: _Playout) -> _Item | None:
-        """One playout segment: when it was audible, each word where it completed, the
-        word it stopped inside, and the words that never played."""
         run = self.run
         done = seg.finished
         begun = seg.started
@@ -1039,18 +963,15 @@ class _Timeline:
         audible = [(a, b) for a, b in audible if b >= a]
 
         def position(t: int) -> int:
-            """How much audio had played by ``t``."""
             return sum(max(0, min(b, t) - a) for a, b in audible)
 
         def instant(pos: int) -> int:
-            """When that much audio had played."""
             for a, b in audible:
                 if pos <= b - a:
                     return a + pos
                 pos -= b - a
             return audible[-1][1] if audible else t0
 
-        # Each stamp's word and how long its audio is.
         word_of: dict[Any, tuple[str, int, int, int]] = {}  # word, microseconds, samples, rate
         order: list[Any] = []
         for number in _list(d, "utterances"):
@@ -1312,8 +1233,6 @@ class _Timeline:
 
         return _Item(x - 3, x + width + 2, draw)
 
-    # ------------------------------------------------------------------ the page part
-
     def build(self) -> str:
         fw = self.framework()
         lanes = [self.user(), self.model(), self.tools(), self.voice(), fw]
@@ -1398,7 +1317,6 @@ class _Timeline:
         while step * self.scale < 44:
             step = step * 5 if str(step).startswith("1") else step * 2
         bottom = height - AXIS_H + 6
-        # Every labelled second, then every second between them where there is room.
         labelled = range(-(-self.lo_s // step) * step, self.hi_s + 1, step)
         between = range(self.lo_s, self.hi_s + 1) if step > 1 and self.scale >= 20 else range(0)
         for s in sorted({*labelled, *between}):
@@ -1424,8 +1342,6 @@ class _Timeline:
         return "".join(out)
 
     def _hangup(self, height: float) -> tuple[str, str, float]:
-        """The moment the user leaves, across every lane: the line, which goes behind the
-        marks, its label, which goes in front, and how far right the label reaches."""
         run = self.run
         declared = _int(run.scenario, "hangup_us")
         ev = run.hangup
@@ -1457,7 +1373,6 @@ def _lower(draw: Callable[[float], str], by: float) -> Callable[[float], str]:
 
 
 def _fw_label(data: dict[str, Any]) -> str:
-    """A short word for a framework event, from the fields such events usually carry."""
     if isinstance(data.get("new"), str):
         return str(data["new"])
     if isinstance(data.get("text"), str):
@@ -1487,11 +1402,7 @@ _DEFS = (
 )
 
 
-# ------------------------------------------------------------------- the page's parts
-
-
 def _overall(report: Report | None, error: str) -> tuple[str, str, str]:
-    """The run's result: a class, a word, and a sentence that says what it covers."""
     if report is None:
         return "unchecked", "Not checked", f"The contracts could not be checked: {error}"
     if not report.valid:
@@ -1596,7 +1507,6 @@ def _invalid(report: Report | None, error: str) -> str:
 
 
 def _bundle(manifest: dict[str, Any], digest: str) -> str:
-    """What a bundle froze, from its manifest."""
     predicate = _dict(manifest, "predicate")
     framework = _dict(manifest, "framework")
     which = "neither recorded ledger"
@@ -1695,8 +1605,6 @@ def _seq_links(run: _Run, indexes: list[int]) -> str:
 
 
 def _selection_bars(run: _Run, selections: _Selections, timeline: _Timeline) -> str:
-    """One bar per thing a reader can highlight. A bar shows when it is the link's target
-    and stays at the top of the window, so it says what the highlight is."""
     out = []
     clear = '<a class="clear" href="#timeline">clear</a>'
     for group in selections.groups:
@@ -1744,7 +1652,6 @@ def _selection_css(run: _Run, selections: _Selections) -> str:
 
 
 def _verdict(run: _Run, v: Verdict, selections: _Selections) -> str:
-    """One verdict in full: summary, findings, flags, measures and the events it rests on."""
     group = selections.of_verdict[id(v)]
     number = selections.number[id(v)]
     findings = ""
@@ -1786,7 +1693,6 @@ def _verdict(run: _Run, v: Verdict, selections: _Selections) -> str:
 
 
 def _verdicts(run: _Run, report: Report | None, selections: _Selections) -> str:
-    """Every contract's result, and every verdict that is not a plain pass in full."""
     if report is None or not report.valid:
         return (
             '<section id="verdicts"><h2>Verdicts</h2><p class="none">There are no verdicts. '
@@ -1921,9 +1827,6 @@ def _legend() -> str:
     )
 
 
-# ---------------------------------------------------------------------------- the page
-
-
 def _page(
     events: list[Event],
     report: Report | None,
@@ -1932,8 +1835,7 @@ def _page(
     manifest: dict[str, Any] | None = None,
     error: str = "",
 ) -> str:
-    """The document for ``events`` and the report the checker gave for them. ``report``
-    is None when the checker refused the header's contract policy; ``error`` says why."""
+    """``report`` is None when the checker refused the header's policy; ``error`` says why."""
     run = _Run(events)
     digest = ledger_hash(events)
     selections = _Selections(run, report)
@@ -1978,13 +1880,7 @@ def render(
     title: str | None = None,
     manifest: dict[str, Any] | None = None,
 ) -> str:
-    """One complete HTML document for the ledger ``events``.
-
-    The verdicts are the checker's, from ``check(events)``. A ledger that is not a valid
-    run is drawn all the same, with the reasons it is invalid and no verdicts.
-    ``manifest`` is the manifest of the bundle the ledger comes from, if it comes from
-    one: the page then shows what the bundle froze.
-    """
+    """One complete HTML document for the ledger ``events``, valid or not."""
     report: Report | None
     error = ""
     try:
@@ -1995,9 +1891,7 @@ def render(
 
 
 def render_bundle(directory: Path, which: str = "minimal") -> str:
-    """The page for one ledger of the bundle in ``directory``: ``minimal``, the reduced
-    case, or ``original``, the case as it was found. Raises ``ValueError`` for a
-    directory that does not hold a bundle or a ledger the bundle does not have."""
+    """The page for one ledger of a bundle; ``ValueError`` if the bundle or ledger is missing."""
     from . import bundle
 
     if which not in bundle.FILES:

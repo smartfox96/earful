@@ -1,28 +1,5 @@
-"""Compare a run on the real clock with the run of the same case on the virtual clock.
-
-The virtual clock is what makes a run repeatable, and it is also the one thing about a
-run that a production system does not have. A finding made on it is worth cross-checking:
-run the same case on the real clock, with nothing patched, and see whether the same
-things happen.
-
-A real-clock run is never evidence. It is not repeatable, and ``validity`` says so of
-every one. The comparison leaves that rule alone. It asks a narrower question of a
-real-clock ledger that is well formed: does it agree with the virtual ledger, within
-tolerances the caller declares, on
-
-    order     what happened, and in what order where the virtual run leaves no doubt
-    timing    when each thing happened from the user's first audio on, measured from it
-    audible   which words each segment played, and whether it was cut short
-    memory    what each model call was shown, and the final history
-    effects   which writes were requested and what became of each
-    verdicts  which contract rules broke
-
-Two events closer together on the virtual clock than the time tolerance may come in
-either order on the real one. A segment may differ by the declared number of words where
-it was cut short, and an assistant message that was cut short may differ by as many.
-
-Framework-independent: this module must never import livekit.
-"""
+"""Compare a run on the real clock with the run of the same case on the virtual clock,
+within declared tolerances."""
 
 from __future__ import annotations
 
@@ -67,9 +44,7 @@ class Comparison:
     drift_us: int  # the largest difference in time between an event and its counterpart
     rules: tuple[str, ...]  # the rules the virtual run broke
     real_rules: tuple[str, ...]  # the rules the real-clock run broke
-    # Why the real-clock run could not be compared at all, if it could not: a reason
-    # other than its clock for which it is not a well-formed, complete run.
-    unusable: tuple[str, ...] = ()
+    unusable: tuple[str, ...] = ()  # why the real-clock run could not be compared, if so
 
     @property
     def agrees(self) -> bool:
@@ -105,14 +80,11 @@ _NAMED_BY = {
 
 
 def _named(events: list[Event]) -> dict[tuple[str, Any, int], Event]:
-    """Every event Earful's own witnesses recorded, under a name that is the same in two
-    runs of one case: its kind, what it is about, and which occurrence of that it is. The
-    framework's own events are left out: they explain a run and decide nothing."""
     out: dict[tuple[str, Any, int], Event] = {}
     seen: dict[tuple[str, Any], int] = {}
     for event in events:
         if event["source"] == "framework":
-            continue
+            continue  # the framework's own events explain a run and decide nothing
         about = event["data"].get(_NAMED_BY.get(event["kind"].split(".")[0], ""))
         occurrence = seen[event["kind"], about] = seen.get((event["kind"], about), 0) + 1
         out[event["kind"], about, occurrence] = event
@@ -143,8 +115,7 @@ def _order_and_timing(
     start, real_start = _origin(virtual), _origin(real)
     at = {name: ours[name]["t_us"] - start for name in both}
     real_at = {name: theirs[name]["t_us"] - real_start for name in both}
-    # Time is compared from the user's first audio on. What is recorded before it is the
-    # session starting up, which takes no virtual time and as long as the machine takes.
+    # Before the user's first audio the session is starting up, which takes no virtual time.
     began = next((e["seq"] for e in virtual if e["kind"] == "user.origin"), 0)
     timed = [name for name in both if ours[name]["seq"] >= began]
     drift = max((abs(real_at[name] - at[name]) for name in timed), default=0)
@@ -157,8 +128,7 @@ def _order_and_timing(
         )
         for name in late
     ]
-    # Where the virtual run leaves no doubt which of two events came first, the real one
-    # has to agree. Each event is reported against the first it wrongly precedes.
+    # Order has to agree only for events further apart on the virtual clock than the tolerance.
     for first, second in itertools.combinations(both, 2):
         if at[second] - at[first] > tolerance.time_us and (
             theirs[second]["seq"] < theirs[first]["seq"]
@@ -215,7 +185,6 @@ def _audible(virtual: list[Event], real: list[Event], tolerance: Tolerance) -> l
 
 
 def _item(item: dict[str, Any]) -> tuple[Any, ...]:
-    """A chat item without what differs between any two runs: its random id."""
     kind = item["type"]
     if kind == "message":
         return (kind, item.get("role"), item.get("text") or "", item.get("interrupted", False))
@@ -235,8 +204,7 @@ def _item(item: dict[str, Any]) -> tuple[Any, ...]:
 def _same_item(a: tuple[Any, ...], b: tuple[Any, ...], tolerance: Tolerance) -> bool:
     if a == b:
         return True
-    # A message that was cut short holds what had been played, give or take the words
-    # the two clocks may differ by at the cut.
+    # A message cut short may differ by the words the two clocks differ by at the cut.
     if a[0] == b[0] == "message" and a[1] == b[1] == "assistant" and a[3] and b[3]:
         short, long = sorted((a[2].split(), b[2].split()), key=len)
         return long[: len(short)] == short and len(long) - len(short) <= tolerance.words
@@ -317,14 +285,9 @@ def _broken(events: list[Event]) -> tuple[str, ...]:
 def compare(
     virtual: list[Event], real: list[Event], tolerance: Tolerance | None = None
 ) -> Comparison:
-    """Compare the ledger of a real-clock run with the ledger of the virtual run of the
-    same case.
-
-    Raises ``ValueError`` if ``virtual`` is not a valid run, if ``real`` is not marked as
-    a real-clock run, or if the two do not declare the same scenario. A real-clock run
-    that is not well formed, or is not a complete run for a reason other than its clock,
-    is returned as ``unusable``: nothing can be concluded from it.
-    """
+    """Compare a real-clock ledger with the virtual ledger of the same case. Raises
+    ``ValueError`` if ``virtual`` is not a valid run, ``real`` is not a real-clock run or the
+    two declare different scenarios. A malformed real-clock run comes back as ``unusable``."""
     tolerance = Tolerance() if tolerance is None else tolerance
     reasons = validity(virtual)
     if reasons:
@@ -371,7 +334,6 @@ class CrossCheck:
 
     @property
     def agrees(self) -> bool:
-        """Every real-clock run agrees with the virtual one."""
         return bool(self.comparisons) and all(c.agrees for c in self.comparisons)
 
     @property
@@ -424,8 +386,7 @@ class CrossCheck:
 def cross_check(
     virtual: list[Event], real: list[list[Event]], tolerance: Tolerance | None = None
 ) -> CrossCheck:
-    """Compare each real-clock ledger in ``real`` with the virtual ledger of the same
-    case. Raises ``ValueError`` as ``compare`` does."""
+    """``compare`` for each real-clock ledger in ``real``; raises ``ValueError`` as it does."""
     tolerance = Tolerance() if tolerance is None else tolerance
     return CrossCheck(
         virtual, tuple(real), tuple(compare(virtual, run, tolerance) for run in real), tolerance

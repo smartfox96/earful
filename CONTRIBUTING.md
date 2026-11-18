@@ -23,6 +23,7 @@ run the code in your checkout.
 | `scripts/lint.sh` | ruff format, ruff, mypy, and that every deliberate break still applies. `--fix` reformats first | 20 s |
 | `scripts/wheel_smoke.sh` | Builds the wheel and the source distribution, installs the wheel alone outside the repository and uses it | 5 s |
 | `scripts/quickstart_check.sh` | Follows the README's quickstart from the wheel, with livekit-agents, outside the repository | 90 s |
+| `scripts/site.sh DIR` | Draws the two example reports the README links to, into `DIR` | 15 s |
 | `scripts/check_all.sh` | All of the above, then on each of the five releases: every test, repeatability of the reference ledgers, the two historical cases and the replays | 8 min |
 | `.venvs/lk-1.8.12/bin/python scripts/mutate.py` | Applies each deliberate break of `tests/mutants.py` and checks that a test it names fails | 5 min |
 
@@ -33,6 +34,13 @@ on macOS for the oldest and the newest. The deliberate breaks run each night.
 `ci result` check has passed. A pull request also needs the maintainer's approval, given
 after its last push (`.github/CODEOWNERS`). Nobody can push to `main`, and a merged
 branch is deleted from the repository.
+
+`check_all.sh` is heavy: five test runs side by side for six minutes. It shares the
+processors between them (`EARFUL_WORKERS`), and it is still not something to run on
+battery or after every change. While working, the first row of the table is the check to
+run. CI runs everything on the pull request, and the deliberate breaks run there in seven
+minutes (`gh workflow run mutation.yml --ref <branch>`), where they take a whole machine
+for five here.
 
 Run `check_all.sh` before opening a pull request that touches `src/`. A change can pass
 on the newest release and fail on the oldest: some tests search a real session, and the
@@ -75,6 +83,13 @@ anchored on, or rename a test a break names, `scripts/lint.sh` fails until the b
 brought along. A break that no test can catch is a sign the code it breaks is not needed.
 
 **Tests over a second are marked `slow`.** `pytest -m "not slow"` is the loop to work in.
+
+**The README's picture and its example reports are made from the code.** The two reports
+are drawn by `scripts/site.sh`: on every pull request, to see that they still build, and
+from `main` by the `pages` workflow, which publishes them. The picture,
+`docs/img/report-booking.png`, is a screenshot of `booking.html#f1-1` (the A2 finding
+selected) in a window 1280 pixels wide, scrolled to the timeline. Take it again when a
+change alters how a report is drawn.
 
 **The README's quickstart is run.** Its two files are `examples/booking`, a test runs
 them as shipped and with the fix, and `scripts/quickstart_check.sh` follows the steps from

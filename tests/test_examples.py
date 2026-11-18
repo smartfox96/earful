@@ -1,6 +1,6 @@
-"""The example the README walks through: it fails as shipped, for the reason the README
-gives, and passes with the one-line fix the README gives."""
+"""The README's booking example fails as shipped and passes with the README's fix."""
 
+import re
 import shutil
 from pathlib import Path
 
@@ -27,9 +27,7 @@ def example(pytester):
 
 
 def run(example):
-    return example.runpytest_inprocess(
-        "-p", "no:cacheprovider", "-p", "no:asyncio", "--earful-workers", "4"
-    )
+    return example.runpytest_inprocess("-p", "no:cacheprovider", "-p", "no:asyncio")
 
 
 def test_as_shipped_the_conversation_passes_and_the_search_finds_a_second_booking(example):
@@ -49,11 +47,43 @@ def test_as_shipped_the_conversation_passes_and_the_search_finds_a_second_bookin
     assert (kept / "search-1.booking.A2-rule.ledger.jsonl").exists()
 
 
+SKILL = EXAMPLE.parents[1] / "skills" / "earful" / "SKILL.md"
+# An agent with the tool the skill's test names.
+SUPPORT_AGENT = '''
+import livekit.agents as lk
+
+
+class SupportAgent(lk.Agent):
+    def __init__(self) -> None:
+        super().__init__(instructions="You handle refunds.")
+
+    @lk.function_tool
+    async def issue_refund(self, order: str) -> str:
+        """Refund an order.
+
+        Args:
+            order: The order number
+        """
+        raise AssertionError("a test reached the payment service")
+'''
+
+
+def test_the_test_the_skill_shows_a_coding_assistant_runs_as_written(pytester):
+    """Only the conversation as written is run: what a search of it finds depends on the release."""
+    (shown, *_others) = re.findall(r"```python\n(.*?)```", SKILL.read_text(), flags=re.DOTALL)
+    (pytester.path / "myapp").mkdir()
+    (pytester.path / "myapp" / "__init__.py").write_text("")
+    (pytester.path / "myapp" / "agent.py").write_text(SUPPORT_AGENT)
+    (pytester.path / "test_refund.py").write_text(shown)
+    result = pytester.runpytest_inprocess(
+        "-p", "no:cacheprovider", "-p", "no:asyncio", "-k", "as_written"
+    )
+    result.assert_outcomes(passed=1, deselected=1)
+
+
 def test_with_an_idempotency_key_sent_the_second_booking_is_gone(example):
-    """The example is about one failure, and the fix removes it on every release. That
-    the whole search then passes is asserted for the release the quickstart is written
-    against: what else a search of this conversation meets on an older release is not
-    this example's subject."""
+    """The fix removes A2/rule on every release. The whole search is asserted to pass only
+    from the release the quickstart is written against."""
     agent = example.path / "agent.py"
     source = agent.read_text()
     assert source.count(AS_SHIPPED) == 1

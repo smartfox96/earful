@@ -1,5 +1,4 @@
-"""A scenario built where it is used: run and searched in the process of the test, and
-refused, before anything runs, by what needs to build it again from a name."""
+"""A scenario built in a test: run and searched in process, refused where it needs a name."""
 
 import livekit.agents as lk
 import pytest
@@ -41,8 +40,7 @@ READS_THE_ERROR = (
 
 
 def booking(model, **changes) -> Case:
-    """A whole scenario in one expression: an agent with nothing of Earful in it, its
-    booking declared as an effect, a model written as rules and one user turn."""
+    """An inline scenario: a plain agent, its booking declared as an effect, one user turn."""
     fields = {
         "name": "inline_booking",
         "agent": TalksToItsServiceItself,
@@ -67,9 +65,6 @@ def pools(monkeypatch):
     return started
 
 
-# --------------------------------------------------------------------------- one run
-
-
 def test_a_case_built_in_a_test_runs_and_its_contracts_are_asserted():
     result = run(booking(READS_THE_ERROR))
     result.assert_contracts()
@@ -87,7 +82,7 @@ def test_a_broken_contract_fails_the_test_and_says_which_rule_and_why():
     assert "A3/rule" in message and "A3  fail" in message
     assert BOOKING_INTENT in message
     assert isinstance(caught.value, AssertionError)  # a test fails as on any assertion
-    result.assert_contracts(allow=["A3/rule"])  # a rule that is known to break may
+    result.assert_contracts(allow=["A3/rule"])
     result.assert_contracts(allow=[CONFIRMED_BUT_NOT_DONE])
 
 
@@ -118,8 +113,7 @@ def test_every_run_builds_its_agent_anew():
 
 
 def test_a_function_that_returns_a_case_is_called_for_each_run():
-    """A policy that keeps state between calls starts again in each run, if the scenario
-    is given as the function that builds it."""
+    """A policy that keeps state between calls then starts afresh in each run."""
     made = []
 
     def make():
@@ -135,7 +129,7 @@ def test_a_run_of_a_case_a_search_found_is_run_from_its_data():
     data = cases.with_fault(Scenario.of(source).default(), "backend.error", 1)
     with pytest.raises(ContractFailure, match="A3/rule"):
         run(source, case=data).assert_contracts()
-    run(source).assert_contracts()  # as written it passes
+    run(source).assert_contracts()
 
 
 def test_what_is_not_a_scenario_is_refused():
@@ -143,9 +137,6 @@ def test_what_is_not_a_scenario_is_refused():
         run(42)
     with pytest.raises(ValueError, match="returned NoneType, not a Case"):
         run(lambda: None, case=Scenario.of(booking(READS_THE_ERROR)).default())
-
-
-# --------------------------------------------------------------------------- names
 
 
 def test_only_a_function_at_the_top_of_a_module_has_a_name():
@@ -170,13 +161,8 @@ def test_the_data_of_an_inline_case_cannot_be_run_by_name_and_says_what_to_do():
         scenario.run(data)
 
 
-# --------------------------------------------------------------------------- a search
-
-
 @pytest.mark.slow
 def test_a_case_built_in_a_test_is_searched_in_the_process_of_the_test():
-    """Every fault on the one write, with nothing else moved. The model that confirms
-    whatever came back is caught; the one that reads the error is not."""
     built = []
 
     def agent():
@@ -195,7 +181,6 @@ def test_a_case_built_in_a_test_is_searched_in_the_process_of_the_test():
     found.assert_contracts(allow=["A3/rule"])
     (one,) = found.breaks()
     assert not one.instants_only and not one.everywhere and one.details
-    # The example is a case of this scenario: run from its data, it breaks the same rule.
     with pytest.raises(ContractFailure, match="A3/rule"):
         run(booking(CONFIRMS_ANYTHING), case=one.example).assert_contracts()
 
@@ -214,8 +199,7 @@ def test_a_search_of_the_same_inline_case_gives_the_same_result_each_time():
 
 
 def test_a_search_does_not_fill_the_log_with_the_frameworks_own_records(caplog):
-    """A tool that raises is logged by the framework with its traceback, in every run. A
-    single run lets that through; a search of hundreds of runs does not."""
+    """The framework logs a tool that raises, with its traceback, in every run."""
     import logging
 
     failing = booking(CONFIRMS_ANYTHING, faults=[Fault("backend.error", 1)])
@@ -266,7 +250,6 @@ def test_where_worker_processes_cannot_be_started_the_search_says_so(monkeypatch
     with pytest.raises(WorkersUnavailable, match="cannot be started here.*workers=0") as caught:
         explore(as_written_confirms_a_failed_booking, workers=2, variables=(), words=False)
     assert caught.value.__cause__ is refusal
-    # In this process the same search runs.
     found = explore(
         as_written_confirms_a_failed_booking,
         variables=(),
@@ -277,8 +260,6 @@ def test_where_worker_processes_cannot_be_started_the_search_says_so(monkeypatch
 
 
 def test_a_case_given_as_a_scenario_keeps_its_lists_and_dicts_to_itself():
-    """Each run gets a copy whose containers are its own: what a run or a hook does to
-    them reaches neither the caller's Case nor the next run."""
     case = booking(READS_THE_ERROR, contracts={"L2": {"stop_bound_us": 100_000}})
     make = Scenario.of(case).make
     made = make()
@@ -320,8 +301,6 @@ def test_a_failure_of_an_inline_case_is_refused_as_a_bundle_before_anything_runs
 
 @pytest.mark.slow
 def test_the_same_scenario_as_a_function_in_a_module_is_kept_and_replays(tmp_path, pools):
-    """Given as the function itself, the scenario has a name: it is searched in worker
-    processes, and its failure is reduced, saved and replayed from the saved files."""
     found = explore(as_written_confirms_a_failed_booking, variables=(), words=False, workers=4)
     assert found.case["scenario"] == "breaks:as_written_confirms_a_failed_booking"
     assert pools == [4], "the search was not made in worker processes"

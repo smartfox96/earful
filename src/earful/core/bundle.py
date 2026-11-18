@@ -1,30 +1,5 @@
-"""A failure bundle: earful.bundle/1.
-
-What is kept when a search finds a failing case and the shrinker has reduced it, so that
-anyone can run it again and see the same thing:
-
-    manifest.json           what failed, on what, and how the case was reduced
-    original.case.json      the case as it was found            (earful.case/1)
-    original.ledger.jsonl   the ledger of running it            (earful.ledger, normalized)
-    minimal.case.json       the reduced case                    (earful.case/1)
-    minimal.ledger.jsonl    the ledger of running it
-
-The manifest freezes the failure: the contract rule that broke, the framework release and
-clock, the versions of the ledger, the contracts and the case format, what it was made
-with, a digest of the scenario's code, the hash of each ledger, and how far each time in
-the reduced case can move before it stops failing. The seed and the contract policy are
-in the case files.
-
-Replaying runs the reduced case again and compares: on the release it was found on, the
-same hash and the same failure; on a release that repaired the defect, a run that does
-not fail.
-
-A bundle names the code of its scenario; it does not contain it. Replaying one imports
-and runs that code, so replay only bundles you trust, as you would only run test code you
-trust. The file names above are fixed: a manifest cannot point anywhere else.
-
-Framework-independent: this module must never import livekit.
-"""
+"""A failure bundle (earful.bundle/1): a failing case, its reduction and the ledger of
+each, kept so that the failure can be replayed."""
 
 from __future__ import annotations
 
@@ -82,7 +57,6 @@ def _write_json(path: Path, value: Any) -> None:
 
 
 def _findings(events: list[Event], predicate: Predicate) -> list[str]:
-    """What the checker said about the frozen rule, in its own words."""
     return [
         finding.detail
         for verdict in check(events).failures
@@ -104,14 +78,9 @@ def capture(
     environment: dict[str, str] | None = None,
     scenario_digest: str = "",
 ) -> dict[str, Any]:
-    """Reduce a failing ``case``, run the reduced case ``repeats`` times, and write the
-    bundle. Returns its manifest.
-
-    ``environment`` says what it was made with, by name, and ``scenario_digest`` is a
-    digest of the scenario's code; both come from the adapter. Raises ``ValueError`` if
-    ``case`` does not break ``predicate``, or if the reduced case does not give the same
-    ledger every time: such a case is not something to keep.
-    """
+    """Reduce a failing ``case``, write the bundle to ``directory`` and return its manifest.
+    Raises ``ValueError`` if ``case`` does not break ``predicate``, or if the reduced case
+    does not give the same ledger in each of ``repeats`` runs."""
     runner = run if isinstance(run, Runner) else Runner(run)
     shrunk = shrink(case, runner, predicate, author=author, max_runs=max_runs)
     found_events = runner.ledger(case)
@@ -179,8 +148,7 @@ class Bundle:
 
 
 def load(directory: Path) -> Bundle:
-    """Read a bundle. Raises ``ValueError`` if its manifest is not earful.bundle/1 or a
-    case in it is not earful.case/1."""
+    """Read a bundle. Raises ``ValueError`` if its manifest or one of its cases is invalid."""
     manifest = json.loads((directory / MANIFEST).read_text(encoding="ascii"))
     errors = validate(manifest)
     if errors:
@@ -201,9 +169,7 @@ class Replay:
     hashes: list[str]  # the ledger hash of each run
     recorded: str  # the hash the bundle recorded for the reduced case
     framework: dict[str, str]  # what it was replayed on
-    scenario_changed: (
-        bool | None
-    )  # the scenario's code is not what the bundle was made with; None if unknown
+    scenario_changed: bool | None  # the scenario's code has changed; None if unknown
     invalid: tuple[str, ...] = ()  # why the runs are not valid evidence, if they are not
 
     @property
@@ -212,18 +178,16 @@ class Replay:
 
     @property
     def identical(self) -> bool:
-        """The very ledger the bundle recorded. Only to be expected on the release, and
-        with the Earful version and scenario code, the bundle was made with."""
+        """The very ledger the bundle recorded: expected only on the same release and code."""
         return self.repeatable and self.hashes[0] == self.recorded
 
 
 def replay(
     bundle: Bundle, run: Run, *, repeats: int = 3, fingerprint: Callable[[str], str] | None = None
 ) -> Replay:
-    """Run the bundle's reduced case ``repeats`` times on whatever ``run`` runs.
-    ``fingerprint`` is the adapter's digest of a scenario's code; with it the replay says
-    whether that code has changed since the bundle was made. Raises ``ValueError`` if the
-    adapter refuses the case."""
+    """Run the bundle's reduced case ``repeats`` times. This runs the scenario's code, so
+    replay only bundles you trust. ``fingerprint`` digests a scenario's code, to tell whether
+    it has changed since capture. Raises ``ValueError`` if the adapter refuses the case."""
     recorded = bundle.manifest["scenario_digest"]
     changed = None
     if fingerprint is not None and recorded:

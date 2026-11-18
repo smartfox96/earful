@@ -1,7 +1,4 @@
-"""What the adapter takes from inside livekit-agents: every name that the package does not
-export at its top level. A release that moves one of them is repaired here and nowhere
-else.
-"""
+"""Names the adapter takes from inside livekit-agents, which does not export them."""
 
 from livekit.agents.types import DEFAULT_API_CONNECT_OPTIONS, APIConnectOptions
 from livekit.agents.voice import io

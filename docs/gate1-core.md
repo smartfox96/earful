@@ -239,7 +239,7 @@ earful replay tests/bundles/lk-1.5.6.book_then_interrupt.A2-rule
 
 ## Mutation checks
 
-`tests/mutants.py` lists 241 deliberate breaks of the code. Each is one piece of source
+`tests/mutants.py` lists 266 deliberate breaks of the code. Each is one piece of source
 text and what replaces it: the offsets of a search ignored, the delay limit removed, a
 window's ends mislabelled, a reduction kept without the failure it needs, a timed-out
 write that never commits, a hangup that excuses a turn already overdue.
@@ -252,7 +252,7 @@ a wrong name is reported and never hides a break that no test notices.
 .venvs/lk-1.8.12/bin/python scripts/mutate.py
 ```
 
-On livekit-agents 1.8.12 the control passes and each of the 241 broken versions fails at
+On livekit-agents 1.8.12 the control passes and each of the 266 broken versions fails at
 least one of the tests it names. CI runs it each night, in four parts
 (`.github/workflows/mutation.yml`). On every change the lint job checks that the text of
 each break is still found exactly once in its file and that the tests it names exist

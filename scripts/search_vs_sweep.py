@@ -1,21 +1,6 @@
 """Does the boundary search find what stepping through time finds?
 
-For each scenario shape of scripts/contracts_sweep.py:
-
-1. The sweep. The moving speech is stepped across the shape in 50 ms steps and every run
-   is checked. Every contract rule some run broke is noted.
-2. The search. The shape is searched from the last position of its moving speech, moving
-   where each speech sits and every provider delay, with no faults. Every rule the
-   starting case or some candidate broke is noted.
-3. The rules the sweep found and the search did not are listed.
-
-    .venvs/lk-1.8.12/bin/python scripts/search_vs_sweep.py [family ...] [--step 0.05]
-
-Prints one JSON document: for each shape, how many runs the sweep made, how many of them
-were invalid, how many rules it found broken, how many candidates the search ran, and the
-rules the search missed. The exit status is 1 if the search missed a rule in any shape.
-
-This compares recall and nothing else. A rule neither method breaks is not seen by either.
+.venvs/lk-1.8.12/bin/python scripts/search_vs_sweep.py [family ...] [--step 0.05]
 """
 
 from __future__ import annotations

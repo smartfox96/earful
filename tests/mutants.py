@@ -1,14 +1,6 @@
-"""Deliberate breaks of the code, one place each. ``scripts/mutate.py`` applies each in a
-copy of the repository and checks that a test fails.
+"""Deliberate breaks of the code: each must fail a test it names (scripts/mutate.py)."""
 
-A mutant is a piece of source text, what replaces it, and the tests that should fail when
-it does. The text must occur exactly once in its file and each word of ``first`` must be
-part of a test's name: ``scripts/mutate.py --verify`` checks both, and the lint job runs
-it, so a change that moves a mutant's text or renames its test fails until the mutant is
-brought along.
-"""
-
-# ruff: noqa: E501  (each string is source text, copied exactly)
+# ruff: noqa: E501  (source text, copied exactly)
 
 from __future__ import annotations
 
@@ -17,11 +9,11 @@ from dataclasses import dataclass
 
 @dataclass(frozen=True)
 class Mutant:
-    name: str  # what is broken, as "<part>: <the break>"
+    name: str  # "<part>: <the break>"
     path: str  # the file, from the repository root
-    old: str  # the text as it is: found exactly once in the file
+    old: str  # found exactly once in the file
     new: str  # the text that breaks it
-    first: str  # a pytest -k expression: the tests that should catch it, run before any other
+    first: str  # pytest -k expression: the tests that should catch it
 
 
 MUTANTS = [
@@ -52,7 +44,7 @@ MUTANTS = [
         "src/earful/core/checker/m2.py",
         (
             '            if invocation is not None and invocation.called["seq"] < event["seq"]:\n'
-            "                continue  # a witnessed call that had been made: judged above\n"
+            "                continue  # judged above\n"
         ),
         (
             '            if invocation is not None and invocation.outcome is not None and invocation.outcome["seq"] < event["seq"] and invocation.outcome["kind"] != "tool.cancelled":\n'
@@ -1517,9 +1509,51 @@ MUTANTS = [
     Mutant(
         "plugin: the workers the command line gave are not used",
         "src/earful/pytest_plugin.py",
-        '        options.setdefault("workers", self.workers)\n',
-        "        pass\n",
+        '            options.setdefault("workers", self.workers)\n',
+        "            pass\n",
         first="workers_the_command_line_gave",
+    ),
+    Mutant(
+        "plugin: a scenario built inline is given worker processes",
+        "src/earful/pytest_plugin.py",
+        "        if self.spread or livekit.Scenario.of(scenario).reference is None:\n",
+        "        if self.spread:\n",
+        first="worker_per_processor_if_it_can_be_imported",
+    ),
+    Mutant(
+        "plugin: a test run spread by xdist starts workers of its own",
+        "src/earful/pytest_plugin.py",
+        "        if self.spread or livekit.Scenario.of(scenario).reference is None:\n",
+        "        if livekit.Scenario.of(scenario).reference is None:\n",
+        first="xdist_has_spread_over_the_processors",
+    ),
+    Mutant(
+        "plugin: the fixture is not told of xdist",
+        "src/earful/pytest_plugin.py",
+        '        spread=hasattr(config, "workerinput"),',
+        "        spread=False,",
+        first="told_what_the_command_line_and_xdist_say",
+    ),
+    Mutant(
+        "plugin: a search nobody gave a number for fails where workers cannot be started",
+        "src/earful/pytest_plugin.py",
+        "                found = livekit.explore(scenario, workers=0, **options)\n",
+        "                raise\n",
+        first="cannot_be_started_a_search_nobody_gave_a_number_for",
+    ),
+    Mutant(
+        "plugin: a number of workers someone gave is set aside where they cannot be started",
+        "src/earful/pytest_plugin.py",
+        '        if "workers" in options or self.workers is not None:\n',
+        "        if False:\n",
+        first="cannot_be_started_a_search_nobody_gave_a_number_for",
+    ),
+    Mutant(
+        "plugin: the workers option takes anything",
+        "src/earful/pytest_plugin.py",
+        "    if workers < 0:\n",
+        "    if False:\n",
+        first="workers_option_takes_a_number_of_processes_or_auto",
     ),
     Mutant(
         "plugin: a run that is not valid evidence is not kept",
@@ -1852,5 +1886,139 @@ MUTANTS = [
         '            if isinstance(w, dict) and w.get("instant") is True\n',
         '            if w.get("instant") is True\n',
         first="windows_are_not_what_they_should_be",
+    ),
+    Mutant(
+        "search: what the environment says about workers is not heard",
+        "src/earful/core/search.py",
+        "    if not given:\n        return os.cpu_count() or 1\n",
+        "    if True:\n        return os.cpu_count() or 1\n",
+        first="as_many_as_the_environment_says or environment_says_how_many_workers",
+    ),
+    Mutant(
+        "search: a number of workers below none is taken",
+        "src/earful/core/search.py",
+        '    if workers < 0:\n        raise ValueError(f"{WORKERS_VARIABLE} is a number',
+        '    if False:\n        raise ValueError(f"{WORKERS_VARIABLE} is a number',
+        first="as_many_as_the_environment_says or environment_says_how_many_workers",
+    ),
+    Mutant(
+        "cli: a search takes every processor whatever the environment says",
+        "src/earful/cli.py",
+        "        found = search(default_workers() if args.workers is None else args.workers)\n",
+        "        found = search((os.cpu_count() or 1) if args.workers is None else args.workers)\n",
+        first="as_many_as_the_environment_says",
+    ),
+    Mutant(
+        "plugin: one worker process is started where this process would do",
+        "src/earful/pytest_plugin.py",
+        "        return workers if workers > 1 else 0  # one worker is no faster than this process\n",
+        "        return workers\n",
+        first="worker_per_processor_if_it_can_be_imported",
+    ),
+    # earful init: the first test written for an agent.
+    Mutant(
+        "init: a file that is there is written over",
+        "src/earful/cli.py",
+        '    if target.exists():\n        raise Refused(f"{target} is already there',
+        '    if False:\n        raise Refused(f"{target} is already there',
+        first="does_not_write_over_a_file",
+    ),
+    Mutant(
+        "init: a file that cannot be written is a crash",
+        "src/earful/cli.py",
+        '        raise Refused(f"cannot write {target}: {exc.strerror or exc}") from exc\n',
+        "        raise\n",
+        first="does_not_write_over_a_file",
+    ),
+    Mutant(
+        "init: the evidence directory is listed twice",
+        "src/earful/cli.py",
+        '        if any(line.strip() in (".earful", ".earful/") for line in text.splitlines()):\n',
+        "        if False:\n",
+        first="git_leaves_the_evidence_out",
+    ),
+    Mutant(
+        "init: the new line runs into the last one",
+        "src/earful/cli.py",
+        '        separator = "" if not text or text.endswith("\\n") else "\\n"\n',
+        '        separator = ""\n',
+        first="git_leaves_the_evidence_out",
+    ),
+    Mutant(
+        "init: a .gitignore is written where there is no repository",
+        "src/earful/cli.py",
+        '    if (directory / ".git").exists():\n',
+        "    if True:\n",
+        first="git_leaves_the_evidence_out",
+    ),
+    Mutant(
+        "init: a repository with no .gitignore is left without one",
+        "src/earful/cli.py",
+        '    if (directory / ".git").exists():\n',
+        "    if False:\n",
+        first="no_list_of_what_to_leave_out_init_writes_one",
+    ),
+    Mutant(
+        "scaffold: what is not a class of agent is accepted",
+        "src/earful/livekit/scaffold.py",
+        "    if not (inspect.isclass(target) and issubclass(target, lk.Agent)):\n",
+        "    if False:\n",
+        first="does_not_name_a_class_of_agent_is_refused",
+    ),
+    Mutant(
+        "scaffold: a reference that is not module:Class is looked up",
+        "src/earful/livekit/scaffold.py",
+        "    if not _REFERENCE.match(reference):\n",
+        "    if False:\n",
+        first="does_not_name_a_class_of_agent_is_refused",
+    ),
+    Mutant(
+        "scaffold: only the tool the model calls is an effect",
+        "src/earful/livekit/scaffold.py",
+        "                for tool in names\n",
+        "                for tool in names[:1]\n",
+        first="writes_a_test_from_the_agents_tools",
+    ),
+    Mutant(
+        "scaffold: an agent that needs arguments is built to find its tools",
+        "src/earful/livekit/scaffold.py",
+        "    found = build().tools if not needs else lk_llm.find_function_tools(object.__new__(agent))\n",
+        "    found = build().tools\n",
+        first="cannot_be_built_without_arguments",
+    ),
+    Mutant(
+        "scaffold: an agent that needs arguments is given none",
+        "src/earful/livekit/scaffold.py",
+        "        f\"        agent={'build' if needs else name},\",\n",
+        '        f"        agent={name},",\n',
+        first="cannot_be_built_without_arguments or init_writes_runs_as_it_is",
+    ),
+    Mutant(
+        "scaffold: an argument that has a default is given a value",
+        "src/earful/livekit/scaffold.py",
+        "        return {name: _placeholder(properties.get(name, {})) for name in required}\n",
+        "        return {name: _placeholder(properties.get(name, {})) for name in properties}\n",
+        first="a_value_for_each_argument_the_tool_requires",
+    ),
+    Mutant(
+        "scaffold: a whole number is given a text",
+        "src/earful/livekit/scaffold.py",
+        '        "integer": 1,\n',
+        '        "integer": "example",\n',
+        first="a_value_for_each_argument_the_tool_requires",
+    ),
+    Mutant(
+        "scaffold: a value outside those allowed is given",
+        "src/earful/livekit/scaffold.py",
+        '    if schema.get("enum"):\n',
+        "    if False:\n",
+        first="a_value_for_each_argument_the_tool_requires",
+    ),
+    Mutant(
+        "scaffold: the model claims an intent no effect has",
+        "src/earful/livekit/scaffold.py",
+        '        intent = _literal(names[0].replace("_", "-"))\n',
+        "        intent = _literal(names[0])\n",
+        first="a_value_for_each_argument_the_tool_requires or init_writes_runs_as_it_is",
     ),
 ]

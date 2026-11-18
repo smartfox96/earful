@@ -1,0 +1,45 @@
+name: pages
+
+# Publishes the example reports the README links to (scripts/site.sh) from main.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: draw the example reports
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - name: Build pinned environment
+        run: scripts/make_env.sh 1.8.12 2026-11-14
+      - name: Draw the reports (scripts/site.sh)
+        run: scripts/site.sh site
+      - uses: actions/upload-pages-artifact@v5
+        with:
+          path: site
+
+  publish:
+    name: publish to GitHub Pages
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      pages: write
+      id-token: write # the proof of which workflow is publishing
+    environment:
+      name: github-pages
+      url: ${{ steps.publish.outputs.page_url }}
+    steps:
+      - id: publish
+        uses: actions/deploy-pages@v5

@@ -1,8 +1,4 @@
-"""The HTML report: every ledger renders to one self-contained page, the page says what
-the checker says, and nothing from a ledger reaches it unescaped.
-
-These tests run no framework. They read the reference ledgers and the reference bundles.
-"""
+"""The HTML report, rendered from the reference ledgers and bundles. No framework is run."""
 
 import copy
 import hashlib
@@ -135,9 +131,6 @@ def envelope(seq, t_us, source, kind, **data):
     }
 
 
-# ------------------------------------------------------------------ every ledger renders
-
-
 @pytest.mark.parametrize("path", GOLDEN, ids=lambda p: p.name.split(".ledger")[0])
 def test_every_reference_ledger_renders_to_a_whole_page(path):
     events = read_jsonl(path)
@@ -146,7 +139,6 @@ def test_every_reference_ledger_renders_to_a_whole_page(path):
     assert len(page.encode("utf-8")) < 400_000
     assert ledger_hash(events) in doc.text
     assert events[0]["run"] in doc.text
-    # Every line of the ledger has a row, a bar that describes it, and a mark on the timeline.
     for index in range(len(events)):
         assert f"e{index}" in doc.ids and f"t{index}" in doc.ids
         assert f"s{index}" in doc.timeline, f"event {index} is not on the timeline"
@@ -239,8 +231,6 @@ def test_each_lane_is_there_in_order():
     assert "scripted providers" in doc.text
 
 
-# ---------------------------------------------------------------------------- escaping
-
 HOSTILE = "<script>alert(\"x\")</script> & 'q' <img src=x onerror=alert(1)>"
 
 
@@ -266,12 +256,10 @@ def test_text_from_a_ledger_is_escaped_everywhere():
     assert doc.count("img") == 0
     for tag, attrs in doc.tags:
         assert not any(name.startswith("on") for name in attrs), (tag, attrs)
-    # The text is all there, as text.
     assert HOSTILE in doc.text
     assert '"><script>alert(4)</script>' in doc.text
     assert "tool 1 create'\"><script>alert(2)" in doc.text
     assert "<script>alert" not in page and "<img" not in page and "<svg onload" not in page
-    # The page's own script holds nothing from the ledger.
     script = page[page.index("<script>") : page.index("</script>")]
     assert "alert" not in script and "party_size" not in script
 
@@ -283,7 +271,6 @@ def test_a_ledger_that_is_not_json_objects_still_renders():
 
 
 def test_a_time_that_cannot_be_right_does_not_stretch_the_page():
-    """A corrupt time is drawn at the edge of the axis, and the page stays a page."""
     for field, where in (
         ("t_us", None),
         ("duration_us", "llm.response"),
@@ -302,9 +289,6 @@ def test_a_time_that_cannot_be_right_does_not_stretch_the_page():
         assert len(page) < 400_000
 
 
-# ---------------------------------------------------------------------------- verdicts
-
-
 def test_a_failed_verdict_is_shown_with_its_finding_and_links_to_its_evidence():
     events = golden("lk-1.5.6.book_then_interrupt")
     checked = check(events)
@@ -318,13 +302,12 @@ def test_a_failed_verdict_is_shown_with_its_finding_and_links_to_its_evidence():
     assert "A2 One logical effect fail" in doc.text
     assert failed.summary in doc.text
     assert "rule : 2 durable effects for 'book-table-1'; the scenario authorized 1" in doc.text
-    # The verdict links to a bar that highlights its events, and to each event.
     inside = doc.within[f"d{number}"]
     assert f"#v{number}" in inside and f"#f{number}-1" in inside
     assert failed.evidence == (17, 18, 44, 45)
     for seq in failed.evidence:
         assert f"#t{seq}" in inside
-    # Following the link highlights them on the timeline and in the table, without a script.
+    # The highlight is CSS on the link's target, with no script.
     declared = re.search(rf"#v{number}:target~section \.v{number}\b[^}}]*\{{([^}}]*)\}}", page)
     assert declared is not None
     for shown in ("fill:var(--hl-bg)", "background:var(--hl-bg)", "visibility:visible"):
@@ -337,7 +320,6 @@ def test_a_failed_verdict_is_shown_with_its_finding_and_links_to_its_evidence():
         assert f"v{number}" in rows[f"e{seq}"]
         assert any("hit" in mark and f"s{seq}" in mark and f"v{number}" in mark for mark in marks)
     assert f"v{number}" not in rows["e16"]
-    # A contract with no instance is said to be that, and is not a pass.
     assert "A1 Retired intent not exercised" in doc.text
     assert "That is not a pass." in doc.text
 
@@ -348,14 +330,12 @@ def test_a_passing_run_says_so_and_keeps_what_was_not_exercised_apart():
     assert "A1, A2, A3 had no instance in this run (not exercised)." in doc.text
     assert "Failed" not in doc.text and "Invalid run" not in doc.text
     assert "st-none" in doc.timeline or "not exercised: this run has no instance of it" in doc.text
-    # A pass that carries a flag is listed in full, with what the flag means.
     assert "judged_on_final_history" in doc.text
     assert "the final chat history is the judged record" in doc.text
 
 
 def split_reading(events):
-    """A report, made by hand, with an unobservable verdict that another reading makes
-    worse, a note, a plain pass and a contract with no instance."""
+    """A hand-made report with an unobservable verdict that another reading makes worse."""
     unseen = Verdict(
         contract="M1",
         instance={"reply": 1},
@@ -397,7 +377,6 @@ def test_unobservable_and_a_split_reading_are_shown():
     assert "a_flag_of_the_future A qualification the checker attached" in doc.text
     assert "Note. another reading judges reply 2, which this one does not: fail" in doc.text
     assert "The ledger allows 2 readings" in doc.text and "utterance 2 as call 2" in doc.text
-    # Each outcome has its own shape, on the timeline and in the list.
     assert {"st-unob", "st-pass", "st-none"} <= set(doc.timeline)
     assert "st-fail" not in doc.timeline
     classes = {c for _tag, attrs in doc.tags for c in (attrs.get("class") or "").split()}
@@ -419,7 +398,6 @@ def test_an_invalid_run_shows_why_and_has_no_verdicts():
     assert "verdict" not in classes and "chip" not in classes
     assert not {"st-pass", "st-fail", "st-unob"} & set(doc.timeline)
     assert not any(i.startswith(("c-", "d")) and i != "d" for i in doc.ids if i[1:2].isdigit())
-    # What the ledger holds is still drawn.
     for lane in LANES:
         assert lane in doc.text
     assert {"speech", "gen", "seg", "s39"} <= set(doc.timeline)
@@ -441,9 +419,6 @@ def test_a_policy_the_checker_refuses_is_reported_and_the_run_is_still_drawn():
     assert "seg" in doc.timeline
 
 
-# ------------------------------------------------------------------------ what is drawn
-
-
 def test_an_interrupted_segment_and_its_cut_word_are_marked():
     events = golden("lk-1.8.12.barge_in_mid_word")
     done = [e["data"] for e in events if e["kind"] == "playout.finished"]
@@ -463,7 +438,6 @@ def test_an_interrupted_segment_and_its_cut_word_are_marked():
     assert f"({done[0]['word_cut_samples']} of " in doc.text
     assert "ghost" in doc.timeline, "the words that never played are shown as not played"
     assert "segment 2 played out, 0.720 s of audio: 2 words played" in doc.text
-    # The sink's commands and what playout did are both there.
     for said in ("pause", "clear", "resume", "flush"):
         assert f">{said}</text>" in report.render(events)
 
@@ -484,7 +458,6 @@ def test_a_hangup_is_marked_across_the_lanes():
     doc = well_formed(report.render(left))
     assert "hangup" in doc.timeline
     assert "user hangs up, 7.200 s" in doc.text
-    # Words the sink went on to play reached no one, and are drawn as that.
     assert "w-late" in doc.timeline
     assert "words after the hangup reached no one" in doc.text
     assert "played_on_after_the_hangup" in doc.text
@@ -508,8 +481,7 @@ def test_a_run_with_no_speech_and_no_playout_renders():
 
 
 def every_outcome():
-    """A ledger, written by hand, in which a tool raises, returns, is cancelled and never
-    finishes, and a write commits late, is deduplicated, fails and has no outcome."""
+    """A hand-written ledger with every outcome a tool and a write can have."""
     header = golden("lk-1.5.6.book_then_interrupt")[0]["data"]
     header["scenario"]["effects"] = [{"tool": "book", "intent": "book-table-1"}]
     return [

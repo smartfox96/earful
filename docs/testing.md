@@ -252,9 +252,9 @@ A scenario is given in one of three forms.
 | A function that returns a `Case`, defined in a test or as a lambda | No | No |
 | A function at the top level of a module, passed as the function or as `"module:function"` | Yes | Yes |
 
-Every form runs in the process of the test unless workers are asked for. A worker process
-and a saved bundle both build the scenario again from its name, so both need a scenario
-that can be imported. `explore(case, workers=4)` and `keep(...)` refuse one that cannot,
+`explore` runs every form in the process that calls it unless workers are asked for. A
+worker process and a saved bundle both build the scenario again from its name, so both
+need a scenario that can be imported. `explore(case, workers=4)` and `keep(...)` refuse one that cannot,
 before anything runs, and say what to change. A search also checks what it is asked for
 (the case, the variables, the faults) before it starts a worker, and raises
 `WorkersUnavailable` where worker processes cannot be started at all.
@@ -264,7 +264,8 @@ machine the 860 runs above take 36 s in the process of the test and 9 s in 15 wo
 The workers are started for the search and stopped when it ends, so each search runs the
 scenario's code as it is at that moment. Each worker is a fresh interpreter that imports
 the main module of the process that started it, so a script that searches with workers
-needs the `if __name__ == "__main__":` guard. Under pytest nothing is needed.
+needs the `if __name__ == "__main__":` guard. Under pytest nothing is needed, and the
+`earful` fixture starts the workers by itself (section 8).
 
 Passed as a function, a scenario is built anew for each run. Passed as a `Case`, it is
 copied for each run: its agent is built by its own factory each time, and its policy is
@@ -320,14 +321,47 @@ A test that passes writes nothing. `.earful/` belongs in `.gitignore`.
 | Option | Meaning |
 | --- | --- |
 | `--earful-out DIR` | Where the evidence goes. Default `.earful`, under pytest's root directory |
-| `--earful-workers N` | Worker processes for a search that does not name a number. Default 0 |
+| `--earful-workers N` | Worker processes for a search that does not name a number; 0 runs it in the test's process. Default `auto` |
+
+With `auto`, `earful.explore` gives a search one worker process per processor if its
+scenario can be imported (section 6), and runs it in the test's process otherwise. The
+README's search of 736 cases takes 33 s in the test's process and 13 s with workers, on a
+15-core machine. Three things keep a search in the test's process under `auto`: a
+scenario built inline, a test run that pytest-xdist has already spread over the
+processors, and a machine where worker processes cannot be started. A number, on the
+command line or in the call, is always taken as given.
+
+`EARFUL_WORKERS=N` in the environment gives `auto`, and `earful search`, a number to use
+in place of one per processor. Set it where several test runs share a machine: each would
+otherwise start a worker for every processor, which makes the machine hot and nothing
+faster. `EARFUL_WORKERS=0` keeps every search in its own process.
 
 `earful.keep(found, "A3/rule")` without a directory writes the bundle under the test's
 evidence directory.
 
+In CI the evidence is worth keeping, since the machine that ran the test is gone when the
+job ends. On GitHub Actions, two steps upload it when a test fails:
+
+```yaml
+      - run: pytest
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: earful-evidence
+          path: .earful/
+          include-hidden-files: true
+          if-no-files-found: ignore
+```
+
+`include-hidden-files` is needed: the action leaves out a directory whose name starts
+with a dot, and without it the upload is empty. The artifact holds each failing test's
+ledgers, cases and reports. A report is one self-contained HTML page, so it opens
+straight from the downloaded archive.
+
 ## 9. From the command line
 
 ```bash
+earful init myapp.agent:BookingAgent
 earful run myapp.scenarios:booking --ledger booking.ledger.jsonl
 earful check booking.ledger.jsonl
 earful search myapp.scenarios:booking --keep A3/rule --out failures
@@ -337,6 +371,7 @@ earful report failures/lk-1.8.12.booking.A3-rule -o report.html
 
 | Command | Does |
 | --- | --- |
+| `earful init AGENT` | Writes a first test for an agent, named as `module:Class`, into `test_<agent>.py` (`-o FILE` names another). The test runs as it is: the scripted model calls the agent's first tool, and every tool is declared an effect, so no tool body runs. The file marks what to change. An agent that cannot be built without arguments is built with `None` for each. Adds `.earful/` to `.gitignore` |
 | `earful check LEDGER...` | Prints the verdicts for recorded ledgers. `--measures` adds what each verdict measured, `--json` prints one report per line |
 | `earful run SCENARIO` | Runs a scenario once and prints its verdicts. `--case FILE` runs a saved case, `--ledger FILE` writes the ledger |
 | `earful search SCENARIO` | Searches a scenario, in one worker process per processor unless `--workers` says otherwise. Where worker processes cannot be started, as in some sandboxes and containers, it says so and searches in its own process; with `--workers N` given it refuses. `--keep CONTRACT/RULE --out DIR` writes a bundle for a rule that broke. `--variables`, `--faults`, `--pairs`, `--profiles`, `--no-words` and `--no-windows` narrow or widen the search |
