@@ -133,6 +133,36 @@ def test_the_rules_a_test_can_allow_are_listed_and_each_is_a_row_of_its_contract
             assert any(row.startswith(rule) for row in rows), f"{contract}/{rule}"
 
 
+def test_the_policy_defaults_are_those_the_contracts_page_states():
+    import dataclasses
+
+    from earful.core.checker.policy import POLICIES
+
+    page = (ROOT / "docs" / "contracts.md").read_text()
+    row = re.compile(r"^### ([AML]\d)\. .*?^\| Policy \| (.*?) \|$", re.MULTILINE | re.DOTALL)
+    rows = dict(row.findall(page))
+    stated = {
+        contract: {
+            **{
+                name: {"true": True, "false": False}.get(value, value)
+                for name, value in re.findall(r"`(\w+)` \(default (true|false)", row)
+            },
+            **{
+                name: int(value.replace(" ", ""))
+                for name, value in re.findall(r"`(\w+)` \(default ([\d ]+)\)", row)
+            },
+            **dict(re.findall(r"`(\w+)`: `(\w+)` \(default\)", row)),
+        }
+        for contract, row in rows.items()
+    }
+    assert stated == {
+        contract: {
+            f.name: f.default for f in dataclasses.fields(cls) if not isinstance(f.default, tuple)
+        }
+        for contract, cls in POLICIES.items()
+    }
+
+
 COMPATIBILITY = (ROOT / "docs" / "compatibility.md").read_text()
 CI = (ROOT / ".github" / "workflows" / "ci.yml").read_text()
 _PINNED = r"^\| (\d+\.\d+\.\d+) \| (\d{4}-\d\d-\d\d) \|"

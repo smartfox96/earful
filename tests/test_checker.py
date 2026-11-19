@@ -1,6 +1,7 @@
 """The checker on recorded and hand-edited ledgers."""
 
 import copy
+import dataclasses
 import itertools
 import json
 import random
@@ -19,7 +20,7 @@ from earful.core.checker import (
     check,
 )
 from earful.core.checker.memory import align, favourable, user_turns
-from earful.core.checker.policy import POLICIES
+from earful.core.checker.policy import POLICIES, parse, parse_all
 from earful.core.checker.report import (
     RULES,
     ContractResult,
@@ -210,11 +211,36 @@ def test_a_verdict_cites_the_events_and_witnesses_it_rests_on(affected):
         ({"M1": {"ahead_us": "a while"}}, "wrong kind of value"),
         ({"L2": {"stop_bound_us": -1}}, "wrong kind of value"),
         ({"A3": {"claim_point": "middle"}}, "must be one of"),
+        ({"A1": {"in_flight": 1}}, "wrong kind of value"),
+        ({"A1": {"reissue_allowed": [INTENT, 1]}}, "wrong kind of value"),
+        ({"L1": {"slack_us": True}}, "wrong kind of value"),
+        ({"M1": {"check_interrupted_flag": 1}}, "wrong kind of value"),
     ],
 )
 def test_a_policy_value_the_contract_does_not_define_is_refused(fixed, contracts, message):
     with pytest.raises(PolicyError, match=message):
         check(declare(fixed, **contracts))
+
+
+def test_a_policy_for_a_contract_that_does_not_exist_is_refused(fixed):
+    with pytest.raises(PolicyError, match=r"unknown contracts \['Z1'\]; choose from"):
+        parse_all({"Z1": {}, "A1": {}})
+    report = check(declare(fixed, Z1={}))
+    assert not report.valid and "Z1" in report.invalid[0]
+
+
+def test_a_policy_time_may_be_zero_and_may_not_be_less():
+    times = [
+        (contract, f.name)
+        for contract, cls in POLICIES.items()
+        for f in dataclasses.fields(cls)
+        if isinstance(f.default, int) and not isinstance(f.default, bool)
+    ]
+    assert len(times) == 7
+    for contract, name in times:
+        assert getattr(parse(contract, {name: 0}), name) == 0
+        with pytest.raises(PolicyError, match="wrong kind of value: -1"):
+            parse(contract, {name: -1})
 
 
 def retire(events, speech=1):
@@ -257,6 +283,37 @@ def test_a1_an_in_flight_write_fails_when_the_policy_forbids_it(fixed):
     assert report.outcome("A1") == FAIL and rules(report, "A1") == ["in-flight"]
 
 
+def _retired_beside(events, anchor, *, after):
+    """The correcting transcript arrives at the instant of ``anchor``, just before or after it."""
+    point = of(retire(events), "user.transcript_final", 1)
+    events.remove(point)
+    point["t_us"] = anchor["t_us"]
+    events.insert(events.index(anchor) + after, point)
+    return seal(events)
+
+
+@pytest.mark.parametrize(
+    "kind, after, outcome, writes, late",
+    [
+        ("effect.requested", False, FAIL, 1, 0),
+        ("effect.requested", True, PASS, 0, 1),
+        ("effect.committed", False, PASS, 0, 1),
+        ("effect.committed", True, PASS, 0, 0),
+    ],
+)
+def test_a1_a_write_at_the_instant_of_the_retirement_is_judged_by_which_came_first(
+    affected, kind, after, outcome, writes, late
+):
+    """The second booking is requested and committed at one instant, as the correction arrives."""
+    events = _retired_beside(affected, of(affected, kind, 1), after=after)
+    (v,) = check(copy.deepcopy(events)).results["A1"].verdicts
+    assert v.outcome == outcome
+    assert (v.measures["writes_after_retirement"], v.measures["late_commits"]) == (writes, late)
+    assert v.flags == (("late_commit",) if late else ())
+    strict = check(declare(events, A1={"in_flight": "must_not_commit"}))
+    assert rules(strict, "A1") == (["rule"] if writes else ["in-flight"] if late else [])
+
+
 def _without_backend(events):
     return seal([e for e in events if not e["kind"].startswith("effect.")])
 
@@ -268,6 +325,16 @@ def test_an_intent_is_unobservable_when_its_tool_does_not_write_through_the_back
     assert report.outcome("A3") == UNOBSERVABLE
     reasons = {v.findings[0].detail for name in ("A2", "A3") for v in report.results[name].verdicts}
     assert reasons == {"a tool for the intent was called but nothing reached the backend"}
+
+
+@pytest.mark.parametrize("after, outcome", [(False, UNOBSERVABLE), (True, PASS)])
+def test_a1_a_tool_that_leaves_nothing_in_the_backend_matters_if_called_after_the_retirement(
+    fixed, after, outcome
+):
+    """The correction arrives at the instant the tool is called, just before or just after."""
+    events = _without_backend(fixed)
+    events = _retired_beside(events, of(events, "tool.called"), after=after)
+    assert check(events).outcome("A1") == outcome
 
 
 def _moved(events, event, t_us):
@@ -319,9 +386,49 @@ def test_a3_any_commit_for_the_intent_makes_a_later_claim_true(affected):
     assert report.results["A2"].verdicts[0].measures["failed"] == 1
 
 
-def test_a2_counts_against_the_authorized_number(affected):
-    affected[0]["data"]["scenario"]["intents"][0]["authorized"] = 2
-    assert check(seal(affected)).outcome("A2") == PASS
+@pytest.mark.parametrize("authorized, outcome", [(1, FAIL), (2, PASS), (3, PASS)])
+def test_a2_as_many_effects_as_were_authorized_pass_and_one_more_fails(
+    affected, authorized, outcome
+):
+    affected[0]["data"]["scenario"]["intents"][0]["authorized"] = authorized
+    (v,) = check(seal(affected)).results["A2"].verdicts
+    assert v.outcome == outcome and v.measures["committed"] == 2
+
+
+@pytest.mark.parametrize(
+    "point, off_us, outcome",
+    [
+        ("span_end", -1, PASS),
+        ("span_end", 0, PASS),
+        ("span_end", 1, FAIL),
+        ("span_start", 0, PASS),
+        ("span_start", 1, FAIL),
+    ],
+)
+def test_a3_a_commit_as_the_claim_is_heard_is_in_time_and_one_microsecond_later_is_not(
+    fixed, point, off_us, outcome
+):
+    """The claim's first word starts at 6.9 s and its last ends at 7.92 s."""
+    finished = of(fixed, "playout.finished", 1)
+    ends, starts = finished["data"]["words_completed_us"][-1], of(fixed, "playout.started", 1)
+    heard = ends if point == "span_end" else starts["t_us"]
+    commit = of(fixed, "effect.committed")
+    events = declare(_moved(fixed, commit, heard + off_us), A3={"claim_point": point})
+    orders = [events]
+    if off_us == 0:
+        # At one instant the order in the ledger decides nothing: the rule is on the time.
+        later = copy.deepcopy(events)
+        moved = of(later, "effect.committed")
+        later.remove(moved)
+        later.insert(max(n for n, e in enumerate(later) if e["t_us"] == heard) + 1, moved)
+        assert later.index(moved) > events.index(of(events, "effect.committed"))
+        orders.append(seal(later))
+    for ledger in orders:
+        (claim,) = check(ledger).results["A3"].verdicts
+        assert claim.outcome == outcome and claim.measures["claim_heard_us"] == heard
+        assert claim.measures["commit_before_claim_us"] == (-off_us if outcome == PASS else None)
+        if outcome == FAIL:
+            assert "committed 1 us later" in claim.findings[0].detail
 
 
 def test_a3_fails_when_nothing_was_committed_before_the_claim_was_heard(fixed):
