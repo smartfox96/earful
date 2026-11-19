@@ -420,3 +420,42 @@ def test_every_page_and_command_the_readme_names_exists():
     assert named and named <= set(commands), named - set(commands)
     releases = list(dict(re.findall(_PINNED, _section("livekit-agents"), re.MULTILINE)))
     assert f"livekit-agents {', '.join(releases[:-1])} and {releases[-1]}" in README
+
+
+_FOR_CONTRIBUTORS = (
+    "CONTRIBUTING.md",
+    "SECURITY.md",
+    ".github/pull_request_template.md",
+    ".github/ISSUE_TEMPLATE/bug.yml",
+    ".github/ISSUE_TEMPLATE/feature.yml",
+    ".github/ISSUE_TEMPLATE/config.yml",
+)
+_IN_THE_REPOSITORY = r"(?:scripts|tests|docs|src|compat|examples|skills|\.github)/[^`\s<>*]+"
+
+
+def _anchors(page):
+    """The anchor GitHub gives each heading of a Markdown page."""
+    headings = re.findall(r"^#+ (.+)$", page, re.MULTILINE)
+    return {re.sub(r"[^a-z0-9 -]", "", heading.lower()).replace(" ", "-") for heading in headings}
+
+
+def test_the_files_for_contributors_name_only_what_exists():
+    commands = _commands()
+    for name in _FOR_CONTRIBUTORS:
+        text = (ROOT / name).read_text()
+        # A path in backticks, up to its arguments. One with a placeholder in it is left out.
+        for path in re.findall(rf"`({_IN_THE_REPOSITORY})[`\s]", text):
+            assert (ROOT / path).exists(), f"{name} names {path}"
+        for command, rest in re.findall(r"`earful ([a-z]+)([^`]*)`", text):
+            assert command in commands, f"{name} names earful {command}"
+            for option in re.findall(r"--[a-z-]+", rest):
+                assert option in commands[command].format_help(), f"{name}: {command} {option}"
+        linked = r"https://github\.com/smartfox96/earful/blob/main/([^\s)#]+)(?:#([a-z0-9-]+))?"
+        for path, anchor in re.findall(linked, text):
+            assert (ROOT / path).is_file(), f"{name} links to {path}"
+            assert not anchor or anchor in _anchors((ROOT / path).read_text()), f"{name}: #{anchor}"
+    contributing = (ROOT / "CONTRIBUTING.md").read_text()
+    for said in re.findall(r'`?CONTRIBUTING\.md`?, "([^"]+)"', (ROOT / "SECURITY.md").read_text()):
+        assert f"\n## {said}\n" in contributing, said
+    template = (ROOT / ".github/pull_request_template.md").read_text()
+    assert 'CONTRIBUTING.md, "The checks"' in template and "\n## The checks\n" in contributing

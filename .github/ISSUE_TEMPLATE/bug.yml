@@ -1,0 +1,63 @@
+name: Bug report
+description: A wrong verdict, a run that is not valid evidence, a crash, or a page of the docs that is wrong.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        A vulnerability does not belong here. Report it privately, as [SECURITY.md](https://github.com/smartfox96/earful/blob/main/SECURITY.md) says.
+  - type: input
+    id: earful
+    attributes:
+      label: Earful version
+      description: What `earful --version` prints.
+      placeholder: earful 0.1.1
+    validations:
+      required: true
+  - type: dropdown
+    id: framework
+    attributes:
+      label: Framework
+      options:
+        - livekit-agents
+        - pipecat-ai
+        - None (earful check or earful report on a recorded ledger)
+    validations:
+      required: true
+  - type: input
+    id: framework-version
+    attributes:
+      label: Framework version
+      description: What `pip show livekit-agents` or `pip show pipecat-ai` prints as Version. docs/compatibility.md lists the releases Earful is tested with.
+      placeholder: 1.8.12
+  - type: input
+    id: system
+    attributes:
+      label: Python and operating system
+      placeholder: Python 3.13 on macOS 15
+    validations:
+      required: true
+  - type: textarea
+    id: command
+    attributes:
+      label: The command and what it printed
+      description: The `earful run` or `earful search` command, or the pytest test, with its output.
+      render: shell
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: The ledger or the bundle
+      description: |
+        Attach the ledger (`earful run SCENARIO --ledger run.jsonl`) or the kept bundle as a zip (`earful search SCENARIO --keep RULE --out failures`), and the scenario if you can share it.
+        A ledger holds what the scripted user and model said and what the tools were called with. Check that none of it is private.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected
+      description: The verdict or the behaviour you expected, and why.
+    validations:
+      required: true

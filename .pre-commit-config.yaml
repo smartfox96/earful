@@ -1,0 +1,9 @@
+# Optional: after `pre-commit install`, ruff runs on the files of each commit.
+# The same ruff as scripts/lint.sh, with the settings in pyproject.toml. A test keeps
+# this version and the one in pyproject.toml's lint group the same.
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: ef6cf06c079dd6b299dfc720b0f14400c9d168e1 # frozen: v0.17.5
+    hooks:
+      - id: ruff-check
+      - id: ruff-format

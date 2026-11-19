@@ -94,6 +94,7 @@ EVERYTHING = {"code": "true", "docs": "true", "mutants": "true"}
         ("docs/img/report-booking.png", PROSE),
         ("README.md", PROSE),  # read by tests/test_docs.py
         ("CHANGELOG.md", PROSE),
+        ("SECURITY.md", PROSE),
         ("src/earful/cli.py", BEHAVIOUR),
         ("tests/test_docs.py", BEHAVIOUR),
         ("scripts/mutate.py", BEHAVIOUR),
@@ -105,6 +106,8 @@ EVERYTHING = {"code": "true", "docs": "true", "mutants": "true"}
         (".github/workflows/ci.yml", CODE),
         (".github/workflows/canary.yml", CODE),  # every workflow is read by tests/test_ci.py
         ("scripts/canary.sh", CODE),
+        (".github/ISSUE_TEMPLATE/bug.yml", CODE),  # read by tests/test_docs.py
+        (".pre-commit-config.yaml", CODE),
         ("compat/pc-1.16.0.lock.txt", CODE),
         ("pyproject.toml", CODE),
         ("LICENSE", CODE),  # the build reads it
@@ -611,6 +614,19 @@ def test_every_action_is_pinned_to_a_commit_and_names_its_release():
     assert all(len(pinned) == 1 for pinned in pins.values()), pins
     dependabot = (ROOT / ".github" / "dependabot.yml").read_text()
     assert "  - package-ecosystem: github-actions\n    directory: /\n" in dependabot
+    # Nothing else: each environment names a release and a date, which no update would move.
+    assert dependabot.count("package-ecosystem:") == 1
+
+
+def test_the_pre_commit_hooks_run_the_ruff_that_the_lint_script_runs():
+    config = (ROOT / ".pre-commit-config.yaml").read_text()
+    assert "  - repo: https://github.com/astral-sh/ruff-pre-commit\n" in config
+    ((_, hooked),) = re.findall(r"^    rev: ([0-9a-f]{40}) # frozen: v(\S+)$", config, re.MULTILINE)
+    project = (ROOT / "pyproject.toml").read_text()
+    (pinned,) = re.findall(r'^lint = \[.*"ruff==([\d.]+)"', project, re.MULTILINE)
+    assert hooked == pinned
+    assert re.findall(r"^      - id: (\S+)$", config, re.MULTILINE) == ["ruff-check", "ruff-format"]
+    assert config.count("rev:") == 1 and "args:" not in config  # the settings are pyproject's
 
 
 def test_every_workflow_installs_one_version_of_uv_and_leaves_no_credentials_behind():
