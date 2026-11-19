@@ -1233,6 +1233,95 @@ def test_windows_beyond_three_along_one_time_are_counted_and_not_measured():
     assert [w.lo_us for w in found.windows(A2, most=4)] == list(starts)
 
 
+FAR = a_case(BOOK, speech(20_000_000, 21_000_000, WINDOW["transcript"]))
+NARROW = {
+    "variables": ["speech.position"],
+    "faults": [],
+    "speeches": [1],
+    "moments": ["interrupt"],
+    "words": False,
+}
+
+
+def test_a_search_says_what_it_is_about_to_run_before_it_runs_it():
+    run = answers(INTERRUPTS)
+    plans = []
+    found = explore(FAR, run, planned=lambda plan: plans.append((plan, run.runs)), **NARROW)
+    ((plan, runs_then),) = plans
+    assert plan.runs == runs_then > 0 and plan.max_runs is None
+    assert plan.cases == plan.to_run == plan.covered == len(found.tried)
+    assert plan.placements == sum(len(t.candidate.placements) for t in found.tried) >= plan.cases
+    assert found.runner.runs == plan.runs + plan.to_run and found.complete
+    assert str(plan) == (
+        f"{plan.cases} cases ({plan.placements} placements of a time, and the faults); "
+        f"{plan.to_run} to run, after {plan.runs} run(s) to find them"
+    )
+
+
+def test_a_search_stops_at_its_budget_and_its_result_says_it_is_incomplete():
+    whole = explore(FAR, answers(lambda case: False), **NARROW)
+    budget, plans = whole.runner.runs - 5, []
+    cut = explore(FAR, answers(lambda case: False), max_runs=budget, planned=plans.append, **NARROW)
+    assert cut.runner.runs == budget and not cut.complete and cut.not_run == 5
+    assert len(cut.tried) == len(whole.tried) - 5
+    (plan,) = plans
+    assert str(plan).endswith(f". The budget of {budget} runs covers {plan.to_run - 5} of them")
+    summary = cut.summary()
+    assert (summary["complete"], summary["not_run"], summary["max_runs"]) == (False, 5, budget)
+    with pytest.raises(ContractFailure) as caught:  # no rule broke, and that is not the result
+        cut.assert_contracts()
+    head, said = str(caught.value).split("\n\n")
+    tried = len(cut.tried)
+    assert head.endswith(
+        f": {tried} of {tried + 5} cases tried, {tried} judged, 0 contract rule(s) broken"
+    )
+    assert said == (
+        f"incomplete: the budget of {budget} runs was spent with 5 case(s) not run. "
+        "Nothing is concluded about them"
+    )
+    roomy = explore(FAR, answers(lambda case: False), max_runs=whole.runner.runs, **NARROW)
+    assert roomy.complete and roomy.summary()["complete"] and len(roomy.tried) == len(whole.tried)
+    roomy.assert_contracts()
+    # The runs that read the boundaries are made whatever the budget is.
+    least = explore(FAR, answers(lambda case: False), max_runs=1, **NARROW)
+    assert least.tried == [] and least.not_run == len(whole.tried)
+    assert least.runner.runs == plan.runs and not least.nothing_judged and not least.complete
+    with pytest.raises(ValueError, match="max_runs is a number of runs, at least 1; got 0"):
+        explore(FAR, answers(lambda case: False), max_runs=0, **NARROW)
+
+
+def test_a_budget_spent_while_failures_are_measured_leaves_the_search_incomplete():
+    whole = explore(FAR, answers(INTERRUPTS), **NARROW)
+    budget = whole.runner.runs + 10  # every case, and ten of the runs that measure
+    cut = explore(FAR, answers(INTERRUPTS), max_runs=budget, **NARROW)
+    assert cut.complete and cut.not_run == 0
+    broke = cut.breaks()
+    assert not cut.complete and cut.unmeasured == sum(one.unmeasured for one in broke) > 0
+    assert all(not one.instants_only for one in broke)
+    assert cut.runner.runs <= budget + len(broke)  # an example is run once more for its ledger
+    assert cut.breaks() == broke  # asking again runs nothing and measures no more
+    assert (
+        f"\n\nincomplete: the budget of {budget} runs was spent with {cut.unmeasured} "
+        "failure(s) not measured. Nothing is concluded about them"
+    ) in cut.describe(broke)
+    with pytest.raises(ContractFailure, match="incomplete: the budget"):
+        cut.assert_contracts(allow=["A2/rule", "M2/rule d"])
+    assert whole.breaks() and whole.complete and "incomplete" not in whole.describe()
+
+
+def test_a_rule_with_a_value_the_budget_left_unmeasured_is_not_at_instants_only():
+    instants = (3_000_000, 3_100_000)
+    found = moved_to(lambda at: at in instants, *instants)
+    found.max_runs = found.runner.runs + 4  # the four runs that measure one instant
+    one = found.breaks()[0]
+    assert [w.instant for w in one.windows] == [True] and one.unmeasured == 1
+    assert not one.instants_only and not found.complete
+    # The other rule the same runs break is measured from them, at no further run.
+    assert [[w.instant for w in other.windows] for other in found.breaks()] == [[True], [True]]
+    with pytest.raises(ContractFailure, match="A2/rule  in 2 case"):
+        found.assert_contracts()
+
+
 def test_each_end_of_a_window_says_why_the_search_stopped_there():
     """The stand-in fails everywhere, so neither end of the window is an edge of the failure."""
     always = window(

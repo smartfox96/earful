@@ -112,6 +112,10 @@ class Runner:
     def outcome(self, case: cases.Case) -> Outcome:
         return self.many([case])[0]
 
+    def seen(self, case: cases.Case) -> bool:
+        """Whether the outcome of ``case`` is known, so that asking for it runs nothing."""
+        return cases.canonical(case) in self._seen
+
     def many(self, wanted: list[cases.Case], each: Each = map) -> list[Outcome]:
         keys = [cases.canonical(case) for case in wanted]
         todo = {key: case for key, case in zip(keys, wanted) if key not in self._seen}
@@ -397,7 +401,7 @@ def window(
     """The window around ``case`` along ``variable`` in which a run still breaks ``predicate``.
     Raises ``ValueError`` if ``case`` does not break it. Each end is located to within
     ``resolution_us``; a window narrower than that is located again to the microsecond.
-    Raises ``Spent`` before a probe once ``spent()`` is true."""
+    Raises ``Spent`` before a probe that needs a run once ``spent()`` is true."""
     at = cases.value(case, variable)
     if at is None or not runner.breaks(case, predicate):
         raise ValueError(f"the case does not break {predicate} with {variable} declared")
@@ -407,7 +411,7 @@ def window(
         moved = cases.with_value(case, variable, to)
         if moved is None:
             return None
-        if spent is not None and spent():
+        if spent is not None and not runner.seen(moved) and spent():
             raise Spent
         outcome = runner.outcome(moved)
         return predicate in outcome.failures if outcome.ran else None
@@ -464,6 +468,33 @@ class Break:
 
 
 @dataclass(frozen=True)
+class Plan:
+    """What a search is about to run, known once the boundaries of the case are read."""
+
+    placements: int  # ways found to put one handle beside one transition
+    cases: int  # distinct cases those and the faults come to
+    to_run: int  # of them, not yet run
+    runs: int  # runs already made, to read the boundaries
+    max_runs: int | None  # the budget, if there is one
+
+    @property
+    def covered(self) -> int:
+        """How many of the cases still to run the budget leaves room for."""
+        if self.max_runs is None:
+            return self.to_run
+        return min(self.to_run, max(self.max_runs - self.runs, 0))
+
+    def __str__(self) -> str:
+        said = (
+            f"{self.cases} cases ({self.placements} placements of a time, and the faults); "
+            f"{self.to_run} to run, after {self.runs} run(s) to find them"
+        )
+        if self.covered < self.to_run:
+            said += f". The budget of {self.max_runs} runs covers {self.covered} of them"
+        return said
+
+
+@dataclass(frozen=True)
 class NotJudged:
     """The cases a search could not judge for one reason."""
 
@@ -492,6 +523,22 @@ class Exploration:
     impossible: list[Placement]
     offsets_us: tuple[int, ...]
     runner: Runner
+    max_runs: int | None = None  # the budget of runs, if the search was given one
+    not_run: int = 0  # cases the budget left untried
+    cut: dict[Predicate, int] = field(default_factory=dict)  # values it left unmeasured
+
+    @property
+    def unmeasured(self) -> int:
+        """How many breaking values the budget left unmeasured, over every rule measured."""
+        return sum(self.cut.values())
+
+    @property
+    def complete(self) -> bool:
+        """False if the budget was spent before every case was run and every window measured."""
+        return not self.not_run and not self.unmeasured
+
+    def _spent(self) -> bool:
+        return self.max_runs is not None and self.runner.runs >= self.max_runs
 
     def predicates(self) -> list[Predicate]:
         """Every rule the case as given or some candidate broke."""
@@ -518,12 +565,12 @@ class Exploration:
     def _measured(
         self, predicate: Predicate, most: int = 3, resolution_us: int = 1_000
     ) -> tuple[list[Window], int]:
-        """The windows, and how many breaking values lie in none because ``most`` was reached.
-        An instant costs four runs and is always measured, so no value is left out of a rule
-        whose windows are all instants."""
+        """The windows, and how many breaking values lie in none: ``most`` was reached, or
+        the budget of runs was spent. An instant costs four runs and is measured whatever
+        ``most`` is."""
         measured: list[tuple[str, Window]] = []
         wide: dict[tuple[str, Variable], int] = {}
-        left_out = 0
+        left_out = cut = 0
         moved = [t for t in self.breaking(predicate) if t.candidate.variable is not None]
         for tried in sorted(
             moved, key=lambda t: (t.candidate.base, t.candidate.variable, t.candidate.value_us)
@@ -539,13 +586,23 @@ class Exploration:
             if wide.get(key, 0) >= most:
                 left_out += 1
                 continue
-            found = window(
-                self.runner, tried.candidate.case, variable, predicate, resolution_us=resolution_us
-            )
+            try:
+                found = window(
+                    self.runner,
+                    tried.candidate.case,
+                    variable,
+                    predicate,
+                    resolution_us=resolution_us,
+                    spent=self._spent,
+                )
+            except Spent:
+                cut += 1
+                continue
             measured.append((tried.candidate.base, found))
             if not found.instant:
                 wide[key] = wide.get(key, 0) + 1
-        return [found for _base, found in measured], left_out
+        self.cut[predicate] = cut
+        return [found for _base, found in measured], left_out + cut
 
     def coverage(self) -> dict[str, dict[str, Any]]:
         """For each handle, the kinds of transition it was put beside and those it never was."""
@@ -646,8 +703,10 @@ class Exploration:
                     changed=tuple(sorted({t.candidate.what for t in breaking})),
                     windows=tuple(measured),
                     unmeasured=unmeasured,
+                    # A value left unmeasured may lie in a window: the rule is then counted.
                     instants_only=bool(measured)
                     and not unmoved
+                    and not unmeasured
                     and all(w.instant for w in measured),
                     example=example,
                     what=what,
@@ -683,12 +742,18 @@ class Exploration:
         framework = header.get("framework", {})
         on = f" on {framework.get('name')} {framework.get('version')}" if framework else ""
         counts = self.summary()
+        of = f" of {counts['candidates'] + self.not_run}" if self.not_run else ""
         lines = [
             (
-                f"{header.get('case', 'the case')}{on}: {counts['candidates']} cases tried, "
+                f"{header.get('case', 'the case')}{on}: {counts['candidates']}{of} cases tried, "
                 f"{counts['ran']} judged, {len(found)} contract rule(s) broken"
             )
         ]
+        if not self.complete:
+            left = [f"{self.not_run} case(s) not run"] if self.not_run else []
+            left += [f"{self.unmeasured} failure(s) not measured"] if self.unmeasured else []
+            spent = f"incomplete: the budget of {self.max_runs} runs was spent with "
+            lines += ["", f"{spent}{' and '.join(left)}. Nothing is concluded about them"]
         for one in found:
             lines.append("")
             lines.append(
@@ -738,16 +803,16 @@ class Exploration:
         self, *, allow: Iterable[Predicate | str] | str = (), require: Iterable[str] | str = ()
     ) -> None:
         """Raise ``ContractFailure`` if the search found a rule broken, if a case it tried
-        raised, if it could judge none of them, or if the case as given has no pass or fail
-        for a contract in ``require``. Rules that break only at single instants, or are named
-        in ``allow`` as ``CONTRACT/RULE``, are not counted."""
+        raised, if it could judge none of them, if its budget of runs cut it short, or if the
+        case as given has no pass or fail for a contract in ``require``. Rules that break only
+        at single instants, or are named in ``allow`` as ``CONTRACT/RULE``, are not counted."""
         __tracebackhide__ = True  # pytest then shows the test's own line, not this one
         allowing, unjudged = allowed(allow), self.unjudged(require)
         found = self.breaks()
         counted = [
             one for one in found if not one.instants_only and str(one.predicate) not in allowing
         ]
-        if counted or unjudged or self.nothing_judged or self.errored:
+        if counted or unjudged or self.nothing_judged or self.errored or not self.complete:
             raise ContractFailure(self.describe(found, unjudged))
 
     def summary(self) -> dict[str, Any]:
@@ -759,6 +824,10 @@ class Exploration:
             **counts,
             "impossible_placements": len(self.impossible),
             "runs": self.runner.runs,
+            "max_runs": self.max_runs,
+            "complete": self.complete,
+            "not_run": self.not_run,
+            "unmeasured": self.unmeasured,
             "original_breaks": [str(p) for p in self.original.failures],
             "found": {
                 str(p): {
@@ -870,14 +939,20 @@ def explore(
     wait_us: int = WAIT_US,
     stretch_us: int = STRETCH_US,
     each: Each = map,
+    max_runs: int | None = None,
+    planned: Callable[[Plan], None] | None = None,
 ) -> Exploration:
     """Search ``case`` for the timings and faults at which it breaks a contract.
 
     Moves each of ``variables`` beside every transition and adds each of ``faults`` to each
     backend write. ``pairs`` also tries two changes at once, and ``profiles`` moves the
-    speeches again under that many seeded redraws of the provider delays.
+    speeches again under that many seeded redraws of the provider delays. ``planned`` is
+    told what is about to run. Once ``max_runs`` runs are made no further case is run and
+    no further window measured, and the result is not ``complete``.
     Raises ``ValueError`` if ``case`` is not earful.case/1 or cannot be run as given."""
     kinds, fault_kinds = check_arguments(case, variables, faults)
+    if max_runs is not None and max_runs < 1:
+        raise ValueError(f"max_runs is a number of runs, at least 1; got {max_runs}")
     runner = Runner(run)
     offsets = tuple(offsets_us)
     wanted_moments = None if moments is None else set(moments)
@@ -1026,9 +1101,24 @@ def explore(
             move_speeches(profile, produced, f"profile {number}")
 
     todo = list(found.values())
+    fresh = [c for c in todo if not runner.seen(c.case)]
+    plan = Plan(
+        placements=sum(len(c.placements) for c in todo),
+        cases=len(todo),
+        to_run=len(fresh),
+        runs=runner.runs,
+        max_runs=max_runs,
+    )
+    if planned is not None:
+        planned(plan)
+    # The runs that read the boundaries are made whatever the budget: there is no search without.
+    dropped = {id(c) for c in fresh[plan.covered :]}
+    todo = [c for c in todo if id(c) not in dropped]
     outcomes = runner.many([c.case for c in todo], each)
     tried = [Tried(c, o) for c, o in zip(todo, outcomes)]
-    return Exploration(case, original, tried, impossible, offsets, runner)
+    return Exploration(
+        case, original, tried, impossible, offsets, runner, max_runs, not_run=len(dropped)
+    )
 
 
 __all__ = [
@@ -1049,6 +1139,7 @@ __all__ = [
     "NotJudged",
     "Outcome",
     "Placement",
+    "Plan",
     "Runner",
     "Spent",
     "Transition",

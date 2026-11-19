@@ -2,6 +2,7 @@
 
 import hashlib
 import sys
+from concurrent.futures.process import BrokenProcessPool
 
 import livekit.agents as lk
 import pytest
@@ -391,6 +392,43 @@ def test_a_case_given_as_a_scenario_keeps_its_lists_and_dicts_to_itself():
         assert list(again.effects) == ["create_reservation"] and again.faults == []
         assert again.contracts == {"L2": {"stop_bound_us": 100_000}}
         assert again.session_kwargs == {}
+
+
+class _DyingPool:
+    """A pool whose worker dies once ``after`` cases have run."""
+
+    def __init__(self, after):
+        self.after = after
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+    def map(self, run, wanted):
+        for case in wanted:
+            if not self.after:
+                raise BrokenProcessPool("A process in the process pool was terminated abruptly")
+            self.after -= 1
+            yield run(case)
+
+
+def test_a_worker_that_dies_is_said_to_have_died_before_any_case_or_after_how_many(monkeypatch):
+    narrow = {"variables": (), "faults": ["backend.error", "backend.drop"], "words": False}
+    monkeypatch.setattr(scenario, "pool", lambda workers=None: _DyingPool(after=0))
+    with pytest.raises(WorkersUnavailable) as died:
+        explore(as_written_confirms_a_failed_booking, workers=2, **narrow)
+    assert str(died.value).startswith("a worker process died before any had run a case. ")
+    assert '`if __name__ == "__main__":`' in str(died.value)
+    monkeypatch.setattr(scenario, "pool", lambda workers=None: _DyingPool(after=1))
+    with pytest.raises(WorkersUnavailable) as died:
+        explore(as_written_confirms_a_failed_booking, workers=2, **narrow)
+    assert str(died.value).startswith(
+        "a worker process died after the workers had run 1 cases. Something in the case it "
+        "was running ended the process"
+    )
+    assert "__main__" not in str(died.value)
 
 
 def test_an_inline_case_is_refused_by_worker_processes_before_anything_runs():

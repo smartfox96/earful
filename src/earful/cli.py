@@ -166,6 +166,8 @@ def _search(args: argparse.Namespace) -> int:
             pairs=args.pairs,
             profiles=args.profiles,
             words=not args.no_words,
+            max_runs=args.max_runs,
+            planned=lambda plan: print(f"earful: {plan}", file=sys.stderr),
         )
 
     try:
@@ -222,7 +224,8 @@ def _search(args: argparse.Namespace) -> int:
             print(f"\nnot kept, since no case broke them: {', '.join(missing)}")
     if any(not one.instants_only and str(one.predicate) not in allow for one in broken):
         return BROKEN
-    return NO_VERDICT if unjudged or found.nothing_judged or found.errored else OK
+    cut_short = found.nothing_judged or found.errored or not found.complete
+    return NO_VERDICT if unjudged or cut_short else OK
 
 
 # What the directory of a kept bundle begins with, for each framework.
@@ -475,6 +478,12 @@ def _parser() -> argparse.ArgumentParser:
     )
     sub.add_argument(
         "--no-words", action="store_true", help="the end of a played word is not a boundary"
+    )
+    sub.add_argument(
+        "--max-runs",
+        type=int,
+        metavar="N",
+        help="stop after N runs. A search cut short is incomplete and exits 3 unless a rule broke",
     )
     sub.add_argument(
         "--no-windows",

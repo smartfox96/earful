@@ -251,6 +251,24 @@ Two times each moved to boundaries are not explored together.
 The search uses everything in the ledger to decide where to look, the framework's own
 events included. What it finds is decided by the checker alone.
 
+**How many runs.** The number of cases grows with the handles times the transitions
+times the three offsets. A search first makes the few runs that read the boundaries, then
+says what it is about to run. `earful search` prints it on standard error, and
+`explore(..., planned=print)` hands it to a function. For the README's booking example:
+
+```
+earful: 736 cases (733 placements of a time, and the faults); 732 to run, after 6 run(s) to find them
+```
+
+`max_runs`, `--max-runs N` on the command line, is a budget. The runs that read the
+boundaries are always made and count against it. Once it is spent no further case is run
+and no further failure is measured. Such a search is not `complete`: its report says how
+many cases were not run and how many failures were not measured, its assertion fails, and
+`earful search` exits 3 unless a rule broke. A budget is a stop for a search that turned
+out too large. To make a search smaller, narrow it: fewer variables, some speeches, no
+word ends. Reading the ledger of each broken rule's example afterwards takes one run more
+for each rule.
+
 ### What a search reports
 
 - **What broke.** Per predicate: how many candidates break it and what they changed, for
@@ -476,11 +494,25 @@ the one way they change.
   changes what follows, so a handle aimed at a later transition may meet a timeline that
   has moved. The search chooses where to look. It does not prove that every ordering was
   tried.
-- **A failure with no boundary beside it is not looked for.** A window that opens and
-  closes between two transitions, more than 10 ms from each, has no candidate inside it.
+- **A failure is found only at three values beside each transition.** A handle is put
+  10 ms before a transition, at it and 10 ms after it. A window that holds none of those
+  values has no candidate inside it: one that opens and closes between two transitions,
+  more than 10 ms from each, and also one that lies strictly inside the 10 ms on one side
+  of a transition, such as from 2 ms to 8 ms after it.
   Stepping a variable in fixed increments (`scripts/contracts_sweep.py`) covers those,
   and found nothing the boundary search missed on the supported releases
   (`docs/gate1-core.md`).
+- **Reached means aimed at.** The coverage list records that a case was built to put a
+  handle beside a transition of the run the search read, and that the run of that case
+  could be judged. It does not check that the transition still fell at that instant in
+  the run of the moved case.
+- **A run has no time limit of its own.** A run that deadlocks with nothing scheduled is
+  ended after 60 real seconds and counted as a run that raised. A run whose code blocks
+  the thread, in a loop or on a call that does not return, is not ended, and the search
+  waits for it.
+- **A worker that dies ends the search.** If none had run a case, the message explains
+  the `if __name__ == "__main__":` guard a script needs. If some had, it says how many
+  cases the workers ran before one died, and `workers=0` runs the search in one process.
 - **A window is one stretch.** It is measured outwards from one breaking case until a run
   passes. A failure that stops and starts again is several windows, found from several
   candidates.

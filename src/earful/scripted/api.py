@@ -80,9 +80,13 @@ class AdapterAPI(Generic[CaseT, ResultT]):
         speeches: Iterable[int] | None = None,
         moments: Iterable[str] | None = None,
         words: bool = True,
+        max_runs: int | None = None,
+        planned: Callable[[search.Plan], None] | None = None,
     ) -> search.Exploration:
         """Search a scenario for the timings and faults at which it breaks a contract.
         ``workers`` above 0 runs cases in that many processes and needs an importable scenario.
+        ``max_runs`` stops the search at that many runs, with a result that is not ``complete``.
+        ``planned`` is told how many cases are about to run.
         Raises ``ValueError`` for a bad argument, ``WorkersUnavailable`` if workers cannot run."""
         found = self.scenario.Scenario.of(source)
         if workers < 0:
@@ -100,6 +104,8 @@ class AdapterAPI(Generic[CaseT, ResultT]):
             "speeches": speeches,
             "moments": moments,
             "words": words,
+            "max_runs": max_runs,
+            "planned": planned,
         }
         if workers == 0:
 
@@ -117,14 +123,29 @@ class AdapterAPI(Generic[CaseT, ResultT]):
                 f"worker processes cannot be started here ({type(exc).__name__}: {exc}). "
                 "workers=0 runs the search in this process"
             ) from exc
+        ran = 0  # cases a worker has run
+
+        def counted(run: Callable[[Any], Any], wanted: list[Any]) -> Iterable[Any]:
+            nonlocal ran
+            for result in pool.map(run, wanted):
+                ran += 1
+                yield result
+
         try:
             with pool:
-                return search.explore(start, self.run_in_worker, each=pool.map, **options)
+                return search.explore(start, self.run_in_worker, each=counted, **options)
         except BrokenProcessPool as exc:
+            if ran:
+                raise WorkersUnavailable(
+                    f"a worker process died after the workers had run {ran} cases. Something "
+                    "in the case it was running ended the process: memory ran out, or native "
+                    "code crashed. workers=0 runs the search in this process, where that case "
+                    "can be seen"
+                ) from exc
             raise WorkersUnavailable(
-                "a worker process died before it ran a case. A worker is a fresh interpreter "
-                "that imports this process's main module, so a script that searches with "
-                'workers must do so under `if __name__ == "__main__":`, and cannot be run '
+                "a worker process died before any had run a case. A worker is a fresh "
+                "interpreter that imports this process's main module, so a script that searches "
+                'with workers must do so under `if __name__ == "__main__":`, and cannot be run '
                 "from standard input or an interactive session. workers=0 runs the search "
                 "in this process"
             ) from exc

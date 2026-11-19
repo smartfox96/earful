@@ -1,6 +1,7 @@
 """The ``earful`` command: what each subcommand prints and the status it exits with."""
 
 import json
+import re
 import shutil
 import subprocess
 import sys
@@ -461,6 +462,34 @@ def test_a_search_that_could_judge_nothing_it_tried_exits_3_and_gives_the_reason
     )
     status, out, _ = earful(capsys, "search", reference, "--workers", "0", "--json")
     assert status == NO_VERDICT and json.loads(out)["not_judged"][0]["cases"] == 1
+
+
+def test_a_search_says_how_many_cases_it_will_run_and_one_cut_short_by_its_budget_exits_3(
+    capsys,
+):
+    narrow = ("--variables", "llm.ttft", "--faults", "none", "--no-words", "--workers", "0")
+    reference = "breaks:as_written_reads_the_error"
+    status, out, err = earful(capsys, "search", reference, *narrow, "--max-runs", "3")
+    assert status == NO_VERDICT
+    (said,) = re.findall(
+        r"^earful: (\d+) cases \(\d+ placements of a time, and the faults\); (\d+) to run, "
+        r"after 1 run\(s\) to find them\. The budget of 3 runs covers 2 of them$",
+        err,
+        re.MULTILINE,
+    )
+    assert said[0] == said[1] and int(said[0]) > 2
+    left = int(said[0]) - 2
+    assert f": 2 of {said[0]} cases tried, 2 judged, 0 contract rule(s) broken\n" in out
+    assert out.endswith(
+        f"\n\nincomplete: the budget of 3 runs was spent with {left} case(s) not run. "
+        "Nothing is concluded about them\n"
+    )
+    status, out, _ = earful(capsys, "search", reference, *narrow, "--max-runs", "3", "--json")
+    summary = json.loads(out)
+    assert status == NO_VERDICT and summary["complete"] is False and summary["not_run"] == left
+    assert (summary["runs"], summary["max_runs"]) == (3, 3)
+    status, _, err = earful(capsys, "search", reference, *narrow, "--max-runs", "0")
+    assert status == REFUSED and "max_runs is a number of runs, at least 1" in err
 
 
 def test_a_search_in_which_a_case_raised_exits_3_and_says_that_this_is_why(capsys, monkeypatch):
