@@ -16,7 +16,7 @@ is installed editable, so the `earful` command and the pytest plugin in that env
 run the code in your checkout.
 
 For the Pipecat-only environment, run `scripts/make_pipecat_env.sh` and
-`.venvs/pc-1.16.0/bin/python -m pytest -q tests/test_pipecat.py`. The script takes a
+`.venvs/pc-1.16.0/bin/python -m pytest -q tests/test_pipecat*.py`. The script takes a
 pipecat-ai release and a date the same way, and with no arguments builds the supported
 release.
 
@@ -148,7 +148,7 @@ One pipecat-ai release is supported at a time, so a new one takes the place of t
    `pipecat` and `docs` jobs of `.github/workflows/ci.yml`, `docs/compatibility.md`, the
    README, this page and `tests/test_ci.py`. A release in a new minor series also moves
    the `pipecat` extra in `pyproject.toml`. Tests fail while these disagree.
-3. `scripts/ran_every_test.sh .venvs/pc-<version>/bin/python tests/test_pipecat.py` runs
+3. `scripts/ran_every_test.sh .venvs/pc-<version>/bin/python tests/test_pipecat*.py` runs
    every Pipecat test and fails if one is skipped. `scripts/lint.sh` checks the adapter's
    types against the new release.
 4. Pipecat has no reference ledgers. A test that had to change is the record of a

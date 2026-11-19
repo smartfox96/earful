@@ -73,7 +73,7 @@ imports and checks a ledger with nothing but its own dependencies.
 ## What CI runs for Pipecat
 
 On every pull request, each row below builds the pinned environment without
-livekit-agents and runs `tests/test_pipecat.py`. A row fails if a test there is skipped.
+livekit-agents and runs `tests/test_pipecat*.py`. A row fails if a test there is skipped.
 
 | pipecat-ai | Python | System | Earful installed from |
 | --- | --- | --- | --- |

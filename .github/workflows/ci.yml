@@ -177,7 +177,7 @@ jobs:
           assert installed == (os.environ["FROM"] == "wheel"), earful.__file__
           PY
       - name: Every Pipecat test runs, and none is skipped (scripts/ran_every_test.sh)
-        run: scripts/ran_every_test.sh .venvs/pc-${{ matrix.pc.version }}/bin/python tests/test_pipecat.py
+        run: scripts/ran_every_test.sh .venvs/pc-${{ matrix.pc.version }}/bin/python tests/test_pipecat*.py
 
   determinism:
     name: lk ${{ matrix.lk.version }} / ${{ matrix.os }} / py${{ matrix.python }}

@@ -579,11 +579,12 @@ def test_a_run_counts_only_when_every_test_ran(tmp_path, name):
 
 def test_the_pipecat_tests_run_where_a_skip_fails_the_job():
     jobs = _jobs(CI)
-    ran = "scripts/ran_every_test.sh .venvs/pc-{}/bin/python tests/test_pipecat.py\n"
+    ran = "scripts/ran_every_test.sh .venvs/pc-{}/bin/python tests/test_pipecat*.py\n"
     assert ran.format("${{ matrix.pc.version }}") in jobs["pipecat"]
-    assert ran.format("1.16.0") in jobs["docs"]
+    assert ran.format("1.16.0").replace("*", "") in jobs["docs"]  # the one that reads docs/
     assert ran.format("1.16.0") in (SCRIPTS / "check_all.sh").read_text()
-    assert "pytest.importorskip(" in (ROOT / "tests" / "test_pipecat.py").read_text()
+    files = sorted((ROOT / "tests").glob("test_pipecat*.py"))
+    assert len(files) > 1 and all("pytest.importorskip(" in f.read_text() for f in files)
 
 
 def test_the_deliberate_breaks_run_for_a_pull_request_that_changes_behaviour():
@@ -906,8 +907,8 @@ def test_the_canary_installs_what_an_extra_admits_today_and_runs_the_fast_tests(
     assert done.returncode == 0, done.stderr
     assert calls[1] == "uv pip install -q -e .[pipecat] pytest pytest-asyncio"
     # A Pipecat test that is skipped fails the run, as it does in ci.
-    ran = "ran_every_test.sh .venvs/canary-pipecat/bin/python tests/test_pipecat.py -m not slow"
-    assert calls[3:] == [ran]
+    ran = "ran_every_test.sh .venvs/canary-pipecat/bin/python tests/test_pipecat"
+    assert len(calls) == 4 and calls[3].startswith(ran) and calls[3].endswith(".py -m not slow")
     assert "=== what an install holds today: pipecat-ai==1.16.2\n" in done.stdout
 
 
