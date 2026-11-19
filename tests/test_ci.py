@@ -698,10 +698,11 @@ def test_a_release_builds_once_and_publishes_the_files_it_checked():
     assert "      sums: ${{ steps.sums.outputs.sums }}\n" in jobs["build"]
     assert _needs(jobs["check"]) == ["build"]
     assert _needs(jobs["publish"]) == ["build", "check"]
-    taken = "download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0\n"
-    taken += "        with:\n          name: dist\n          path: dist\n"
+    taken = r"uses: actions/download-artifact@.+\n"
+    taken += r"        with:\n          name: dist\n          path: dist\n"
     for name in ("check", "publish"):
-        assert jobs[name].count(taken) == 1, name
+        assert len(re.findall(taken, jobs[name])) == 1, name
+        assert jobs[name].count("download-artifact@") == 1, name
         assert "          SUMS: ${{ needs.build.outputs.sums }}\n" in jobs[name], name
     compared = _run_block(jobs["check"], "The files are the ones that were built")
     assert compared == _run_block(
