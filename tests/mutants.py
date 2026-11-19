@@ -2764,6 +2764,27 @@ MUTANTS = [
         first="asked_for_a_fault_or_a_variable_there_is_not",
     ),
     Mutant(
+        "plugin: a test keeps the evidence of an earlier run of it",
+        "src/earful/pytest_plugin.py",
+        "    shutil.rmtree(directory, ignore_errors=True)\n",
+        "",
+        first="leaves_only_the_evidence_of_its_last_run",
+    ),
+    Mutant(
+        "plugin: a test clears the evidence of every test",
+        "src/earful/pytest_plugin.py",
+        "    shutil.rmtree(directory, ignore_errors=True)\n",
+        "    shutil.rmtree(out, ignore_errors=True)\n",
+        first="leaves_only_the_evidence_of_its_last_run",
+    ),
+    Mutant(
+        "plugin: an evidence directory that holds nothing is left behind",
+        "src/earful/pytest_plugin.py",
+        "        out.rmdir()  # only if nothing else is in it\n",
+        "        pass\n",
+        first="leaves_only_the_evidence_of_its_last_run",
+    ),
+    Mutant(
         "report: a run that is not valid evidence passes the assertion",
         "src/earful/core/checker/report.py",
         "        if not self.valid:\n            raise ContractFailure(\n",

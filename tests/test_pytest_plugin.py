@@ -110,6 +110,44 @@ def test_a_failing_test_leaves_its_ledgers_and_cases_and_says_where(project):
     assert {p.name for p in out.iterdir()} == {ran.name, searched.name}
 
 
+FAILS_WHILE_THE_SERVICE_IS_DOWN = """
+def test_booking(earful):
+    faults = [Fault("backend.error", 1)] if Path("service-down").exists() else []
+    earful.run(booking(faults=faults)).assert_contracts()
+"""
+
+
+def test_a_test_leaves_only_the_evidence_of_its_last_run_and_none_once_it_passes(pytester):
+    shared = PROJECT.partition("def test_as_written")[0]
+    pytester.makepyfile(
+        test_booking="from pathlib import Path\n" + shared + FAILS_WHILE_THE_SERVICE_IS_DOWN
+    )
+
+    def run():
+        return pytester.runpytest_inprocess("-p", "no:cacheprovider", "-p", "no:asyncio")
+
+    (pytester.path / "service-down").touch()
+    run().assert_outcomes(failed=1)
+    out = pytester.path / ".earful"
+    kept = out / "test_booking.py-test_booking"
+    (kept / "from-an-earlier-run.html").touch()
+    (out / "of-another-test").mkdir()
+    run().assert_outcomes(failed=1)
+    assert sorted(p.name for p in kept.iterdir()) == [
+        "run-1.booking.html",
+        "run-1.booking.ledger.jsonl",
+    ]
+    (pytester.path / "service-down").unlink()
+    run().assert_outcomes(passed=1)
+    assert [p.name for p in out.iterdir()] == ["of-another-test"]
+    (out / "of-another-test").rmdir()
+    (pytester.path / "service-down").touch()
+    run().assert_outcomes(failed=1)
+    (pytester.path / "service-down").unlink()
+    run().assert_outcomes(passed=1)
+    assert not out.exists()  # nothing of any test is left in it
+
+
 def test_the_evidence_goes_where_the_command_line_says(project, tmp_path):
     project.runpytest_inprocess(
         "-p", "no:cacheprovider", "-p", "no:asyncio", "--earful-out", str(tmp_path / "kept")

@@ -387,7 +387,9 @@ search 1 (booking) breaks A3/rule: backend.error 1
     report  .earful/test_booking.py-test_searched/search-1.booking.A3-rule.html
 ```
 
-A test that passes writes nothing. `.earful/` belongs in `.gitignore`.
+A test's directory is cleared when the test starts, so it holds the evidence of its last
+run and nothing older. A test that passes writes nothing, and leaves no directory.
+`.earful/` belongs in `.gitignore`.
 
 | Option | Meaning |
 | --- | --- |

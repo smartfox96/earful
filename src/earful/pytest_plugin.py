@@ -3,8 +3,10 @@ Pytest loads it wherever Earful is installed, so the adapter is imported only wh
 
 from __future__ import annotations
 
+import contextlib
 import json
 import re
+import shutil
 from collections.abc import Generator
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -182,8 +184,13 @@ def earful(request: pytest.FixtureRequest) -> Earful:
     out = Path(config.getoption("--earful-out"))
     if not out.is_absolute():
         out = config.rootpath / out
+    directory = out / _slug(request.node.nodeid)
+    # What an earlier run of this test left is not evidence of this one.
+    shutil.rmtree(directory, ignore_errors=True)
+    with contextlib.suppress(OSError):
+        out.rmdir()  # only if nothing else is in it
     helper = Earful(
-        out / _slug(request.node.nodeid),
+        directory,
         config.getoption("--earful-workers"),
         spread=hasattr(config, "workerinput"),  # set in a worker process of pytest-xdist
     )
