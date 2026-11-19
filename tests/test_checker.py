@@ -494,6 +494,63 @@ def test_m1_the_tolerance_is_audio_time_and_a_policy_choice(barge):
     assert report.outcome("M1") == FAIL and rules(report, "M1") == ["rule 3"]
 
 
+@pytest.mark.parametrize(
+    "kept, drift_us, broken",
+    [(8, -300_000, ["rule 2"]), (9, 0, []), (10, 0, []), (11, 420_000, ["rule 3"])],
+)
+def test_m1_memory_agrees_exactly_with_or_without_the_cut_word_and_no_further(
+    barge, kept, drift_us, broken
+):
+    """Nine words played and the tenth, "then", was cut. No drift is allowed."""
+    message = remembered(barge, 2)
+    message["text"] = " ".join(of(barge, "llm.response")["data"]["text"].split()[:kept])
+    report = check(declare(barge, M1={"ahead_us": 0, "behind_us": 0}))
+    first = report.results["M1"].verdicts[0]
+    assert (first.measures["played"], first.measures["cut"]) == (9, 1)
+    assert first.measures["contexts"][0]["drift_us"] == drift_us
+    assert [f.rule for f in first.findings] == broken
+
+
+@pytest.mark.parametrize(
+    "kept, policy, broken",
+    [
+        (12, {"ahead_us": 600_000}, []),
+        (12, {"ahead_us": 599_999}, ["rule 3"]),
+        (3, {"behind_us": 1_500_000}, []),
+        (3, {"behind_us": 1_499_999}, ["rule 2"]),
+    ],
+)
+def test_m1_drift_equal_to_the_tolerance_passes_and_one_microsecond_more_fails(
+    barge, kept, policy, broken
+):
+    """Twelve words remembered is 0.6 s ahead of what played; three is 1.5 s behind."""
+    message = remembered(barge, 2)
+    message["text"] = " ".join(of(barge, "llm.response")["data"]["text"].split()[:kept])
+    first = check(declare(barge, M1=policy)).results["M1"].verdicts[0]
+    assert [f.rule for f in first.findings] == broken
+
+
+def _beside(events, event, anchor, *, after):
+    """Move ``event`` to the instant of ``anchor``, just before or just after it."""
+    events.remove(event)
+    event["t_us"] = anchor["t_us"]
+    events.insert(events.index(anchor) + after, event)
+    return seal(events)
+
+
+@pytest.mark.parametrize("is_after, contexts", [(True, ["call 2"]), (False, ["final history"])])
+def test_m1_a_context_requested_as_the_playout_finishes_judges_it_only_if_it_came_after(
+    barge, is_after, contexts
+):
+    """Model call 2 is requested at the instant reply 1's segment finishes."""
+    request = next(e for e in barge if e["kind"] == "llm.request" and e["data"]["call"] == 2)
+    events = _beside(barge, request, of(barge, "playout.finished"), after=is_after)
+    first = check(events).results["M1"].verdicts[0]
+    assert first.outcome == PASS
+    assert [row["context"] for row in first.measures["contexts"]] == contexts
+    assert ("judged_on_final_history" in first.flags) == (not is_after)
+
+
 def test_m1_reports_the_measured_difference_on_every_instance(fixed):
     row = check(fixed).results["M1"].verdicts[0].measures["contexts"][0]
     assert (row["remembered"], row["drift_us"]) == (10, 0)
