@@ -399,10 +399,13 @@ def test_pipecat_runs_a_scenario_on_both_clocks_and_the_real_run_is_never_eviden
         pc.cross_check(built, runs=0)
 
 
+PAGE = Path(__file__).resolve().parents[1] / "docs/pipecat.md"
+
+
 @pytest.mark.slow
 def test_pipecat_documented_example_runs_from_pytest_and_the_installed_cli(tmp_path):
-    page = (Path(__file__).resolve().parents[1] / "docs/pipecat.md").read_text()
-    (code,) = re.findall(r"```python\n(.*?)```", page, flags=re.DOTALL)
+    page = PAGE.read_text()
+    code, *_others = re.findall(r"```python\n(.*?)```", page, flags=re.DOTALL)
     (tmp_path / "test_greeting.py").write_text(code)
 
     def command(*args):
@@ -426,6 +429,17 @@ def test_pipecat_documented_example_runs_from_pytest_and_the_installed_cli(tmp_p
         "none",
         "--no-words",
     )
+
+
+def test_pipecat_documented_pipeline_runs_as_written(pytester):
+    page = PAGE.read_text()
+    _first, shown, *_others = re.findall(r"```python\n(.*?)```", page, flags=re.DOTALL)
+    assert "pipeline=pipeline" in shown
+    pytester.makepyfile(test_greeting=shown)
+    result = pytester.runpytest_inprocess("-p", "no:cacheprovider", "-p", "no:asyncio")
+    result.assert_outcomes(passed=1)
+    for refused in ("VADProcessor", "TurnAnalyzerUserTurnStopStrategy", "vad_analyzer"):
+        assert f"`{refused}`" in page  # the limits name what the tests above refuse
 
 
 def test_pipecat_reads_async_tool_results_from_the_context():

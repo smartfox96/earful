@@ -30,6 +30,7 @@ from ..scripted.playbook import (
 from ..scripted.world import UserSpeech
 from .api import WorkersUnavailable, cross_check, explore, keep, replay, run
 from .harness import Case, RunResult, run_case
+from .pipeline import Ends
 from .scenario import Scenario
 
 __all__ = [
@@ -42,6 +43,7 @@ __all__ = [
     "ContractFailure",
     "Delay",
     "Effect",
+    "Ends",
     "Fault",
     "Intent",
     "InvalidRun",

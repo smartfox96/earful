@@ -24,17 +24,8 @@ from pipecat.frames.frames import (
 from pipecat.pipeline.pipeline import Pipeline
 from pipecat.pipeline.worker import PipelineParams, PipelineWorker
 from pipecat.processors.aggregators.llm_context import LLMContext
-from pipecat.processors.aggregators.llm_response_universal import (
-    LLMContextAggregatorPair,
-    LLMUserAggregatorParams,
-)
 from pipecat.processors.frame_processor import FrameDirection, FrameProcessor
 from pipecat.services.llm_service import LLMService
-from pipecat.turns.user_start.vad_user_turn_start_strategy import VADUserTurnStartStrategy
-from pipecat.turns.user_stop.speech_timeout_user_turn_stop_strategy import (
-    SpeechTimeoutUserTurnStopStrategy,
-)
-from pipecat.turns.user_turn_strategies import UserTurnStrategies
 from pipecat.workers.runner import WorkerRunner
 
 from ..core import backend as backends
@@ -55,7 +46,9 @@ from ..scripted.clock import (
 )
 from ..scripted.model import Policy
 from ..scripted.world import UserSpeech, WorldOrigin, sleep_until
+from . import pipeline as pipelines
 from .clock import VirtualClock
+from .pipeline import Ends
 from .providers import SAMPLE_RATE, ScriptedLLM, ScriptedSTT, ScriptedUser, StampedTTS, summarize
 from .sink import ClockedOutput
 from .tools import ToolWitness
@@ -91,7 +84,8 @@ class Tap(FrameProcessor):
 @dataclass
 class Case:
     """A scenario for a Pipecat bot. ``bot`` is the application: handed the model
-    service, it registers its functions and returns the context the bot starts with."""
+    service, it registers its functions and returns the context the bot starts with.
+    ``pipeline`` is the application's pipeline around Earful's ends."""
 
     name: str
     bot: Callable[[LLMService], LLMContext]
@@ -113,6 +107,8 @@ class Case:
     user_turn_stop_timeout: float = 5.0  # LLMUserAggregatorParams
     drain_delay: float = 5.0
     drain_timeout: float = 30.0
+    # The application's processors in order, around Earful's ends. None: the standard seven.
+    pipeline: pipelines.Build | None = None
 
 
 @dataclass
@@ -146,7 +142,7 @@ class RunResult:
         )
 
 
-def _header(case: Case, tools: set[str]) -> dict[str, Any]:
+def _header(case: Case, tools: set[str], options: dict[str, Any]) -> dict[str, Any]:
     unknown = sorted(case.effects.keys() - tools)
     if unknown:
         raise ValueError(f"effects declared for unregistered functions {unknown}")
@@ -194,10 +190,7 @@ def _header(case: Case, tools: set[str]) -> dict[str, Any]:
             "min_endpointing_delay_us": to_us(case.user_speech_timeout),
             "max_endpointing_delay_us": to_us(case.user_turn_stop_timeout),
             "turn_detection": None,
-            "extra_options": {
-                "user_turn_start": "VADUserTurnStartStrategy",
-                "user_turn_stop": "SpeechTimeoutUserTurnStopStrategy",
-            },
+            "extra_options": options,
         },
         "faults": [
             {"of": f.of, "nth": f.nth, "us": None if f.seconds is None else to_us(f.seconds)}
@@ -295,24 +288,13 @@ async def _run(case: Case, seed: int) -> RunResult:
     reported = 0  # errors the pipeline reported about itself
     try:
         context = case.bot(model)
+        ends = Ends(user, stt, model, voice, output, context)
+        timeouts = (case.user_speech_timeout, case.user_turn_stop_timeout)
+        build = case.pipeline or pipelines.standard(*timeouts)
+        plan = pipelines.inspect(build(ends), ends, *timeouts, own=case.pipeline is not None)
         model.witness_tools(context.tools)
-        header = _header(case, witness.names)
-        pair = LLMContextAggregatorPair(
-            context,
-            user_params=LLMUserAggregatorParams(
-                user_turn_strategies=UserTurnStrategies(
-                    start=[VADUserTurnStartStrategy()],
-                    stop=[
-                        SpeechTimeoutUserTurnStopStrategy(
-                            user_speech_timeout=case.user_speech_timeout
-                        )
-                    ],
-                ),
-                user_turn_stop_timeout=case.user_turn_stop_timeout,
-                empty_user_turn=None,
-            ),
-        )
-        assistant = pair.assistant()
+        header = _header(case, witness.names, plan.options)
+        assistant = plan.assistant
 
         def committed(_aggregator: Any, message: Any) -> None:
             if message.interrupted and message.content:
@@ -327,7 +309,7 @@ async def _run(case: Case, seed: int) -> RunResult:
 
         assistant.add_event_handler("on_assistant_turn_stopped", committed)
         tap = Tap(ledger)
-        pipeline = Pipeline([user, stt, pair.user(), model, voice, output, assistant, tap])
+        pipeline = Pipeline([*plan.processors, tap])
         worker = PipelineWorker(
             pipeline,
             params=PipelineParams(audio_out_sample_rate=SAMPLE_RATE),
@@ -421,6 +403,14 @@ async def _run(case: Case, seed: int) -> RunResult:
         if case.hangup is not None:
             await asyncio.sleep(case.drain_delay)
         voice.close_all()
+        # The header states the turn strategies the run began with.
+        try:
+            now = pipelines.turns(plan.user, *timeouts)
+            changed = ", ".join(f"{k} is {v}" for k, v in now.items() if plan.options[k] != v)
+        except ValueError as exc:
+            changed = str(exc)
+        if changed:
+            errors.append(f"the pipeline changed its turn strategies during the run: {changed}")
         ledger.append(
             "harness",
             "history.final",
