@@ -7,6 +7,7 @@ import asyncio
 import contextlib
 import heapq
 import selectors
+import threading
 import time
 import weakref
 from collections.abc import Callable, Coroutine, Iterator, Mapping
@@ -168,13 +169,20 @@ class _OrderedTimerHandle(asyncio.TimerHandle):
         )
 
 
+# The kinds of work a loop cannot move in virtual time. Any of it makes a run invalid.
+_STARTED, _WOKEN = "threads started", "wake-ups from another thread"
+_WATCHED, _CHILDREN = "file descriptors watched", "child processes started"
+
+
 class VirtualTimeLoop(asyncio.SelectorEventLoop):
     """A SelectorEventLoop whose clock jumps to the next timer when it would otherwise sleep."""
 
     if TYPE_CHECKING:
-        # BaseEventLoop internals that call_at uses. asyncio's stubs leave them out.
+        # Loop internals that the methods below use. asyncio's stubs leave them out.
         _debug: bool
         _scheduled: list[asyncio.TimerHandle]
+        _ssock: Any
+        _thread_id: int | None
 
         def _check_closed(self) -> None: ...
         def _check_thread(self) -> None: ...
@@ -182,6 +190,9 @@ class VirtualTimeLoop(asyncio.SelectorEventLoop):
 
     def __init__(self) -> None:
         self._virtual_clock = _VirtualClock()
+        # Set before the base class registers the loop's own pipe as a reader.
+        self._left = dict.fromkeys((_STARTED, _WOKEN, _WATCHED, _CHILDREN), 0)
+        self._left_lock = threading.Lock()
         super().__init__(selector=_AutojumpSelector(self._virtual_clock))
         # A timer is ready when its due time is within half a tick of the clock.
         self._clock_resolution = _HALF_TICK
@@ -229,6 +240,46 @@ class VirtualTimeLoop(asyncio.SelectorEventLoop):
 
     async def shutdown_default_executor(self, *args: Any) -> None:
         await super().shutdown_default_executor()
+
+    def leaves(self, kind: str) -> None:
+        """Count one piece of work the loop cannot move in virtual time."""
+        with self._left_lock:
+            self._left[kind] += 1
+
+    def left(self) -> list[str]:
+        """Why a run on this loop did not stay on the virtual clock. Empty if it did."""
+        with self._left_lock:
+            counted = [f"{kind}: {count}" for kind, count in self._left.items() if count]
+        return [f"work left the virtual clock ({', '.join(counted)})"] if counted else []
+
+    def call_soon_threadsafe(
+        self,
+        callback: Callable[[Unpack[Ts]], object],
+        *args: Unpack[Ts],
+        context: Context | None = None,
+    ) -> asyncio.Handle:
+        # Only work that ran in real time on another thread wakes the loop from there.
+        if threading.get_ident() != self._thread_id:
+            self.leaves(_WOKEN)
+        return super().call_soon_threadsafe(callback, *args, context=context)
+
+    def _add_reader(self, fd: Any, callback: Callable[..., object], *args: Any) -> Any:
+        # A socket, a pipe or a child's descriptor becomes ready in real time.
+        if fd != self._ssock.fileno():
+            self.leaves(_WATCHED)
+        return super()._add_reader(fd, callback, *args)  # type: ignore[misc]
+
+    def _add_writer(self, fd: Any, callback: Callable[..., object], *args: Any) -> Any:
+        self.leaves(_WATCHED)
+        return super()._add_writer(fd, callback, *args)  # type: ignore[misc]
+
+    async def subprocess_exec(self, *args: Any, **kwargs: Any) -> Any:
+        self.leaves(_CHILDREN)
+        return await super().subprocess_exec(*args, **kwargs)
+
+    async def subprocess_shell(self, *args: Any, **kwargs: Any) -> Any:
+        self.leaves(_CHILDREN)
+        return await super().subprocess_shell(*args, **kwargs)
 
 
 def _virtual_loop() -> VirtualTimeLoop | None:
@@ -370,12 +421,32 @@ def virtual_wall_clock() -> Iterator[ClockPatchReport]:
         yield _REPORT
 
 
+@contextlib.contextmanager
+def _threads_counted() -> Iterator[None]:
+    # A thread started from the loop works in real time, whether or not it ever wakes the loop.
+    real = threading.Thread.start
+
+    def start(thread: threading.Thread) -> None:
+        loop = _virtual_loop()
+        if loop is not None:
+            loop.leaves(_STARTED)
+        real(thread)
+
+    with mock.patch.object(threading.Thread, "start", start):
+        yield
+
+
+def left_the_clock(loop: asyncio.AbstractEventLoop) -> list[str]:
+    """Why a run on ``loop`` did not stay on the virtual clock. Empty if it did."""
+    return loop.left() if isinstance(loop, VirtualTimeLoop) else []
+
+
 def run_virtual(main: Callable[[], Coroutine[Any, Any, T]]) -> T:
     """Run ``main()`` to completion on a fresh VirtualTimeLoop with the wall clock patched."""
     loop = VirtualTimeLoop()
     try:
         asyncio.set_event_loop(loop)
-        with virtual_wall_clock():
+        with virtual_wall_clock(), _threads_counted():
             return loop.run_until_complete(main())
     finally:
         try:

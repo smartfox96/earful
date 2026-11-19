@@ -1,14 +1,20 @@
 """The virtual clock, and the patch that makes pydantic models read it."""
 
 import asyncio
+import contextlib
+import os
+import socket
+import threading
 import time
 
+import livekit.agents as lk
 import pytest
 from pydantic import BaseModel, Field
 
 from earful.livekit.cases import CASES
-from earful.livekit.harness import InvalidRun, run_case
-from earful.scripted.clock import WALL_CLOCK_EPOCH, patch_report, run_virtual
+from earful.livekit.harness import Case, InvalidRun, run_case
+from earful.livekit.providers import Reply, ToolCall, UserSpeech
+from earful.scripted.clock import WALL_CLOCK_EPOCH, left_the_clock, patch_report, run_virtual
 
 
 def test_time_is_exact_on_the_grid():
@@ -122,3 +128,202 @@ def test_a_model_that_cannot_be_patched_is_reported_and_makes_a_run_invalid():
     assert run_virtual(main) == WALL_CLOCK_EPOCH + 2
     assert patch_report().unpatched == []
     assert not run_case(CASES["barge_in_mid_word"]()).invalid
+
+
+def _a_tool_that_awaits(wait):
+    """A case whose only tool awaits ``wait()``, with the session's timers running beside it."""
+
+    class Agent(lk.Agent):
+        def __init__(self):
+            super().__init__(instructions="You look things up.")
+
+        @lk.function_tool
+        async def look_up(self) -> str:
+            """Look something up."""
+            return await wait()
+
+    def policy(items):
+        if any(item["type"] == "function_call_output" for item in items):
+            return Reply(text="Found it.")
+        return Reply(text="One moment.", tool_calls=(ToolCall("look_up", "{}"),))
+
+    return Case(
+        name="real_work",
+        agent=Agent,
+        speeches=[UserSpeech(start=0.5, end=1.5, transcript="Look it up.")],
+        policy=policy,
+    )
+
+
+_STARTED: list[object] = []  # the threads and child processes the tools below leave behind
+
+
+async def _a_thread_that_answers():
+    loop = asyncio.get_running_loop()
+    answer = loop.create_future()
+
+    def work():
+        time.sleep(0.03)
+        with contextlib.suppress(RuntimeError):  # the run is over by then, and its loop closed
+            loop.call_soon_threadsafe(answer.set_result, "found")
+
+    _STARTED.append(threading.Thread(target=work))
+    _STARTED[-1].start()
+    return await answer
+
+
+async def _a_thread_that_is_polled():
+    found = []
+    _STARTED.append(threading.Thread(target=lambda: (time.sleep(0.03), found.append("found"))))
+    _STARTED[-1].start()
+    while not found:
+        await asyncio.sleep(0.01)
+    return found[0]
+
+
+async def _a_child_process():
+    child = await asyncio.create_subprocess_exec("/bin/sleep", "0.05")
+    _STARTED.append(child)
+    await child.wait()
+    return "found"
+
+
+async def _a_file_descriptor():
+    loop = asyncio.get_running_loop()
+    answer = loop.create_future()
+    reading, writing = os.pipe()  # nothing is ever written: the tool waits on the descriptor
+    loop.add_reader(reading, answer.set_result, "found")
+    try:
+        return await answer
+    finally:
+        loop.remove_reader(reading)
+        os.close(reading)
+        os.close(writing)
+
+
+def _tidy_up():
+    for started in _STARTED:
+        if isinstance(started, threading.Thread):
+            started.join()
+        else:
+            started._transport.close()  # kills a child the cancelled tool left running
+    _STARTED.clear()
+    for thread in threading.enumerate():
+        if thread.name.startswith("asyncio-waitpid"):
+            thread.join()
+
+
+@pytest.mark.parametrize(
+    "wait, left",
+    [
+        (_a_thread_that_answers, "threads started: 1"),
+        (_a_thread_that_is_polled, "threads started: 1"),
+        (_a_child_process, "child processes started: 1"),
+        (_a_file_descriptor, "file descriptors watched: 1"),
+    ],
+)
+def test_a_tool_that_waits_on_work_in_real_time_makes_the_run_invalid(wait, left):
+    try:
+        result = run_case(_a_tool_that_awaits(wait), require_valid=False)
+    finally:
+        _tidy_up()
+    (reason,) = result.invalid
+    assert reason.startswith("harness error: work left the virtual clock (") and left in reason
+    assert result.events[-1]["data"]["executor_calls"] == 0
+
+
+def test_a_tool_that_waits_only_on_the_virtual_clock_leaves_the_run_valid():
+    async def wait():
+        asyncio.get_running_loop().call_soon_threadsafe(lambda: None)  # from the loop's thread
+        await asyncio.sleep(3)
+        return "found"
+
+    result = run_case(_a_tool_that_awaits(wait))
+    assert result.invalid == []
+    assert [e["t_us"] for e in result.events if e["kind"] == "tool.returned"] == [5_000_000]
+
+
+def test_a_wake_up_from_a_thread_that_was_already_running_is_counted():
+    ask = threading.Event()
+    loops = []
+
+    def work():
+        ask.wait()
+        loops[0].call_soon_threadsafe(answer.set_result, "found")
+
+    thread = threading.Thread(target=work)
+    thread.start()  # before the run: the loop never sees it start
+
+    async def main():
+        nonlocal answer
+        loop = asyncio.get_running_loop()
+        answer = loop.create_future()
+        loops.append(loop)
+        ask.set()
+        return await answer, left_the_clock(loop)
+
+    answer = None
+    assert run_virtual(main) == (
+        "found",
+        ["work left the virtual clock (wake-ups from another thread: 1)"],
+    )
+    thread.join()
+
+
+def test_a_socket_the_loop_waits_on_is_counted():
+    async def main():
+        loop = asyncio.get_running_loop()
+        near, far = socket.socketpair()
+        near.setblocking(False)
+        reader, writer = await asyncio.open_connection(sock=near)
+        far.sendall(b"found\n")
+        line = await reader.readline()
+        writer.close()
+        far.close()
+        return line, left_the_clock(loop)
+
+    line, left = run_virtual(main)
+    assert line == b"found\n"
+    assert left == ["work left the virtual clock (file descriptors watched: 1)"]
+
+
+def test_a_descriptor_the_loop_waits_to_write_to_is_counted():
+    async def main():
+        loop = asyncio.get_running_loop()
+        near, far = socket.socketpair()
+        writable = loop.create_future()
+        loop.add_writer(near, writable.set_result, None)
+        await writable
+        loop.remove_writer(near)
+        near.close()
+        far.close()
+        return left_the_clock(loop)
+
+    assert run_virtual(main) == ["work left the virtual clock (file descriptors watched: 1)"]
+
+
+def test_a_child_process_started_through_a_shell_is_counted():
+    async def main():
+        child = await asyncio.create_subprocess_shell("true")
+        code = await child.wait()  # nothing else is scheduled, so the loop waits for it
+        return code, left_the_clock(asyncio.get_running_loop())
+
+    code, (left,) = run_virtual(main)
+    assert code == 0 and "child processes started: 1" in left
+
+
+def test_work_handed_to_a_thread_pool_is_counted_as_before():
+    async def main():
+        loop = asyncio.get_running_loop()
+        await asyncio.to_thread(lambda: None)
+        return loop.executor_calls
+
+    assert run_virtual(main) == 1
+
+
+def test_a_loop_that_only_ran_its_own_timers_left_nothing():
+    async def main():
+        await asyncio.sleep(1)
+        return left_the_clock(asyncio.get_running_loop())
+
+    assert run_virtual(main) == []

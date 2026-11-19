@@ -45,7 +45,7 @@ from ..core.predicate import Predicate
 from ..core.schema import validity
 from ..core.timebase import to_seconds, to_us
 from ..scripted.case import Delay, Fault, Intent, InvalidRun, check_case, declared_intents
-from ..scripted.clock import VirtualTimeLoop, now_us, patch_report, run_virtual
+from ..scripted.clock import VirtualTimeLoop, left_the_clock, now_us, patch_report, run_virtual
 from ..scripted.model import Policy
 from ..scripted.world import UserSpeech, WorldOrigin, sleep_until
 from .clock import VirtualClock, monotonic_on_the_loop
@@ -423,6 +423,7 @@ async def _run(case: Case, seed: int) -> RunResult:
     finally:
         await backend.cancel_in_flight()
         backends.uninstall(token)
+    errors += left_the_clock(loop)
     ledger.append(
         "harness",
         "run.end",

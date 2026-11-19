@@ -7,6 +7,7 @@ import json
 import re
 import subprocess
 import sys
+import threading
 import time
 from dataclasses import replace
 from pathlib import Path
@@ -198,6 +199,25 @@ def test_pipecat_a_stalled_input_yields_invalid_evidence(monkeypatch):
         pc.run(built)
     assert caught.value.result.events[-1]["t_us"] < 4_000_000
     assert not caught.value.result.report.valid
+
+
+def test_pipecat_a_function_that_starts_a_thread_leaves_invalid_evidence():
+    def bot(llm):
+        async def look_up(params):
+            worker = threading.Thread(target=lambda: None)
+            worker.start()
+            worker.join()
+            await params.result_callback("found")
+
+        llm.register_function("look_up", look_up)
+        return LLMContext()
+
+    built = replace(greeting(), bot=bot)
+    built.policy = (
+        pc.ScriptedModel().when(pc.tool_returned(), say="Found it.").otherwise(call=("look_up", {}))
+    )
+    with pytest.raises(pc.InvalidRun, match=r"work left the virtual clock \(threads started: 1\)"):
+        pc.run(built)
 
 
 def test_pipecat_hangup_stops_the_user_and_settles_a_pending_write():

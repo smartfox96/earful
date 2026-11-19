@@ -363,10 +363,12 @@ definition; it reads only the ledger and returns every reason a run is not valid
 - `executor_calls` is not zero: work left the virtual clock for a thread;
 - `underruns` is not zero: playout ran ahead of the audio it had been given, so word
   times are unreliable;
-- `harness_errors` is not empty: Earful's own simulation or recording failed. Examples: a
-  recording handler raised, the scripted providers disagreed about the origin, a declared
-  session option differs from the one the session holds, a scripted claim does not fit
-  its reply.
+- `harness_errors` is not empty: Earful's own simulation or recording failed, or the run
+  did not stay on the virtual clock. Examples: a recording handler raised, the scripted
+  providers disagreed about the origin, a declared session option differs from the one
+  the session holds, a scripted claim does not fit its reply, a tool started a thread or
+  waited on a socket (`work left the virtual clock (threads started: 1)`). What counts as
+  leaving the clock is listed in `docs/compatibility.md`, The virtual clock.
 
 `framework_warnings` is recorded but does not invalidate a run.
 

@@ -89,6 +89,29 @@ livekit-agents release with no row above has no reference ledgers, and there the
 that compare a run with one are skipped. The workflow also fails when PyPI has a release
 an extra does not accept (`scripts/newer_release.sh`). No pull request runs it.
 
+
+## The virtual clock
+
+A run is on a clock that jumps to the event loop's next timer whenever the loop has
+nothing else to do. Work that takes real time cannot be moved that way, so a run that does
+any of the following is invalid (`docs/ledger.md`, Validity):
+
+| Work | Reported as |
+| --- | --- |
+| `loop.run_in_executor`, `asyncio.to_thread` | `executor_calls` |
+| A `threading.Thread` started from the run | `threads started` |
+| A callback handed to the loop from another thread with `call_soon_threadsafe`, which is how a thread, a thread pool or a native library returns a result | `wake-ups from another thread` |
+| A socket, a pipe or any other descriptor the loop waits on | `file descriptors watched` |
+| A child process started through asyncio | `child processes started` |
+
+The last four are counted in one harness error, such as
+`work left the virtual clock (threads started: 1)`.
+
+Two things are not seen, and the run stays valid. A call that blocks the loop, such as
+`time.sleep`, `subprocess.run` or a synchronous HTTP client, takes no virtual time. A
+thread that was running before the run began is seen only when it wakes the loop: one
+that answers after the run has ended, or whose result the run polls for, is not.
+
 ## The portable core
 
 `earful` without framework extras depends only on `jsonschema`. It reads and checks

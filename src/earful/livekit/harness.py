@@ -27,6 +27,7 @@ from ..scripted.clock import (
     WALL_CLOCK_EPOCH,
     ClockPatchReport,
     VirtualTimeLoop,
+    left_the_clock,
     now_us,
     patch_report,
     run_virtual,
@@ -438,6 +439,7 @@ async def _run(case: Case, seed: int) -> RunResult:
         tools.uninstall(witness_token)
 
     executor_calls = loop.executor_calls if isinstance(loop, VirtualTimeLoop) else None
+    harness_errors += left_the_clock(loop)
     ledger.append(
         "harness",
         "run.end",
