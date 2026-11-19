@@ -22,7 +22,8 @@ if [ -n "${EARFUL_DIST:-}" ]; then
   earful=("${wheel}[pipecat]")
 fi
 
-[ -x "$env_dir/bin/python" ] || uv venv -q --python "${EARFUL_PYTHON:-3.13}" "$env_dir"
+rm -rf "$env_dir" # anew: a package left from an earlier build would stay at its old version
+uv venv -q --python "${EARFUL_PYTHON:-3.13}" "$env_dir"
 VIRTUAL_ENV="$env_dir" uv pip install -q --exclude-newer "$as_of" \
   "${earful[@]}" "pipecat-ai==$version" pytest pytest-asyncio
 scripts/env_lock.sh "$env_dir" "compat/pc-$version.lock.txt"
