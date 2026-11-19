@@ -278,6 +278,7 @@ class View:
             it["intent"]: it for it in self.scenario["intents"]
         }
         self.request_of: dict[str, ModelCall] = {}  # tool call id -> the model call that asked
+        self.asked: dict[str, dict[str, Any]] = {}  # tool call id -> the call as the model made it
 
         speech_events: dict[int, dict[str, Event]] = {}
         for e in events:
@@ -294,6 +295,7 @@ class View:
                 self.calls[d["call"]].response = e
                 for tool_call in d["tool_calls"]:
                     self.request_of[tool_call["call_id"]] = self.calls[d["call"]]
+                    self.asked[tool_call["call_id"]] = tool_call
             elif kind == "tts.synthesized":
                 call = d["call"]
                 if d["attribution"] == "ambiguous":

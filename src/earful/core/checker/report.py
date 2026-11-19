@@ -26,7 +26,7 @@ RULES: dict[str, tuple[str, ...]] = {
     "A2": ("rule",),
     "A3": ("rule",),
     "M1": ("rule 2", "rule 3", "rule 4", "rule 5"),
-    "M2": ("rule a", "rule b", "rule c", "rule d", "rule e"),
+    "M2": ("rule a", "rule b", "rule c", "rule d", "rule e", "rule f"),
     "L1": ("milestone 1", "milestone 2", "milestone 3"),
     "L2": ("rule a", "rule b"),
 }

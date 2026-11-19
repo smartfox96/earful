@@ -1155,6 +1155,191 @@ def test_m2_fails_when_a_reply_comes_before_the_turn_it_answered(barge):
     assert "rule e" in rules(check(barge), "M2")
 
 
+def _spoke_again(events, start_us, text="Thanks.", backchannel=False):
+    """A further speech, owed no reply, whose turn is the last item of the final history."""
+    speeches = events[0]["data"]["scenario"]["speeches"]
+    said = copy.deepcopy(speeches[1])
+    shift = start_us - said["start_us"]
+    said.update(
+        speech=len(speeches),
+        start_us=start_us,
+        end_us=said["end_us"] + shift,
+        transcript=text,
+        expects_reply=False,
+        backchannel=backchannel,
+    )
+    for kind in ("user.vad_start", "user.transcript_final", "user.vad_end"):
+        event = copy.deepcopy(
+            next(e for e in events if e["kind"] == kind and e["data"]["speech"] == 1)
+        )
+        event["t_us"] += shift
+        event["data"]["speech"] = said["speech"]
+        if kind == "user.transcript_final":
+            event["data"]["text"] = text
+        events.append(event)
+    speeches.append(said)
+    of(events, "history.final")["data"]["items"].append(
+        {"type": "message", "id": "x", "role": "user", "text": text, "interrupted": False}
+    )
+    return seal(sorted(events, key=lambda event: event["t_us"]))
+
+
+@pytest.mark.parametrize("after_us, late", [(0, False), (1, True), (1_280_000, True)])
+def test_m2_fails_when_a_reply_is_recorded_after_a_turn_that_began_once_it_had_played(
+    barge, after_us, late
+):
+    """Reply 2 finishes playing at 7.72 s; the history puts it after a turn begun later."""
+    finished = of(barge, "playout.finished", 1)["t_us"]
+    events = _spoke_again(barge, finished + after_us)
+    assert check(copy.deepcopy(events)).failures == ()
+    items = of(events, "history.final")["data"]["items"]
+    items[-2], items[-1] = items[-1], items[-2]
+    assert [i.get("text") for i in items[-2:]] == ["Thanks.", "Okay, stopping."]
+    report = check(events)
+    assert rules(report, "M2") == (["rule e"] if late else [])
+    if late:
+        (finding,) = report.results["M2"].failures[0].findings
+        assert f"after speech 2, which began {after_us} us after it finished" in finding.detail
+
+
+def test_m2_a_turn_that_a_backchannel_could_be_has_no_certain_place(barge):
+    """One "Okay." is kept before reply 2. It was said twice: as a backchannel while reply 2
+    played, and as a turn at 9.0 s."""
+    events = _spoke_again(barge, 6_600_000, "Okay.", backchannel=True)
+    items = of(events, "history.final")["data"]["items"]
+    kept = items.pop()
+    events = _spoke_again(events, 9_000_000, "Okay.")
+    items.pop()
+    items.insert(-1, kept)
+    assert [i.get("text") for i in items[-3:]] == ["Stop.", "Okay.", "Okay, stopping."]
+    assert check(copy.deepcopy(events)).outcome("M2") == PASS
+    # with the backchannel's own text there as well, the second is the turn, and is misplaced
+    items.insert(-1, dict(kept))
+    assert rules(check(events), "M2") == ["rule e"]
+
+
+def test_m2_a_reply_inside_a_turn_that_began_in_one_message_and_ended_in_another_is_misplaced(
+    barge,
+):
+    events = _spoke_again(barge, 9_000_000, "Thanks a lot.")
+    items = of(events, "history.final")["data"]["items"]
+    whole = items.pop()
+    items.insert(-1, {**whole, "text": "Thanks"})
+    items.append({**whole, "text": "a lot."})
+    assert [i.get("text") for i in items[-3:]] == ["Thanks", "Okay, stopping.", "a lot."]
+    assert rules(check(events), "M2") == ["rule e"]
+
+
+def test_m2_a_reply_with_a_segment_still_open_has_no_place_it_is_held_to(barge):
+    """Reply 2's first segment finishes at 7.24 s; its second is open when the run ends."""
+    events = _in_two_segments(barge)
+    events.remove(of(events, "playout.finished", 2))
+    events = _spoke_again(events, 7_500_000)
+    items = of(events, "history.final")["data"]["items"]
+    items[-2], items[-1] = items[-1], items[-2]
+    report = check(events)
+    assert report.results["M1"].verdicts[-1].outcome == UNOBSERVABLE
+    assert report.outcome("M2") == PASS
+
+
+def test_m2_a_turn_begins_when_the_speech_segment_holding_it_does(barge):
+    """ "Thanks." at 7.9 s follows "Wait." by 0.3 s: one segment, begun as reply 2 played."""
+    events = _spoke_again(_spoke_again(barge, 6_600_000, "Wait."), 7_900_000)
+    for kind, speech in (("user.vad_end", 2), ("user.vad_start", 3)):
+        events.remove(
+            next(e for e in events if e["kind"] == kind and e["data"]["speech"] == speech)
+        )
+    items = of(events, "history.final")["data"]["items"]
+    items.append(items.pop(-3))
+    assert [i.get("text") for i in items[-3:]] == ["Wait.", "Thanks.", "Okay, stopping."]
+    report = check(seal(events))
+    assert report.valid and report.outcome("M2") == PASS
+
+
+def _tool_items(events, call=2):
+    """The booking's call item and result item, each with the items that hold it: those of a
+    context, then those of the final history."""
+    return [
+        (items, next(i for i in items if i["type"] == kind))
+        for items in (context(events, call), of(events, "history.final")["data"]["items"])
+        for kind in ("function_call", "function_call_output")
+    ]
+
+
+def _before_the_first_turn(items, item):
+    items.remove(item)
+    first = next(n for n, i in enumerate(items) if i["type"] == "message" and i["role"] == "user")
+    items.insert(first, item)
+
+
+@pytest.mark.parametrize(
+    "kind, change, said",
+    [
+        ("function_call", {"name": "delete_all_reservations"}, "shows the call 'call-1-1' as"),
+        ("function_call", {"arguments": '{"party_size": 60}'}, "shows the call 'call-1-1' as"),
+        ("function_call", {"arguments": '{"party_size":6}'}, None),
+        ("function_call", {"arguments": "party_size=6"}, "shows the call 'call-1-1' as"),
+        ("function_call_output", {"name": "delete_all_reservations"}, "is a result named"),
+        ("function_call_output", {"name": None}, None),
+    ],
+)
+def test_m2_fails_when_a_tool_item_is_not_the_call_as_the_model_made_it(fixed, kind, change, said):
+    shown(fixed, 2, kind).update(change)
+    report = check(fixed)
+    assert rules(report, "M2") == (["rule f"] if said else [])
+    if said:
+        (failed,) = report.results["M2"].failures
+        assert failed.instance == {"context": "call 2"} and said in failed.findings[0].detail
+        assert of(fixed, "llm.response")["seq"] in failed.evidence
+
+
+def test_m2_fails_on_a_call_item_for_a_call_the_model_did_not_make(fixed):
+    invented = {**shown(fixed, 2, "function_call"), "call_id": "call-9-1"}
+    context(fixed, 2).append(invented)
+    report = check(fixed)
+    assert rules(report, "M2") == ["rule f"]
+    assert "a call the model had not made" in report.results["M2"].failures[0].findings[0].detail
+
+
+def test_m2_a_call_the_model_makes_later_is_no_call_it_had_made(fixed):
+    """Call 1 asks for the booking; a context requested before it answers cannot hold the call."""
+    context(fixed, 1).append(dict(shown(fixed, 2, "function_call")))
+    (failed,) = check(fixed).results["M2"].failures
+    assert failed.instance == {"context": "call 1"}
+    assert [f.rule for f in failed.findings] == ["rule f"]
+
+
+def test_m2_fails_when_a_tool_call_comes_before_the_turn_it_was_made_for(fixed):
+    for items, item in _tool_items(fixed):
+        _before_the_first_turn(items, item)
+    report = check(fixed)
+    assert rules(report, "M2") == ["rule e"]
+    assert [v.instance["context"] for v in report.results["M2"].failures] == [
+        "call 2",
+        "final history",
+    ]
+    details = [f.detail for f in report.results["M2"].failures[0].findings]
+    said = "of create_reservation ('call-1-1') appears before speech 0, which the model was shown"
+    assert details == [
+        f"item 2, the call {said} when it asked",
+        f"item 3, the result {said} when it asked",
+    ]
+
+
+def test_m2_a_tool_call_renamed_given_other_arguments_and_moved_fails_in_every_context(fixed):
+    assert check(copy.deepcopy(fixed)).outcome("M2") == PASS
+    for items, item in _tool_items(fixed):
+        if item["type"] == "function_call":
+            item.update(name="delete_all_reservations", arguments='{"all": true}')
+        _before_the_first_turn(items, item)
+    report = check(fixed)
+    assert rules(report, "M2") == ["rule e", "rule f"]
+    assert [v.instance["context"] for v in report.results["M2"].failures] == [
+        "call 2",
+        "final history",
+    ]
+
+
 def _buffer_gap(events, at, length=0):
     paused = copy.deepcopy(of(events, "playout.paused"))
     paused["t_us"] = at

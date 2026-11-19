@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass, field
 
 from . import policy as policies
 from .memory import Alignment, Item, UserTurns, align, user_turns
 from .report import ContractResult, Finding, result, verdict
 from .view import Event, Speech, Spoken, ToolInvocation, View
+
+_TOOL_ITEMS = {"function_call": "call", "function_call_output": "result"}
 
 
 @dataclass
@@ -179,6 +182,22 @@ def _unrun_results(view: View, context: _Context) -> int:
     return refused
 
 
+def _after_its_turns(
+    context: _Context, index: int, what: str, source: Event, shown: _Context, why: str
+) -> None:
+    """Rule e: the item at ``index`` comes after each user turn the model was ``shown``."""
+    for speech in shown.turns.present:
+        ended = context.turns.ended_at.get(speech.index)
+        if ended is not None and index < ended:
+            context.findings.append(
+                Finding(
+                    "rule e",
+                    f"{what} appears before speech {speech.index}, {why}",
+                    (source["seq"], context.event["seq"]),
+                )
+            )
+
+
 def _causal_order(
     view: View,
     context: _Context,
@@ -186,24 +205,116 @@ def _causal_order(
     spoken: list[Spoken],
     by_request: dict[int, _Context],
 ) -> None:
-    """Rule e: a reply comes after the user turns it was generated from."""
+    """Rule e: a reply and a tool item come after the user turns the model answered from."""
     calls_by_key = {s.key: s.call for s in spoken if s.call is not None}
     for key, index in alignment.matched.items():
         call = calls_by_key.get(key)
         if call is None:
             continue  # text the application spoke answers no particular turn
         source = view.calls[call].request
-        for speech in by_request[source["seq"]].turns.present:
-            ended = context.turns.ended_at.get(speech.index)
-            if ended is not None and index < ended:
+        shown = by_request[source["seq"]]
+        _after_its_turns(
+            context,
+            index,
+            f"the reply of call {call}",
+            source,
+            shown,
+            "which it was generated from",
+        )
+    for index, item in enumerate(context.items):
+        if item["type"] not in _TOOL_ITEMS:
+            continue
+        call_id = item["call_id"]
+        asked = view.request_of.get(call_id)
+        if asked is None or asked.request["seq"] >= context.event["seq"]:
+            continue  # no call the model had made: rule f
+        what = f"item {index}, the {_TOOL_ITEMS[item['type']]} of "
+        what += f"{view.asked[call_id]['name']} ({call_id!r})"
+        shown = by_request[asked.request["seq"]]
+        _after_its_turns(
+            context, index, what, asked.request, shown, "which the model was shown when it asked"
+        )
+
+
+def _played_before(view: View, context: _Context, alignment: Alignment) -> None:
+    """Rule e: what finished playing before a user turn began comes before that turn."""
+    if view.origin is None:
+        return  # no true start for any speech
+    for key, index in alignment.matched.items():
+        playout = view.playouts[key]
+        done = playout.settled
+        if done is None or playout.unknown:
+            continue
+        for speech in context.turns.present:
+            gap = speech.segment_start - done["t_us"]
+            if speech.index not in context.turns.placed or gap <= 0:
+                continue
+            if context.turns.began_at[speech.index] < index:
+                context.used += [done, speech.delivery]
                 context.findings.append(
                     Finding(
                         "rule e",
-                        f"the reply of call {call} appears before speech "
-                        f"{speech.index}, which it was generated from",
-                        (source["seq"], context.event["seq"]),
+                        f"{key} appears after speech {speech.index}, which began {gap} us "
+                        "after it finished playing",
+                        (done["seq"], speech.delivery["seq"], context.event["seq"]),
                     )
                 )
+
+
+def _same_arguments(shown: str, asked: str) -> bool:
+    """Whether two argument texts are equal, as text or as JSON written out again."""
+    if shown == asked:
+        return True
+    try:
+        return bool(json.loads(shown) == json.loads(asked))
+    except ValueError:
+        return False
+
+
+def _as_asked(view: View, context: _Context) -> None:
+    """Rule f: a call item or a result item is of a call the model made, as it made it."""
+    event = context.event
+    for index, item in enumerate(context.items):
+        if item["type"] not in _TOOL_ITEMS:
+            continue
+        call_id = item["call_id"]
+        asked = view.request_of.get(call_id)
+        if asked is None or asked.answer["seq"] > event["seq"]:
+            if item["type"] == "function_call":
+                context.findings.append(
+                    Finding(
+                        "rule f",
+                        f"item {index} is {item['name']} ({call_id!r}), a call the model "
+                        "had not made",
+                        (event["seq"],),
+                    )
+                )
+            continue  # a result for such a call is rule d's
+        made = view.asked[call_id]
+        context.used.append(asked.answer)
+        seqs = (asked.answer["seq"], event["seq"])
+        if item["type"] == "function_call":
+            if item["name"] != made["name"] or not _same_arguments(
+                item["arguments"], made["arguments"]
+            ):
+                context.findings.append(
+                    Finding(
+                        "rule f",
+                        f"item {index} shows the call {call_id!r} as {item['name']} with "
+                        f"arguments {item['arguments']!r}; the model asked for {made['name']} "
+                        f"with {made['arguments']!r}",
+                        seqs,
+                    )
+                )
+        elif item["name"] is not None and item["name"] != made["name"]:
+            context.findings.append(
+                Finding(
+                    "rule f",
+                    f"item {index} is a result named {item['name']!r} for the call {call_id!r}, "
+                    f"which the model made to {made['name']!r}",
+                    seqs,
+                )
+            )
 
 
 def check(view: View, policy: policies.M2) -> ContractResult:
@@ -224,6 +335,8 @@ def check(view: View, policy: policies.M2) -> ContractResult:
         stand_ins = _tool_calls(view, context, by_request)
         refused = _unrun_results(view, context)
         _causal_order(view, context, alignment, spoken, by_request)
+        _played_before(view, context, alignment)
+        _as_asked(view, context)
         verdicts.append(
             verdict(
                 "M2",

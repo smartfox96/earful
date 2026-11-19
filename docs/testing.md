@@ -221,7 +221,7 @@ release under test. A rule is named by its contract and by what the report calls
 | A2 | `A2/rule` |
 | A3 | `A3/rule` |
 | M1 | `M1/rule 2`, `M1/rule 3`, `M1/rule 4`, `M1/rule 5` |
-| M2 | `M2/rule a`, `M2/rule b`, `M2/rule c`, `M2/rule d`, `M2/rule e` |
+| M2 | `M2/rule a`, `M2/rule b`, `M2/rule c`, `M2/rule d`, `M2/rule e`, `M2/rule f` |
 | L1 | `L1/milestone 1`, `L1/milestone 2`, `L1/milestone 3` |
 | L2 | `L2/rule a`, `L2/rule b` |
 

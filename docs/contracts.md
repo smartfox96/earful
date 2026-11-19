@@ -47,11 +47,11 @@ Every ledger event names the witness that observed it.
 
 Each contract compares a **judged record** with a **reference record**.
 
-- The reference record is always `world`, `sink` or `backend`: something Earful did or
-  measured itself.
+- The reference record is always something Earful did or measured itself: `world`, `sink`
+  or `backend`, or what the scripted model answered (`llm.response`).
 - The judged record is the system's behaviour as seen from outside it: the context
-  presented to the model (`llm`), the audio that reached the output (`sink`), or the writes
-  that reached the store (`backend`).
+  presented to the model (`llm.request`), the audio that reached the output (`sink`), or
+  the writes that reached the store (`backend`).
 - `framework` events never decide a verdict. They are attached to a verdict as
   explanation, and they may supply correlation identifiers.
 - The final chat history (`harness`) is framework state read back by Earful. M2 judges
@@ -338,26 +338,33 @@ and the measured drift is on every verdict.
 
 ### M2. Turn integrity
 
-Each model call is shown the conversation that happened: every user turn, every reply
-and every completed tool call, once each, in order.
+Each model call is shown the conversation that happened. Every user turn is there, whole,
+once and in order. Every assistant message is something the agent was scripted to say, in
+the order it was said. Every tool call that returned is there once, as the model made it,
+with the result the tool gave. A reply and a tool call come after the turns that led to
+them.
+
+Rules a to f are everything M2 checks. The row "Not judged" lists what a reader could
+expect of it and it leaves alone.
 
 | | |
 | --- | --- |
 | Instance | Each model context, and the final chat history |
-| Reference record | `world`: final transcripts delivered, tool calls returned. `llm`: replies the model gave |
+| Reference record | `world`: final transcripts delivered, the true start of each speech, tool calls returned. `llm`: the replies the model gave and the tool calls it made. `sink`: when a reply's playout finished |
 | Judged record | `llm`: the items in the context |
 | Rule a, user turns | The user text in the context, read in order as one stream of words, is the delivered transcripts, each whole and in order, up to some point. Nothing invented, duplicated or reordered. Reading it as one stream means a framework that merges two transcripts into one message is not penalized |
 | Rule b, no loss | A delivered transcript is present in every context requested more than `user_commit_lag_us` after the user's turn can be over. A turn can be over once the end-of-turn delay (L1) has passed since the user stopped and the transcript arrived; speech that begins before then extends it. Until that instant the framework may still be holding the transcript, and a call it makes meanwhile for an earlier turn need not show it. A transcript left out while a later one is shown is rule a |
 | Rule c, replies | The assistant messages, read in order, match what the agent was scripted to say (the model's replies, and text the application spoke itself) one to one in the order it came to be, each message a prefix of its text. Nothing is matched twice. Fails if no such matching exists. Order decides the match, so two replies with the same text stay distinct when both are remembered; when only one is, either could be the one kept. Rule c needs only that some matching exists; M1 takes the one that agrees best with what was played (section 2.5) |
 | Rule d, tool calls | For each tool call that returned before the context was requested, the context holds exactly one call item and exactly one result item, the result after the call, not marked as an error, and carrying the returned value: its text equals the `text` the tool witness recorded. A call that has not returned is owed nothing, whether it raised, was cancelled or is still running: whether and what the model is told is the framework's choice (livekit-agents 1.8 shows a call in progress with the result "The tool call is still in progress."), but it may not be shown twice or out of order. A result marked as an error for a call no tool received is the framework's own account of a call it did not run, and is not judged. A result not marked as an error for such a call fails |
 | Rule d, same instant | A context requested at the very instant a tool returned, for a later user turn than the one the tool was called in, is not held to that return (section 2.3). The call that follows up the tool's own turn is |
-| Rule e, causal order | Each reply comes after the user turns that were in the context it was generated from |
+| Rule e, order | Each reply, each call item and each result item comes after the user turns that were in the context the model answered from. A reply, or a text the application spoke, also comes before every user turn that began after its playout had finished. Its playout finished when the sink finished the last segment holding its audio. A turn began when the VAD segment holding its speech started (L2), so speech that resumes inside a segment begun earlier is not held to this. Equal instants are not judged. Where a backchannel with words was read as absent, a later turn could be that backchannel, and this second half is not applied to the turns after it |
+| Rule f, tool items | A call item or a result item belongs to a call the model had made, found by its call id, and shows that call as the model made it. A call item carries the model's tool name and arguments. A result item carries the model's tool name; one whose name the ledger does not give (null) is not compared. Arguments are equal as text, or as JSON where both parse, so a framework that writes the same arguments out again is not penalized. A call item whose id the model had not given when the context was requested fails. A result item with such an id is rule d |
 | Discard policies | `noise`: speech with no transcript leaves no turn. `backchannel`: its transcript may be present or absent; where its words could equally be the start of the next turn, the reading that explains the most user text is taken. `cancelled_tool`: a call cancelled before it returned needs no result |
 | Policy | `user_commit_lag_us` (default 1 000 000): how long after the turn can be over a transcript may still be missing. In every reference ledger a transcript is in the first context requested after its delivery |
 | Unobservable | Rule d for a tool that was not witnessed, or that ran without a call id to link it by. The value comparison in rule d, for a result with no stable text form (`text` is null); presence and order are still checked |
 | Always reported | `stand_in_results`: results shown for calls that had not returned. `refused_calls`: error results for calls no tool received |
-| Not judged | How much of an interrupted reply is kept. That is M1 |
-| Deliberate break | A public agent hook that removes tool results from the context before the model call; a second variant that repeats a user turn |
+| Not judged | Whether a reply is in the context at all, and how much of an interrupted reply is kept. That is M1. The order of tool calls among themselves, and of a tool call against a reply. Where a reply sits among the user turns, beyond rule e. How often a call item appears for a call no tool received |
+| Deliberate break | A public agent hook that removes tool results from the context before the model call. Further variants repeat a user turn, show a tool call with other arguments, and show the tool calls before the turn that led to them |
 | Clean control | The unmodified agent |
 
 ### L1. Progress
@@ -634,6 +641,18 @@ Taken at an architecture review, 17 November 2026:
     looked the same as a pass under both, so a verdict that another reading makes worse
     now carries `reading_split`. The alternative, reporting the verdicts of every
     reading, leaves the comparison to whoever reads the report.
+
+Taken while reading each rule against the code, 19 November 2026:
+
+30. **M2 says what it checks, and holds a tool item to the call the model made.** Its
+    summary promised every reply and every tool call, once each and in order. The rules
+    checked less. A call item renamed, given other arguments and moved ahead of the turn
+    that led to it passed in every context, and so did a reply recorded after a turn
+    that began once it had played. Rule f now compares a tool item with the model's
+    call. Rule e covers tool items, and holds a reply to come before a turn that began
+    after its playout finished. The summary lists what is checked and the "Not judged"
+    row what is left alone. The alternative for order, one total order over every item,
+    needs a time for each item, and no context states one.
 
 ## 10. What the reference ledgers measure
 

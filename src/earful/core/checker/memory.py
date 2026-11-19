@@ -20,7 +20,10 @@ def _words(item: Item) -> list[str]:
 @dataclass
 class UserTurns:
     present: list[Speech] = field(default_factory=list)  # delivered turns found, in order
-    ended_at: dict[int, int] = field(default_factory=dict)  # speech index -> item index
+    began_at: dict[int, int] = field(default_factory=dict)  # speech index -> item of its first word
+    ended_at: dict[int, int] = field(default_factory=dict)  # speech index -> item of its last word
+    # Turns no other reading could place elsewhere: none before them was read as absent.
+    placed: set[int] = field(default_factory=set)
     stray: list[str] = field(default_factory=list)  # user words that match no delivered turn
 
 
@@ -71,14 +74,19 @@ def user_turns(items: list[Item], delivered: list[Speech]) -> UserTurns:
         skips.append(skip)
 
     found = UserTurns()
-    at = 0
+    at, certain = 0, True
     for speech, skip in zip(delivered, reversed(skips)):
         if at not in skip:
             break
-        if not skip[at]:
-            at += len(speech.words)
-            found.present.append(speech)
-            found.ended_at[speech.index] = stream[at - 1][1]
+        if skip[at]:
+            certain = certain and not speech.words  # its words may be those read as a later turn
+            continue
+        found.began_at[speech.index] = stream[at][1]
+        at += len(speech.words)
+        found.present.append(speech)
+        found.ended_at[speech.index] = stream[at - 1][1]
+        if certain:
+            found.placed.add(speech.index)
     found.stray = texts[at:]
     return found
 
