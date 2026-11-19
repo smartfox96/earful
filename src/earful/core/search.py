@@ -805,6 +805,45 @@ def check_arguments(
     return kinds, fault_kinds
 
 
+@dataclass(frozen=True)
+class Faulted:
+    """A case with a fault added to one write of its run."""
+
+    label: str  # what was added, such as "backend.timeout 1, commit first"
+    nth: int  # the write
+    case: cases.Case
+    as_written: bool = False  # a timeout whose write keeps the latency the run gave it
+
+
+def faulted_versions(
+    case: cases.Case, events: list[Event], kinds: Iterable[str], wait_us: int, after: int = 0
+) -> list[Faulted]:
+    """``case`` with each of ``kinds`` added to each write that its run, ``events``, made
+    after write ``after``. A timeout comes in both orders: the write commits before its
+    caller gives up, and after."""
+    out: list[Faulted] = []
+    kinds = tuple(kinds)
+    for request in (e["data"] for e in events if e["kind"] == "effect.requested"):
+        nth, latency = request["request"], request["latency_us"]
+        for of in kinds if nth > after else ():
+            with_one = cases.with_fault(case, of, nth, None if of == "backend.error" else wait_us)
+            if with_one is None:
+                continue  # the write already has a fault
+            if of != "backend.timeout":
+                out.append(Faulted(f"{of} {nth}", nth, with_one))
+            elif latency < wait_us:
+                slower = cases.with_value(
+                    with_one, Variable("backend.latency", nth), wait_us + 1_000_000
+                )
+                out.append(Faulted(f"{of} {nth}, commit first", nth, with_one, as_written=True))
+                out += [Faulted(f"{of} {nth}, commit later", nth, slower)] if slower else []
+            else:
+                patient = cases.with_value(with_one, Variable(cases.WAIT, nth), latency + 1_000_000)
+                out.append(Faulted(f"{of} {nth}, commit later", nth, with_one, as_written=True))
+                out += [Faulted(f"{of} {nth}, commit first", nth, patient)] if patient else []
+    return out
+
+
 def explore(
     case: cases.Case,
     run: Run,
@@ -904,83 +943,49 @@ def explore(
     move_speeches(case, events, "")
     move_hangup(case, events, "")
 
-    faulted: list[tuple[str, int, cases.Case]] = []  # (label, the write, the case with the fault)
-    as_written: set[str] = set()  # the labels of timeouts whose write keeps the scenario's latency
-    requests = [e["data"] for e in events if e["kind"] == "effect.requested"]
-    for request in requests:
-        nth = request["request"]
-        for of in fault_kinds:
-            with_one = cases.with_fault(case, of, nth, None if of == "backend.error" else wait_us)
-            if with_one is None:
-                continue  # the write already has a fault
-            versions: list[tuple[str, cases.Case | None]] = [(f"{of} {nth}", with_one)]
-            if of == "backend.timeout":
-                # Both orders are tried: the write commits before the caller gives up, and after.
-                latency = request["latency_us"]
-                if latency < wait_us:
-                    other = cases.with_value(
-                        with_one, Variable("backend.latency", nth), wait_us + 1_000_000
-                    )
-                    versions = [
-                        (f"{of} {nth}, commit first", with_one),
-                        (f"{of} {nth}, commit later", other),
-                    ]
-                else:
-                    other = cases.with_value(
-                        with_one, Variable(cases.WAIT, nth), latency + 1_000_000
-                    )
-                    versions = [
-                        (f"{of} {nth}, commit later", with_one),
-                        (f"{of} {nth}, commit first", other),
-                    ]
-                as_written.add(versions[0][0])
-            for label, version in versions:
-                if version is not None:
-                    faulted.append((label, nth, version))
-                    keep(Candidate(version, None, None, base=label))
-    under: dict[str, list[Event]] = {}
-    with_faults = runner.ledgers([version for _label, _nth, version in faulted], each)
-    for (label, nth, version), produced in zip(faulted, with_faults):
+    faulted = faulted_versions(case, events, fault_kinds, wait_us)
+    for one in faulted:
+        keep(Candidate(one.case, None, None, base=one.label))
+    under: dict[str, list[Event]] = {}  # label -> the run with that fault in place
+    with_faults = runner.ledgers([one.case for one in faulted], each)
+    for one, produced in zip(faulted, with_faults):
         if produced is None:
             continue
-        under[label] = produced
+        under[one.label] = produced
         gave_up = next(
             (
                 e
                 for e in produced
-                if e["kind"] == "effect.timed_out" and e["data"]["request"] == nth
+                if e["kind"] == "effect.timed_out" and e["data"]["request"] == one.nth
             ),
             None,
         )
         if gave_up is not None:
             handle = Handle(
-                Variable(cases.WAIT, nth), "gave_up", gave_up["t_us"], gave_up["data"]["after_us"]
+                Variable(cases.WAIT, one.nth),
+                "gave_up",
+                gave_up["t_us"],
+                gave_up["data"]["after_us"],
             )
-            place(version, [handle], produced, label)
-        if label in as_written:
+            place(one.case, [handle], produced, one.label)
+        if one.as_written:
             commits = [
-                h for h in delay_handles(produced, ["backend.latency"]) if h.variable.index == nth
+                h
+                for h in delay_handles(produced, ["backend.latency"])
+                if h.variable.index == one.nth
             ]
-            place(version, commits, produced, label)
+            place(one.case, commits, produced, one.label)
 
     if pairs:
-        for label, _nth, version in faulted:
-            if label in under:
-                move_speeches(version, under[label], label)
-                move_hangup(version, under[label], label)
-        for i, (label, nth, version) in enumerate(faulted):
-            for other_label, other_nth, other in faulted[i + 1 :]:
-                if other_nth == nth:
-                    continue
-                extra = next(f for f in other["faults"] if f["nth"] == other_nth)
-                both = cases.with_fault(version, extra["of"], other_nth, extra["us"])
-                # A timeout that commits later is a fault and a latency: carry both.
-                commit = Variable("backend.latency", other_nth)
-                later = cases.value(other, commit)
-                if both is not None and later is not None and later != cases.value(case, commit):
-                    both = cases.with_value(both, commit, later)
-                if both is not None:
-                    keep(Candidate(both, None, None, base=f"{label} + {other_label}"))
+        for one in faulted:
+            if one.label in under:
+                move_speeches(one.case, under[one.label], one.label)
+                move_hangup(one.case, under[one.label], one.label)
+        for one in faulted:
+            # A second fault goes on a later write of the run with the first: a retry is one.
+            with_first = under.get(one.label, [])
+            for two in faulted_versions(one.case, with_first, fault_kinds, wait_us, after=one.nth):
+                keep(Candidate(two.case, None, None, base=f"{one.label} + {two.label}"))
         to = min(stretch_us, delay_limit_us)
         slow: list[tuple[str, cases.Case]] = []
         for delay in delay_handles(events, STRETCHED):
@@ -1029,6 +1034,7 @@ __all__ = [
     "CaseRefused",
     "Each",
     "Exploration",
+    "Faulted",
     "Handle",
     "NotJudged",
     "Outcome",
@@ -1046,6 +1052,7 @@ __all__ = [
     "delay_handles",
     "evaluate",
     "explore",
+    "faulted_versions",
     "hangup_handle",
     "judged",
     "speech_handles",

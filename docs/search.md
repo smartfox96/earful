@@ -216,8 +216,13 @@ Each is placed against the transitions of the run with the fault in place.
 **Two things at a time.** Both are off by default.
 
 - `pairs=True` moves every speech again with each fault in place, and the hangup if it
-  is among the variables, and adds faults to two different writes at once. The speech is
-  placed against the transitions of the faulted run without that speech.
+  is among the variables. The speech is placed against the transitions of the faulted run
+  without that speech.
+
+  It also adds a second fault to each later write of the run with the first fault in
+  place. A write made only because an earlier one failed is among them, so an error on
+  the first write and a timeout on its retry is one candidate, reported as
+  `backend.error 1 + backend.timeout 2, commit first`.
 
   It also makes a provider slow and moves every speech and the hangup against that. A
   write that commits at once has no moment at which it is under way, so a speech or a
@@ -457,8 +462,10 @@ the one way they change.
 - **Mostly one thing at a time.** A candidate moves one variable or adds one fault.
   With `pairs` it combines a fault or a stretched delay with a moved speech or hangup, or
   two faults. With `profiles` it moves a speech under redrawn delays. A stretched delay
-  has one value, and only writes and generations are stretched. Two times each moved to
-  boundaries are not explored together, and neither are three changes of any kind.
+  has one value, and only the writes and generations of the case as given are stretched.
+  Under a fault no provider delay is moved or stretched, and the wait and the commit of a
+  second fault stay where they are put. Two times each moved to boundaries are not
+  explored together, and neither are three changes of any kind.
 - **The boundaries are those of one run.** Once a moved event falls somewhere new it
   changes what follows, so a handle aimed at a later transition may meet a timeline that
   has moved. The search chooses where to look. It does not prove that every ordering was

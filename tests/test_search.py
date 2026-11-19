@@ -740,6 +740,34 @@ def test_pairs_put_faults_on_two_writes_and_move_speeches_under_each_fault():
     assert any(not t.candidate.base and t.candidate.variable == SECOND for t in moving.tried)
 
 
+def test_a_second_fault_goes_on_a_write_made_only_under_the_first():
+    """The stand-in writes once as given, and a second time only if the first write errors."""
+    retries = answers(has_fault("backend.error", 1))
+    found = explore(
+        a_case(BOOK),
+        retries,
+        variables=(),
+        faults=["backend.error", "backend.timeout"],
+        pairs=True,
+        stretch_us=0,
+    )
+    two = {
+        t.candidate.base: t.candidate.case["faults"]
+        for t in found.tried
+        if len(t.candidate.case["faults"]) == 2
+    }
+    # An error, then the retry, then a fault on the retry. No other run makes a second write.
+    assert set(two) == {
+        "backend.error 1 + backend.error 2",
+        "backend.error 1 + backend.timeout 2, commit first",
+        "backend.error 1 + backend.timeout 2, commit later",
+    }
+    assert two["backend.error 1 + backend.timeout 2, commit first"] == [
+        fault("backend.error"),
+        fault("backend.timeout", 2, 1_000_000),
+    ]
+
+
 @pytest.mark.slow
 def test_profiles_redraw_every_delay_from_the_seed_and_move_speeches_under_each():
     def searched(seed=0, profiles=2):

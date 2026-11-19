@@ -784,13 +784,8 @@ MUTANTS = [
     Mutant(
         "search: no timeout that commits later",
         "src/earful/core/search.py",
-        (
-            "                    versions = [\n"
-            '                        (f"{of} {nth}, commit first", with_one),\n'
-            '                        (f"{of} {nth}, commit later", other),\n'
-            "                    ]\n"
-        ),
-        '                    versions = [(f"{of} {nth}, commit first", with_one)]\n',
+        '                out += [Faulted(f"{of} {nth}, commit later", nth, slower)] if slower else []\n',
+        "                pass\n",
         first="test_a_search_adds_each_fault_to_each_write_the_run_made",
     ),
     Mutant(
@@ -808,20 +803,30 @@ MUTANTS = [
         first="test_a_caller_is_never_made_to_wait_longer_than_the_limit",
     ),
     Mutant(
-        "search: a paired timeout loses its later commit",
+        "search: a second fault takes the place of the first",
         "src/earful/core/search.py",
-        "                if both is not None and later is not None and later != cases.value(case, commit):\n",
-        "                if False:\n",
+        "            for two in faulted_versions(one.case, with_first, fault_kinds, wait_us, after=one.nth):\n",
+        "            for two in faulted_versions(case, with_first, fault_kinds, wait_us, after=one.nth):\n",
         first="test_pairs_put_faults_on_two_writes_and_move_speeches_under_each_fault",
+    ),
+    Mutant(
+        "search: a second fault goes only on a write the case makes as given",
+        "src/earful/core/search.py",
+        "            with_first = under.get(one.label, [])\n",
+        "            with_first = events\n",
+        first="second_fault_goes_on_a_write_made_only_under_the_first",
     ),
     Mutant(
         "search: pairs do not move speeches under a fault",
         "src/earful/core/search.py",
         (
-            "            if label in under:\n"
-            "                move_speeches(version, under[label], label)\n"
+            "            if one.label in under:\n"
+            "                move_speeches(one.case, under[one.label], one.label)\n"
         ),
-        ("            if False:\n                move_speeches(version, under[label], label)\n"),
+        (
+            "            if False:\n"
+            "                move_speeches(one.case, under[one.label], one.label)\n"
+        ),
         first="test_pairs_put_faults_on_two_writes_and_move_speeches_under_each_fault",
     ),
     Mutant(
@@ -960,27 +965,22 @@ MUTANTS = [
     Mutant(
         "search: no timeout that commits first",
         "src/earful/core/search.py",
-        (
-            "                    versions = [\n"
-            '                        (f"{of} {nth}, commit later", with_one),\n'
-            '                        (f"{of} {nth}, commit first", other),\n'
-            "                    ]\n"
-        ),
-        '                    versions = [(f"{of} {nth}, commit later", with_one)]\n',
+        '                out += [Faulted(f"{of} {nth}, commit first", nth, patient)] if patient else []\n',
+        "                pass\n",
         first="test_a_search_adds_each_fault_to_each_write_the_run_made",
     ),
     Mutant(
         "search: the commit is not moved under a timeout",
         "src/earful/core/search.py",
-        "        if label in as_written:\n",
+        "        if one.as_written:\n",
         "        if False:\n",
         first="test_a_fault_search_runs_every_fault_on_every_write_and_every_run_is_judged",
     ),
     Mutant(
         "search: a slow write is called commit first",
         "src/earful/core/search.py",
-        "                if latency < wait_us:\n",
-        "                if True:\n",
+        "            elif latency < wait_us:\n",
+        "            elif True:\n",
         first="test_a_search_adds_each_fault_to_each_write_the_run_made",
     ),
     # The hangup.
@@ -1193,10 +1193,10 @@ MUTANTS = [
         "search: the hangup is not moved under a fault",
         "src/earful/core/search.py",
         (
-            "                move_speeches(version, under[label], label)\n"
-            "                move_hangup(version, under[label], label)\n"
+            "                move_speeches(one.case, under[one.label], one.label)\n"
+            "                move_hangup(one.case, under[one.label], one.label)\n"
         ),
-        "                move_speeches(version, under[label], label)\n",
+        "                move_speeches(one.case, under[one.label], one.label)\n",
         first="test_pairs_move_the_hangup_with_each_fault_in_place",
     ),
     Mutant(
