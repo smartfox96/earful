@@ -113,6 +113,12 @@ class Case:
         clash = sorted(_DECLARED_OPTIONS & self.session_kwargs.keys())
         if clash:
             raise ValueError(f"session_kwargs may not set {clash}: use the Case fields")
+        if not callable(self.agent):
+            raise ValueError(  # noqa: TRY004 - a case that is refused, as the others here
+                "agent is called once for each run and returns the agent, so it is a class or "
+                f"a function; got an object of {type(self.agent).__name__}. Write "
+                f"agent=lambda: {type(self.agent).__name__}(...)"
+            )
         check_case(self)
 
 

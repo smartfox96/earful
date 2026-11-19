@@ -7,6 +7,7 @@ import argparse
 import json
 import os
 import sys
+import traceback
 from collections.abc import Callable, Sequence
 from pathlib import Path
 from typing import Any
@@ -18,9 +19,10 @@ from .core.checker import Report, check
 from .core.checker.report import RULES, allowed, required
 from .core.ledger import read_jsonl, write_jsonl
 from .core.predicate import Predicate
-from .core.search import default_workers
+from .core.search import CaseRefused, default_workers
 
 OK, BROKEN, REFUSED, NO_VERDICT = 0, 1, 2, 3
+_PACKAGE = Path(__file__).resolve().parent
 
 
 class Refused(Exception):
@@ -32,6 +34,33 @@ def _scenario_path() -> None:
     here = os.getcwd()
     if here not in sys.path:
         sys.path.insert(0, here)
+
+
+def _outside(exc: BaseException) -> str | None:
+    """Where code that is not Earful's raised ``exc``, as ``file, line N``, or None."""
+    if isinstance(exc, SyntaxError):
+        return f"{Path(exc.filename or '?').name}, line {exc.lineno}"
+    frames = traceback.extract_tb(exc.__traceback__)
+    if not frames or Path(frames[-1].filename).resolve().is_relative_to(_PACKAGE):
+        return None
+    return f"{Path(frames[-1].filename).name}, line {frames[-1].lineno}"
+
+
+def _scenario(reference: str) -> tuple[Any, Any]:
+    """The adapter and the scenario ``reference`` names, with its first case built."""
+    try:
+        return _adapters.select(reference)
+    except (CaseRefused, ImportError):
+        raise
+    except Exception as exc:
+        # The module and its function are the author's code. Earful's own crash is raised.
+        where = _outside(exc)
+        if where is None:
+            raise
+        said = exc.msg if isinstance(exc, SyntaxError) else str(exc)
+        raise Refused(
+            f"scenario {reference!r} could not be built: {type(exc).__name__}: {said} ({where})"
+        ) from exc
 
 
 def _ledger(path: Path) -> list[dict[str, Any]]:
@@ -96,7 +125,7 @@ def _check(args: argparse.Namespace) -> int:
 def _run(args: argparse.Namespace) -> int:
     allow, require = _asked(args)
     case = _case(args.case)
-    adapter, source = _adapters.select(args.scenario)
+    adapter, source = _scenario(args.scenario)
     try:
         result = adapter.run(source, case=case, seed=args.seed)
     except adapter.InvalidRun as exc:
@@ -124,7 +153,7 @@ def _search(args: argparse.Namespace) -> int:
     faults = () if args.faults == "none" else tuple(args.faults.split(","))
     case = _case(args.case)
 
-    adapter, source = _adapters.select(args.scenario)
+    adapter, source = _scenario(args.scenario)
 
     def search(workers: int) -> Any:
         return adapter.explore(
@@ -208,6 +237,7 @@ def _bundle_name(framework: dict[str, str], function: str, predicate: Predicate)
 def _replay(args: argparse.Namespace) -> int:
     kept = bundle.load(args.bundle)
     adapter = _adapters.by_framework(kept.manifest["framework"]["name"])
+    _scenario(kept.minimal["scenario"])  # refused here if its code cannot build a case
     result = adapter.replay(kept, repeats=args.repeats)
     kept_with = kept.manifest["environment"].get("earful")
     outcome = {
@@ -263,10 +293,9 @@ def _crosscheck(args: argparse.Namespace) -> int:
     if Path(args.source).is_dir():  # a kept failure: its reduced case
         kept = bundle.load(Path(args.source))
         case = kept.minimal
-        adapter = _adapters.by_framework(kept.manifest["framework"]["name"])
+        _adapters.by_framework(kept.manifest["framework"]["name"])  # imports its adapter
         source = case["scenario"]
-    else:
-        adapter, source = _adapters.select(source)
+    adapter, source = _scenario(source)
     tolerance = crosscheck.Tolerance(time_us=args.tolerance_ms * 1000, words=args.words)
     try:
         checked = adapter.cross_check(

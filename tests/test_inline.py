@@ -125,6 +125,45 @@ def test_a_model_that_never_calls_the_tool_fails_a_test_that_requires_the_write(
         result.assert_contracts(allow=["A3"])
 
 
+@pytest.mark.parametrize(
+    ("changes", "why"),
+    [
+        (
+            {"speeches": [UserSpeech(start=2.5, end=0.5, transcript="Book a table.")]},
+            "the speech at 2.5 s ends at 0.5 s; a speech ends after it starts",
+        ),
+        (
+            {"speeches": [UserSpeech(start=2.5, end=2.5, transcript="Book a table.")]},
+            "the speech at 2.5 s ends at 2.5 s; a speech ends after it starts",
+        ),
+        (
+            {"backend_mode": "idempotent"},
+            "unknown backend mode 'idempotent'; choose from ['plain', 'keyed']",
+        ),
+    ],
+)
+def test_a_case_that_contradicts_itself_is_refused_before_its_agent_is_built(changes, why):
+    built = []
+    case = booking(READS_THE_ERROR, agent=lambda: built.append(1), **changes)
+    with pytest.raises(ValueError) as refused:
+        run(case)
+    assert str(refused.value) == why and not built
+    with pytest.raises(ValueError, match="after it starts|idempotent"):
+        explore(case)
+    assert not built
+
+
+def test_an_agent_given_where_what_builds_one_is_expected_is_refused_and_told_what_to_write():
+    case = booking(READS_THE_ERROR, agent=TalksToItsServiceItself())
+    with pytest.raises(ValueError) as refused:
+        run(case)
+    assert str(refused.value) == (
+        "agent is called once for each run and returns the agent, so it is a class or a "
+        "function; got an object of TalksToItsServiceItself. Write "
+        "agent=lambda: TalksToItsServiceItself(...)"
+    )
+
+
 def test_a_ledger_that_is_not_a_valid_run_fails_the_assertion_and_says_why():
     events = run(booking(READS_THE_ERROR)).events[:-1]  # cut off before run.end
     with pytest.raises(ContractFailure, match="not valid evidence.*\n.*run.end"):

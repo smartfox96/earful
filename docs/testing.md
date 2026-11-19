@@ -461,10 +461,25 @@ checked before anything runs.
 | --- | --- |
 | 0 | Nothing broke, or the replay did what `--expect` names. For `report`: the report was written |
 | 1 | A contract rule broke, the replay did not do what `--expect` names, or a real-clock run did not agree with the virtual one |
-| 2 | The command could not be carried out: bad arguments, a file that is not what it should be, a bundle with a file that is not what its manifest records, a scenario that does not exist |
+| 2 | The command could not be carried out: bad arguments, a file that is not what it should be, a bundle with a file that is not what its manifest records, a scenario that does not exist, cannot be built or contradicts itself |
 | 3 | No verdict: a run was not valid evidence, did not repeat, or could not be compared, a required contract got no pass or fail, or a search could judge none of the cases it tried |
 
 A rule that broke outranks a run without a verdict.
+
+A refusal is one line on standard error, and it says what was expected. An exception
+from the scenario's own code, while its module is imported or its function builds the
+case, is refused the same way, with the file and the line that raised it:
+
+```
+earful: a scenario is named module:function, such as test_booking:booking; got 'test_booking'
+earful: scenario 'test_booking:model' is not a function that takes no arguments and returns a Case: model is of type ScriptedModel
+earful: scenario 'test_booking:booking' could not be built: TypeError: Case.__init__() got an unexpected keyword argument 'speechs'. Did you mean 'speeches'? (test_booking.py, line 41)
+earful: agent is called once for each run and returns the agent, so it is a class or a function; got an object of BookingAgent. Write agent=lambda: BookingAgent(...)
+earful: unknown backend mode 'idempotent'; choose from ['plain', 'keyed']
+```
+
+What is raised once a run has started is shown whole, as a traceback: an agent whose
+constructor raises, or an error in Earful.
 
 ## 10. On the real clock
 

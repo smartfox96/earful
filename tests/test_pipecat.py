@@ -176,6 +176,20 @@ def test_pipecat_rejects_unknown_tools_and_retired_intents():
         pc.run(built)
 
 
+def test_pipecat_refuses_a_case_that_could_not_run_before_it_runs():
+    built = replace(greeting(), bot=LLMContext())
+    with pytest.raises(ValueError, match="bot is a function that is handed the model service"):
+        pc.run(built)
+    called = []
+    built = replace(greeting(), bot=lambda llm: called.append(llm), backend_mode="idempotent")
+    with pytest.raises(ValueError, match=r"choose from \['plain', 'keyed'\]"):
+        pc.run(built)
+    built = replace(built, backend_mode="plain", speeches=[pc.UserSpeech(0.75, 0.25, "Hello")])
+    with pytest.raises(ValueError, match="the speech at 0.75 s ends at 0.25 s"):
+        pc.run(built)
+    assert not called
+
+
 def test_pipecat_waits_for_the_final_turn_and_slow_tool():
     built = booking()
     built.drain_delay = 0

@@ -34,6 +34,10 @@ def resolve(scenario: str) -> Callable[[], Any]:
             "name code that can build it again. Define the scenario as a function at the "
             "top level of a module and pass that function, or its module:function name"
         )
+    if not _REFERENCE.match(scenario):
+        raise CaseRefused(
+            f"a scenario is named module:function, such as test_booking:booking; got {scenario!r}"
+        )
     module, _, name = scenario.partition(":")
     try:
         target: Any = importlib.import_module(module)
@@ -41,9 +45,25 @@ def resolve(scenario: str) -> Callable[[], Any]:
             target = getattr(target, part)
     except (ImportError, AttributeError) as exc:
         raise CaseRefused(f"no scenario {scenario!r}: {exc}") from exc
-    if not callable(target):
-        raise CaseRefused(f"scenario {scenario!r} is not a function")
+    wrong = _not_a_factory(target)
+    if wrong is not None:
+        raise CaseRefused(
+            f"scenario {scenario!r} is not a function that takes no arguments and returns a "
+            f"Case: {name} {wrong}"
+        )
     return target
+
+
+def _not_a_factory(target: Any) -> str | None:
+    """Why ``target`` cannot be called with no arguments, or None if it can."""
+    try:
+        inspect.signature(target).bind()
+    except TypeError:  # it cannot be called, or not without arguments
+        made_to_call = inspect.isroutine(target) or inspect.isclass(target)
+        return "needs arguments" if made_to_call else f"is of type {type(target).__name__}"
+    except ValueError:  # it states no signature
+        pass
+    return None
 
 
 def reference_of(make: Callable[[], Any]) -> str | None:

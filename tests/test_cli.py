@@ -186,6 +186,132 @@ def test_a_scenario_or_a_case_that_does_not_exist_is_refused(capsys, tmp_path):
     assert earful(capsys, "run", "breaks:host", "--case", tmp_path / "none.json")[0] == REFUSED
 
 
+MISTAKES = """
+import functools
+
+import livekit.agents as lk
+
+from earful.livekit import Case, ScriptedModel, UserSpeech
+from earful.livekit.cases import barge_in_mid_word
+
+model = ScriptedModel().otherwise(say="Hello.")
+
+
+def needs(party_size):
+    return barge_in_mid_word()
+
+
+def raises():
+    raise RuntimeError("the fixtures are missing")
+
+
+host_for_four = functools.partial(needs, 4)
+
+
+def misspelt():
+    return Case(name="host", agent=lk.Agent, speechs=[], policy=model)
+
+
+def instance():
+    case = barge_in_mid_word()
+    case.agent = lk.Agent(instructions="You are a restaurant host.")
+    return case
+
+
+def mode():
+    case = barge_in_mid_word()
+    case.backend_mode = "idempotent"
+    return case
+
+
+def backwards():
+    case = barge_in_mid_word()
+    case.speeches = [UserSpeech(start=2.5, end=0.5, transcript="Hello.")]
+    return case
+"""
+
+
+@pytest.fixture
+def mistakes(tmp_path, monkeypatch):
+    (tmp_path / "mistakes.py").write_text(MISTAKES)
+    (tmp_path / "half_written.py").write_text("def booking(:\n    pass\n")
+    monkeypatch.syspath_prepend(tmp_path)
+    monkeypatch.delitem(sys.modules, "mistakes", raising=False)
+
+
+_NAMED = "a scenario is named module:function, such as test_booking:booking; got"
+_NOT_ONE = "is not a function that takes no arguments and returns a Case"
+
+
+@pytest.mark.parametrize(
+    ("reference", "said"),
+    [
+        ("mistakes:model", f"scenario 'mistakes:model' {_NOT_ONE}: model is of type ScriptedModel"),
+        ("mistakes:needs", f"scenario 'mistakes:needs' {_NOT_ONE}: needs needs arguments"),
+        ("mistakes", f"{_NAMED} 'mistakes'"),
+        ("mistakes:", f"{_NAMED} 'mistakes:'"),
+        ("half_written:booking", "SyntaxError: invalid syntax (half_written.py, line 1)"),
+        ("mistakes:raises", "RuntimeError: the fixtures are missing (mistakes.py, line 17)"),
+        ("mistakes:misspelt", "TypeError: Case.__init__() got an unexpected keyword argument"),
+        ("mistakes:instance", "got an object of Agent. Write agent=lambda: Agent(...)"),
+        ("mistakes:mode", "unknown backend mode 'idempotent'; choose from ['plain', 'keyed']"),
+        ("mistakes:backwards", "the speech at 2.5 s ends at 0.5 s; a speech ends after it starts"),
+    ],
+)
+def test_a_common_mistake_in_a_scenario_is_refused_in_one_line(capsys, mistakes, reference, said):
+    status, out, err = earful(capsys, "run", reference)
+    assert status == REFUSED and out == ""
+    assert err.startswith("earful: ") and said in err and len(err.splitlines()) == 1
+    if "Error: " in said:  # raised by the scenario's own code
+        assert err.startswith(f"earful: scenario {reference!r} could not be built: ")
+    status, out, err = earful(capsys, "search", reference, "--workers", "0")
+    assert status == REFUSED and out == "" and len(err.splitlines()) == 1
+
+
+def test_a_scenario_is_anything_its_module_names_that_can_be_called_with_no_arguments(
+    capsys, mistakes
+):
+    status, out, _ = earful(capsys, "run", "mistakes:host_for_four")
+    assert status == OK and "case       barge_in_mid_word" in out
+
+
+def test_what_earful_itself_raises_while_a_scenario_is_built_is_not_made_a_refusal(
+    capsys, monkeypatch
+):
+    from earful import _adapters
+
+    monkeypatch.setattr(_adapters, "_ADAPTERS", None)  # select then fails in Earful's own code
+    with pytest.raises(AttributeError):
+        main(["run", "earful.livekit.cases:barge_in_mid_word"])
+
+
+def test_a_kept_failure_whose_scenario_no_longer_builds_is_refused_in_one_line(
+    capsys, tmp_path, monkeypatch
+):
+    kept = tmp_path / "kept"
+    shutil.copytree(KEPT_3702, kept)
+    monkeypatch.setattr("earful.livekit.cases.book_then_interrupt", lambda: 1 / 0)
+    for command in ("replay", "crosscheck"):
+        status, out, err = earful(capsys, command, kept)
+        assert status == REFUSED and out == ""
+        assert len(err.splitlines()) == 1 and err.startswith(
+            "earful: scenario 'earful.livekit.cases:book_then_interrupt' could not be built: "
+            "ZeroDivisionError: division by zero (test_cli.py, line "
+        )
+
+
+def test_a_search_asked_for_a_fault_or_a_variable_there_is_not_is_told_which_there_are(capsys):
+    status, _, err = earful(capsys, "search", "breaks:host", "--faults", "backend.melts")
+    assert status == REFUSED and err == (
+        "earful: unknown faults ['backend.melts']; choose from "
+        "['backend.error', 'backend.timeout', 'backend.drop']\n"
+    )
+    status, _, err = earful(capsys, "search", "breaks:host", "--variables", "speech.colour")
+    assert status == REFUSED and err.startswith(
+        "earful: unknown variables ['speech.colour']; choose from ['speech.position', "
+    )
+
+
 @pytest.mark.slow
 def test_search_finds_the_break_keeps_it_and_the_kept_bundle_replays(capsys, tmp_path):
     reference = "breaks:as_written_confirms_a_failed_booking"

@@ -795,13 +795,14 @@ def check_arguments(
     if errors:
         raise ValueError("not an earful.case/1 document: " + "; ".join(errors))
     kinds = tuple(variables)
-    unknown = sorted(set(kinds) - set(cases.SPEECH_KINDS) - set(cases.DELAY_KINDS) - {cases.HANGUP})
+    known = (*cases.SPEECH_KINDS, *cases.DELAY_KINDS, cases.HANGUP)
+    unknown = sorted(set(kinds) - set(known))
     if unknown:
-        raise ValueError(f"unknown variables {unknown}")
+        raise ValueError(f"unknown variables {unknown}; choose from {list(known)}")
     fault_kinds = tuple(faults)
     unknown = sorted(set(fault_kinds) - set(cases.FAULT_KINDS))
     if unknown:
-        raise ValueError(f"unknown faults {unknown}")
+        raise ValueError(f"unknown faults {unknown}; choose from {list(cases.FAULT_KINDS)}")
     return kinds, fault_kinds
 
 

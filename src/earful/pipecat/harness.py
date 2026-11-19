@@ -229,6 +229,11 @@ async def _quiet(busy: Callable[[], bool]) -> None:
 
 
 async def _run(case: Case, seed: int) -> RunResult:
+    if not callable(case.bot):
+        raise ValueError(  # noqa: TRY004 - a case that is refused, as check_case refuses one
+            "bot is a function that is handed the model service and returns the context; "
+            f"got an object of {type(case.bot).__name__}"
+        )
     check_case(case)
     random.seed(seed)
     loop = asyncio.get_running_loop()

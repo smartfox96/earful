@@ -5,9 +5,9 @@ from __future__ import annotations
 import dataclasses
 import itertools
 from dataclasses import dataclass
-from typing import Any, Protocol
+from typing import Any, Protocol, get_args
 
-from ..core.backend import FAULTS, Effect
+from ..core.backend import FAULTS, BackendMode, Effect
 from ..core.checker.policy import parse_all
 from ..core.timebase import to_us
 from .world import UserSpeech
@@ -61,12 +61,22 @@ class CaseData(Protocol):
     faults: list[Fault]
     intents: list[Intent]
     hangup: float | None
+    backend_mode: BackendMode
 
 
 def check_case(case: CaseData) -> None:
     """Reject contradictory speeches, contracts and backend declarations."""
     parse_all(case.contracts)  # raises PolicyError, a ValueError, on anything undefined
     ordered = sorted(case.speeches, key=lambda s: s.start)
+    for speech in ordered:
+        if speech.end_us <= speech.start_us:
+            raise ValueError(
+                f"the speech at {speech.start} s ends at {speech.end} s; a speech ends after "
+                "it starts"
+            )
+    modes = get_args(BackendMode)
+    if case.backend_mode not in modes:
+        raise ValueError(f"unknown backend mode {case.backend_mode!r}; choose from {list(modes)}")
     for before, after in itertools.pairwise(ordered):
         if before.end > after.start:
             raise ValueError(f"the speeches at {before.start} s and {after.start} s overlap")
