@@ -3025,6 +3025,13 @@ MUTANTS = [
         first="pipecat_search_is_quiet",
     ),
     Mutant(
+        "pipecat: a worker process does not run the case it is sent",
+        "src/earful/pipecat/api.py",
+        "        return scenario.run(data)\n",
+        "        return []\n",
+        first="workers_run_an_importable_scenario",
+    ),
+    Mutant(
         "pipecat: a late transcript holds up subsequent transcripts",
         "src/earful/pipecat/providers.py",
         "        for at_us, index, final in sorted(deadlines):\n",

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import re
 import subprocess
 import sys
@@ -352,35 +353,50 @@ def test_pipecat_search_from_the_command_line_names_the_kept_bundle_after_pipeca
     assert bundle.load(directory).manifest["framework"]["name"] == "pipecat-ai"
 
 
-def test_pipecat_workers_run_an_importable_scenario_in_a_fresh_interpreter(monkeypatch):
-    from concurrent.futures import ProcessPoolExecutor
+RAN_IN = "EARFUL_TEST_RAN_IN"  # a file that takes the id of each process a run was made in
 
-    sent = []
-    submit = ProcessPoolExecutor.submit
 
-    def counted(pool, *args, **kwargs):
-        sent.append(args)
-        return submit(pool, *args, **kwargs)
+def _noting_its_process(llm):
+    with open(os.environ[RAN_IN], "a") as noted:
+        noted.write(f"{os.getpid()}\n")
+    return LLMContext()
 
-    monkeypatch.setattr(ProcessPoolExecutor, "submit", counted)
+
+def greeting_that_notes_its_process():
+    return replace(greeting(), bot=_noting_its_process)
+
+
+def test_pipecat_workers_run_an_importable_scenario_in_a_fresh_interpreter(monkeypatch, tmp_path):
+    noted = tmp_path / "processes"
+    monkeypatch.setenv(RAN_IN, str(noted))
     options = {"variables": ("llm.ttft",), "faults": (), "words": False}
-    found = pc.explore("test_pipecat:greeting", workers=1, **options)
+    found = pc.explore("test_pipecat:greeting_that_notes_its_process", workers=1, **options)
+    ran_in = [int(line) for line in noted.read_text().split()]
+    (worker,) = set(ran_in) - {os.getpid()}
     here = pc.explore(greeting, workers=0, **options)
-    assert sent and len(found.tried) == len(here.tried) > 0
+    assert ran_in.count(worker) >= len(found.tried) == len(here.tried) > 0
     assert [t.outcome.hash for t in found.tried] == [t.outcome.hash for t in here.tried]
     assert found.original.hash == pc.run(greeting).hash
+    with pytest.raises(ValueError, match="has to be importable"):
+        pc.explore(greeting(), workers=1, **options)
 
 
 @pytest.mark.slow
-def test_pipecat_uses_the_real_clock_for_the_control_run():
+def test_pipecat_runs_a_scenario_on_both_clocks_and_the_real_run_is_never_evidence():
+    """Agreement depends on the machine, so only what holds on any machine is asserted."""
     built = greeting()
     built.drain_delay = 0
     monotonic = time.monotonic
     checked = pc.cross_check(built, runs=1)
     assert time.monotonic is monotonic
-    assert checked.virtual[0]["data"]["clock"] == "virtual"
-    assert checked.real[0][0]["data"]["clock"] == "real"
-    assert checked.agrees, checked.lines()
+    (real,), (comparison,) = checked.real, checked.comparisons
+    assert checked.virtual[0]["data"]["clock"] == "virtual" and real[0]["data"]["clock"] == "real"
+    assert schema.validity(checked.virtual) == []
+    assert schema.validity(real) == ["the run was on the real clock"]
+    assert not comparison.unusable and comparison.drift_us > 0
+    assert checked.lines()[0].startswith("greeting on pipecat-ai ")
+    with pytest.raises(ValueError, match="at least one real-clock run"):
+        pc.cross_check(built, runs=0)
 
 
 @pytest.mark.slow
