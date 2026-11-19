@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # The README's quickstart as a newcomer runs it: from the wheel, outside the repository.
-#   scripts/quickstart_check.sh
+#   scripts/quickstart_check.sh               builds the wheel first
+#   scripts/quickstart_check.sh <directory>   uses the wheel already in it
 # EARFUL_LIVEKIT and EARFUL_AS_OF pin the framework release. Needs uv.
 set -euo pipefail
 export TZ=UTC # uv reads a date in the machine's time zone
@@ -12,8 +13,13 @@ trap 'rm -rf "$work"' EXIT
 began="$(date +%s)"
 
 echo "=== install"
-uv build -q --wheel --out-dir "$work/dist" "$root"
-wheel="$(ls "$work"/dist/earful-*.whl)"
+if [ $# -gt 0 ]; then
+  dist="$(cd "$1" && pwd)"
+else
+  dist="$work/dist"
+  uv build -q --wheel --out-dir "$dist" "$root"
+fi
+wheel="$(ls "$dist"/earful-*.whl)"
 uv venv -q --python "${EARFUL_PYTHON:-3.13}" "$work/venv"
 VIRTUAL_ENV="$work/venv" uv pip install -q --exclude-newer "${EARFUL_AS_OF:-2026-11-14}" \
   "${wheel}[livekit]" "livekit-agents==$release" pytest

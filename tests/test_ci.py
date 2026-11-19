@@ -4,6 +4,7 @@ import os
 import re
 import subprocess
 import sys
+import zipfile
 from pathlib import Path
 
 import pytest
@@ -12,6 +13,7 @@ ROOT = Path(__file__).resolve().parents[1]
 SCRIPTS = ROOT / "scripts"
 WORKFLOWS = {path.name: path.read_text() for path in (ROOT / ".github/workflows").glob("*.yml")}
 CI = WORKFLOWS["ci.yml"]
+RELEASE = WORKFLOWS["release.yml"]
 
 # The machine's own git settings stay out: a signing rule there would fail every commit.
 _GIT = {
@@ -162,11 +164,15 @@ def test_an_event_has_to_be_named(repo):
 
 
 _GH = """#!/usr/bin/env bash
-# Stands in for gh: answers the three calls of scripts/ci_tested.sh from the environment.
+# Stands in for gh: answers the calls of scripts/ci_tested.sh and scripts/ci_passed.sh.
 echo "$*" >>"$STUB_LOG"
 case "$2" in
   */commits/*/pulls) [ "${STUB_PR_HEAD-}" != fail ] || exit 1; echo "${STUB_PR_HEAD-}" ;;
   */git/commits/*) echo "$STUB_HEAD_TREE" ;;
+  */actions/workflows/ci.yml/runs*branch=main*)
+    [ "${STUB_MAIN_RUNS-}" != fail ] || exit 1
+    printf '%s' "${STUB_MAIN_RUNS-}"
+    ;;
   */actions/workflows/ci.yml/runs*) echo "$STUB_PASSED" ;;
   *) exit 2 ;;
 esac
@@ -229,6 +235,47 @@ def test_a_push_of_tested_files_runs_nothing_and_any_other_push_is_scoped(repo, 
     assert _scope(repo, "--event", "push", before, **gh) == (BEHAVIOUR, 0)
     assert _scope(repo, "--event", "push", _NO_COMMIT, **gh) == (EVERYTHING, 0)
     assert _scope(repo, "--event", "push", **gh) == (EVERYTHING, 0)
+
+
+def _passed(repo, env):
+    return _script("ci_passed.sh", _git(repo, "rev-parse", "HEAD"), cwd=repo, **env)
+
+
+@pytest.mark.parametrize("event", ["push", "schedule", "workflow_dispatch"])
+def test_a_release_is_allowed_when_a_run_of_ci_on_main_passed_on_the_commit(repo, gh, event):
+    runs = f"pull_request\n{event}\n"
+    done = _passed(repo, {**gh, "STUB_PR_HEAD": "", "STUB_MAIN_RUNS": runs})
+    assert done.returncode == 0, done.stderr
+    asked = Path(gh["STUB_LOG"]).read_text().splitlines()[-1]
+    head = _git(repo, "rev-parse", "HEAD")
+    assert f"/ci.yml/runs?head_sha={head}&branch=main&status=success&" in asked
+    assert asked.endswith(" --jq .workflow_runs[].event")
+
+
+def test_a_release_is_allowed_for_files_that_passed_as_a_pull_request(repo, gh):
+    # Whatever became of the run on main: a later push cancels one still in progress.
+    done = _passed(repo, gh)
+    assert done.returncode == 0, done.stderr
+    assert "branch=main" not in Path(gh["STUB_LOG"]).read_text()
+
+
+@pytest.mark.parametrize(
+    "runs",
+    [
+        "",  # no run on main passed
+        "pull_request\npull_request\n",  # ci passed only for pull requests
+        "fail",  # gh could not ask
+        '{"message": "Not Found"}\n',  # an answer that names no run
+        "pushed\n",
+    ],
+)
+def test_a_release_is_refused_unless_ci_passed_on_the_commit(repo, gh, runs):
+    done = _passed(repo, {**gh, "STUB_PASSED": "0", "STUB_MAIN_RUNS": runs})
+    assert done.returncode == 1 and done.stdout == ""
+    assert _git(repo, "rev-parse", "HEAD") in done.stderr
+    assert ("GitHub did not say" in done.stderr) == (runs == "fail")
+    unnamed = _passed(repo, {**gh, "GITHUB_REPOSITORY": "", "STUB_MAIN_RUNS": "push\n"})
+    assert unnamed.returncode == 1 and "no repository is named" in unnamed.stderr
 
 
 def _jobs(workflow):
@@ -597,3 +644,162 @@ def test_a_release_takes_its_notes_from_its_section_of_the_changelog(tmp_path):
     assert section("1.10.0", str(small)) == (0, "- Ten.\n")
     for absent in ("1.1", "2.0.0", "Unreleased"):  # no such section, or nothing in it
         assert section(absent, str(small)) == (1, "")
+
+
+def _needs(job):
+    (needs,) = re.findall(r"^    needs: (.+)$", job, re.MULTILINE)
+    return needs.strip("[]").split(", ")
+
+
+def test_a_tag_is_released_only_from_main_and_only_when_ci_passed_on_its_commit():
+    assert '\non:\n  push:\n    tags: ["v*"]\n\npermissions:\n  contents: read\n' in RELEASE
+    jobs = _jobs(RELEASE)
+    assert list(jobs) == ["allowed", "build", "check", "publish", "notes"]
+    allowed = jobs["allowed"]
+    assert "          fetch-depth: 0 " in allowed  # ci_tested.sh reads the commit's tree
+    assert "git merge-base --is-ancestor HEAD origin/main" in allowed
+    assert '        run: scripts/changelog_section.sh "${GITHUB_REF_NAME#v}"\n' in allowed
+    assert '        run: scripts/ci_passed.sh "$(git rev-parse HEAD)"\n' in allowed
+    assert "      pull-requests: read " in allowed and "      actions: read " in allowed
+    assert _needs(jobs["build"]) == ["allowed"]
+    assert _needs(jobs["notes"]) == ["publish"]
+    notes = _run_block(
+        jobs["notes"],
+        "Create the release, with the version's section of the changelog as its notes",
+    )
+    assert 'scripts/changelog_section.sh "${GITHUB_REF_NAME#v}" > "$RUNNER_TEMP/notes.md"' in notes
+    assert 'gh release create "$GITHUB_REF_NAME" --verify-tag ' in notes
+    assert [name for name, job in jobs.items() if "contents: write" in job] == ["notes"]
+
+
+def test_a_release_builds_once_and_publishes_the_files_it_checked():
+    jobs = _jobs(RELEASE)
+    assert RELEASE.count("uv build") == 1
+    assert "        run: uv build --out-dir dist\n" in jobs["build"]
+    assert "      sums: ${{ steps.sums.outputs.sums }}\n" in jobs["build"]
+    assert _needs(jobs["check"]) == ["build"]
+    assert _needs(jobs["publish"]) == ["build", "check"]
+    taken = "download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0\n"
+    taken += "        with:\n          name: dist\n          path: dist\n"
+    for name in ("check", "publish"):
+        assert jobs[name].count(taken) == 1, name
+        assert "          SUMS: ${{ needs.build.outputs.sums }}\n" in jobs[name], name
+    compared = _run_block(jobs["check"], "The files are the ones that were built")
+    assert compared == _run_block(
+        jobs["publish"], "The files are the ones that were built and checked"
+    )
+    assert "        run: scripts/wheel_smoke.sh dist\n" in jobs["check"]
+    assert "        run: scripts/quickstart_check.sh dist\n" in jobs["check"]
+    # The job that publishes runs nothing of the repository, and it alone can sign in to PyPI.
+    publish = jobs["publish"]
+    assert "    environment: pypi\n    permissions:\n      id-token: write " in publish
+    assert [name for name, job in jobs.items() if "id-token" in job] == ["publish"]
+    assert "actions/checkout@" not in publish and publish.count(" run: ") == 1
+    assert publish.index("shasum ") < publish.index("uses: pypa/gh-action-pypi-publish@")
+
+
+def test_built_files_that_differ_from_the_sums_of_the_build_stop_a_release(tmp_path):
+    jobs = _jobs(RELEASE)
+    (tmp_path / "record.sh").write_text(
+        _run_block(jobs["build"], "Record the SHA-256 of each file")
+    )
+    (tmp_path / "compare.sh").write_text(
+        _run_block(jobs["publish"], "The files are the ones that were built and checked")
+    )
+    dist = tmp_path / "dist"
+    dist.mkdir()
+    (dist / "earful-1.0.0-py3-none-any.whl").write_text("a wheel")
+    (dist / "earful-1.0.0.tar.gz").write_text("a source distribution")
+    env = {**os.environ, "RUNNER_TEMP": str(tmp_path), "GITHUB_OUTPUT": str(tmp_path / "output")}
+    subprocess.run([*_SHELLS[0], "record.sh"], cwd=tmp_path, env=env, check=True)
+    opened, _, sums = (tmp_path / "output").read_text().partition("\n")
+    assert opened == "sums<<END" and sums.endswith("\nEND\n") and sums.count("\n") == 3
+    sums = sums[: -len("\nEND\n")]
+
+    def compare(sums):
+        done = subprocess.run(
+            [*_SHELLS[0], "compare.sh"],
+            cwd=tmp_path,
+            env={**env, "SUMS": sums},
+            capture_output=True,
+            check=False,  # the status is what is asserted
+        )
+        return done.returncode
+
+    assert compare(sums) == 0
+    assert compare("") != 0
+    assert compare(sums.partition("\n")[0]) != 0  # a file the build did not record
+    (dist / "earful-1.0.0.tar.gz").write_text("another source distribution")
+    assert compare(sums) != 0
+    (dist / "earful-1.0.0.tar.gz").unlink()
+    assert compare(sums) != 0
+
+
+@pytest.fixture
+def uv_log(tmp_path):
+    """A ``uv`` first on PATH that records each call, and fails one that would install."""
+    _executable(
+        tmp_path / "bin/uv", '#!/usr/bin/env bash\necho "$*" >>"$STUB_LOG"\n[ "$1" != pip ]\n'
+    )
+    (tmp_path / "uv.log").touch()
+    return {
+        "PATH": f"{tmp_path / 'bin'}{os.pathsep}{os.environ['PATH']}",
+        "STUB_LOG": str(tmp_path / "uv.log"),
+    }
+
+
+def _calls(uv_log):
+    """The calls of ``uv`` since this was last asked."""
+    log = Path(uv_log["STUB_LOG"])
+    calls = log.read_text().splitlines()
+    log.write_text("")
+    return calls
+
+
+def test_the_wheel_check_takes_built_files_from_a_directory_and_builds_none(tmp_path, uv_log):
+    project = (ROOT / "pyproject.toml").read_text()
+    (version,) = re.findall(r'^version = "(.+)"$', project, re.MULTILINE)
+    dist = tmp_path / "dist"
+    dist.mkdir()
+    wheel = dist / f"earful-{version}-py3-none-any.whl"
+    other = dist / "earful-0.0.1.tar.gz"
+
+    def check():
+        return _script("wheel_smoke.sh", str(dist), cwd=tmp_path, **uv_log)
+
+    wheel.touch()
+    other.touch()  # a source distribution of another version
+    refused = check()
+    assert refused.returncode == 1 and f"the sdist of {version} and nothing else" in refused.stderr
+    (dist / f"earful-{version}.tar.gz").touch()
+    refused = check()
+    assert refused.returncode == 1 and other.name in refused.stderr  # a third file
+    other.unlink()
+    with zipfile.ZipFile(wheel, "w"):
+        pass  # a wheel that holds nothing
+    examined = check()
+    assert examined.returncode == 1
+    assert "the wheel does not hold earful/py.typed" in examined.stderr
+    assert _calls(uv_log) == []
+
+    built = _script("wheel_smoke.sh", cwd=tmp_path, **uv_log)
+    assert built.returncode != 0  # the stand-in built nothing
+    (call,) = _calls(uv_log)
+    assert call.startswith("build -q --out-dir ") and call.endswith(f" {ROOT}")
+
+
+def test_the_quickstart_check_installs_the_wheel_of_a_directory_it_is_given(tmp_path, uv_log):
+    dist = tmp_path / "dist"
+    dist.mkdir()
+    (dist / "earful-0.0.0-py3-none-any.whl").touch()
+    given = _script("quickstart_check.sh", str(dist), cwd=tmp_path, **uv_log)
+    assert given.returncode != 0  # the stand-in installs nothing
+    made, installed = _calls(uv_log)
+    assert made.startswith("venv ")
+    assert installed.startswith("pip install ")
+    assert "/dist/earful-0.0.0-py3-none-any.whl[livekit] " in installed
+
+    built = _script("quickstart_check.sh", cwd=tmp_path, **uv_log)
+    assert built.returncode != 0
+    (call,) = _calls(uv_log)
+    assert call.startswith("build -q --wheel --out-dir ") and call.endswith(f" {ROOT}")
