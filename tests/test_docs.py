@@ -172,6 +172,13 @@ def test_the_supported_releases_are_the_same_everywhere_they_are_listed():
     assert f'"livekit-agents=={list(declared)[-1]}"' in lint_env
 
 
+def test_the_compatibility_page_names_every_clock_read_a_run_takes_from_the_loop():
+    from earful.scripted.clock import VIRTUAL_READS
+
+    section = _section("The virtual clock")
+    assert [name for name in VIRTUAL_READS if f"`time.{name}()`" not in section] == []
+
+
 def test_the_supported_pipecat_release_is_the_same_everywhere_it_is_listed():
     section = _section("pipecat-ai")
     ((release, as_of),) = re.findall(_PINNED, section, re.MULTILINE)

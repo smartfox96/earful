@@ -24,10 +24,12 @@ The last two columns say whether the release has the two known defects Earful re
 
 `pip install "earful[livekit]"` accepts livekit-agents from 1.5.6 up to, and not
 including, 1.9. A release between two rows, or a later 1.8 release, is accepted and not
-tested, except the newest one, in part ("What runs on the newest releases" below).
-Earful takes over the framework's clock and wraps its tools, and it checks on
-every run that it could: a run in which a clock read could not be given the virtual time
-is marked invalid and yields no verdict, so an unsupported release fails loudly.
+tested, except the newest one, in part ("What runs on the newest releases" below). On any
+release Earful checks two things in every run, and a run that fails either is invalid and
+yields no verdict: every tool the model is offered is one whose calls are recorded, and
+every pydantic field whose default is a clock read was given the virtual clock. A release
+that reads time some other way is not caught by these checks. The reads that are virtual
+are listed under The virtual clock.
 
 ## pipecat-ai
 
@@ -111,6 +113,30 @@ Two things are not seen, and the run stays valid. A call that blocks the loop, s
 `time.sleep`, `subprocess.run` or a synchronous HTTP client, takes no virtual time. A
 thread that was running before the run began is seen only when it wakes the loop: one
 that answers after the run has ended, or whose result the run polls for, is not.
+
+During a run these reads return the loop's time, on the thread the run is on:
+
+| Read | Value |
+| --- | --- |
+| `time.time()`, `time.time_ns()` | 1 700 000 000 s plus the loop's time. A read at the same loop instant as the one before it is 1 µs later |
+| `time.perf_counter()` | The loop's time, with the same 1 µs step |
+| `time.perf_counter_ns()` | The loop's time, 1 ns later on each read at one instant |
+| `time.monotonic()`, `time.monotonic_ns()`, `loop.time()` | The loop's time |
+| A pydantic field whose `default_factory` is one of the six functions above, when its model is built by its class or by `model_construct` | As that function. If the model's validator cannot be rebuilt, the run is invalid and names the field |
+| The start and end of an OpenTelemetry span | As `time.time_ns()` |
+
+These return real time, and the run is not marked:
+
+- `datetime.now()`, `datetime.utcnow()` and `date.today()`;
+- `time.localtime()`, `time.gmtime()` and `time.strftime()` called without a time, and
+  `time.process_time()`, `time.thread_time()` and `time.clock_gettime()`;
+- a function taken from the `time` module before the run, as `from time import time` and
+  a dataclass `field(default_factory=time.time)` take it;
+- a validator pydantic built before the run around such a field: a `TypeAdapter`, or a
+  model that holds the model as a field and builds it from a dict;
+- any read on another thread.
+
+A tool that measures a wait with one of them sees no time pass.
 
 ## The portable core
 

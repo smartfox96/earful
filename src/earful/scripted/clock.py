@@ -33,6 +33,9 @@ WALL_CLOCK_EPOCH = 1_700_000_000.0
 _REAL_TIME = time.time
 _REAL_PERF = time.perf_counter
 _REAL_TIME_NS = time.time_ns
+_REAL_PERF_NS = time.perf_counter_ns
+_REAL_MONOTONIC = time.monotonic
+_REAL_MONOTONIC_NS = time.monotonic_ns
 
 # Gap between wall-clock reads at one loop instant: ChatContext orders items by created_at.
 _TICK_EPSILON = 1e-6
@@ -54,11 +57,12 @@ def _tick(t: float) -> int:
 
 
 class _VirtualClock:
-    __slots__ = ("_read", "_ticks")
+    __slots__ = ("_read", "_read_ns", "_ticks")
 
     def __init__(self) -> None:
         self._ticks = 0
         self._read = 0.0
+        self._read_ns = 0
 
     def ticks(self) -> int:
         return self._ticks
@@ -78,6 +82,11 @@ class _VirtualClock:
         now = self.time()
         self._read = now if now > self._read else self._read + _TICK_EPSILON
         return self._read
+
+    def read_ns(self) -> int:
+        # Strictly increasing by a count of its own, so that it never moves what read() returns.
+        self._read_ns = max(self._read_ns + 1, self._ticks * 1000)
+        return self._read_ns
 
 
 class _AutojumpSelector(selectors.BaseSelector):
@@ -209,6 +218,9 @@ class VirtualTimeLoop(asyncio.SelectorEventLoop):
     def wall_read(self) -> float:
         return self._virtual_clock.read()
 
+    def read_ns(self) -> int:
+        return self._virtual_clock.read_ns()
+
     def call_at(
         self,
         when: float,
@@ -305,7 +317,34 @@ def _now_ns() -> int:
     return int(_now() * 1e9) if loop is not None else _REAL_TIME_NS()
 
 
-_VIRTUAL_FOR: dict[Any, Callable[[], Any]] = {_REAL_TIME: _now, _REAL_PERF: _perf}
+def _perf_ns() -> int:
+    # livekit-agents orders the speeches it schedules at one instant by this read.
+    loop = _virtual_loop()
+    return loop.read_ns() if loop is not None else _REAL_PERF_NS()
+
+
+def _monotonic() -> float:
+    loop = _virtual_loop()
+    return loop.time() if loop is not None else _REAL_MONOTONIC()
+
+
+def _monotonic_ns() -> int:
+    loop = _virtual_loop()
+    return loop.time_us() * 1000 if loop is not None else _REAL_MONOTONIC_NS()
+
+
+# The functions of the time module a run reads from the loop, and what stands in for each.
+VIRTUAL_READS: dict[str, Callable[[], Any]] = {
+    "time": _now,
+    "time_ns": _now_ns,
+    "perf_counter": _perf,
+    "perf_counter_ns": _perf_ns,
+    "monotonic": _monotonic,
+    "monotonic_ns": _monotonic_ns,
+}
+_VIRTUAL_FOR: dict[Any, Callable[[], Any]] = {
+    getattr(time, name): virtual for name, virtual in VIRTUAL_READS.items()
+}
 
 
 @dataclass
@@ -390,25 +429,34 @@ def patch_report() -> ClockPatchReport:
     return _REPORT
 
 
+def _point_factories(model: type[BaseModel], at: Mapping[Any, Any]) -> None:
+    # model_construct builds a default from the field itself, without the validator.
+    for info in model.__pydantic_fields__.values():
+        if info.default_factory in at:
+            info.default_factory = at[info.default_factory]
+
+
 @contextlib.contextmanager
 def _patched_model_clocks() -> Iterator[None]:
     _patch_new_models()
+    real_for = {virtual: real for real, virtual in _VIRTUAL_FOR.items()}
     try:
         for model, (patched, _original) in _PATCHED.items():
             model.__pydantic_validator__ = patched
+            _point_factories(model, _VIRTUAL_FOR)
         yield
     finally:
         for model, (_patched, original) in _PATCHED.items():
             model.__pydantic_validator__ = original
+            _point_factories(model, real_for)
 
 
 @contextlib.contextmanager
 def virtual_wall_clock() -> Iterator[ClockPatchReport]:
     """Point wall-clock reads at the running VirtualTimeLoop for the duration of the block."""
     with contextlib.ExitStack() as stack:
-        stack.enter_context(mock.patch.object(time, "time", _now))
-        stack.enter_context(mock.patch.object(time, "time_ns", _now_ns))
-        stack.enter_context(mock.patch.object(time, "perf_counter", _perf))
+        for name, virtual in VIRTUAL_READS.items():
+            stack.enter_context(mock.patch.object(time, name, virtual))
         try:
             from opentelemetry.sdk import trace as otel_sdk_trace
 

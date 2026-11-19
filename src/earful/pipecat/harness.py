@@ -48,7 +48,7 @@ from ..scripted.case import Delay, Fault, Intent, InvalidRun, check_case, declar
 from ..scripted.clock import VirtualTimeLoop, left_the_clock, now_us, patch_report, run_virtual
 from ..scripted.model import Policy
 from ..scripted.world import UserSpeech, WorldOrigin, sleep_until
-from .clock import VirtualClock, monotonic_on_the_loop
+from .clock import VirtualClock
 from .providers import SAMPLE_RATE, ScriptedLLM, ScriptedSTT, ScriptedUser, StampedTTS, summarize
 from .sink import ClockedOutput
 from .tools import ToolWitness
@@ -438,17 +438,12 @@ async def _run(case: Case, seed: int) -> RunResult:
     )
 
 
-async def _clocked(case: Case, seed: int) -> RunResult:
-    with monotonic_on_the_loop():
-        return await _run(case, seed)
-
-
 def run_case(
     case: Case, seed: int = 0, *, virtual: bool = True, require_valid: bool = True
 ) -> RunResult:
     """Run a fresh pipeline and raise InvalidRun if its ledger cannot be judged."""
     if virtual:
-        result = run_virtual(lambda: _clocked(case, seed))
+        result = run_virtual(lambda: _run(case, seed))
     else:
         result = asyncio.run(asyncio.wait_for(_run(case, seed), timeout=120))
     if result.invalid and require_valid:
