@@ -146,8 +146,14 @@ renumbered while the failure stays the same.
 A run **breaks a predicate** when its report has a failed verdict of that contract with a
 finding of that rule. Three kinds of run break nothing, because nothing can be concluded
 from them: a run that is not valid evidence, a case the adapter refuses, and a run that
-raises. Each is counted and reported; none ends a search. A search that could judge none
-of the cases it tried has no result, and its assertion fails.
+raises. Each is counted and reported; none ends a search.
+
+They do not weigh the same. A refused case and a run that is not valid evidence can come
+of where a search puts things: a moved speech reaches a context the scripted model has no
+rule for, and that run is not valid. A search with some of these still has a result. A run
+that raises is an error in the scenario's code or in Earful, and no search is expected to
+have one. One such case fails the search's assertion, and `earful search` exits 3. So does
+a search that could judge none of the cases it tried.
 
 A refusal is the adapter declining a case before anything runs: data that is not
 `earful.case/1`, a setting it does not have, a scenario that contradicts itself. It
@@ -261,7 +267,7 @@ events included. What it finds is decided by the checker alone.
   count and one case as an example: what was changed, and what that put beside what.
 
   ```
-  not judged: 2 of 78 cases
+  not judged: 2 of 78 cases; the search fails, since 2 raised
       2 error: RuntimeError: boom
           such as speech.position 1 at 2.500 s (as written 20.000 s), to put interrupt at llm.done
   ```

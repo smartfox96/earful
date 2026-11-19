@@ -437,7 +437,7 @@ def test_a_search_that_could_judge_nothing_it_tried_exits_3_and_gives_the_reason
     capsys, monkeypatch
 ):
     import earful.livekit as adapter
-    from earful.core.search import explore
+    from earful.core.search import CaseRefused, explore
 
     def searched(source, **options):
         start = source.default()
@@ -445,7 +445,7 @@ def test_a_search_that_could_judge_nothing_it_tried_exits_3_and_gives_the_reason
         def run(case):
             if case == start:
                 return read_jsonl(CLEAN)
-            raise RuntimeError("the reservation service is down")
+            raise CaseRefused("this adapter cannot fail a write")
 
         return explore(start, run, variables=(), faults=["backend.error"])
 
@@ -456,11 +456,39 @@ def test_a_search_that_could_judge_nothing_it_tried_exits_3_and_gives_the_reason
     assert out.endswith(
         ": 1 cases tried, 0 judged, 0 contract rule(s) broken\n\n"
         "not judged: 1 of 1 cases, which leaves the search with no result\n"
-        "    1 error: RuntimeError: the reservation service is down\n"
+        "    1 refused: this adapter cannot fail a write\n"
         "        such as backend.error 1\n"
     )
     status, out, _ = earful(capsys, "search", reference, "--workers", "0", "--json")
     assert status == NO_VERDICT and json.loads(out)["not_judged"][0]["cases"] == 1
+
+
+def test_a_search_in_which_a_case_raised_exits_3_and_says_that_this_is_why(capsys, monkeypatch):
+    import earful.livekit as adapter
+    from earful.core.search import explore
+
+    def searched(source, **options):
+        start = source.default()
+
+        def run(case):
+            if any(fault["of"] == "backend.drop" for fault in case["faults"]):
+                raise RuntimeError("the reservation service is down")
+            return read_jsonl(CLEAN)
+
+        return explore(start, run, variables=(), faults=["backend.error", "backend.drop"])
+
+    monkeypatch.setattr(adapter, "explore", searched)
+    reference = "earful.livekit.cases:book_then_interrupt"
+    status, out, _ = earful(capsys, "search", reference, "--workers", "0")
+    assert status == NO_VERDICT
+    assert out.endswith(
+        ": 2 cases tried, 1 judged, 0 contract rule(s) broken\n\n"
+        "not judged: 1 of 2 cases; the search fails, since 1 raised\n"
+        "    1 error: RuntimeError: the reservation service is down\n"
+        "        such as backend.drop 1\n"
+    )
+    status, out, _ = earful(capsys, "search", reference, "--workers", "0", "--json")
+    assert status == NO_VERDICT and json.loads(out)["error"] == 1
 
 
 def test_where_workers_cannot_be_started_the_search_runs_in_this_process_unless_told_a_number(

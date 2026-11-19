@@ -584,6 +584,11 @@ class Exploration:
         """Whether the search tried cases and could judge none of them."""
         return bool(self.tried) and not any(t.outcome.ran for t in self.tried)
 
+    @property
+    def errored(self) -> int:
+        """How many of the cases tried raised. No healthy search has one."""
+        return sum(t.outcome.error is not None for t in self.tried)
+
     def not_judged(self) -> list[NotJudged]:
         """Why cases could not be judged, the reason with the most cases first. Reasons that
         differ only in their numbers are one reason."""
@@ -710,7 +715,11 @@ class Exploration:
         skipped = self.not_judged()
         if skipped:
             cut = sum(group.cases for group in skipped)
-            result = ", which leaves the search with no result" * self.nothing_judged
+            result = ""
+            if self.nothing_judged:
+                result = ", which leaves the search with no result"
+            elif self.errored:
+                result = f"; the search fails, since {self.errored} raised"
             lines += ["", f"not judged: {cut} of {counts['candidates']} cases{result}"]
             for group in skipped:
                 lines.append(f"    {group.cases} {group.why}: {group.reason}")
@@ -728,17 +737,17 @@ class Exploration:
     def assert_contracts(
         self, *, allow: Iterable[Predicate | str] | str = (), require: Iterable[str] | str = ()
     ) -> None:
-        """Raise ``ContractFailure`` if the search found a rule broken, if it could judge none
-        of the cases it tried, or if the case as given has no pass or fail for a contract in
-        ``require``. Rules that break only at single instants, or are named in ``allow`` as
-        ``CONTRACT/RULE``, are not counted."""
+        """Raise ``ContractFailure`` if the search found a rule broken, if a case it tried
+        raised, if it could judge none of them, or if the case as given has no pass or fail
+        for a contract in ``require``. Rules that break only at single instants, or are named
+        in ``allow`` as ``CONTRACT/RULE``, are not counted."""
         __tracebackhide__ = True  # pytest then shows the test's own line, not this one
         allowing, unjudged = allowed(allow), self.unjudged(require)
         found = self.breaks()
         counted = [
             one for one in found if not one.instants_only and str(one.predicate) not in allowing
         ]
-        if counted or unjudged or self.nothing_judged:
+        if counted or unjudged or self.nothing_judged or self.errored:
             raise ContractFailure(self.describe(found, unjudged))
 
     def summary(self) -> dict[str, Any]:

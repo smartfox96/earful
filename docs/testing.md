@@ -280,8 +280,11 @@ not counted (`docs/search.md`, section 4). A rule the case breaks as written cou
 whether or not a case the search tried breaks it.
 
 Cases that could not be judged are listed after the rules, grouped by reason, each with
-its count and an example. If none of the cases tried could be judged, the assertion fails:
-such a search shows nothing about the contracts.
+its count and an example. A case whose run raised an exception fails the assertion: that
+is an error in the scenario's code or in Earful, and the part of the search it stood for
+was not looked at. Cases that were refused, or whose runs were not valid evidence, are
+listed and do not fail it, unless none of the cases tried could be judged: such a search
+shows nothing about the contracts.
 
 On a search, `require` is asked of the case as written: the run the search starts from
 must give each named contract a pass or a fail. The cases a search tries are not held to
@@ -464,7 +467,7 @@ checked before anything runs.
 | 0 | Nothing broke, or the replay did what `--expect` names. For `report`: the report was written |
 | 1 | A contract rule broke, the replay did not do what `--expect` names, or a real-clock run did not agree with the virtual one |
 | 2 | The command could not be carried out: bad arguments, a file that is not what it should be, a bundle with a file that is not what its manifest records, a scenario that does not exist, cannot be built or contradicts itself |
-| 3 | No verdict: a run was not valid evidence, did not repeat, or could not be compared, a required contract got no pass or fail, or a search could judge none of the cases it tried |
+| 3 | No verdict: a run was not valid evidence, did not repeat, or could not be compared, a required contract got no pass or fail, a case of a search raised, or a search could judge none of the cases it tried |
 
 A rule that broke outranks a run without a verdict.
 

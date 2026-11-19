@@ -465,9 +465,12 @@ def test_what_cannot_be_run_is_counted_and_said():
         summary["error"] == 2 and summary["ran"] > 0 and summary["errors"] == ["RuntimeError: boom"]
     )
     assert summary["error"] + summary["ran"] == summary["candidates"]
-    found.assert_contracts()  # the cases that ran were judged, and none broke a rule
+    assert found.errored == 2 and not found.nothing_judged
+    with pytest.raises(ContractFailure) as caught:  # no rule broke, and two runs raised
+        found.assert_contracts()
+    assert str(caught.value) == found.describe()
     assert found.describe().endswith(
-        f"\n\nnot judged: 2 of {summary['candidates']} cases\n"
+        f"\n\nnot judged: 2 of {summary['candidates']} cases; the search fails, since 2 raised\n"
         "    2 error: RuntimeError: boom\n"
         "        such as speech.position 1 at 2.500 s (as written 20.000 s), "
         "to put interrupt at llm.done"
@@ -476,6 +479,27 @@ def test_what_cannot_be_run_is_counted_and_said():
     never = found.coverage()["speech.position 1 interrupt"]["never_reached"]
     assert never["tool.returned"] == ["error", "impossible"]
     assert "playout.started" not in never
+
+
+def test_cases_that_were_refused_or_not_valid_evidence_are_said_and_do_not_fail_a_search():
+    def run(case):
+        moved = case["speeches"][-1]["start_us"]
+        if len(case["speeches"]) == 2 and moved == 2_510_000:
+            raise CaseRefused("the speeches are too close together")
+        events = ledger("1.8.12", "book_then_interrupt")
+        if len(case["speeches"]) == 2 and moved == 2_500_000:
+            events[-1]["data"]["underruns"] = 1
+        return events
+
+    far = a_case(BOOK, speech(20_000_000, 21_000_000, WINDOW["transcript"]))
+    found = explore(
+        far, run, variables=["speech.position"], speeches=[1], moments=["interrupt"], words=False
+    )
+    summary = found.summary()
+    assert (summary["refused"], summary["invalid"], summary["error"]) == (1, 1, 0)
+    assert found.errored == 0 and summary["ran"] == summary["candidates"] - 2
+    found.assert_contracts()
+    assert f"\n\nnot judged: 2 of {summary['candidates']} cases\n" in found.describe()
 
 
 def test_a_search_that_could_judge_nothing_it_tried_fails_and_says_why_with_an_example():
@@ -487,7 +511,7 @@ def test_a_search_that_could_judge_nothing_it_tried_fails_and_says_why_with_an_e
             return ledger("1.8.12", "book_then_interrupt")
         at = moved["speeches"][1]["start_us"]
         if at < 5_000_000:
-            raise KeyError("party_size")
+            raise CaseRefused("the speeches are too close together")
         invalid = ledger("1.8.12", "book_then_interrupt")
         invalid[-1]["data"]["underruns"] = at // 1_000_000
         return invalid
@@ -497,12 +521,13 @@ def test_a_search_that_could_judge_nothing_it_tried_fails_and_says_why_with_an_e
     )
     assert found.nothing_judged and found.summary()["ran"] == 0 and found.predicates() == []
     late, early = found.not_judged()  # runs that differ only in a number are one reason
-    assert (late.why, early.why) == ("invalid", "error") and late.cases > early.cases
+    assert (late.why, early.why) == ("invalid", "refused") and late.cases > early.cases
+    assert found.errored == 0  # no case raised: the search fails for having judged none
     assert late.cases + early.cases == len(found.tried)
     moved = "speech.position 1 at {} s (as written 20.000 s), to put interrupt at {}"
     assert found.summary()["not_judged"][1] == {
-        "why": "error",
-        "reason": "KeyError: 'party_size'",
+        "why": "refused",
+        "reason": "the speeches are too close together",
         "cases": early.cases,
         "example": moved.format("2.500", "llm.done"),
     }
@@ -515,7 +540,7 @@ def test_a_search_that_could_judge_nothing_it_tried_fails_and_says_why_with_an_e
         f"not judged: {tried} of {tried} cases, which leaves the search with no result",
         f"    {late.cases} invalid: playout ran ahead of its audio 5 times",
         "        such as " + moved.format("5.000", "sink.pause"),
-        f"    {early.cases} error: KeyError: 'party_size'",
+        f"    {early.cases} refused: the speeches are too close together",
         "        such as " + moved.format("2.500", "llm.done"),
     ]
 
