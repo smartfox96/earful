@@ -4,6 +4,7 @@ import asyncio
 import contextlib
 import dataclasses
 import datetime
+import logging
 import os
 import socket
 import threading
@@ -408,3 +409,47 @@ def test_the_reads_the_clock_cannot_reach_return_real_time_and_the_run_is_valid(
     assert run_case(_a_tool_that_awaits(wait)).invalid == []
     assert seen.pop("time.time") < WALL_CLOCK_EPOCH + 60
     assert seen and all(abs(at - time.time()) < 60 for at in seen.values()), seen
+
+
+def _microseconds(seconds):
+    return round(seconds * 1_000_000)
+
+
+def test_a_log_record_reads_the_clock_without_moving_it():
+    factory = logging.getLogRecordFactory()
+
+    async def main():
+        time.time()
+        before = time.time()  # one step past the loop's time
+        made = [logging.makeLogRecord({}).created for _ in range(5)]
+        return before, made, time.time()
+
+    before, made, after = run_virtual(main)
+    assert [_microseconds(created - before) for created in made] == [0] * 5
+    assert _microseconds(after - before) == 1
+    assert logging.getLogRecordFactory() is factory
+
+
+def test_a_logging_handler_that_reads_the_clock_does_not_move_it():
+    class Reads(logging.Handler):
+        def emit(self, record):
+            self.read = time.time(), time.perf_counter()
+
+    logger = logging.getLogger("earful.tests.clock")
+    handler = Reads()
+    logger.addHandler(handler)
+    handle = logging.Logger.handle
+
+    async def main():
+        before = time.time()
+        for _ in range(5):
+            logger.warning("the handler reads the clock")
+        return before, time.time()
+
+    try:
+        before, after = run_virtual(main)
+    finally:
+        logger.removeHandler(handler)
+    assert _microseconds(handler.read[0] - before) == 0
+    assert _microseconds(after - before) == 1
+    assert logging.Logger.handle is handle

@@ -125,6 +125,10 @@ During a run these reads return the loop's time, on the thread the run is on:
 | A pydantic field whose `default_factory` is one of the six functions above, when its model is built by its class or by `model_construct` | As that function. If the model's validator cannot be rebuilt, the run is invalid and names the field |
 | The start and end of an OpenTelemetry span | As `time.time_ns()` |
 
+The 1 µs step keeps two timestamps the framework takes at one instant in order. A log
+record and a logging handler read the clock without the step, so the logging level does
+not change a ledger.
+
 These return real time, and the run is not marked:
 
 - `datetime.now()`, `datetime.utcnow()` and `date.today()`;

@@ -6,6 +6,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import heapq
+import logging
 import selectors
 import threading
 import time
@@ -57,12 +58,13 @@ def _tick(t: float) -> int:
 
 
 class _VirtualClock:
-    __slots__ = ("_read", "_read_ns", "_ticks")
+    __slots__ = ("_read", "_read_ns", "_ticks", "held")
 
     def __init__(self) -> None:
         self._ticks = 0
         self._read = 0.0
         self._read_ns = 0
+        self.held = 0  # above zero while a read must leave the next one as it would have been
 
     def ticks(self) -> int:
         return self._ticks
@@ -80,6 +82,8 @@ class _VirtualClock:
     def read(self) -> float:
         # Strictly increasing, even within one loop instant.
         now = self.time()
+        if self.held:
+            return max(now, self._read)
         self._read = now if now > self._read else self._read + _TICK_EPSILON
         return self._read
 
@@ -469,6 +473,33 @@ def virtual_wall_clock() -> Iterator[ClockPatchReport]:
         yield _REPORT
 
 
+def _reading_without_a_step(call: Callable[..., T]) -> Callable[..., T]:
+    def held(*args: Any, **kwargs: Any) -> T:
+        loop = _virtual_loop()
+        if loop is None:
+            return call(*args, **kwargs)
+        loop._virtual_clock.held += 1
+        try:
+            return call(*args, **kwargs)
+        finally:
+            loop._virtual_clock.held -= 1
+
+    return held
+
+
+@contextlib.contextmanager
+def _logging_off_the_clock() -> Iterator[None]:
+    # A log record reads the clock as it is made, and the logging level decides how many are.
+    make = logging.getLogRecordFactory()
+    handle = _reading_without_a_step(logging.Logger.handle)
+    logging.setLogRecordFactory(_reading_without_a_step(make))
+    try:
+        with mock.patch.object(logging.Logger, "handle", handle):
+            yield
+    finally:
+        logging.setLogRecordFactory(make)
+
+
 @contextlib.contextmanager
 def _threads_counted() -> Iterator[None]:
     # A thread started from the loop works in real time, whether or not it ever wakes the loop.
@@ -494,7 +525,7 @@ def run_virtual(main: Callable[[], Coroutine[Any, Any, T]]) -> T:
     loop = VirtualTimeLoop()
     try:
         asyncio.set_event_loop(loop)
-        with virtual_wall_clock(), _threads_counted():
+        with virtual_wall_clock(), _logging_off_the_clock(), _threads_counted():
             return loop.run_until_complete(main())
     finally:
         try:
