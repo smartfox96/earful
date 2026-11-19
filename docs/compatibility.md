@@ -24,7 +24,8 @@ The last two columns say whether the release has the two known defects Earful re
 
 `pip install "earful[livekit]"` accepts livekit-agents from 1.5.6 up to, and not
 including, 1.9. A release between two rows, or a later 1.8 release, is accepted and not
-tested. Earful takes over the framework's clock and wraps its tools, and it checks on
+tested, except the newest one, in part ("What runs on the newest releases" below).
+Earful takes over the framework's clock and wraps its tools, and it checks on
 every run that it could: a run in which a clock read could not be given the virtual time
 is marked invalid and yields no verdict, so an unsupported release fails loudly.
 
@@ -78,6 +79,15 @@ livekit-agents and runs `tests/test_pipecat.py`. A row fails if a test there is 
 | 1.16.0 | 3.12 | Linux | the built wheel |
 | 1.16.0 | 3.13 | Linux | the checkout |
 | 1.16.0 | 3.13 | macOS | the checkout |
+
+## What runs on the newest releases
+
+Each night the `canary` workflow installs the newest livekit-agents and the newest
+pipecat-ai the extras accept, with their dependencies as of that night, on Linux and
+Python 3.13 (`scripts/canary.sh`). It runs the tests that take under a second. A
+livekit-agents release with no row above has no reference ledgers, and there the tests
+that compare a run with one are skipped. The workflow also fails when PyPI has a release
+an extra does not accept (`scripts/newer_release.sh`). No pull request runs it.
 
 ## The portable core
 

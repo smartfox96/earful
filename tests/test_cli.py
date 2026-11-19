@@ -142,7 +142,9 @@ def test_a_command_that_does_not_exist_is_a_usage_error(capsys):
     assert stopped.value.code == REFUSED
 
 
-def test_run_runs_the_scenario_and_writes_the_ledger_it_printed_the_hash_of(capsys, tmp_path):
+def test_run_runs_the_scenario_and_writes_the_ledger_it_printed_the_hash_of(
+    capsys, tmp_path, reference_ledger
+):
     ledger = tmp_path / "out" / "run.jsonl"
     reference = "earful.livekit.cases:barge_in_mid_word"
     status, out, _ = earful(capsys, "run", reference, "--ledger", ledger)
@@ -151,8 +153,7 @@ def test_run_runs_the_scenario_and_writes_the_ledger_it_printed_the_hash_of(caps
     assert f"framework  livekit-agents {lk.__version__}" in out
     events = read_jsonl(ledger)
     assert validate(events) == [] and f"hash       {ledger_hash(events)}" in out
-    committed = GOLDEN / f"lk-{lk.__version__}.barge_in_mid_word.ledger.normalized.jsonl"
-    assert ledger.read_text() == committed.read_text()
+    assert ledger.read_text() == reference_ledger("barge_in_mid_word").read_text()
 
 
 def test_run_exits_1_when_the_scenario_breaks_a_rule_as_it_does_from_a_saved_case(capsys, tmp_path):

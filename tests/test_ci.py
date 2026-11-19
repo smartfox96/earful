@@ -103,6 +103,8 @@ EVERYTHING = {"code": "true", "docs": "true", "mutants": "true"}
         ("skills/earful/SKILL.md", CODE),  # Markdown that tests/test_examples.py runs
         ("examples/booking/agent.py", CODE),
         (".github/workflows/ci.yml", CODE),
+        (".github/workflows/canary.yml", CODE),  # every workflow is read by tests/test_ci.py
+        ("scripts/canary.sh", CODE),
         ("compat/pc-1.16.0.lock.txt", CODE),
         ("pyproject.toml", CODE),
         ("LICENSE", CODE),  # the build reads it
@@ -803,3 +805,161 @@ def test_the_quickstart_check_installs_the_wheel_of_a_directory_it_is_given(tmp_
     assert built.returncode != 0
     (call,) = _calls(uv_log)
     assert call.startswith("build -q --wheel --out-dir ") and call.endswith(f" {ROOT}")
+
+
+def test_the_canary_runs_each_night_and_on_request_and_no_pull_request_waits_for_it():
+    canary = WORKFLOWS["canary.yml"]
+    starts = '\non:\n  schedule:\n    - cron: "17 5 * * *" # an hour after the nightly run of ci\n'
+    assert starts + "  workflow_dispatch:\n\npermissions:\n  contents: read\n" in canary
+    assert not re.search(r"pull_request|push|workflow_call", canary)
+    assert canary.count("permissions:") == 1  # no job is given more than the reading above
+    for name, text in WORKFLOWS.items():
+        assert name == "canary.yml" or "canary" not in text, name  # no workflow calls it
+    jobs = _jobs(canary)
+    assert list(jobs) == ["newest", "beyond"]
+    assert (
+        "      fail-fast: false\n      matrix:\n        framework: [livekit, pipecat]\n"
+        in (jobs["newest"])
+    )
+    assert "        run: scripts/canary.sh ${{ matrix.framework }}\n" in jobs["newest"]
+    assert "        run: scripts/newer_release.sh\n" in jobs["beyond"]
+    # Nothing a run finds comes from an earlier run, and nothing in it names a date.
+    assert canary.count("          enable-cache: false ") == canary.count("astral-sh/setup-uv@")
+    for name in ("canary.sh", "newer_release.sh"):
+        assert "--exclude-newer" not in (SCRIPTS / name).read_text(), name
+
+
+_CANARY_UV = """#!/usr/bin/env bash
+# Stands in for uv: an environment it makes has a python that records how it was called.
+echo "uv $*" >>"$STUB_LOG"
+case "$1 $2" in
+  "venv -q")
+    mkdir -p "$5/bin"
+    cp "$(dirname "$0")/its-python" "$5/bin/python"
+    ;;
+  "pip freeze") printf 'attrs==26.1.0\\nlivekit-agents==1.8.13\\npipecat-ai==1.16.2\\n' ;;
+esac
+"""
+_RECORDS = '#!/usr/bin/env bash\necho "{} $*" >>"$STUB_LOG"\nexit "$STUB_TESTS"\n'
+
+
+@pytest.fixture
+def canary(tmp_path):
+    """A copy of ``scripts/canary.sh`` in a project of its own, and what it runs there."""
+    _executable(tmp_path / "bin/uv", _CANARY_UV)
+    _executable(tmp_path / "bin/its-python", _RECORDS.format("python"))
+    _executable(tmp_path / "scripts/canary.sh", (SCRIPTS / "canary.sh").read_text())
+    _executable(tmp_path / "scripts/ran_every_test.sh", _RECORDS.format("ran_every_test.sh"))
+    env = {
+        **os.environ,
+        "PATH": f"{tmp_path / 'bin'}{os.pathsep}{os.environ['PATH']}",
+        "STUB_LOG": str(tmp_path / "log"),
+    }
+
+    def run(*args, tests=0):
+        (tmp_path / "log").write_text("")
+        done = subprocess.run(
+            [str(tmp_path / "scripts/canary.sh"), *args],
+            cwd=tmp_path / "scripts",
+            env={**env, "STUB_TESTS": str(tests)},
+            capture_output=True,
+            text=True,
+            check=False,  # the tests assert on the exit status
+        )
+        return done, (tmp_path / "log").read_text().splitlines()
+
+    return run
+
+
+def test_the_canary_installs_what_an_extra_admits_today_and_runs_the_fast_tests(canary, tmp_path):
+    yesterday = tmp_path / ".venvs/canary-livekit/lib/yesterday"
+    yesterday.parent.mkdir(parents=True)
+    yesterday.touch()
+    done, calls = canary("livekit")
+    assert done.returncode == 0, done.stderr
+    assert not yesterday.exists()
+    assert calls == [
+        "uv venv -q --python 3.13 .venvs/canary-livekit",
+        "uv pip install -q -e .[livekit] pytest pytest-asyncio",  # no release and no date
+        "uv pip freeze -q --exclude-editable",
+        "python -m pytest -q -m not slow -rs",
+    ]
+    assert "=== what an install holds today: livekit-agents==1.8.13\nattrs==26.1.0\n" in done.stdout
+
+    done, calls = canary("pipecat")
+    assert done.returncode == 0, done.stderr
+    assert calls[1] == "uv pip install -q -e .[pipecat] pytest pytest-asyncio"
+    # A Pipecat test that is skipped fails the run, as it does in ci.
+    ran = "ran_every_test.sh .venvs/canary-pipecat/bin/python tests/test_pipecat.py -m not slow"
+    assert calls[3:] == [ran]
+    assert "=== what an install holds today: pipecat-ai==1.16.2\n" in done.stdout
+
+
+@pytest.mark.parametrize("framework", ["livekit", "pipecat"])
+def test_the_canary_fails_when_a_test_fails_and_refuses_a_framework_it_does_not_know(
+    canary, framework
+):
+    done, calls = canary(framework, tests=1)
+    assert done.returncode == 1 and len(calls) == 4
+    for unknown in ([], ["both"]):
+        done, calls = canary(*unknown)
+        assert done.returncode == 2 and "usage: " in done.stderr and calls == []
+
+
+_RESOLVES = """#!/usr/bin/env bash
+# Stands in for uv pip compile: within an extra it resolves to one set, and without to another.
+echo "$*" >>"$STUB_LOG"
+case "$*" in
+  *" --extra "*) printf '%b' "$STUB_ADMITTED" ;;
+  *) printf '%b' "$STUB_NEWEST" ;;
+esac
+"""
+
+
+def _newer(tmp_path, admitted, newest):
+    _executable(tmp_path / "bin/uv", _RESOLVES)
+    (tmp_path / "log").write_text("")
+    env = {
+        "PATH": f"{tmp_path / 'bin'}{os.pathsep}{os.environ['PATH']}",
+        "STUB_LOG": str(tmp_path / "log"),
+        "STUB_ADMITTED": admitted,
+        "STUB_NEWEST": newest,
+    }
+    done = _script("newer_release.sh", cwd=tmp_path, **env)
+    return done, (tmp_path / "log").read_text().splitlines()
+
+
+def test_a_release_newer_than_an_extra_admits_is_named_and_fails_the_check(tmp_path):
+    admitted = "jsonschema==4.26.0\\nlivekit-agents==1.8.13\\npipecat-ai==1.16.2\\n"
+    done, calls = _newer(tmp_path, admitted, "livekit-agents==1.8.13\\npipecat-ai==1.16.2\\n")
+    assert done.returncode == 0, done.stderr
+    assert "livekit-agents 1.8.13 is the newest release, and earful[livekit] admits it\n" in (
+        done.stdout
+    )
+    asked = "pip compile -q --no-deps --no-header --no-annotate --python-version 3.13 "
+    assert calls == [
+        asked + "--extra livekit pyproject.toml",
+        asked + "-",
+        asked + "--extra pipecat pyproject.toml",
+        asked + "-",
+    ]
+    project = (ROOT / "pyproject.toml").read_text()
+    assert '\nlivekit = ["livekit-agents>=' in project and '\npipecat = ["pipecat-ai>=' in project
+
+    done, _ = _newer(tmp_path, admitted, "livekit-agents==1.8.13\\npipecat-ai==1.17.0\\n")
+    assert done.returncode == 1
+    assert done.stdout.count("\n") == 1 and "livekit-agents 1.8.13 is the newest" in done.stdout
+    assert done.stderr == (
+        "pipecat-ai 1.17.0 is on PyPI, and earful[pipecat] admits nothing after 1.16.2\n"
+    )
+    done, _ = _newer(tmp_path, admitted, "livekit-agents==1.9.0\\npipecat-ai==1.17.0\\n")
+    assert done.returncode == 1 and done.stdout == "" and done.stderr.count(" is on PyPI, ") == 2
+
+
+@pytest.mark.parametrize(
+    ("admitted", "newest"),
+    [("", "livekit-agents==1.8.13\\n"), ("livekit-agents==1.8.13\\n", "")],
+)
+def test_the_check_for_a_newer_release_fails_when_uv_names_no_release(tmp_path, admitted, newest):
+    done, _ = _newer(tmp_path, admitted, newest)
+    assert done.returncode == 2 and "uv did not say which livekit-agents" in done.stderr
