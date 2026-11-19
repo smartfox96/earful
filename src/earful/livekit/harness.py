@@ -43,6 +43,8 @@ from .providers import (
     StampedTTS,
     UserSpeech,
     WorldOrigin,
+    record_errors_in,
+    stop_recording_errors,
     summarize_item,
 )
 from .sink import ClockedSink
@@ -430,12 +432,14 @@ async def _run(case: Case, seed: int) -> RunResult:
     lk_logger.addHandler(warnings)
     witness_token = tools.install(witness)
     backend_token = backends.install(backend)
+    errors_token = record_errors_in(harness_errors)
     try:
         sink = await _play(
             case, seed, ledger, harness_errors, declared_us, witness, backend, virtual=virtual
         )
     finally:
         lk_logger.removeHandler(warnings)
+        stop_recording_errors(errors_token)
         backends.uninstall(backend_token)
         tools.uninstall(witness_token)
 

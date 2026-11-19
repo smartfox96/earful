@@ -370,7 +370,11 @@ definition; it reads only the ledger and returns every reason a run is not valid
   waited on a socket (`work left the virtual clock (threads started: 1)`). What counts as
   leaving the clock is listed in `docs/compatibility.md`, The virtual clock.
 
-`framework_warnings` is recorded but does not invalidate a run.
+`framework_warnings` is recorded but does not invalidate a run: a warning is the
+framework describing its own behaviour, and the contracts judge that behaviour from the
+ledger. An exception raised inside one of Earful's scripted providers or its output does
+invalidate it. The framework would treat it as a provider that failed and carry on, so it
+is recorded in `harness_errors`, as `the scripted voice raised KeyError: ...`.
 
 The harness refuses to return an invalid run unless asked to: `run_case` raises
 `InvalidRun`, which carries the result so the ledger can still be inspected.

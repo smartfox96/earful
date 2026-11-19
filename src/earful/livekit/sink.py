@@ -14,6 +14,7 @@ from ..core.ledger import Ledger
 from ..core.timebase import US_PER_SECOND, to_seconds
 from ..scripted.voice import StampReader, StampTable, words_heard
 from ._compat import io
+from .providers import scripted, scripted_call
 
 
 class _Segment:
@@ -132,7 +133,7 @@ class ClockedSink(io.AudioOutput):
             )
             self._schedule_finish(segment)
 
-        self._begin(start)
+        self._begin(scripted_call("output")(start))
 
     def _schedule_finish(self, segment: _Segment) -> None:
         self._cancel_finish()
@@ -143,6 +144,7 @@ class ClockedSink(io.AudioOutput):
             to_seconds(delay_us), lambda: self._exhausted(segment)
         )
 
+    @scripted_call("output")
     def _exhausted(self, segment: _Segment) -> None:
         if segment.flushed:
             self._finish(segment, interrupted=False)
@@ -222,6 +224,7 @@ class ClockedSink(io.AudioOutput):
             "sink", f"sink.{name}", segment=self._segment.number if self._segment else None
         )
 
+    @scripted("output")
     async def capture_frame(self, frame: rtc.AudioFrame) -> None:
         await super().capture_frame(frame)
 
@@ -253,6 +256,7 @@ class ClockedSink(io.AudioOutput):
         else:
             self._schedule_finish(segment)
 
+    @scripted_call("output")
     def flush(self) -> None:
         super().flush()
         self._command("flush")
@@ -265,6 +269,7 @@ class ClockedSink(io.AudioOutput):
         else:
             self._schedule_finish(segment)
 
+    @scripted_call("output")
     def clear_buffer(self) -> None:
         self._command("clear")
         segment = self._segment
@@ -275,8 +280,9 @@ class ClockedSink(io.AudioOutput):
             if self._segment is segment:  # not already finished by the time it is obeyed
                 self._finish(segment, interrupted=True)
 
-        self._obey(clear)
+        self._obey(scripted_call("output")(clear))
 
+    @scripted_call("output")
     def pause(self) -> None:
         super().pause()
         if self._paused:
@@ -295,8 +301,9 @@ class ClockedSink(io.AudioOutput):
             ):
                 self._pause(segment)
 
-        self._obey(pause)
+        self._obey(scripted_call("output")(pause))
 
+    @scripted_call("output")
     def resume(self) -> None:
         super().resume()
         if not self._paused:

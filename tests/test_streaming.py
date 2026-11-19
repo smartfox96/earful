@@ -8,7 +8,8 @@ from livekit.agents import llm
 
 from earful.core.ledger import Ledger
 from earful.core.schema import validate
-from earful.livekit.cases import LONG_REPLY
+from earful.livekit import providers
+from earful.livekit.cases import CASES, LONG_REPLY
 from earful.livekit.harness import Case, run_case
 from earful.livekit.providers import (
     Reply,
@@ -18,6 +19,7 @@ from earful.livekit.providers import (
     ToolCall,
     UserSpeech,
 )
+from earful.scripted import clock
 from earful.scripted.clock import now_us, run_virtual
 
 
@@ -190,3 +192,51 @@ def test_what_is_remembered_of_a_cut_reply_does_not_depend_on_the_words_said_bef
 
     few, many = remembered("Hello to you."), remembered(" ".join([LONG_REPLY] * 6))
     assert few == many and len(few) == 1
+
+
+def _a_bug(*args, **kwargs):
+    raise KeyError("a bug in Earful")
+
+
+@pytest.mark.parametrize(
+    "owner, method, provider",
+    [
+        (providers._ScriptedVADStream, "_emit", "VAD"),
+        (providers._ScriptedRecognizeStream, "_send", "recognizer"),
+        (providers._ScriptedLLMStream, "_chunk", "model"),
+        (providers._Synthesis, "render", "voice"),
+    ],
+)
+def test_an_exception_inside_a_scripted_provider_makes_the_run_invalid(
+    monkeypatch, owner, method, provider
+):
+    """The framework takes it for a provider that failed, and carries on."""
+    monkeypatch.setattr(owner, method, _a_bug)
+    monkeypatch.setattr(clock, "STALL_SECONDS", 0.2)  # a run left waiting fails here, and soon
+    result = run_case(CASES["barge_in_mid_word"](), require_valid=False)
+    assert result.invalid == [
+        f"harness error: the scripted {provider} raised KeyError: 'a bug in Earful'"
+    ]
+
+
+def test_an_exception_while_a_whole_text_is_synthesized_is_recorded(monkeypatch):
+    async def main():
+        errors = []
+        token = providers.record_errors_in(errors)
+        voice = StampedTTS(Ledger(now_us, run="test"), ReplyRegister())
+        monkeypatch.setattr(providers._Synthesis, "render", _a_bug)
+        with pytest.raises(Exception, match="a bug in Earful|failed"):
+            async for _ in voice.synthesize("hello"):
+                pass
+        providers.stop_recording_errors(token)
+        await voice.aclose()
+        return errors
+
+    assert run_virtual(main) == ["the scripted voice raised KeyError: 'a bug in Earful'"]
+
+
+def test_a_policy_that_raises_is_recorded_once_and_as_the_policy():
+    case = _slow_case()
+    case.policy = _a_bug
+    result = run_case(case, require_valid=False)
+    assert result.invalid == ["harness error: policy raised on call 1: KeyError: 'a bug in Earful'"]

@@ -6,7 +6,10 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import dataclasses
-from typing import Any, NoReturn
+import functools
+from collections.abc import Callable, Coroutine
+from contextvars import ContextVar, Token
+from typing import Any, NoReturn, ParamSpec, TypeVar
 
 from livekit import rtc
 from livekit.agents import llm as lk_llm
@@ -24,6 +27,65 @@ from ..scripted.world import UserSpeech, WorldOrigin, _check_speeches, vad_segme
 from ..scripted.world import sleep_until as _sleep_until
 from ._compat import DEFAULT_API_CONNECT_OPTIONS, APIConnectOptions
 from .tools import unwitnessed
+
+P = ParamSpec("P")
+R = TypeVar("R")
+
+# The harness errors of the run in progress. Tasks the framework starts inherit it.
+_errors: ContextVar[list[str] | None] = ContextVar("earful_harness_errors", default=None)
+
+
+def record_errors_in(errors: list[str] | None) -> Token[list[str] | None]:
+    """Record what Earful's own providers raise from here on in ``errors``."""
+    return _errors.set(errors)
+
+
+def stop_recording_errors(token: Token[list[str] | None]) -> None:
+    _errors.reset(token)
+
+
+def _record(what: str, exc: Exception) -> None:
+    errors, said = _errors.get(), f"{type(exc).__name__}: {exc}"
+    # A policy that raised is already there, recorded by the scripted model.
+    if errors is not None and not (errors and errors[-1].endswith(said)):
+        errors.append(f"the scripted {what} raised {said}")
+
+
+def scripted(
+    what: str,
+) -> Callable[[Callable[P, Coroutine[Any, Any, R]]], Callable[P, Coroutine[Any, Any, R]]]:
+    """The framework handles what a provider raises as that provider failing. In Earful's
+    own providers it is a broken simulation, so it is recorded as a harness error first."""
+
+    def guard(run: Callable[P, Coroutine[Any, Any, R]]) -> Callable[P, Coroutine[Any, Any, R]]:
+        @functools.wraps(run)
+        async def guarded(*args: P.args, **kwargs: P.kwargs) -> R:
+            try:
+                return await run(*args, **kwargs)
+            except Exception as exc:
+                _record(what, exc)
+                raise
+
+        return guarded
+
+    return guard
+
+
+def scripted_call(what: str) -> Callable[[Callable[P, R]], Callable[P, R]]:
+    """``scripted`` for a method that is not a coroutine."""
+
+    def guard(call: Callable[P, R]) -> Callable[P, R]:
+        @functools.wraps(call)
+        def guarded(*args: P.args, **kwargs: P.kwargs) -> R:
+            try:
+                return call(*args, **kwargs)
+            except Exception as exc:
+                _record(what, exc)
+                raise
+
+        return guarded
+
+    return guard
 
 
 class ScriptedVAD(lk_vad.VAD):
@@ -60,6 +122,7 @@ _VAD_EVENT_FIELDS = {f.name for f in dataclasses.fields(lk_vad.VADEvent)}
 
 
 class _ScriptedVADStream(lk_vad.VADStream):
+    @scripted("VAD")
     async def _main_task(self) -> None:
         vad = self._vad
         assert isinstance(vad, ScriptedVAD)
@@ -162,31 +225,41 @@ class ScriptedSTT(lk_stt.STT[NoReturn]):
 
 
 class _ScriptedRecognizeStream(lk_stt.RecognizeStream):
+    @scripted("recognizer")
     async def _run(self) -> None:
         stt = self._stt
         assert isinstance(stt, ScriptedSTT)
         if stt._speeches and not stt.done.done():
-            await self._input_ch.recv()  # clock starts at the first audio frame
-            t0 = now_us()
-            stt._origin.mark("stt", t0)
-            for i, speech in enumerate(stt._speeches):
-                final_at = speech.end_us + speech.stt_delay_us
-                if speech.transcript:
-                    await _sleep_until(t0, speech.end_us + speech.stt_delay_us // 2)
-                    interim = " ".join(speech.transcript.split()[:2])
-                    self._send(interim, final=False)
-                    await _sleep_until(t0, final_at)
-                    self._send(speech.transcript, final=True)
-                    stt._ledger.append(
-                        "world", "user.transcript_final", speech=i, text=speech.transcript
-                    )
-                else:
-                    await _sleep_until(t0, final_at)
-            with contextlib.suppress(asyncio.InvalidStateError):
-                stt.done.set_result(None)
+            try:
+                await self._script(stt)
+            except Exception:
+                # The scenario ends on the last transcript: a run must not wait for it now.
+                with contextlib.suppress(asyncio.InvalidStateError):
+                    stt.done.set_result(None)
+                raise
 
         async for _ in self._input_ch:
             pass
+
+    async def _script(self, stt: ScriptedSTT) -> None:
+        await self._input_ch.recv()  # clock starts at the first audio frame
+        t0 = now_us()
+        stt._origin.mark("stt", t0)
+        for i, speech in enumerate(stt._speeches):
+            final_at = speech.end_us + speech.stt_delay_us
+            if speech.transcript:
+                await _sleep_until(t0, speech.end_us + speech.stt_delay_us // 2)
+                interim = " ".join(speech.transcript.split()[:2])
+                self._send(interim, final=False)
+                await _sleep_until(t0, final_at)
+                self._send(speech.transcript, final=True)
+                stt._ledger.append(
+                    "world", "user.transcript_final", speech=i, text=speech.transcript
+                )
+            else:
+                await _sleep_until(t0, final_at)
+        with contextlib.suppress(asyncio.InvalidStateError):
+            stt.done.set_result(None)
 
     def _send(self, text: str, *, final: bool) -> None:
         kind = (
@@ -252,6 +325,7 @@ class ScriptedLLM(lk_llm.LLM[NoReturn]):
 
 
 class _ScriptedLLMStream(lk_llm.LLMStream):
+    @scripted("model")
     async def _run(self) -> None:
         model = self._llm
         assert isinstance(model, ScriptedLLM)
@@ -431,6 +505,7 @@ def _push_pcm(emitter: Any, pcm: bytes, sample_rate: int) -> None:
 
 
 class _StampedChunkedStream(lk_tts.ChunkedStream):
+    @scripted("voice")
     async def _run(self, output_emitter: Any) -> None:
         tts = self._tts
         assert isinstance(tts, StampedTTS)
@@ -452,6 +527,7 @@ class _StampedChunkedStream(lk_tts.ChunkedStream):
 
 
 class _StampedSynthesizeStream(lk_tts.SynthesizeStream):
+    @scripted("voice")
     async def _run(self, output_emitter: Any) -> None:
         tts = self._tts
         assert isinstance(tts, StampedTTS)
