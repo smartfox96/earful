@@ -335,6 +335,14 @@ def test_the_readme_shows_the_example_as_it_is_in_the_repository():
         assert line in README, line
 
 
+def test_the_readme_says_before_the_quickstart_that_a_test_shows_only_what_its_script_models():
+    before, _, quickstart = README.partition("\n## Quickstart\n")
+    assert "a test shows a failure only in\nbehaviour its script models" in before
+    # What the limit is explained with is in the example: its model tries a failed call again.
+    assert "tries a failed tool call again" in before
+    assert '.when(tool_failed(), say="One moment, let me try that again.", call=BOOK)' in quickstart
+
+
 def test_the_changelog_has_a_section_for_the_version_under_one_for_what_is_unreleased():
     changelog = (ROOT / "CHANGELOG.md").read_text()
     project = (ROOT / "pyproject.toml").read_text()

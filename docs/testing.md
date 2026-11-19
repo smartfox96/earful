@@ -76,6 +76,20 @@ measure.
 gives the reply. `otherwise` gives the reply when none does. A context that no rule
 matches is an error in the scenario and makes the run invalid.
 
+So does a call the script got wrong. Each tool call of a reply is checked against the
+tools the framework offers the model for that call: a name none of them has, an argument
+the tool does not take, or a missing argument it needs makes the run invalid, and the
+reason says what was expected:
+
+```
+invalid: harness error: call 1: the scripted model called 'create_reservatoin', which the agent does not offer; it offers ['create_reservation']
+invalid: harness error: call 1: the scripted model called 'create_reservation' with the arguments ['party']; the tool takes ['party_size'] and needs ['party_size']
+```
+
+Argument names are checked and their values are not. On Pipecat the names are checked
+for a function whose parameters the context declares (`docs/pipecat.md`), and a function
+registered by name alone takes whatever the script gives it.
+
 | Condition | Holds when |
 | --- | --- |
 | `user_said("stop")` | The latest user message contains the phrase, in any case |
@@ -226,9 +240,9 @@ release under test. A rule is named by its contract and by what the report calls
 | L2 | `L2/rule a`, `L2/rule b` |
 
 Only a failed contract fails the assertion. A contract that is `not_exercised` or
-`unobservable` does not, so a run in which the model calls a tool the agent does not have
-writes nothing, leaves A2 not exercised and passes. `require` names the contracts a test
-is about. Each must end with a pass or a fail:
+`unobservable` does not, so a run in which the model never calls the booking tool writes
+nothing, leaves A2 not exercised and passes. `require` names the contracts a test is
+about. Each must end with a pass or a fail:
 
 ```python
 result.assert_contracts(require=["A2", "A3"])

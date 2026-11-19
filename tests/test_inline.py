@@ -14,7 +14,7 @@ from earful.core.search import evaluate
 from earful.livekit import scenario
 from earful.livekit.api import WorkersUnavailable, explore, keep, replay, run
 from earful.livekit.cases import BOOKING_ACK, BOOKING_INTENT, barge_in_mid_word
-from earful.livekit.harness import Case, Delay, Fault, Intent
+from earful.livekit.harness import Case, Delay, Fault, Intent, InvalidRun
 from earful.livekit.providers import UserSpeech
 from earful.livekit.scenario import INLINE, Scenario
 from earful.scripted.playbook import (
@@ -90,14 +90,27 @@ def test_a_broken_contract_fails_the_test_and_says_which_rule_and_why():
     result.assert_contracts(allow=[CONFIRMED_BUT_NOT_DONE])
 
 
-def test_a_model_that_calls_a_tool_the_agent_lacks_fails_a_test_that_requires_the_write():
+def test_a_model_that_calls_a_tool_the_agent_lacks_gives_a_run_that_is_not_valid_evidence():
     misspelt = (
         ScriptedModel()
-        .when(lambda context: bool(context.assistant_turns), say="Your table is booked.")
+        .when(tool_returned(), say="Your table is booked.")
         .when(user_ever_said("table"), reply(BOOKING_ACK, call="create_reservatoin"))
         .otherwise(say="How can I help?")
     )
-    result = run(booking(misspelt))
+    with pytest.raises(InvalidRun) as refused:
+        run(booking(misspelt))
+    (why,) = refused.value.reasons
+    assert why == (
+        "harness error: call 1: the scripted model called 'create_reservatoin', which the "
+        "agent does not offer; it offers ['create_reservation']"
+    )
+    with pytest.raises(ValueError, match="cannot be searched: .* does not offer; it offers"):
+        explore(booking(misspelt))
+
+
+def test_a_model_that_never_calls_the_tool_fails_a_test_that_requires_the_write():
+    only_talks = ScriptedModel().otherwise(say="Your table is booked.")
+    result = run(booking(only_talks))
     result.assert_contracts()  # nothing was written, so nothing about a write broke
     with pytest.raises(ContractFailure) as caught:
         result.assert_contracts(require=["A2", "L1"])

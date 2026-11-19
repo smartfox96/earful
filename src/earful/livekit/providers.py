@@ -21,7 +21,7 @@ from livekit.agents import vad as lk_vad
 from ..core.ledger import Ledger
 from ..core.timebase import to_seconds, to_us
 from ..scripted.clock import now_us
-from ..scripted.model import Claim, Policy, Reply, ReplyRegister, ToolCall, _words
+from ..scripted.model import Claim, Policy, Reply, ReplyRegister, ToolCall, _words, misfit
 from ..scripted.voice import SHORTEST, StampTable, letters
 from ..scripted.world import UserSpeech, WorldOrigin, _check_speeches, vad_segments
 from ..scripted.world import sleep_until as _sleep_until
@@ -324,6 +324,25 @@ class ScriptedLLM(lk_llm.LLM[NoReturn]):
         )
 
 
+def _unfit(tools: list[Any], calls: tuple[ToolCall, ...]) -> list[str]:
+    """What is wrong with each scripted call that the tools offered for it cannot take."""
+    kinds = (lk_llm.FunctionTool, lk_llm.RawFunctionTool)
+    offered = {tool.info.name: tool for tool in tools if isinstance(tool, kinds)}
+    out: list[str | None] = []
+    for call in calls:
+        tool = offered.get(call.name)
+        if tool is None:
+            out.append(
+                f"the scripted model called {call.name!r}, which the agent does not offer; "
+                f"it offers {sorted(offered)}"
+            )
+        elif isinstance(tool, lk_llm.FunctionTool):  # a raw tool's schema is its author's own
+            schema = lk_llm.utils.build_legacy_openai_schema(tool, internally_tagged=True)
+            taken = schema["parameters"]
+            out.append(misfit(call, taken.get("properties", {}), taken.get("required", ())))
+    return [wrong for wrong in out if wrong is not None]
+
+
 class _ScriptedLLMStream(lk_llm.LLMStream):
     @scripted("model")
     async def _run(self) -> None:
@@ -343,6 +362,7 @@ class _ScriptedLLMStream(lk_llm.LLMStream):
             # The framework would handle this as a model failure. It is a broken scenario.
             model._errors.append(f"policy raised on call {call}: {type(exc).__name__}: {exc}")
             raise
+        model._errors += [f"call {call}: {wrong}" for wrong in _unfit(self.tools, reply.tool_calls)]
         words = _words(reply.text)
         claims = []
         for claim in reply.claims:

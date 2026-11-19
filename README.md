@@ -19,6 +19,10 @@ each contract and every event. The picture is the failure the quickstart below f
 [Open that report](https://smartfox96.github.io/earful/booking.html) and select a verdict to see what it rests on, or
 look at [a known defect of livekit-agents 1.5.6](https://smartfox96.github.io/earful/livekit-3702.html) drawn the same way.
 
+The user, the model and the voice are scripted, so a test shows a failure only in
+behaviour its script models. The quickstart finds a double booking because its scripted
+model tries a failed tool call again.
+
 For Pipecat, use Python 3.11 or later and install from this checkout with
 `pip install -e ".[pipecat]"`. The
 [Pipecat quickstart](https://github.com/smartfox96/earful/blob/main/docs/pipecat.md)

@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
+import json
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -73,3 +74,23 @@ class ReplyRegister:
 
 # A model policy: a pure function of the context, which it sees as item summaries.
 Policy = Callable[[list[dict[str, Any]]], Reply]
+
+
+def misfit(call: ToolCall, takes: Iterable[str], needs: Iterable[str]) -> str | None:
+    """Why the arguments of ``call`` do not fit a tool with these parameters, or None."""
+    try:
+        given = json.loads(call.arguments)
+    except ValueError:
+        given = None
+    if not isinstance(given, dict):
+        return (
+            f"the scripted model called {call.name!r} with arguments that are not a JSON "
+            f"object: {call.arguments!r}"
+        )
+    takes, needs = sorted(takes), sorted(needs)
+    if set(given) <= set(takes) and set(needs) <= set(given):
+        return None
+    return (
+        f"the scripted model called {call.name!r} with the arguments {sorted(given)}; "
+        f"the tool takes {takes} and needs {needs}"
+    )

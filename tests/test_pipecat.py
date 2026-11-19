@@ -473,7 +473,7 @@ def test_pipecat_recognizes_a_framework_refusal_without_an_application_tool():
         .when(pc.tool_returned(), say="That worked.")
         .otherwise(call=("missing", {}))
     )
-    result = pc.run(built)
+    result = pc.run_case(built, require_valid=False)  # a call the script got wrong
     assert not events(result, "tool.called")
     assert events(result, "llm.response")[-1]["text"] == "I could not do that."
 
@@ -527,6 +527,46 @@ def test_pipecat_witnesses_a_tool_however_it_is_registered(bot, declared):
     assert requested["tool"] == called["tool"] == returned["tool"] and returned["output"] == "R1"
     outcomes = result.report.outcomes()
     assert outcomes["A2"] == outcomes["M2"] == outcomes["L1"] == "pass"
+
+
+_SEATS = "the tool takes ['seats'] and needs ['seats']"
+
+
+@pytest.mark.parametrize(
+    ("bot", "call", "why"),
+    [
+        (
+            _registered,
+            ("boook", {"seats": 4}),
+            "'boook', which the bot has not registered; it has ['book']",
+        ),
+        (_direct, ("book", {"seat": 4}), f"'book' with the arguments ['seat']; {_SEATS}"),
+        (_advertised, ("book", {}), f"'book' with the arguments []; {_SEATS}"),
+        (
+            _advertised,
+            ("book", {"seats": 4, "day": "Friday"}),
+            f"'book' with the arguments ['day', 'seats']; {_SEATS}",
+        ),
+    ],
+)
+def test_pipecat_a_scripted_call_no_registered_function_can_take_makes_the_run_invalid(
+    bot, call, why
+):
+    model = pc.ScriptedModel().when(pc.tool_returned(), say="Done.").otherwise(call=call)
+    built = replace(booking(), bot=bot, policy=model, effects={}, intents=[pc.Intent("table")])
+    with pytest.raises(pc.InvalidRun) as refused:
+        pc.run(built)
+    assert refused.value.reasons == [f"harness error: call 1: the scripted model called {why}"]
+
+
+def test_pipecat_a_function_registered_by_name_alone_takes_whatever_arguments_the_script_gives():
+    model = (
+        pc.ScriptedModel()
+        .when(pc.tool_returned(), say="Done.")
+        .otherwise(call=("book", {"seat": 4}))
+    )
+    result = pc.run(replace(booking(), bot=_registered, policy=model))
+    assert events(result, "tool.called")[0]["arguments"] == {"seat": 4}
 
 
 def interruption():

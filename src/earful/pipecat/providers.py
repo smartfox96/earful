@@ -12,6 +12,7 @@ from dataclasses import dataclass, field
 from typing import Any, cast
 
 from pipecat.adapters.llm.schemas.direct_function import DirectFunctionWrapper
+from pipecat.adapters.llm.schemas.tools_schema import ToolsSchema
 from pipecat.frames.frames import (
     Frame,
     FunctionCallFromLLM,
@@ -41,7 +42,7 @@ from pipecat.utils.time import time_now_iso8601
 from ..core.ledger import Ledger
 from ..core.timebase import to_us
 from ..scripted.clock import now_us
-from ..scripted.model import Policy, ReplyRegister
+from ..scripted.model import Policy, ReplyRegister, ToolCall, misfit
 from ..scripted.voice import SHORTEST, StampTable, letters
 from ..scripted.world import UserSpeech, WorldOrigin, sleep_until, vad_segments
 from .tools import ToolWitness
@@ -298,6 +299,18 @@ class ScriptedLLM(LLMService):
             self.error_results[frame.tool_call_id] = json.dumps(frame.result, ensure_ascii=False)
         await super().push_frame(frame, direction)
 
+    def _unfit(self, tool: ToolCall, context: LLMContext) -> str | None:
+        """What is wrong with a scripted call that no registered function can take, or None."""
+        if not self.has_function(tool.name):
+            return (
+                f"the scripted model called {tool.name!r}, which the bot has not registered; "
+                f"it has {sorted(self._witness.names)}"
+            )
+        # A function the context does not advertise declares no parameters to check against.
+        advertised = context.tools.standard_tools if isinstance(context.tools, ToolsSchema) else []
+        declared = next((schema for schema in advertised if schema.name == tool.name), None)
+        return None if declared is None else misfit(tool, declared.properties, declared.required)
+
     async def _generate(self, context: LLMContext) -> None:
         self._calls += 1
         call = self._calls
@@ -318,6 +331,9 @@ class ScriptedLLM(LLMService):
             if tool.call_id in self._call_ids:
                 self._errors.append(f"call {call}: the policy reused tool call id {tool.call_id!r}")
             self._call_ids.add(tool.call_id)
+            wrong = self._unfit(tool, context)
+            if wrong is not None:
+                self._errors.append(f"call {call}: {wrong}")
         claims = [
             {
                 "intent": claim.intent,
