@@ -220,6 +220,15 @@ def test_pipecat_a_function_that_starts_a_thread_leaves_invalid_evidence():
         pc.run(built)
 
 
+@pytest.mark.parametrize("virtual", [True, False])
+def test_pipecat_a_run_started_inside_a_running_loop_is_refused_in_one_line(virtual):
+    async def inside():
+        return pc.run_case(greeting(), virtual=virtual)
+
+    with pytest.raises(RuntimeError, match="cannot be started from inside a running one"):
+        asyncio.run(inside())
+
+
 def test_pipecat_hangup_stops_the_user_and_settles_a_pending_write():
     built = booking()
     built.hangup = 3.0

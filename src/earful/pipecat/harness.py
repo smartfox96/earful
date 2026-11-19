@@ -45,7 +45,14 @@ from ..core.predicate import Predicate
 from ..core.schema import validity
 from ..core.timebase import to_seconds, to_us
 from ..scripted.case import Delay, Fault, Intent, InvalidRun, check_case, declared_intents
-from ..scripted.clock import VirtualTimeLoop, left_the_clock, now_us, patch_report, run_virtual
+from ..scripted.clock import (
+    VirtualTimeLoop,
+    left_the_clock,
+    now_us,
+    patch_report,
+    run_real,
+    run_virtual,
+)
 from ..scripted.model import Policy
 from ..scripted.world import UserSpeech, WorldOrigin, sleep_until
 from .clock import VirtualClock
@@ -445,7 +452,7 @@ def run_case(
     if virtual:
         result = run_virtual(lambda: _run(case, seed))
     else:
-        result = asyncio.run(asyncio.wait_for(_run(case, seed), timeout=120))
+        result = run_real(lambda: _run(case, seed), timeout=120)
     if result.invalid and require_valid:
         raise InvalidRun(result.invalid, result)
     return result

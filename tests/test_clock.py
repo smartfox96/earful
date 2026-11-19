@@ -4,8 +4,10 @@ import asyncio
 import contextlib
 import dataclasses
 import datetime
+import gc
 import logging
 import os
+import random
 import socket
 import threading
 import time
@@ -22,6 +24,7 @@ from earful.scripted.clock import (
     WALL_CLOCK_EPOCH,
     left_the_clock,
     patch_report,
+    run_real,
     run_virtual,
 )
 
@@ -453,3 +456,42 @@ def test_a_logging_handler_that_reads_the_clock_does_not_move_it():
     assert _microseconds(handler.read[0] - before) == 0
     assert _microseconds(after - before) == 1
     assert logging.Logger.handle is handle
+
+
+@pytest.mark.parametrize("virtual", [True, False])
+def test_a_run_leaves_the_random_module_as_it_found_it(virtual):
+    async def main():
+        random.seed(7)  # as a run does with its seed
+        return random.random()
+
+    random.seed(123)
+    before = random.getstate()
+    drawn = run_virtual(main) if virtual else run_real(main, timeout=5)
+    assert drawn == random.Random(7).random()
+    assert random.getstate() == before
+    run_case(CASES["barge_in_mid_word"](), seed=3)
+    assert random.getstate() == before
+
+
+@pytest.mark.parametrize("virtual", [True, False])
+def test_a_run_leaves_the_current_event_loop_in_place(virtual):
+    mine = asyncio.new_event_loop()
+    asyncio.set_event_loop(mine)
+    try:
+        run_virtual(_nothing) if virtual else run_real(_nothing, timeout=5)
+        assert asyncio.get_event_loop() is mine
+    finally:
+        asyncio.set_event_loop(None)
+        mine.close()
+
+
+@pytest.mark.parametrize("virtual", [True, False])
+def test_a_run_started_inside_a_running_loop_is_refused_in_one_line(virtual, recwarn):
+    async def inside():
+        return run_case(CASES["barge_in_mid_word"](), virtual=virtual)
+
+    with pytest.raises(RuntimeError, match="cannot be started from inside a running one") as no:
+        asyncio.run(inside())
+    assert "\n" not in str(no.value)
+    gc.collect()  # a coroutine made and never run would warn as it is collected
+    assert [str(w.message) for w in recwarn if "never awaited" in str(w.message)] == []

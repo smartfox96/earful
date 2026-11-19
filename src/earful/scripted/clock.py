@@ -7,6 +7,7 @@ import asyncio
 import contextlib
 import heapq
 import logging
+import random
 import selectors
 import threading
 import time
@@ -520,24 +521,58 @@ def left_the_clock(loop: asyncio.AbstractEventLoop) -> list[str]:
     return loop.left() if isinstance(loop, VirtualTimeLoop) else []
 
 
+@contextlib.contextmanager
+def _leaving_no_trace() -> Iterator[None]:
+    # Refused before a loop or a coroutine exists, so that nothing is left to warn about.
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        pass
+    else:
+        raise RuntimeError(
+            "an Earful run starts its own event loop and cannot be started from inside a "
+            "running one: call it from a function that is not async"
+        )
+    seeded = random.getstate()  # a run seeds the random module with its own seed
+    try:
+        yield
+    finally:
+        random.setstate(seeded)
+
+
+def _finish(loop: asyncio.AbstractEventLoop) -> None:
+    # What asyncio.run does at its end. The loop was never made the thread's current one.
+    try:
+        pending = [t for t in asyncio.all_tasks(loop) if not t.done()]
+        for task in pending:
+            task.cancel()
+        if pending:
+            loop.run_until_complete(asyncio.gather(*pending, return_exceptions=True))
+        loop.run_until_complete(loop.shutdown_asyncgens())
+        loop.run_until_complete(loop.shutdown_default_executor())
+    finally:
+        loop.close()
+
+
 def run_virtual(main: Callable[[], Coroutine[Any, Any, T]]) -> T:
     """Run ``main()`` to completion on a fresh VirtualTimeLoop with the wall clock patched."""
-    loop = VirtualTimeLoop()
-    try:
-        asyncio.set_event_loop(loop)
-        with virtual_wall_clock(), _logging_off_the_clock(), _threads_counted():
-            return loop.run_until_complete(main())
-    finally:
+    with _leaving_no_trace():
+        loop = VirtualTimeLoop()
         try:
-            pending = [t for t in asyncio.all_tasks(loop) if not t.done()]
-            for task in pending:
-                task.cancel()
-            if pending:
-                loop.run_until_complete(asyncio.gather(*pending, return_exceptions=True))
-            loop.run_until_complete(loop.shutdown_asyncgens())
+            with virtual_wall_clock(), _logging_off_the_clock(), _threads_counted():
+                return loop.run_until_complete(main())
         finally:
-            asyncio.set_event_loop(None)
-            loop.close()
+            _finish(loop)
+
+
+def run_real(main: Callable[[], Coroutine[Any, Any, T]], *, timeout: float) -> T:
+    """Run ``main()`` on a fresh loop on the real clock, for at most ``timeout`` seconds."""
+    with _leaving_no_trace():
+        loop = asyncio.new_event_loop()
+        try:
+            return loop.run_until_complete(asyncio.wait_for(main(), timeout))
+        finally:
+            _finish(loop)
 
 
 def now_us() -> int:

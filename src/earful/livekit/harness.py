@@ -30,6 +30,7 @@ from ..scripted.clock import (
     left_the_clock,
     now_us,
     patch_report,
+    run_real,
     run_virtual,
 )
 from . import tools
@@ -584,7 +585,7 @@ def run_case(
     if virtual:
         result = run_virtual(lambda: _run(case, seed))
     else:
-        result = asyncio.run(asyncio.wait_for(_run(case, seed), timeout=REAL_CLOCK_TIMEOUT))
+        result = run_real(lambda: _run(case, seed), timeout=REAL_CLOCK_TIMEOUT)
     if result.invalid and require_valid:
         raise InvalidRun(result.invalid, result)
     return result
