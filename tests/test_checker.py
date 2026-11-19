@@ -1504,28 +1504,42 @@ def test_m2_a_tool_call_renamed_given_other_arguments_and_moved_fails_in_every_c
     ]
 
 
-def _buffer_gap(events, at, length=0):
-    paused = copy.deepcopy(of(events, "playout.paused"))
-    paused["t_us"] = at
-    paused["data"]["played_us"] = at - of(events, "playout.started")["t_us"]
-    resumed = copy.deepcopy(paused)
-    resumed.update(kind="playout.resumed", t_us=at + length)
-    events.extend((paused, resumed))
+def _by_time(events):
     return seal(sorted(events, key=lambda event: event["t_us"]))
 
 
-@pytest.mark.parametrize("gap_us", [0, 1])
-def test_l2_a_zero_length_buffer_gap_does_not_start_audio_again(barge, gap_us):
-    events = _buffer_gap(barge, 5_100_000, gap_us)
-    report = check(events)
-    assert report.valid
-    assert report.outcome("L2") == (PASS if gap_us == 0 else FAIL)
+def _gap(events, at, length=0, *, asked=False, segment=1):
+    """A segment is silent from ``at`` for ``length``: its buffer ran empty or, if ``asked``,
+    the output was told to pause and then to resume."""
+    paused = copy.deepcopy(of(events, "playout.paused"))
+    paused["t_us"] = at
+    started = of(events, "playout.started", segment - 1)["t_us"]
+    paused["data"].update(segment=segment, played_us=at - started)
+    resumed = copy.deepcopy(paused)
+    resumed.update(kind="playout.resumed", t_us=at + length)
+    added = [paused, resumed]
+    if asked:
+        pause, resume = (copy.deepcopy(of(events, kind)) for kind in ("sink.pause", "sink.resume"))
+        pause["t_us"], resume["t_us"] = at, at + length
+        resume["data"]["segment"] = 1
+        added = [pause, paused, resume, resumed]
+    events.extend(added)
+    return _by_time(events)
 
 
-def test_l2_a_zero_length_buffer_gap_does_not_hide_a_late_stop(barge):
-    of(barge, "playout.paused")["t_us"] = 5_900_000
-    report = check(_buffer_gap(barge, 5_500_000))
-    assert report.valid and rules(report, "L2") == ["rule a"]
+@pytest.mark.parametrize("gap_us", [0, 1, 300_000])
+def test_l2_a_reply_that_plays_on_after_a_gap_in_its_buffer_does_not_start(barge, gap_us):
+    """The gap opens at 5.1 s, in the floor window. The reply is paused at the point, 5.5 s."""
+    report = check(_gap(barge, 5_100_000, gap_us))
+    assert report.valid and report.outcome("L2") == PASS
+
+
+def test_l2_a_reply_that_plays_on_after_a_later_gap_was_not_asked_to_pause(barge):
+    """The output was paused at 5.5 s and resumed at 6.2 s. Reply 2's buffer is empty from
+    7.3 s to 7.4 s, while the user says "Thanks."."""
+    events = declare(_spoke_again(barge, 7_100_000), L2={"interruptions_allowed": False})
+    report = check(_gap(events, 7_300_000, 100_000, segment=2))
+    assert report.valid and report.outcome("L2") == PASS
 
 
 def _late_pause(events, by_us):
@@ -1537,6 +1551,61 @@ def _late_pause(events, by_us):
     return events
 
 
+@pytest.mark.parametrize("late_us, broken", [(100_000, []), (100_001, ["rule a"])])
+def test_l2_a_reply_playing_on_after_a_gap_across_the_interruption_point_is_held_to_the_bound(
+    barge, late_us, broken
+):
+    """Its buffer is empty from 5.45 s to 5.55 s, and the point is at 5.5 s."""
+    report = check(_gap(_late_pause(barge, late_us), 5_450_000, 100_000))
+    assert report.valid and rules(report, "L2") == broken
+    assert report.results["L2"].verdicts[1].measures["audible_after_point_us"] == late_us
+
+
+@pytest.mark.parametrize("back_us, broken", [(5_999_999, ["rule a"]), (6_000_000, [])])
+def test_l2_a_gap_from_before_the_point_to_the_end_of_the_floor_leaves_the_agent_silent(
+    barge, back_us, broken
+):
+    """The framework never stops the reply. Its buffer is empty from 5.3 s, and audio is back
+    as the user stops speaking at 6.0 s, or 1 us before."""
+    asked = [of(barge, "sink.pause"), of(barge, "playout.paused")]
+    events = _gap(barge, 5_300_000, back_us - 5_300_000)
+    report = check(seal([e for e in events if e not in asked]))
+    assert report.valid and rules(report, "L2") == broken
+
+
+@pytest.mark.parametrize(
+    "at_us, grace_us, broken",
+    [
+        (5_800_000, 0, ["rule b"]),
+        (5_800_000, 749_999, ["rule b"]),
+        (5_800_000, 750_000, []),
+        (5_999_999, 0, ["rule b"]),
+        (6_000_000, 0, []),
+    ],
+)
+def test_l2_a_reply_the_framework_resumes_inside_the_floor_window_talks_over_the_user(
+    barge, at_us, grace_us, broken
+):
+    """The floor window is open from 5.05 s to 6.0 s, and both ends are outside it."""
+    resume = copy.deepcopy(of(barge, "sink.resume"))
+    resumed = copy.deepcopy(of(barge, "playout.paused"))
+    resume["t_us"] = resumed["t_us"] = at_us
+    resume["data"]["segment"], resumed["kind"] = 1, "playout.resumed"
+    barge.extend((resume, resumed))
+    report = check(declare(_by_time(barge), L2={"start_grace_us": grace_us}))
+    assert report.valid and rules(report, "L2") == broken
+    if broken:
+        (finding,) = report.results["L2"].failures[0].findings
+        assert f"segment 1 resumed {at_us - 5_050_000} us after" in finding.detail
+
+
+def test_l2_a_pause_of_zero_length_neither_resumes_a_reply_nor_ends_it(barge):
+    assert check(_gap(copy.deepcopy(barge), 5_100_000, 0, asked=True)).outcome("L2") == PASS
+    assert rules(check(_gap(copy.deepcopy(barge), 5_100_000, 1, asked=True)), "L2") == ["rule b"]
+    late = check(_gap(_late_pause(barge, 400_000), 5_500_000, 0, asked=True))
+    assert late.valid and rules(late, "L2") == ["rule a"]
+
+
 def test_l2_a_late_command_fails_and_puts_the_reference_in_doubt(barge):
     report = check(_late_pause(barge, 300_000))
     (failed,) = report.results["L2"].failures
@@ -1545,17 +1614,62 @@ def test_l2_a_late_command_fails_and_puts_the_reference_in_doubt(barge):
     assert failed.measures["decision_lag_us"] == 300_000
 
 
+@pytest.mark.parametrize("late_us, broken", [(100_000, []), (100_001, ["rule a"])])
+def test_l2_a_stop_at_the_bound_passes_and_one_microsecond_later_fails(barge, late_us, broken):
+    report = check(_late_pause(barge, late_us))
+    assert rules(report, "L2") == broken
+    assert report.results["L2"].verdicts[1].measures["audible_after_point_us"] == late_us
+
+
+@pytest.mark.parametrize(
+    "command_us, doubt", [(5_600_000, ()), (5_600_001, ("reference_in_doubt",))]
+)
+def test_l2_the_reference_is_in_doubt_only_if_the_command_came_later_than_the_bound(
+    barge, command_us, doubt
+):
+    """The output plays on for 0.2 s after it is told to pause."""
+    of(barge, "sink.pause")["t_us"] = command_us
+    of(barge, "playout.paused")["t_us"] = command_us + 200_000
+    (failed,) = check(_by_time(barge)).results["L2"].failures
+    assert [f.rule for f in failed.findings] == ["rule a"] and failed.flags == doubt
+    assert failed.measures["stop_latency_us"] == 200_000
+
+
 def test_l2_the_stop_bound_is_a_policy_choice(barge):
     events = declare(_late_pause(barge, 300_000), L2={"stop_bound_us": 300_000})
     assert check(events).outcome("L2") == PASS
 
 
-def test_l2_a_speech_shorter_than_the_threshold_has_no_interruption_point(barge):
+@pytest.mark.parametrize("early_us, after_us", [(0, 0), (1, None)])
+def test_l2_a_reply_that_stops_at_the_interruption_point_was_audible_at_it(
+    barge, early_us, after_us
+):
+    report = check(_late_pause(barge, -early_us))
+    assert report.valid and report.outcome("L2") == PASS
+    assert report.results["L2"].verdicts[1].measures.get("audible_after_point_us") == after_us
+
+
+@pytest.mark.parametrize("before_us, broken", [(0, ["rule b"]), (1, ["rule a", "rule b"])])
+def test_l2_audio_that_starts_at_the_interruption_point_starts_and_was_not_under_way(
+    barge, before_us, broken
+):
+    """Reply 2 starts at 7.0 s. A third speech reaches its interruption point then, or 1 us on."""
+    report = check(_spoke_again(barge, 6_500_000 + before_us))
+    last = report.results["L2"].verdicts[2]
+    assert report.valid and last.measures["interruption_point_us"] == 7_000_000 + before_us
+    assert [f.rule for f in last.findings] == broken
+
+
+@pytest.mark.parametrize("length_us, point_us", [(500_000, 5_500_000), (499_999, None)])
+def test_l2_a_speech_as_long_as_the_threshold_has_its_interruption_point_at_its_end(
+    barge, length_us, point_us
+):
     speech = barge[0]["data"]["scenario"]["speeches"][1]
-    speech["end_us"] = speech["start_us"] + 300_000  # the framework's threshold is 500 ms
+    speech["end_us"] = speech["start_us"] + length_us
     report = check(_late_pause(seal(barge), 300_000))
     (v,) = [v for v in report.results["L2"].verdicts if v.instance == {"speech": 1}]
-    assert v.outcome == PASS and v.measures["interruption_point_us"] is None
+    assert v.measures["interruption_point_us"] == point_us
+    assert [f.rule for f in v.findings] == (["rule a"] if point_us else [])
 
 
 def test_l2_reports_recognition_delay_separately_from_stop_latency(barge):
@@ -1563,6 +1677,18 @@ def test_l2_reports_recognition_delay_separately_from_stop_latency(barge):
     assert measures["recognition_delay_us"] == 500_000  # true start of speech to the command
     assert measures["decision_lag_us"] == 0  # the declared threshold to the command
     assert measures["stop_latency_us"] == 0  # the command to silence
+
+
+@pytest.mark.parametrize(
+    "early_us, delays", [(500_000, (None, 0)), (500_001, (4_499_999, 1_200_000))]
+)
+def test_l2_a_command_belongs_to_the_speech_that_had_begun_when_it_reached_the_sink(
+    barge, early_us, delays
+):
+    """The pause reaches the sink as speech 1 starts at 5.0 s, or 1 us before. The next
+    command is the clear at 6.2 s."""
+    verdicts = check(_by_time(_late_pause(barge, -early_us))).results["L2"].verdicts
+    assert tuple(v.measures["recognition_delay_us"] for v in verdicts) == delays
 
 
 def test_l1_a_later_speech_carries_the_obligation():

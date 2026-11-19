@@ -190,14 +190,16 @@ class Segment:
     pauses: list[tuple[Event, Event | None]] = field(default_factory=list)  # (paused, resumed)
     finished: Event | None = None
 
+    def gaps(self) -> list[tuple[Event, Event | None]]:
+        """The pauses that silenced it: one that ended the instant it began did not."""
+        return [(p, r) for p, r in self.pauses if r is None or r["t_us"] != p["t_us"]]
+
     def audible(self, until: int) -> list[tuple[int, int]]:
         """Intervals in which the segment was audible; one still open is closed at ``until``."""
         if self.started is None:
             return []
         out, opened = [], self.started["t_us"]
-        for paused, resumed in self.pauses:
-            if resumed is not None and resumed["t_us"] == paused["t_us"]:
-                continue
+        for paused, resumed in self.gaps():
             out.append((opened, paused["t_us"]))
             if resumed is None:
                 return out
@@ -486,10 +488,44 @@ class View:
             for index, stamp in enumerate(u.stamps)
         }
 
-    def audible(self) -> list[tuple[int, int, Segment]]:
+    def asked_to_pause(self, paused: Event, resumed: Event | None) -> bool:
+        """Whether the output had been asked to pause at some time during this silence."""
+        asked, until = False, resumed["seq"] if resumed else self.end["seq"]
+        for e in self.commands:
+            if e["seq"] > until:
+                break
+            if e["kind"] == "sink.pause":
+                asked = True
+            elif e["kind"] == "sink.resume" and e["seq"] < paused["seq"]:
+                asked = False
+        return asked
+
+    def runs(self) -> list[tuple[list[tuple[int, int]], Segment]]:
+        """Each stretch a segment was under way, as its audible spans. A gap left by an empty
+        buffer does not end a stretch; a pause the output was asked for does."""
         until = self.end["t_us"]
-        spans = [(a, b, seg) for seg in self.segments.values() for a, b in seg.audible(until)]
-        return sorted(spans, key=lambda span: span[0])
+        out = []
+        for segment in self.segments.values():
+            spans = segment.audible(until)
+            if not spans:
+                continue
+            run = [spans[0]]
+            for (paused, resumed), span in zip(segment.gaps(), spans[1:]):
+                if self.asked_to_pause(paused, resumed):
+                    out.append((run, segment))
+                    run = []
+                run.append(span)
+            out.append((run, segment))
+        return sorted(out, key=lambda run: run[0][0][0])
+
+    def resumes(self) -> list[Event]:
+        """Each time a segment became audible again after a pause the output was asked for."""
+        return [
+            resumed
+            for segment in self.segments.values()
+            for paused, resumed in segment.gaps()
+            if resumed is not None and self.asked_to_pause(paused, resumed)
+        ]
 
     @cached_property
     def playouts(self) -> dict[str, Playout]:

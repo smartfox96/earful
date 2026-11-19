@@ -406,16 +406,23 @@ A VAD hears speech that resumes within its silence window as one **segment**
 speech that resumes inside a segment the VAD has already reported, the floor window opens
 at the speech's own true start, and its interruption point is the later of that start and
 the segment's start plus the minimum interruption duration. It has one only if that
-moment falls while the speech is under way and the segment lasts that long. The pause
+moment falls while the speech is under way, its last instant included. The pause
 between two speeches of a segment is in neither floor window: the user is not speaking.
+
+A reply is **under way** from the start of its segment, or from a resume the framework
+asked for, until the segment finishes or the output is asked to pause. A streaming buffer
+that runs empty leaves a gap in the audio and does not end this: nobody stopped the
+reply, and it plays on when more audio arrives. The sink records such a gap as
+`playout.paused` and `playout.resumed` with no `sink.pause` in force. A reply with a gap
+is held to what the same reply without it is held to.
 
 | | |
 | --- | --- |
 | Instance | Each speech that is neither noise nor a backchannel, and that the scripted VAD reported. A speech it never reported held no floor, whether it was too short for the VAD or the run ended first: it is named in a note and has no verdict |
 | Reference record | `world`: the floor window and interruption point |
-| Judged record | `sink`: when it was audible, and when segments started or resumed |
-| Rule a, stop | If the sink is audible at the interruption point, it stops being audible by that point plus `stop_bound_us`. Rule b keeps it silent from then until the floor window closes |
-| Rule b, no start | No segment starts or resumes inside the floor window, later than `start_grace_us` after it opens. Both ends of that span are excluded. A segment that plays on after its streaming buffer ran empty resumes, like one resumed after a pause: audio begins while the user holds the floor. A gap of zero length is no resume |
+| Judged record | `sink`: when it was audible, when segments started, and when it was asked to pause and to resume |
+| Rule a, stop | If a reply is under way at the interruption point, having begun before it, the sink stops being audible by that point plus `stop_bound_us`. The reply stopped at the end of its last audio that began before the floor window closed. So audio that returns after a gap, while the user still speaks, counts, and a gap that lasts from before the point until the user has stopped leaves the agent silent. Rule b keeps it silent from then until the floor window closes |
+| Rule b, no start | No segment starts, and none is resumed after a pause the output was asked for, inside the floor window later than `start_grace_us` after it opens. Both ends of that span are excluded. A reply that plays on after a gap in its buffer does not start: it was under way, and rule a judges it. A pause of zero length silences nothing: it is no resume and does not end the reply |
 | Policy | `stop_bound_us` (default 100 000). `start_grace_us` (default 0). `interruptions_allowed` (default true; if false, rule a does not apply) |
 | Reference in doubt | A rule a failure in which a pause or clear command did reach the sink, but later than the interruption point plus `stop_bound_us`, is marked `reference_in_doubt`. It stays a failure. It is not published or attributed until someone confirms that the computed interruption point matches the framework's documented threshold on that release. A failure with no command at all, or with a timely command the sink did not obey, is not marked |
 | Unobservable | The ledger has no true speech boundaries |
@@ -653,6 +660,15 @@ Taken while reading each rule against the code, 19 November 2026:
     after its playout finished. The summary lists what is checked and the "Not judged"
     row what is left alone. The alternative for order, one total order over every item,
     needs a time for each item, and no context states one.
+31. **A gap in a streaming buffer neither stops a reply nor starts it.** Rule b counted
+    every resume as a start. A reply already playing, with a gap of one microsecond
+    between the VAD's report and the interruption point, failed, and the same reply
+    without the gap could play on to the bound. L2 now follows what the output was
+    asked to do. Playing on after a gap is the reply continuing, held by rule a to the
+    bound. A resume after `sink.pause` inside the floor window is still rule b: the
+    framework chose to speak while the user held the floor. The alternative, excusing
+    every resume of a reply that was audible before the floor opened, would pass a
+    framework that pauses for the user and then resumes over them.
 
 ## 10. What the reference ledgers measure
 
