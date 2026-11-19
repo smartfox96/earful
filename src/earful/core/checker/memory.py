@@ -5,12 +5,12 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from functools import cache
 from typing import Any
 
 from .view import Speech, Spoken
 
 Item = dict[str, Any]
+Score = tuple[int, int, int]  # (stray words, -turns found, -transcripts found); least is best
 
 
 def _words(item: Item) -> list[str]:
@@ -20,7 +20,10 @@ def _words(item: Item) -> list[str]:
 @dataclass
 class UserTurns:
     present: list[Speech] = field(default_factory=list)  # delivered turns found, in order
-    ended_at: dict[int, int] = field(default_factory=dict)  # speech index -> item index
+    began_at: dict[int, int] = field(default_factory=dict)  # speech index -> item of its first word
+    ended_at: dict[int, int] = field(default_factory=dict)  # speech index -> item of its last word
+    # Turns no other reading could place elsewhere: none before them was read as absent.
+    placed: set[int] = field(default_factory=set)
     stray: list[str] = field(default_factory=list)  # user words that match no delivered turn
 
 
@@ -34,31 +37,56 @@ def user_turns(items: list[Item], delivered: list[Speech]) -> UserTurns:
     ]
     texts = [w for w, _ in stream]
 
-    @cache
-    def best(i: int, at: int) -> tuple[int, int, int, tuple[int, ...]]:
-        """(stray words, -turns found, -all found, speeches taken) from speech ``i`` on."""
-        if i == len(delivered):
-            return (len(texts) - at, 0, 0, ())
-        speech = delivered[i]
-        words = speech.words
-        options = []
-        if words and texts[at : at + len(words)] == words:
-            stray, turns, found, taken = best(i + 1, at + len(words))
-            options.append((stray, turns - (not speech.backchannel), found - 1, (i, *taken)))
-        if speech.backchannel or not words:
-            options.append(best(i + 1, at))
-        if not options:
-            return (len(texts) - at, 0, 0, ())  # a turn that is not there ends the reading
-        return min(options)
+    def fits(speech: Speech, at: int) -> bool:
+        return bool(speech.words) and texts[at : at + len(speech.words)] == speech.words
 
-    _stray, _turns, _found, taken = best(0, 0)
+    def may_be_absent(speech: Speech) -> bool:
+        return speech.backchannel or not speech.words
+
+    def ends(at: int) -> Score:
+        return (len(texts) - at, 0, 0)
+
+    # The places in the stream each speech could start at, given the speeches before it.
+    starts: list[set[int]] = [{0}]
+    for speech in delivered:
+        starts.append(
+            {at + len(speech.words) for at in starts[-1] if fits(speech, at)}
+            | {at for at in starts[-1] if may_be_absent(speech)}
+        )
+    # From the last speech back: the best that can follow each place, and whether by skipping.
+    best: dict[int, Score] = {at: ends(at) for at in starts[-1]}
+    skips: list[dict[int, bool]] = []
+    for speech, places in zip(reversed(delivered), reversed(starts[:-1])):
+        here: dict[int, Score] = {}
+        skip: dict[int, bool] = {}
+        for at in places:
+            options: list[tuple[Score, bool]] = []
+            if fits(speech, at):
+                stray, turns, kept = best[at + len(speech.words)]
+                options.append(((stray, turns - (not speech.backchannel), kept - 1), False))
+            if may_be_absent(speech):
+                options.append((best[at], True))
+            if options:
+                here[at], skip[at] = min(options)  # of two equal readings, the one that takes it
+            else:
+                here[at] = ends(at)  # a turn that is not there ends the reading
+        best = here
+        skips.append(skip)
+
     found = UserTurns()
-    at = 0
-    for i in taken:
-        speech = delivered[i]
+    at, certain = 0, True
+    for speech, skip in zip(delivered, reversed(skips)):
+        if at not in skip:
+            break
+        if skip[at]:
+            certain = certain and not speech.words  # its words may be those read as a later turn
+            continue
+        found.began_at[speech.index] = stream[at][1]
         at += len(speech.words)
         found.present.append(speech)
         found.ended_at[speech.index] = stream[at - 1][1]
+        if certain:
+            found.placed.add(speech.index)
     found.stray = texts[at:]
     return found
 
@@ -69,7 +97,6 @@ class Alignment:
 
     possible: bool  # false: some assistant message is no scripted speech's prefix, in any order
     matched: dict[str, int] = field(default_factory=dict)  # spoken key -> item index
-    absent: set[str] = field(default_factory=set)
     ambiguous: set[str] = field(default_factory=set)
     unmatched_items: list[int] = field(default_factory=list)  # when not possible
 
@@ -107,11 +134,9 @@ def align(items: list[Item], spoken: list[Spoken]) -> Alignment:
     out = Alignment(True)
     for j, item in enumerate(spoken):
         ways = [before[i][j] * after[i + 1][j + 1] if fits[i][j] else 0 for i in range(a)]
-        if sum(ways) == 0:
-            out.absent.add(item.key)
-        elif total in ways:
+        if total in ways:
             out.matched[item.key] = messages[ways.index(total)][0]
-        else:
+        elif any(ways):
             out.ambiguous.add(item.key)
     return out
 

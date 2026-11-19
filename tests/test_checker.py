@@ -1,15 +1,37 @@
 """The checker on recorded and hand-edited ledgers."""
 
 import copy
+import dataclasses
+import itertools
 import json
+import random
+import re
 from pathlib import Path
 
 import pytest
 
-from earful.core.checker import FAIL, NOT_EXERCISED, PASS, UNOBSERVABLE, PolicyError, check
+from earful.core.checker import (
+    FAIL,
+    NOT_EXERCISED,
+    PASS,
+    UNOBSERVABLE,
+    ContractFailure,
+    PolicyError,
+    check,
+)
 from earful.core.checker.memory import align, favourable, user_turns
-from earful.core.checker.report import ContractResult, Finding, split, verdict
-from earful.core.checker.view import Speech, Spoken, View, readings
+from earful.core.checker.policy import POLICIES, parse, parse_all
+from earful.core.checker.report import (
+    RULES,
+    ContractResult,
+    Finding,
+    allowed,
+    required,
+    rule_names,
+    split,
+    verdict,
+)
+from earful.core.checker.view import MAX_READINGS, Speech, Spoken, View, readings
 from earful.core.ledger import read_jsonl, run_id
 
 GOLDEN = Path(__file__).parent / "golden"
@@ -106,6 +128,71 @@ def test_an_invalid_run_yields_no_verdicts(fixed):
     assert "reached the sink altered" in report.invalid[0]
 
 
+CHECKER = Path(__file__).resolve().parents[1] / "src" / "earful" / "core" / "checker"
+
+
+def test_the_rules_that_can_break_are_those_the_checker_names(fixed):
+    assert list(RULES) == list(POLICIES) == list(check(fixed).results)
+    for contract, rules in RULES.items():
+        source = (CHECKER / f"{contract.lower()}.py").read_text()
+        named = set(re.findall(r'Finding\(\s*"([^"]+)"', source))
+        named |= set(re.findall(r'"(milestone \d)"', source))
+        assert named == set(rules), contract
+    assert "M2/rule d" in rule_names() and len(rule_names()) == sum(map(len, RULES.values()))
+    with pytest.raises(ValueError, match="A2 has no rule 'rule z'; its rules are"):
+        verdict("A2", {}, "", findings=[Finding("rule z", "")])
+
+
+def test_a_rule_that_is_allowed_or_a_contract_that_is_required_has_to_exist(fixed):
+    report = check(fixed)
+    assert allowed(["A2/rule", "M2/rule d"]) == allowed("A2/rule") | {"M2/rule d"}
+    assert required("A2") == ["A2"] and required(["L1", "A3"]) == ["L1", "A3"]
+    for nothing in (["A3"], ["Z9/rule"], ["A2/rule b"], ["nonsense"], ["/rule"]):
+        # Refused although nothing broke: the name is checked before the run is judged.
+        with pytest.raises(ValueError, match="no contract rule .* one of: A1/rule, .*L2/rule b$"):
+            report.assert_contracts(allow=nothing)
+    for nothing in (["A9"], ["A2/rule"], [""]):
+        with pytest.raises(ValueError, match="no contract .* are: A1, A2, A3, M1, M2, L1, L2$"):
+            report.assert_contracts(require=nothing)
+
+
+def test_a_required_contract_that_was_not_exercised_fails_the_assertion_and_says_why(fixed):
+    report = check(fixed)
+    assert report.outcome("A1") == NOT_EXERCISED and report.outcome("A2") == PASS
+    report.assert_contracts(require=["A2", "A3"])
+    why = "was not exercised: the run has no speech that retires an intent and whose"
+    assert list(report.unjudged(["A2", "A1"])) == ["A1"] and why in report.unjudged("A1")["A1"]
+    with pytest.raises(ContractFailure) as caught:
+        report.assert_contracts(require=["A2", "A1"], what="the booking")
+    said = str(caught.value).split("\n\n")
+    assert said[0] == "the booking has no pass or fail for the required A1"
+    assert said[1].startswith(f"A1 {why}") and said[2].startswith("A1  not_exercised\nA2  pass")
+
+
+def test_a_required_contract_that_is_unobservable_fails_the_assertion_and_says_why(affected):
+    hidden = check(_without_backend(retire(affected)))
+    assert hidden.outcome("A2") == hidden.outcome("A3") == UNOBSERVABLE
+    assert hidden.broken() == ["M2/rule d"]
+    hidden.assert_contracts(allow=["M2/rule d"])
+    with pytest.raises(ContractFailure) as caught:
+        hidden.assert_contracts(require=["A2", "M2"])
+    head, why, _ = str(caught.value).split("\n\n", 2)
+    assert head == "the run breaks M2/rule d and has no pass or fail for the required A2"
+    assert why == (
+        "A2 is unobservable: a tool for the intent was called but nothing reached the backend"
+    )
+
+
+def test_a_required_contract_that_fails_by_an_allowed_rule_was_judged(affected):
+    report = check(affected)
+    assert report.outcome("A2") == FAIL
+    report.assert_contracts(allow=["A2/rule", "M2/rule d"], require=["A2", "M2"])
+    cut = check(affected[:-1])
+    assert cut.unjudged(["A2"]) == {}
+    with pytest.raises(ContractFailure, match="not valid evidence"):
+        cut.assert_contracts(require=["A2"])
+
+
 def test_a_verdict_cites_the_events_and_witnesses_it_rests_on(affected):
     report = check(affected)
     (failed,) = report.results["A2"].failures
@@ -124,11 +211,36 @@ def test_a_verdict_cites_the_events_and_witnesses_it_rests_on(affected):
         ({"M1": {"ahead_us": "a while"}}, "wrong kind of value"),
         ({"L2": {"stop_bound_us": -1}}, "wrong kind of value"),
         ({"A3": {"claim_point": "middle"}}, "must be one of"),
+        ({"A1": {"in_flight": 1}}, "wrong kind of value"),
+        ({"A1": {"reissue_allowed": [INTENT, 1]}}, "wrong kind of value"),
+        ({"L1": {"slack_us": True}}, "wrong kind of value"),
+        ({"M1": {"check_interrupted_flag": 1}}, "wrong kind of value"),
     ],
 )
 def test_a_policy_value_the_contract_does_not_define_is_refused(fixed, contracts, message):
     with pytest.raises(PolicyError, match=message):
         check(declare(fixed, **contracts))
+
+
+def test_a_policy_for_a_contract_that_does_not_exist_is_refused(fixed):
+    with pytest.raises(PolicyError, match=r"unknown contracts \['Z1'\]; choose from"):
+        parse_all({"Z1": {}, "A1": {}})
+    report = check(declare(fixed, Z1={}))
+    assert not report.valid and "Z1" in report.invalid[0]
+
+
+def test_a_policy_time_may_be_zero_and_may_not_be_less():
+    times = [
+        (contract, f.name)
+        for contract, cls in POLICIES.items()
+        for f in dataclasses.fields(cls)
+        if isinstance(f.default, int) and not isinstance(f.default, bool)
+    ]
+    assert len(times) == 7
+    for contract, name in times:
+        assert getattr(parse(contract, {name: 0}), name) == 0
+        with pytest.raises(PolicyError, match="wrong kind of value: -1"):
+            parse(contract, {name: -1})
 
 
 def retire(events, speech=1):
@@ -171,19 +283,152 @@ def test_a1_an_in_flight_write_fails_when_the_policy_forbids_it(fixed):
     assert report.outcome("A1") == FAIL and rules(report, "A1") == ["in-flight"]
 
 
+def _retired_beside(events, anchor, *, after):
+    """The correcting transcript arrives at the instant of ``anchor``, just before or after it."""
+    point = of(retire(events), "user.transcript_final", 1)
+    events.remove(point)
+    point["t_us"] = anchor["t_us"]
+    events.insert(events.index(anchor) + after, point)
+    return seal(events)
+
+
+@pytest.mark.parametrize(
+    "kind, after, outcome, writes, late",
+    [
+        ("effect.requested", False, FAIL, 1, 0),
+        ("effect.requested", True, PASS, 0, 1),
+        ("effect.committed", False, PASS, 0, 1),
+        ("effect.committed", True, PASS, 0, 0),
+    ],
+)
+def test_a1_a_write_at_the_instant_of_the_retirement_is_judged_by_which_came_first(
+    affected, kind, after, outcome, writes, late
+):
+    """The second booking is requested and committed at one instant, as the correction arrives."""
+    events = _retired_beside(affected, of(affected, kind, 1), after=after)
+    (v,) = check(copy.deepcopy(events)).results["A1"].verdicts
+    assert v.outcome == outcome
+    assert (v.measures["writes_after_retirement"], v.measures["late_commits"]) == (writes, late)
+    assert v.flags == (("late_commit",) if late else ())
+    strict = check(declare(events, A1={"in_flight": "must_not_commit"}))
+    assert rules(strict, "A1") == (["rule"] if writes else ["in-flight"] if late else [])
+
+
 def _without_backend(events):
     return seal([e for e in events if not e["kind"].startswith("effect.")])
 
 
-def test_a1_and_a2_are_unobservable_when_the_tool_does_not_write_through_the_backend(affected):
+def test_an_intent_is_unobservable_when_its_tool_does_not_write_through_the_backend(affected):
     report = check(_without_backend(retire(affected)))
     assert report.outcome("A1") == UNOBSERVABLE
     assert report.outcome("A2") == UNOBSERVABLE
+    assert report.outcome("A3") == UNOBSERVABLE
+    reasons = {v.findings[0].detail for name in ("A2", "A3") for v in report.results[name].verdicts}
+    assert reasons == {"a tool for the intent was called but nothing reached the backend"}
 
 
-def test_a2_counts_against_the_authorized_number(affected):
+@pytest.mark.parametrize("after, outcome", [(False, UNOBSERVABLE), (True, PASS)])
+def test_a1_a_tool_that_leaves_nothing_in_the_backend_matters_if_called_after_the_retirement(
+    fixed, after, outcome
+):
+    """The correction arrives at the instant the tool is called, just before or just after."""
+    events = _without_backend(fixed)
+    events = _retired_beside(events, of(events, "tool.called"), after=after)
+    assert check(events).outcome("A1") == outcome
+
+
+def _moved(events, event, t_us):
+    event["t_us"] = t_us
+    return seal(sorted(events, key=lambda e: e["t_us"]))
+
+
+@pytest.mark.parametrize("off_us, outcome", [(-1, UNOBSERVABLE), (0, UNOBSERVABLE), (1, FAIL)])
+def test_a3_a_tool_first_called_after_the_claim_was_heard_cannot_have_made_it_true(
+    fixed, off_us, outcome
+):
+    """The claim is heard at 7.92 s. A write the backend cannot see needs a call by then."""
+    events = _without_backend(fixed)
+    heard = of(events, "playout.finished", 1)["data"]["words_completed_us"][-1]
+    events = _moved(events, of(events, "tool.returned"), heard + off_us)
+    events = _moved(events, of(events, "tool.called"), heard + off_us)
+    (claim,) = check(events).results["A3"].verdicts
+    assert claim.outcome == outcome
+    if outcome == FAIL:
+        assert "never committed" in claim.findings[0].detail
+
+
+def test_once_the_backend_has_a_write_for_an_intent_a_call_that_wrote_nothing_wrote_nothing(
+    affected,
+):
+    """The second booking leaves no request: the backend's record of the intent is complete."""
+    events = retire(affected)
+    second = of(events, "effect.requested", 1)["data"]["request"]
+    kept = [
+        e
+        for e in events
+        if not (e["kind"].startswith("effect.") and e["data"]["request"] == second)
+    ]
+    assert (
+        len(kept) == len(events) - 2 and len([e for e in kept if e["kind"] == "tool.called"]) == 2
+    )
+    report = check(seal(kept))
+    assert (report.outcome("A1"), report.outcome("A2"), report.outcome("A3")) == (PASS, PASS, PASS)
+
+
+def test_a3_any_commit_for_the_intent_makes_a_later_claim_true(affected):
+    """The second authorized booking fails just before the claim is heard; the first stands."""
     affected[0]["data"]["scenario"]["intents"][0]["authorized"] = 2
-    assert check(seal(affected)).outcome("A2") == PASS
+    second = of(affected, "effect.committed", 1)
+    second["kind"] = "effect.failed"
+    del second["data"]["receipt"], second["data"]["count_for_intent"]
+    report = check(seal(affected))
+    assert report.outcome("A3") == PASS
+    assert report.results["A2"].verdicts[0].measures["failed"] == 1
+
+
+@pytest.mark.parametrize("authorized, outcome", [(1, FAIL), (2, PASS), (3, PASS)])
+def test_a2_as_many_effects_as_were_authorized_pass_and_one_more_fails(
+    affected, authorized, outcome
+):
+    affected[0]["data"]["scenario"]["intents"][0]["authorized"] = authorized
+    (v,) = check(seal(affected)).results["A2"].verdicts
+    assert v.outcome == outcome and v.measures["committed"] == 2
+
+
+@pytest.mark.parametrize(
+    "point, off_us, outcome",
+    [
+        ("span_end", -1, PASS),
+        ("span_end", 0, PASS),
+        ("span_end", 1, FAIL),
+        ("span_start", 0, PASS),
+        ("span_start", 1, FAIL),
+    ],
+)
+def test_a3_a_commit_as_the_claim_is_heard_is_in_time_and_one_microsecond_later_is_not(
+    fixed, point, off_us, outcome
+):
+    """The claim's first word starts at 6.9 s and its last ends at 7.92 s."""
+    finished = of(fixed, "playout.finished", 1)
+    ends, starts = finished["data"]["words_completed_us"][-1], of(fixed, "playout.started", 1)
+    heard = ends if point == "span_end" else starts["t_us"]
+    commit = of(fixed, "effect.committed")
+    events = declare(_moved(fixed, commit, heard + off_us), A3={"claim_point": point})
+    orders = [events]
+    if off_us == 0:
+        # At one instant the order in the ledger decides nothing: the rule is on the time.
+        later = copy.deepcopy(events)
+        moved = of(later, "effect.committed")
+        later.remove(moved)
+        later.insert(max(n for n, e in enumerate(later) if e["t_us"] == heard) + 1, moved)
+        assert later.index(moved) > events.index(of(events, "effect.committed"))
+        orders.append(seal(later))
+    for ledger in orders:
+        (claim,) = check(ledger).results["A3"].verdicts
+        assert claim.outcome == outcome and claim.measures["claim_heard_us"] == heard
+        assert claim.measures["commit_before_claim_us"] == (-off_us if outcome == PASS else None)
+        if outcome == FAIL:
+            assert "committed 1 us later" in claim.findings[0].detail
 
 
 def test_a3_fails_when_nothing_was_committed_before_the_claim_was_heard(fixed):
@@ -249,6 +494,63 @@ def test_m1_the_tolerance_is_audio_time_and_a_policy_choice(barge):
     assert report.outcome("M1") == FAIL and rules(report, "M1") == ["rule 3"]
 
 
+@pytest.mark.parametrize(
+    "kept, drift_us, broken",
+    [(8, -300_000, ["rule 2"]), (9, 0, []), (10, 0, []), (11, 420_000, ["rule 3"])],
+)
+def test_m1_memory_agrees_exactly_with_or_without_the_cut_word_and_no_further(
+    barge, kept, drift_us, broken
+):
+    """Nine words played and the tenth, "then", was cut. No drift is allowed."""
+    message = remembered(barge, 2)
+    message["text"] = " ".join(of(barge, "llm.response")["data"]["text"].split()[:kept])
+    report = check(declare(barge, M1={"ahead_us": 0, "behind_us": 0}))
+    first = report.results["M1"].verdicts[0]
+    assert (first.measures["played"], first.measures["cut"]) == (9, 1)
+    assert first.measures["contexts"][0]["drift_us"] == drift_us
+    assert [f.rule for f in first.findings] == broken
+
+
+@pytest.mark.parametrize(
+    "kept, policy, broken",
+    [
+        (12, {"ahead_us": 600_000}, []),
+        (12, {"ahead_us": 599_999}, ["rule 3"]),
+        (3, {"behind_us": 1_500_000}, []),
+        (3, {"behind_us": 1_499_999}, ["rule 2"]),
+    ],
+)
+def test_m1_drift_equal_to_the_tolerance_passes_and_one_microsecond_more_fails(
+    barge, kept, policy, broken
+):
+    """Twelve words remembered is 0.6 s ahead of what played; three is 1.5 s behind."""
+    message = remembered(barge, 2)
+    message["text"] = " ".join(of(barge, "llm.response")["data"]["text"].split()[:kept])
+    first = check(declare(barge, M1=policy)).results["M1"].verdicts[0]
+    assert [f.rule for f in first.findings] == broken
+
+
+def _beside(events, event, anchor, *, after):
+    """Move ``event`` to the instant of ``anchor``, just before or just after it."""
+    events.remove(event)
+    event["t_us"] = anchor["t_us"]
+    events.insert(events.index(anchor) + after, event)
+    return seal(events)
+
+
+@pytest.mark.parametrize("is_after, contexts", [(True, ["call 2"]), (False, ["final history"])])
+def test_m1_a_context_requested_as_the_playout_finishes_judges_it_only_if_it_came_after(
+    barge, is_after, contexts
+):
+    """Model call 2 is requested at the instant reply 1's segment finishes."""
+    request = next(e for e in barge if e["kind"] == "llm.request" and e["data"]["call"] == 2)
+    events = _beside(barge, request, of(barge, "playout.finished"), after=is_after)
+    first = check(events).results["M1"].verdicts[0]
+    assert first.outcome == PASS
+    assert [row["context"] for row in first.measures["contexts"]] == contexts
+    assert ("judged_on_final_history" in first.flags) == (not is_after)
+
+
 def test_m1_reports_the_measured_difference_on_every_instance(fixed):
     row = check(fixed).results["M1"].verdicts[0].measures["contexts"][0]
     assert (row["remembered"], row["drift_us"]) == (10, 0)
@@ -277,6 +579,45 @@ def test_m1_fails_when_a_reply_that_never_played_is_remembered():
     )
     report = check(events)
     assert rules(report, "M1") == ["rule 4"]
+
+
+def _never_voiced(events, call=1, segment=1):
+    """The reply of model call ``call`` is given and never reaches the voice or the sink."""
+    return seal(
+        [
+            e
+            for e in events
+            if not (
+                (e["kind"] == "tts.synthesized" and e["data"]["call"] == call)
+                or (e["kind"].startswith(("playout.", "sink.")) and e["data"]["segment"] == segment)
+            )
+        ]
+    )
+
+
+def test_m1_judges_a_reply_that_never_reached_the_output_in_every_context_after_it(barge):
+    """Call 2 is shown all 29 words of a reply nobody heard; the final history has dropped it."""
+    remembered(barge, 2)["text"] = of(barge, "llm.response")["data"]["text"]
+    history = of(barge, "history.final")["data"]["items"]
+    history.remove(next(i for i in history if i.get("role") == "assistant"))
+    report = check(_never_voiced(barge))
+    assert report.outcome("M2") == PASS
+    first = report.results["M1"].verdicts[0]
+    assert first.flags == ("never_reached_the_output", "judged_on_final_history")
+    assert [row["context"] for row in first.measures["contexts"]] == ["call 2", "final history"]
+    (finding,) = first.findings
+    assert finding.rule == "rule 4" and "call 2: it never became audible, yet 29" in finding.detail
+
+
+def test_m1_judges_a_reply_that_never_reached_the_output_on_the_final_history_if_no_call_follows(
+    barge,
+):
+    events = _never_voiced(barge, call=2, segment=2)
+    last = check(copy.deepcopy(events)).results["M1"].verdicts[-1]
+    assert last.flags == ("never_reached_the_output", "judged_on_final_history")
+    assert [f.rule for f in last.findings] == ["rule 4"]  # "Okay, stopping." is remembered
+    _forget(of(events, "history.final")["data"]["items"], "Okay, stopping.")
+    assert check(events).results["M1"].verdicts[-1].outcome == PASS
 
 
 def test_m1_checks_the_interrupted_mark_unless_told_not_to(barge):
@@ -315,21 +656,101 @@ def test_m1_the_final_history_counts_only_if_read_after_the_playout_finished(bar
     assert "read before its playout finished" in last.findings[0].detail
 
 
-def test_m1_a_stop_that_lands_as_the_audio_ends_accepts_either_mark(barge):
+@pytest.mark.parametrize("off_us, either", [(-1, False), (0, True), (1, False)])
+def test_m1_a_stop_that_lands_as_the_audio_ends_accepts_either_mark(barge, off_us, either):
     message, _segment = _last_reply(barge)
     message["interrupted"] = True
     finished = of(barge, "playout.finished", 1)
     clear = copy.deepcopy(of(barge, "sink.clear"))
     clear["data"]["segment"] = None
+    barge.append({**clear, "t_us": finished["t_us"] + off_us})
+    last = check(seal(sorted(barge, key=lambda e: e["t_us"]))).results["M1"].verdicts[-1]
+    assert ("stopped_as_it_ended" in last.flags) == either
+    assert [f.rule for f in last.findings] == ([] if either else ["rule 5"])
 
-    late = copy.deepcopy(barge)
-    history = of(late, "history.final")
-    late.insert(late.index(history), {**clear, "t_us": finished["t_us"] + 1})
-    assert rules(check(seal(late)), "M1") == ["rule 5"]
 
+def _stopped_with_nothing_left(events, *, pause_off_us=None, cleared_after_us=2_000_000):
+    """The last reply plays out and its segment stays open; it is cleared later. A pause
+    command reaches the sink ``pause_off_us`` from the instant the audio ended."""
+    finished, history = of(events, "playout.finished", 1), of(events, "history.final")
+    ended = finished["t_us"]
+    paused = copy.deepcopy(of(events, "playout.paused"))
+    paused["t_us"] = ended
+    paused["data"].update(segment=2, played_us=finished["data"]["pushed_us"])
+    clear = copy.deepcopy(of(events, "sink.clear"))
+    clear["t_us"] = ended + cleared_after_us
+    clear["data"]["segment"] = 2
+    events.remove(finished)
+    finished["t_us"] = ended + cleared_after_us
+    finished["data"]["interrupted"] = True
+    events[events.index(history) : events.index(history)] = [paused, clear, finished]
+    if pause_off_us is not None:
+        pause = copy.deepcopy(of(events, "sink.pause"))
+        pause["t_us"] = ended + pause_off_us
+        pause["data"]["segment"] = 2
+        events.append(pause)
+    return seal(sorted(events, key=lambda e: e["t_us"]))
+
+
+def test_m1_a_reply_cleared_after_its_audio_ended_is_interrupted(barge):
+    """Every word played, and the clear came two seconds later: no tie excuses the mark."""
+    message, _segment = _last_reply(barge)
+    events = _stopped_with_nothing_left(barge)
+    last = check(copy.deepcopy(events)).results["M1"].verdicts[-1]
+    assert last.measures["played"] == 2 and "stopped_as_it_ended" not in last.flags
+    assert [f.rule for f in last.findings] == ["rule 5"]
+    message["interrupted"] = True
+    last = check(events).results["M1"].verdicts[-1]
+    assert last.outcome == PASS and "stopped_as_it_ended" not in last.flags
+
+
+@pytest.mark.parametrize("off_us, either", [(-1, False), (0, True), (1, False)])
+def test_m1_a_pause_as_the_audio_ends_accepts_either_mark_of_a_reply_cleared_later(
+    barge, off_us, either
+):
+    for mark in (False, True):
+        events = copy.deepcopy(barge)
+        _last_reply(events)[0]["interrupted"] = mark
+        events = _stopped_with_nothing_left(events, pause_off_us=off_us)
+        last = check(events).results["M1"].verdicts[-1]
+        assert ("stopped_as_it_ended" in last.flags) == either
+        assert [f.rule for f in last.findings] == ([] if either or mark else ["rule 5"])
+
+
+def test_m1_a_stop_as_the_sink_reports_the_end_accepts_either_mark(barge):
+    """A segment can stay open after its last sample; it ends for the framework when the
+    sink says so."""
+    message, _segment = _last_reply(barge)
+    message["interrupted"] = True
+    finished = of(barge, "playout.finished", 1)
+    finished["t_us"] += 300_000
+    clear = copy.deepcopy(of(barge, "sink.clear"))
+    clear["data"]["segment"] = None
+    barge.append({**clear, "t_us": finished["t_us"]})
+    last = check(seal(sorted(barge, key=lambda e: e["t_us"]))).results["M1"].verdicts[-1]
+    assert last.outcome == PASS and "stopped_as_it_ended" in last.flags
+
+
+def test_m1_a_flush_as_the_audio_ends_is_no_stop(barge):
+    message, _segment = _last_reply(barge)
+    message["interrupted"] = True
+    finished = of(barge, "playout.finished", 1)
+    flush = copy.deepcopy(of(barge, "sink.flush", 1))
+    barge.insert(barge.index(finished) + 1, {**flush, "t_us": finished["t_us"]})
+    assert rules(check(seal(barge)), "M1") == ["rule 5"]
+
+
+def test_m1_a_stop_as_the_last_word_ends_excuses_nothing_if_a_word_was_skipped(barge):
+    message, segment = _last_reply(barge)
+    segment.update(words_played=[31], words_completed_us=segment["words_completed_us"][1:])
+    finished = of(barge, "playout.finished", 1)
+    clear = copy.deepcopy(of(barge, "sink.clear"))
+    clear["data"]["segment"] = None
     barge.insert(barge.index(finished) + 1, {**clear, "t_us": finished["t_us"]})
     last = check(seal(barge)).results["M1"].verdicts[-1]
-    assert last.outcome == PASS and "stopped_as_it_ended" in last.flags
+    assert message["interrupted"] is False and last.measures["played"] == 1
+    assert [f.rule for f in last.findings] == ["rule 5"]
+    assert "stopped_as_it_ended" not in last.flags
 
 
 def _barely_started(events):
@@ -394,7 +815,8 @@ def test_alignment_follows_order_and_never_guesses():
     assert either.possible and either.ambiguous == {"reply 1", "reply 2"} and not either.matched
     mixed = align(_said("one moment please", "all done"), [one, two, three])
     assert mixed.matched == {"reply 3": 1} and mixed.ambiguous == {"reply 1", "reply 2"}
-    assert align(_said("all done"), [one, three]).absent == {"reply 1"}
+    one_gone = align(_said("all done"), [one, three])
+    assert one_gone.matched == {"reply 3": 0} and not one_gone.ambiguous
     assert not align(_said("all done", "one moment"), [one, three]).possible
     assert align(_said("something else"), [one]).unmatched_items == [0]
     greeting = _thing(1, "welcome to the restaurant", reply=False)
@@ -451,6 +873,53 @@ def test_a_reading_gives_each_ambiguous_text_one_of_its_candidates_and_no_reply_
     assert readings([*said, *both]) == [{1: 2, 2: 4}, {1: 4, 2: 2}]
     one_taken = [_synthesized(1, "ambiguous", [2, 4]), _synthesized(2, "unique", [2], 2)]
     assert readings([*said, *one_taken]) == [{1: 4}]
+
+
+def _texts(*could_be):
+    """Ambiguous texts numbered from 1, each with the replies it could be, all answered."""
+    calls = sorted({call for candidates in could_be for call in candidates})
+    return [
+        *_answered(*calls),
+        *(_synthesized(n, "ambiguous", list(c)) for n, c in enumerate(could_be, 1)),
+    ]
+
+
+def test_texts_that_cannot_each_have_a_reply_of_their_own_are_not_read_and_cost_no_search():
+    """Thirty texts for twenty-nine replies: trying every order would never finish."""
+    assert readings(_texts(*[range(1, 30)] * 30)) == [{}]
+    assert readings(_texts([1, 2], [])) == [{}]
+    # one text has to take the reply the others cannot do without
+    assert readings(_texts([1, 2], *[range(2, 12)] * 10)) == [{}]  # 10! readings: too many
+    forced = readings(_texts([3, 1], [3, 2], [3]))
+    assert forced == [{1: 1, 2: 2, 3: 3}]
+
+
+def test_a_ledger_is_read_every_way_up_to_512_readings_and_no_further():
+    def chain(texts):
+        """Text n could be reply n or n + 1: one more reading than there are texts."""
+        return _texts(*([n, n + 1] for n in range(1, texts + 1)))
+
+    assert MAX_READINGS == 512
+    assert len(readings(chain(510))) == 511
+    assert len(readings(chain(511))) == 512
+    assert readings(chain(512)) == [{}]
+    assert len(readings(_texts(*([2 * n, 2 * n + 1] for n in range(9))))) == 512
+    assert readings(_texts(*([2 * n, 2 * n + 1] for n in range(10)))) == [{}]
+
+
+def test_readings_are_every_assignment_in_the_order_of_the_candidates():
+    rng = random.Random(7)
+    for _ in range(300):
+        replies = range(1, rng.randint(1, 6) + 1)
+        could_be = [
+            rng.sample(replies, rng.randint(0, len(replies))) for _ in range(rng.randint(0, 5))
+        ]
+        every = [
+            dict(enumerate(choice, 1))
+            for choice in itertools.product(*could_be)
+            if len(set(choice)) == len(choice)
+        ]
+        assert readings(_texts(*could_be)) == (every if 0 < len(every) <= 512 else [{}])
 
 
 def test_a_text_is_no_reply_whose_first_token_came_after_it_was_synthesized():
@@ -612,6 +1081,42 @@ def test_user_text_is_read_as_one_stream():
         "table",
     ]
     assert [s.index for s in user_turns(_user("for six"), [first, second]).present] == []
+
+
+def _best_reading(texts, delivered, i=0, at=0):
+    """What ``user_turns`` must find, tried every way: (stray, -turns, -found, taken)."""
+    if i == len(delivered):
+        return (len(texts) - at, 0, 0, ())
+    speech, options = delivered[i], []
+    if speech.words and texts[at : at + len(speech.words)] == speech.words:
+        stray, turns, found, taken = _best_reading(texts, delivered, i + 1, at + len(speech.words))
+        options.append((stray, turns - (not speech.backchannel), found - 1, (i, *taken)))
+    if speech.backchannel or not speech.words:
+        options.append(_best_reading(texts, delivered, i + 1, at))
+    return min(options, default=(len(texts) - at, 0, 0, ()))
+
+
+def test_user_turns_finds_the_best_reading_of_any_stream():
+    rng = random.Random(3)
+    phrases = ["ok", "ok ok", "stop", "ok stop", ""]
+    for _ in range(500):
+        delivered = [
+            _speech(n, rng.choice(phrases), backchannel=rng.random() < 0.4)
+            for n in range(rng.randint(0, 6))
+        ]
+        said = " ".join(rng.choice(phrases) for _ in range(rng.randint(0, 5))).split()
+        found = user_turns(_user(" ".join(said)), delivered)
+        stray, _turns, _found, taken = _best_reading(said, delivered)
+        assert [s.index for s in found.present] == list(taken)
+        assert len(found.stray) == stray
+
+
+def test_user_turns_reads_a_long_conversation():
+    """A reading by recursion ran out of stack near 1 200 delivered speeches."""
+    delivered = [_speech(n, f"turn {n}") for n in range(5000)]
+    found = user_turns(_user(*(s.transcript for s in delivered)), delivered)
+    assert len(found.present) == 5000 and not found.stray
+    assert found.ended_at[4999] == 4999
 
 
 def test_a_backchannel_may_be_present_or_absent_even_when_the_next_turn_starts_with_its_words():
@@ -814,28 +1319,227 @@ def test_m2_fails_when_a_reply_comes_before_the_turn_it_answered(barge):
     assert "rule e" in rules(check(barge), "M2")
 
 
-def _buffer_gap(events, at, length=0):
-    paused = copy.deepcopy(of(events, "playout.paused"))
-    paused["t_us"] = at
-    paused["data"]["played_us"] = at - of(events, "playout.started")["t_us"]
-    resumed = copy.deepcopy(paused)
-    resumed.update(kind="playout.resumed", t_us=at + length)
-    events.extend((paused, resumed))
+def _spoke_again(events, start_us, text="Thanks.", backchannel=False):
+    """A further speech, owed no reply, whose turn is the last item of the final history."""
+    speeches = events[0]["data"]["scenario"]["speeches"]
+    said = copy.deepcopy(speeches[1])
+    shift = start_us - said["start_us"]
+    said.update(
+        speech=len(speeches),
+        start_us=start_us,
+        end_us=said["end_us"] + shift,
+        transcript=text,
+        expects_reply=False,
+        backchannel=backchannel,
+    )
+    for kind in ("user.vad_start", "user.transcript_final", "user.vad_end"):
+        event = copy.deepcopy(
+            next(e for e in events if e["kind"] == kind and e["data"]["speech"] == 1)
+        )
+        event["t_us"] += shift
+        event["data"]["speech"] = said["speech"]
+        if kind == "user.transcript_final":
+            event["data"]["text"] = text
+        events.append(event)
+    speeches.append(said)
+    of(events, "history.final")["data"]["items"].append(
+        {"type": "message", "id": "x", "role": "user", "text": text, "interrupted": False}
+    )
     return seal(sorted(events, key=lambda event: event["t_us"]))
 
 
-@pytest.mark.parametrize("gap_us", [0, 1])
-def test_l2_a_zero_length_buffer_gap_does_not_start_audio_again(barge, gap_us):
-    events = _buffer_gap(barge, 5_100_000, gap_us)
+@pytest.mark.parametrize("after_us, late", [(0, False), (1, True), (1_280_000, True)])
+def test_m2_fails_when_a_reply_is_recorded_after_a_turn_that_began_once_it_had_played(
+    barge, after_us, late
+):
+    """Reply 2 finishes playing at 7.72 s; the history puts it after a turn begun later."""
+    finished = of(barge, "playout.finished", 1)["t_us"]
+    events = _spoke_again(barge, finished + after_us)
+    assert check(copy.deepcopy(events)).failures == ()
+    items = of(events, "history.final")["data"]["items"]
+    items[-2], items[-1] = items[-1], items[-2]
+    assert [i.get("text") for i in items[-2:]] == ["Thanks.", "Okay, stopping."]
     report = check(events)
-    assert report.valid
-    assert report.outcome("L2") == (PASS if gap_us == 0 else FAIL)
+    assert rules(report, "M2") == (["rule e"] if late else [])
+    if late:
+        (finding,) = report.results["M2"].failures[0].findings
+        assert f"after speech 2, which began {after_us} us after it finished" in finding.detail
 
 
-def test_l2_a_zero_length_buffer_gap_does_not_hide_a_late_stop(barge):
-    of(barge, "playout.paused")["t_us"] = 5_900_000
-    report = check(_buffer_gap(barge, 5_500_000))
-    assert report.valid and rules(report, "L2") == ["rule a"]
+def test_m2_a_turn_that_a_backchannel_could_be_has_no_certain_place(barge):
+    """One "Okay." is kept before reply 2. It was said twice: as a backchannel while reply 2
+    played, and as a turn at 9.0 s."""
+    events = _spoke_again(barge, 6_600_000, "Okay.", backchannel=True)
+    items = of(events, "history.final")["data"]["items"]
+    kept = items.pop()
+    events = _spoke_again(events, 9_000_000, "Okay.")
+    items.pop()
+    items.insert(-1, kept)
+    assert [i.get("text") for i in items[-3:]] == ["Stop.", "Okay.", "Okay, stopping."]
+    assert check(copy.deepcopy(events)).outcome("M2") == PASS
+    # with the backchannel's own text there as well, the second is the turn, and is misplaced
+    items.insert(-1, dict(kept))
+    assert rules(check(events), "M2") == ["rule e"]
+
+
+def test_m2_a_reply_inside_a_turn_that_began_in_one_message_and_ended_in_another_is_misplaced(
+    barge,
+):
+    events = _spoke_again(barge, 9_000_000, "Thanks a lot.")
+    items = of(events, "history.final")["data"]["items"]
+    whole = items.pop()
+    items.insert(-1, {**whole, "text": "Thanks"})
+    items.append({**whole, "text": "a lot."})
+    assert [i.get("text") for i in items[-3:]] == ["Thanks", "Okay, stopping.", "a lot."]
+    assert rules(check(events), "M2") == ["rule e"]
+
+
+def test_m2_a_reply_with_a_segment_still_open_has_no_place_it_is_held_to(barge):
+    """Reply 2's first segment finishes at 7.24 s; its second is open when the run ends."""
+    events = _in_two_segments(barge)
+    events.remove(of(events, "playout.finished", 2))
+    events = _spoke_again(events, 7_500_000)
+    items = of(events, "history.final")["data"]["items"]
+    items[-2], items[-1] = items[-1], items[-2]
+    report = check(events)
+    assert report.results["M1"].verdicts[-1].outcome == UNOBSERVABLE
+    assert report.outcome("M2") == PASS
+
+
+def test_m2_a_turn_begins_when_the_speech_segment_holding_it_does(barge):
+    """ "Thanks." at 7.9 s follows "Wait." by 0.3 s: one segment, begun as reply 2 played."""
+    events = _spoke_again(_spoke_again(barge, 6_600_000, "Wait."), 7_900_000)
+    for kind, speech in (("user.vad_end", 2), ("user.vad_start", 3)):
+        events.remove(
+            next(e for e in events if e["kind"] == kind and e["data"]["speech"] == speech)
+        )
+    items = of(events, "history.final")["data"]["items"]
+    items.append(items.pop(-3))
+    assert [i.get("text") for i in items[-3:]] == ["Wait.", "Thanks.", "Okay, stopping."]
+    report = check(seal(events))
+    assert report.valid and report.outcome("M2") == PASS
+
+
+def _tool_items(events, call=2):
+    """The booking's call item and result item, each with the items that hold it: those of a
+    context, then those of the final history."""
+    return [
+        (items, next(i for i in items if i["type"] == kind))
+        for items in (context(events, call), of(events, "history.final")["data"]["items"])
+        for kind in ("function_call", "function_call_output")
+    ]
+
+
+def _before_the_first_turn(items, item):
+    items.remove(item)
+    first = next(n for n, i in enumerate(items) if i["type"] == "message" and i["role"] == "user")
+    items.insert(first, item)
+
+
+@pytest.mark.parametrize(
+    "kind, change, said",
+    [
+        ("function_call", {"name": "delete_all_reservations"}, "shows the call 'call-1-1' as"),
+        ("function_call", {"arguments": '{"party_size": 60}'}, "shows the call 'call-1-1' as"),
+        ("function_call", {"arguments": '{"party_size":6}'}, None),
+        ("function_call", {"arguments": "party_size=6"}, "shows the call 'call-1-1' as"),
+        ("function_call_output", {"name": "delete_all_reservations"}, "is a result named"),
+        ("function_call_output", {"name": None}, None),
+    ],
+)
+def test_m2_fails_when_a_tool_item_is_not_the_call_as_the_model_made_it(fixed, kind, change, said):
+    shown(fixed, 2, kind).update(change)
+    report = check(fixed)
+    assert rules(report, "M2") == (["rule f"] if said else [])
+    if said:
+        (failed,) = report.results["M2"].failures
+        assert failed.instance == {"context": "call 2"} and said in failed.findings[0].detail
+        assert of(fixed, "llm.response")["seq"] in failed.evidence
+
+
+def test_m2_fails_on_a_call_item_for_a_call_the_model_did_not_make(fixed):
+    invented = {**shown(fixed, 2, "function_call"), "call_id": "call-9-1"}
+    context(fixed, 2).append(invented)
+    report = check(fixed)
+    assert rules(report, "M2") == ["rule f"]
+    assert "a call the model had not made" in report.results["M2"].failures[0].findings[0].detail
+
+
+def test_m2_a_call_the_model_makes_later_is_no_call_it_had_made(fixed):
+    """Call 1 asks for the booking; a context requested before it answers cannot hold the call."""
+    context(fixed, 1).append(dict(shown(fixed, 2, "function_call")))
+    (failed,) = check(fixed).results["M2"].failures
+    assert failed.instance == {"context": "call 1"}
+    assert [f.rule for f in failed.findings] == ["rule f"]
+
+
+def test_m2_fails_when_a_tool_call_comes_before_the_turn_it_was_made_for(fixed):
+    for items, item in _tool_items(fixed):
+        _before_the_first_turn(items, item)
+    report = check(fixed)
+    assert rules(report, "M2") == ["rule e"]
+    assert [v.instance["context"] for v in report.results["M2"].failures] == [
+        "call 2",
+        "final history",
+    ]
+    details = [f.detail for f in report.results["M2"].failures[0].findings]
+    said = "of create_reservation ('call-1-1') appears before speech 0, which the model was shown"
+    assert details == [
+        f"item 2, the call {said} when it asked",
+        f"item 3, the result {said} when it asked",
+    ]
+
+
+def test_m2_a_tool_call_renamed_given_other_arguments_and_moved_fails_in_every_context(fixed):
+    assert check(copy.deepcopy(fixed)).outcome("M2") == PASS
+    for items, item in _tool_items(fixed):
+        if item["type"] == "function_call":
+            item.update(name="delete_all_reservations", arguments='{"all": true}')
+        _before_the_first_turn(items, item)
+    report = check(fixed)
+    assert rules(report, "M2") == ["rule e", "rule f"]
+    assert [v.instance["context"] for v in report.results["M2"].failures] == [
+        "call 2",
+        "final history",
+    ]
+
+
+def _by_time(events):
+    return seal(sorted(events, key=lambda event: event["t_us"]))
+
+
+def _gap(events, at, length=0, *, asked=False, segment=1):
+    """A segment is silent from ``at`` for ``length``: its buffer ran empty or, if ``asked``,
+    the output was told to pause and then to resume."""
+    paused = copy.deepcopy(of(events, "playout.paused"))
+    paused["t_us"] = at
+    started = of(events, "playout.started", segment - 1)["t_us"]
+    paused["data"].update(segment=segment, played_us=at - started)
+    resumed = copy.deepcopy(paused)
+    resumed.update(kind="playout.resumed", t_us=at + length)
+    added = [paused, resumed]
+    if asked:
+        pause, resume = (copy.deepcopy(of(events, kind)) for kind in ("sink.pause", "sink.resume"))
+        pause["t_us"], resume["t_us"] = at, at + length
+        resume["data"]["segment"] = 1
+        added = [pause, paused, resume, resumed]
+    events.extend(added)
+    return _by_time(events)
+
+
+@pytest.mark.parametrize("gap_us", [0, 1, 300_000])
+def test_l2_a_reply_that_plays_on_after_a_gap_in_its_buffer_does_not_start(barge, gap_us):
+    """The gap opens at 5.1 s, in the floor window. The reply is paused at the point, 5.5 s."""
+    report = check(_gap(barge, 5_100_000, gap_us))
+    assert report.valid and report.outcome("L2") == PASS
+
+
+def test_l2_a_reply_that_plays_on_after_a_later_gap_was_not_asked_to_pause(barge):
+    """The output was paused at 5.5 s and resumed at 6.2 s. Reply 2's buffer is empty from
+    7.3 s to 7.4 s, while the user says "Thanks."."""
+    events = declare(_spoke_again(barge, 7_100_000), L2={"interruptions_allowed": False})
+    report = check(_gap(events, 7_300_000, 100_000, segment=2))
+    assert report.valid and report.outcome("L2") == PASS
 
 
 def _late_pause(events, by_us):
@@ -847,6 +1551,61 @@ def _late_pause(events, by_us):
     return events
 
 
+@pytest.mark.parametrize("late_us, broken", [(100_000, []), (100_001, ["rule a"])])
+def test_l2_a_reply_playing_on_after_a_gap_across_the_interruption_point_is_held_to_the_bound(
+    barge, late_us, broken
+):
+    """Its buffer is empty from 5.45 s to 5.55 s, and the point is at 5.5 s."""
+    report = check(_gap(_late_pause(barge, late_us), 5_450_000, 100_000))
+    assert report.valid and rules(report, "L2") == broken
+    assert report.results["L2"].verdicts[1].measures["audible_after_point_us"] == late_us
+
+
+@pytest.mark.parametrize("back_us, broken", [(5_999_999, ["rule a"]), (6_000_000, [])])
+def test_l2_a_gap_from_before_the_point_to_the_end_of_the_floor_leaves_the_agent_silent(
+    barge, back_us, broken
+):
+    """The framework never stops the reply. Its buffer is empty from 5.3 s, and audio is back
+    as the user stops speaking at 6.0 s, or 1 us before."""
+    asked = [of(barge, "sink.pause"), of(barge, "playout.paused")]
+    events = _gap(barge, 5_300_000, back_us - 5_300_000)
+    report = check(seal([e for e in events if e not in asked]))
+    assert report.valid and rules(report, "L2") == broken
+
+
+@pytest.mark.parametrize(
+    "at_us, grace_us, broken",
+    [
+        (5_800_000, 0, ["rule b"]),
+        (5_800_000, 749_999, ["rule b"]),
+        (5_800_000, 750_000, []),
+        (5_999_999, 0, ["rule b"]),
+        (6_000_000, 0, []),
+    ],
+)
+def test_l2_a_reply_the_framework_resumes_inside_the_floor_window_talks_over_the_user(
+    barge, at_us, grace_us, broken
+):
+    """The floor window is open from 5.05 s to 6.0 s, and both ends are outside it."""
+    resume = copy.deepcopy(of(barge, "sink.resume"))
+    resumed = copy.deepcopy(of(barge, "playout.paused"))
+    resume["t_us"] = resumed["t_us"] = at_us
+    resume["data"]["segment"], resumed["kind"] = 1, "playout.resumed"
+    barge.extend((resume, resumed))
+    report = check(declare(_by_time(barge), L2={"start_grace_us": grace_us}))
+    assert report.valid and rules(report, "L2") == broken
+    if broken:
+        (finding,) = report.results["L2"].failures[0].findings
+        assert f"segment 1 resumed {at_us - 5_050_000} us after" in finding.detail
+
+
+def test_l2_a_pause_of_zero_length_neither_resumes_a_reply_nor_ends_it(barge):
+    assert check(_gap(copy.deepcopy(barge), 5_100_000, 0, asked=True)).outcome("L2") == PASS
+    assert rules(check(_gap(copy.deepcopy(barge), 5_100_000, 1, asked=True)), "L2") == ["rule b"]
+    late = check(_gap(_late_pause(barge, 400_000), 5_500_000, 0, asked=True))
+    assert late.valid and rules(late, "L2") == ["rule a"]
+
+
 def test_l2_a_late_command_fails_and_puts_the_reference_in_doubt(barge):
     report = check(_late_pause(barge, 300_000))
     (failed,) = report.results["L2"].failures
@@ -855,17 +1614,62 @@ def test_l2_a_late_command_fails_and_puts_the_reference_in_doubt(barge):
     assert failed.measures["decision_lag_us"] == 300_000
 
 
+@pytest.mark.parametrize("late_us, broken", [(100_000, []), (100_001, ["rule a"])])
+def test_l2_a_stop_at_the_bound_passes_and_one_microsecond_later_fails(barge, late_us, broken):
+    report = check(_late_pause(barge, late_us))
+    assert rules(report, "L2") == broken
+    assert report.results["L2"].verdicts[1].measures["audible_after_point_us"] == late_us
+
+
+@pytest.mark.parametrize(
+    "command_us, doubt", [(5_600_000, ()), (5_600_001, ("reference_in_doubt",))]
+)
+def test_l2_the_reference_is_in_doubt_only_if_the_command_came_later_than_the_bound(
+    barge, command_us, doubt
+):
+    """The output plays on for 0.2 s after it is told to pause."""
+    of(barge, "sink.pause")["t_us"] = command_us
+    of(barge, "playout.paused")["t_us"] = command_us + 200_000
+    (failed,) = check(_by_time(barge)).results["L2"].failures
+    assert [f.rule for f in failed.findings] == ["rule a"] and failed.flags == doubt
+    assert failed.measures["stop_latency_us"] == 200_000
+
+
 def test_l2_the_stop_bound_is_a_policy_choice(barge):
     events = declare(_late_pause(barge, 300_000), L2={"stop_bound_us": 300_000})
     assert check(events).outcome("L2") == PASS
 
 
-def test_l2_a_speech_shorter_than_the_threshold_has_no_interruption_point(barge):
+@pytest.mark.parametrize("early_us, after_us", [(0, 0), (1, None)])
+def test_l2_a_reply_that_stops_at_the_interruption_point_was_audible_at_it(
+    barge, early_us, after_us
+):
+    report = check(_late_pause(barge, -early_us))
+    assert report.valid and report.outcome("L2") == PASS
+    assert report.results["L2"].verdicts[1].measures.get("audible_after_point_us") == after_us
+
+
+@pytest.mark.parametrize("before_us, broken", [(0, ["rule b"]), (1, ["rule a", "rule b"])])
+def test_l2_audio_that_starts_at_the_interruption_point_starts_and_was_not_under_way(
+    barge, before_us, broken
+):
+    """Reply 2 starts at 7.0 s. A third speech reaches its interruption point then, or 1 us on."""
+    report = check(_spoke_again(barge, 6_500_000 + before_us))
+    last = report.results["L2"].verdicts[2]
+    assert report.valid and last.measures["interruption_point_us"] == 7_000_000 + before_us
+    assert [f.rule for f in last.findings] == broken
+
+
+@pytest.mark.parametrize("length_us, point_us", [(500_000, 5_500_000), (499_999, None)])
+def test_l2_a_speech_as_long_as_the_threshold_has_its_interruption_point_at_its_end(
+    barge, length_us, point_us
+):
     speech = barge[0]["data"]["scenario"]["speeches"][1]
-    speech["end_us"] = speech["start_us"] + 300_000  # the framework's threshold is 500 ms
+    speech["end_us"] = speech["start_us"] + length_us
     report = check(_late_pause(seal(barge), 300_000))
     (v,) = [v for v in report.results["L2"].verdicts if v.instance == {"speech": 1}]
-    assert v.outcome == PASS and v.measures["interruption_point_us"] is None
+    assert v.measures["interruption_point_us"] == point_us
+    assert [f.rule for f in v.findings] == (["rule a"] if point_us else [])
 
 
 def test_l2_reports_recognition_delay_separately_from_stop_latency(barge):
@@ -873,6 +1677,18 @@ def test_l2_reports_recognition_delay_separately_from_stop_latency(barge):
     assert measures["recognition_delay_us"] == 500_000  # true start of speech to the command
     assert measures["decision_lag_us"] == 0  # the declared threshold to the command
     assert measures["stop_latency_us"] == 0  # the command to silence
+
+
+@pytest.mark.parametrize(
+    "early_us, delays", [(500_000, (None, 0)), (500_001, (4_499_999, 1_200_000))]
+)
+def test_l2_a_command_belongs_to_the_speech_that_had_begun_when_it_reached_the_sink(
+    barge, early_us, delays
+):
+    """The pause reaches the sink as speech 1 starts at 5.0 s, or 1 us before. The next
+    command is the clear at 6.2 s."""
+    verdicts = check(_by_time(_late_pause(barge, -early_us))).results["L2"].verdicts
+    assert tuple(v.measures["recognition_delay_us"] for v in verdicts) == delays
 
 
 def test_l1_a_later_speech_carries_the_obligation():
@@ -990,8 +1806,88 @@ def test_l1_first_audio_counts_even_if_the_run_ends_before_the_segment_finishes(
     assert report.results["M1"].verdicts[-1].outcome == UNOBSERVABLE
 
 
+def _in_two_segments(events, later_us=2_000_000):
+    """The last reply's words after its first play in a segment of their own, ``later_us`` on."""
+    first = of(events, "playout.finished", 1)
+    started, second = copy.deepcopy(of(events, "playout.started", 1)), copy.deepcopy(first)
+    played, text = first["data"], first["data"]["text_played"].split()
+    one = played["words_completed_us"][0]
+    head = one - started["t_us"]
+    second["t_us"] += later_us
+    second["data"].update(
+        segment=3,
+        position_us=played["position_us"] - head,
+        pushed_us=played["pushed_us"] - head,
+        words_played=played["words_played"][1:],
+        words_completed_us=[at + later_us for at in played["words_completed_us"][1:]],
+        text_played=" ".join(text[1:]),
+    )
+    first["t_us"] = one
+    played.update(
+        position_us=head,
+        pushed_us=head,
+        words_played=played["words_played"][:1],
+        words_completed_us=[one],
+        text_played=text[0],
+    )
+    started["t_us"] = one + later_us
+    started["data"]["segment"] = 3
+    events.extend((started, second))
+    return seal(sorted(events, key=lambda event: event["t_us"]))
+
+
+def test_a_reply_played_in_two_segments_was_first_audible_when_the_first_began(barge):
+    """The second segment starts at 9.24 s, after the turn's deadline of 8.7 s."""
+    events = _in_two_segments(barge)
+    assert View(events).playout(2).first_audible_us == of(events, "playout.started", 1)["t_us"]
+    report = check(events)
+    assert report.valid and report.failures == ()
+    assert report.results["L1"].verdicts[-1].measures["time_to_first_audio_us"] == 800_000
+    assert report.results["M1"].verdicts[-1].measures["played"] == 2
+
+
+def test_a_reply_whose_last_segment_never_finished_is_not_judged_on_the_part_that_did(fixed):
+    """Three of the claim's four words are in a segment still open when the run ends."""
+    whole = check(_in_two_segments(copy.deepcopy(fixed)))
+    assert (whole.outcome("A3"), whole.outcome("M1")) == (PASS, PASS)
+    events = _in_two_segments(fixed)
+    events.remove(of(events, "playout.finished", 2))
+    view = View(seal(events))
+    assert view.playout(2).pending and len(view.playout(2).segments) == 1
+    report = check(events)
+    (claim,) = report.results["A3"].verdicts
+    assert claim.outcome == UNOBSERVABLE and report.results["A3"].notes == ()
+    assert "before its playout finished" in claim.findings[0].detail
+    last = report.results["M1"].verdicts[-1]
+    assert last.outcome == UNOBSERVABLE
+    assert "before its playout finished" in last.findings[0].detail
+
+
+def test_m1_a_reply_whose_audio_may_be_in_a_segment_that_never_started_is_unobservable(barge):
+    """The sink was handed a second segment and the run ended before it became audible."""
+    barge.remove(of(barge, "playout.started", 1))
+    barge.remove(of(barge, "playout.finished", 1))
+    events = seal(barge)
+    assert View(events).open_segments() == [2]
+    report = check(events)
+    assert report.valid and report.results["M1"].verdicts[-1].outcome == UNOBSERVABLE
+    assert rules(report, "M1") == []
+
+
 def test_l2_a_speech_the_vad_never_reported_holds_no_floor(barge):
     cut = barge.index(of(barge, "user.vad_start", 1))
     result = check(seal(barge[:cut] + [barge[-1]])).results["L2"]
     assert [v.instance for v in result.verdicts] == [{"speech": 0}]
-    assert "the run ended before the VAD reported it" in result.notes[0]
+    assert result.notes == ("speech 1: the VAD never reported it, so it held no floor",)
+
+
+def test_l2_a_speech_the_vad_did_not_report_in_a_run_that_went_on_holds_no_floor(barge):
+    """A speech shorter than the VAD's minimum is never reported, though the run continues."""
+    unreported = [
+        e
+        for e in barge
+        if not (e["kind"] in ("user.vad_start", "user.vad_end") and e["data"]["speech"] == 1)
+    ]
+    result = check(seal(unreported)).results["L2"]
+    assert [v.instance for v in result.verdicts] == [{"speech": 0}]
+    assert result.notes == ("speech 1: the VAD never reported it, so it held no floor",)

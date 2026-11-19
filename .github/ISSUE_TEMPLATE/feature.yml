@@ -1,0 +1,34 @@
+name: Feature request
+description: Something Earful does not do yet.
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What you are trying to test
+      description: The agent, the conversation and the failure you want a test to catch. A concrete case is worth more than a general one.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What Earful would do
+      description: The call, the command or the contract you have in mind, as you would like to write it.
+    validations:
+      required: true
+  - type: dropdown
+    id: framework
+    attributes:
+      label: Framework
+      options:
+        - livekit-agents
+        - pipecat-ai
+        - Both
+        - Another framework
+    validations:
+      required: true
+  - type: textarea
+    id: today
+    attributes:
+      label: What you do today
+      description: How you test this now, if you do.

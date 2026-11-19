@@ -73,6 +73,11 @@ wrote it; `scenario.describe(case, reference)` gives the data of a `Case` built 
 and running a case from its data gives the same ledger, byte for byte, as running it
 directly.
 
+The Pipecat adapter shares `seconds_per_letter_us`, `tts_ttfb_us`, `drain_delay_us`,
+`drain_timeout_us` and `backend_mode`. Its turn settings are `vad_start_us`, `vad_stop_us`,
+`user_speech_timeout_us` and `user_turn_stop_timeout_us`. Its voice accepts
+`tts_word_timestamps` as a boolean. [Pipecat scenarios](pipecat.md)
+
 ### Variables
 
 Every time in a case is a **variable**: something that can be moved on its own.
@@ -143,6 +148,18 @@ finding of that rule. Three kinds of run break nothing, because nothing can be c
 from them: a run that is not valid evidence, a case the adapter refuses, and a run that
 raises. Each is counted and reported; none ends a search.
 
+They do not weigh the same. A refused case and a run that is not valid evidence can come
+of where a search puts things: a moved speech reaches a context the scripted model has no
+rule for, and that run is not valid. A search with some of these still has a result. A run
+that raises is an error in the scenario's code or in Earful, and no search is expected to
+have one. One such case fails the search's assertion, and `earful search` exits 3. So does
+a search that could judge none of the cases it tried.
+
+A refusal is the adapter declining a case before anything runs: data that is not
+`earful.case/1`, a setting it does not have, a scenario that contradicts itself. It
+raises `CaseRefused`, a `ValueError`. Whatever else a run raises is an error, a
+`ValueError` from the agent's own code included.
+
 ## 3. The boundary scheduler
 
 Timing defects occur at boundaries: the user interrupts as the first audio arrives, or a
@@ -174,6 +191,10 @@ variable so that the handle falls there. The offsets are 10 ms before, exactly a
 10 ms after: one audio frame, the finest regular step at which a framework is given audio.
 Cases that coincide are one candidate. Each candidate is run and checked.
 
+A speech or a hangup written exactly on a transition is already at it, and is put 10 ms
+either side. A delay or a wait is not put beside the moment it runs out: that transition
+is its own, and moves with it.
+
 A delay is placed against the transitions of the case as it is. A speech is placed against
 the transitions of the run without that speech: the timeline it would interrupt. A hangup
 is placed against the transitions of the run in which the user stays. No delay
@@ -201,8 +222,13 @@ Each is placed against the transitions of the run with the fault in place.
 **Two things at a time.** Both are off by default.
 
 - `pairs=True` moves every speech again with each fault in place, and the hangup if it
-  is among the variables, and adds faults to two different writes at once. The speech is
-  placed against the transitions of the faulted run without that speech.
+  is among the variables. The speech is placed against the transitions of the faulted run
+  without that speech.
+
+  It also adds a second fault to each later write of the run with the first fault in
+  place. A write made only because an earlier one failed is among them, so an error on
+  the first write and a timeout on its retry is one candidate, reported as
+  `backend.error 1 + backend.timeout 2, commit first`.
 
   It also makes a provider slow and moves every speech and the hangup against that. A
   write that commits at once has no moment at which it is under way, so a speech or a
@@ -225,6 +251,24 @@ Two times each moved to boundaries are not explored together.
 The search uses everything in the ledger to decide where to look, the framework's own
 events included. What it finds is decided by the checker alone.
 
+**How many runs.** The number of cases grows with the handles times the transitions
+times the three offsets. A search first makes the few runs that read the boundaries, then
+says what it is about to run. `earful search` prints it on standard error, and
+`explore(..., planned=print)` hands it to a function. For the README's booking example:
+
+```
+earful: 736 cases (733 placements of a time, and the faults); 732 to run, after 6 run(s) to find them
+```
+
+`max_runs`, `--max-runs N` on the command line, is a budget. The runs that read the
+boundaries are always made and count against it. Once it is spent no further case is run
+and no further failure is measured. Such a search is not `complete`: its report says how
+many cases were not run and how many failures were not measured, its assertion fails, and
+`earful search` exits 3 unless a rule broke. A budget is a stop for a search that turned
+out too large. To make a search smaller, narrow it: fewer variables, some speeches, no
+word ends. Reading the ledger of each broken rule's example afterwards takes one run more
+for each rule.
+
 ### What a search reports
 
 - **What broke.** Per predicate: how many candidates break it and what they changed, for
@@ -236,6 +280,15 @@ events included. What it finds is decided by the checker alone.
   run that could be judged, and the kinds it never was, with the reason: no such case
   exists (`impossible`), the adapter refused it, the run raised, or the run was not valid
   evidence. A search that found nothing is read together with this list.
+- **What was not judged.** The cases that were refused, raised or were not valid evidence,
+  grouped by reason. Reasons that differ only in a number are one reason. Each has its
+  count and one case as an example: what was changed, and what that put beside what.
+
+  ```
+  not judged: 2 of 78 cases; the search fails, since 2 raised
+      2 error: RuntimeError: boom
+          such as speech.position 1 at 2.500 s (as written 20.000 s), to put interrupt at llm.done
+  ```
 
 ## 4. Windows
 
@@ -258,6 +311,14 @@ A window with no width, located to the microsecond, with a passing run on each s
 The outcome depends on which of two same-instant events ran first, which nothing in the
 scenario decides (`docs/contracts.md`, section 2.3). An instant is repeatable on a virtual
 clock and says nothing about the system. A window of any width is a real failure.
+
+A search measures a window from every value at which a rule breaks, unless the value
+already lies in a window it measured. An instant takes four runs and is always measured.
+Of wider windows it measures three along each time, and says how many breaking values it
+left unmeasured. So a rule is reported as breaking at single instants only when every
+value at which it breaks was measured and is one. Such a rule is not counted. With
+`--no-windows`, or `breaks(windows=False)`, nothing is measured and every rule that broke
+is counted.
 
 ## 5. The shrinker
 
@@ -293,8 +354,9 @@ the edges of their windows. A case left on an edge stops failing after a small c
 the system or to Earful.
 
 Every run is remembered, so no case is run twice. A budget (`max_runs`, 600 by default)
-bounds the work; if it is spent, the case reduced so far is returned and marked
-incomplete.
+bounds the work, the runs that measure a window included. If it is spent, the case
+reduced so far is returned and marked incomplete. A window the budget cut short is left
+out.
 
 A reduction has two limits. It cannot reduce the scenario's code. It follows a rule and
 knows nothing of the mechanism: if the same rule can be broken two ways, a reduction may
@@ -325,27 +387,91 @@ The manifest freezes the failure. Its shape is
 | `clock` | The clock the reduced case ran on |
 | `formats` | The versions of the `ledger`, `contracts` and `case` formats the bundle is written in |
 | `environment` | What it was made with, by name. The LiveKit adapter gives the framework, Earful, the interpreter, the platform, and a digest of every installed distribution and its version. For the record; a replay does not depend on it |
-| `scenario_digest` | A digest of the code of the scenario the cases name |
-| `original`, `minimal` | Per case: the ledger `hash`, how many `speeches`, declared `delays` and `faults` it has, and the checker's `findings` for the frozen rule, in its own words |
+| `scenario_digest` | SHA-256 of the source of the one module that defines the scenario's function. Empty if that source could not be read. What it covers is set out under Replaying |
+| `original`, `minimal` | Per case: the ledger `hash`, the `case_digest` of its case file, how many `speeches`, declared `delays` and `faults` it has, and the checker's `findings` for the frozen rule, in its own words |
 | `reduction` | `runs`: how many times the system was run. `complete`: false if the budget was spent first. `steps`: what was done, in order. `differences`: every way the reduced case differs from the author's scenario |
 | `windows` | For each speech of the reduced case, and each time the reduction settled: the `variable`, `lo_us`, `hi_us`, `width_us`, `lo_end`, `hi_end`, `resolution_us`, and whether it is an `instant` |
-| `replay` | `repeats`: how many times the reduced case was run when the bundle was made. `distinct_hashes`: how many different ledgers that gave, always 1 |
+| `replay` | `repeats`: how many times the reduced case was run again when the bundle was made. `distinct_hashes`: how many different ledgers that gave, always 1 |
 
 The seed and the contract policy are in the case files. A bundle holds no timestamp and
-no path. A reduced case that does not give the same ledger every time is not written.
+no path.
 
-**Replaying** runs the reduced case again and says:
+A bundle is written only for a failure that repeats. The reduction judged one run of the
+reduced case, and that run broke the rule. The reduced case is then run `repeats` more
+times, three by default, and each run has to give the ledger of the run that was judged.
+The ledger written for the case as found has to be the one it was judged by, too. If any
+run gives another ledger, nothing is written and the error says how many runs agreed.
 
-- **reproduced**: every run broke the frozen predicate.
+**Reading** a bundle checks all five files before anything is done with it:
+
+- the manifest is an `earful.bundle/1` manifest, and its `formats` name the formats this
+  Earful reads;
+- each ledger validates as `earful.ledger/1` and hashes to the `hash` the manifest
+  records for it;
+- each case file validates as `earful.case/1` and has the `case_digest` the manifest
+  records for it.
+
+`case_digest` is SHA-256 of the case as one line of JSON: keys sorted, `,` and `:` as the
+separators, characters outside ASCII escaped. It is computed from the parsed case, so a
+case file laid out another way still matches.
+
+A bundle that fails a check is refused with one line that names the file. `earful replay`,
+`earful crosscheck` and `earful report` print it and exit 2:
+
+```text
+earful: failures/lk-1.8.12.booking.A2-rule/minimal.case.json is not the case the manifest records: its digest is 5d0c…, and the manifest has e41a…
+```
+
+`case_digest` was added in `schema_minor` 1. A bundle written before it is still read. Its
+case files cannot be checked, and a replay says so.
+
+The files are checked against the manifest, and nothing checks the manifest. The checks
+find a file that was edited, damaged or left out. They do not make a bundle from an
+unknown source safe to replay.
+
+**Replaying** runs the reduced case again, three times by default, and says:
+
+- **judged**: every run was valid evidence (`docs/ledger.md`, Validity). A replay with a
+  run that was not shows nothing about the rule, and `invalid` gives the reasons.
+- **reproduced**: every run was judged and broke the frozen predicate.
+- **clean**: every run was judged and none broke it.
 - **repeatable**: every run gave the same ledger.
 - **identical**: that ledger is the one recorded. Expected only on the release, and with
   the Earful version and scenario code, the bundle was made with.
-- **scenario code changed**: the digest of the scenario's code differs from the one
+- **scenario code changed**: the digest of the scenario's module differs from the one
   recorded. The bundle then tests something other than what was found.
+- **unverified**: the case files the manifest records no digest of. Empty unless the
+  bundle was written before `case_digest`.
 
 On the release it was found on, a bundle is reproduced, repeatable and identical, on any
-platform. On a release that repaired the defect it is repeatable and not reproduced. That
-pair is the regression test.
+platform. On a release that repaired the defect it is clean and repeatable. That pair is
+the regression test.
+
+A replay can be neither reproduced nor clean: a run was not valid evidence, or some runs
+broke the rule and others did not. "Not reproduced" therefore does not mean the defect is
+gone. A test of a fix asserts `clean`, and `earful replay --expect clean` exits 0 only for
+a clean replay. A replay that was not judged, or whose runs differ, exits 3 whatever was
+expected. A replay makes at least one run: `repeats` below 1 is a `ValueError`.
+
+`earful replay` also prints the Earful version that kept the bundle, which the manifest
+records in `environment`, when it is not the version replaying it. It names any case file
+it could not verify.
+
+**What the scenario's digest covers.** A case names its code as `module:function`.
+`scenario_digest` is SHA-256 of the source text of one file: the module in which that
+function is defined. Any change to that file changes it, a comment included. It does not
+cover:
+
+- a module the scenario imports, such as the agent, its tools or a stand-in for a
+  service;
+- the framework, its dependencies and Earful. The manifest's `environment` records those,
+  and a replay prints the framework release and compares the Earful version;
+- anything the code reads when it runs: files, environment variables.
+
+"Scenario code changed: no" therefore means that one file is as it was when the bundle
+was kept. An agent defined in another module can change without the replay saying so. To
+have it covered, define the agent in the scenario's module. A digest that is empty, because
+the source could not be read when the bundle was kept, is reported as `not known`.
 
 **Trust.** A bundle names the code of its scenario and does not contain it. Replaying one
 imports and runs that code, so replay only bundles you trust.
@@ -360,17 +486,33 @@ the one way they change.
 - **Mostly one thing at a time.** A candidate moves one variable or adds one fault.
   With `pairs` it combines a fault or a stretched delay with a moved speech or hangup, or
   two faults. With `profiles` it moves a speech under redrawn delays. A stretched delay
-  has one value, and only writes and generations are stretched. Two times each moved to
-  boundaries are not explored together, and neither are three changes of any kind.
+  has one value, and only the writes and generations of the case as given are stretched.
+  Under a fault no provider delay is moved or stretched, and the wait and the commit of a
+  second fault stay where they are put. Two times each moved to boundaries are not
+  explored together, and neither are three changes of any kind.
 - **The boundaries are those of one run.** Once a moved event falls somewhere new it
   changes what follows, so a handle aimed at a later transition may meet a timeline that
   has moved. The search chooses where to look. It does not prove that every ordering was
   tried.
-- **A failure with no boundary beside it is not looked for.** A window that opens and
-  closes between two transitions, more than 10 ms from each, has no candidate inside it.
+- **A failure is found only at three values beside each transition.** A handle is put
+  10 ms before a transition, at it and 10 ms after it. A window that holds none of those
+  values has no candidate inside it: one that opens and closes between two transitions,
+  more than 10 ms from each, and also one that lies strictly inside the 10 ms on one side
+  of a transition, such as from 2 ms to 8 ms after it.
   Stepping a variable in fixed increments (`scripts/contracts_sweep.py`) covers those,
   and found nothing the boundary search missed on the supported releases
   (`docs/gate1-core.md`).
+- **Reached means aimed at.** The coverage list records that a case was built to put a
+  handle beside a transition of the run the search read, and that the run of that case
+  could be judged. It does not check that the transition still fell at that instant in
+  the run of the moved case.
+- **A run has no time limit of its own.** A run that deadlocks with nothing scheduled is
+  ended after 60 real seconds and counted as a run that raised. A run whose code blocks
+  the thread, in a loop or on a call that does not return, is not ended, and the search
+  waits for it.
+- **A worker that dies ends the search.** If none had run a case, the message explains
+  the `if __name__ == "__main__":` guard a script needs. If some had, it says how many
+  cases the workers ran before one died, and `workers=0` runs the search in one process.
 - **A window is one stretch.** It is measured outwards from one breaking case until a run
   passes. A failure that stops and starts again is several windows, found from several
   candidates.

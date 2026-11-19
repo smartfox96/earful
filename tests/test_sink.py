@@ -3,21 +3,25 @@
 import asyncio
 from array import array
 
+import pytest
 from livekit import rtc
 
 from earful.core.ledger import Ledger
-from earful.livekit.clock import now_us, run_virtual
-from earful.livekit.providers import StampTable
+from earful.livekit.cases import CASES
+from earful.livekit.harness import run_case
+from earful.livekit.providers import record_errors_in, stop_recording_errors
 from earful.livekit.sink import ClockedSink
+from earful.scripted.clock import now_us, run_virtual
+from earful.scripted.voice import StampTable, encode
 
 RATE = 24000
 
 
 def _frame(*runs, rate=RATE):
-    """An audio frame made of (stamp, sample count) runs."""
+    """An audio frame made of (stamp, sample count) runs, each the start of that word."""
     pcm = array("h")
     for stamp, count in runs:
-        pcm.extend([stamp] * count)
+        pcm.extend(encode(stamp, count))
     return rtc.AudioFrame(
         data=pcm.tobytes(), sample_rate=rate, num_channels=1, samples_per_channel=len(pcm)
     )
@@ -36,10 +40,12 @@ def _kinds(ledger):
     return [e["kind"] for e in ledger.events]
 
 
-def test_an_unknown_sample_value_is_a_stamp_error():
+def test_a_sample_of_no_known_word_is_a_stamp_error():
     async def main():
         sink, _ = _sink([2400])
-        await sink.capture_frame(_frame((1, 2399), (99, 1)))
+        await sink.capture_frame(_frame((1, 2399), (99, 1)))  # word 99 was never synthesized
+        sink.flush()
+        await asyncio.sleep(0.2)
         return sink.stamp_errors
 
     assert run_virtual(main) == 1
@@ -122,3 +128,84 @@ def test_a_sample_counts_once_it_has_played_in_full():
     at = run_virtual(lambda: run(0.002268))
     assert at["words_played"] == [1] and at["words_completed_us"] == [2268]
     assert at["word_cut"] is None  # the next sample has not finished playing
+
+
+def _a_bug(*args, **kwargs):
+    raise KeyError("a bug in Earful")
+
+
+_RECORDED = ["the scripted output raised KeyError: 'a bug in Earful'"]
+
+
+@pytest.mark.parametrize("broken", ["_take", "_finish"])
+def test_an_exception_inside_the_sink_makes_the_run_invalid(monkeypatch, broken):
+    """``_take`` runs as a frame arrives, ``_finish`` on the timer that ends a segment."""
+    monkeypatch.setattr(ClockedSink, broken, _a_bug)
+    result = run_case(CASES["barge_in_mid_word"](), require_valid=False)
+    assert result.invalid == [f"harness error: {_RECORDED[0]}"]
+
+
+@pytest.mark.parametrize("command", ["flush", "clear_buffer", "pause", "resume"])
+def test_an_exception_as_the_framework_commands_the_sink_is_recorded(monkeypatch, command):
+    async def main():
+        errors = []
+        token = record_errors_in(errors)
+        sink, _ = _sink([2400])
+        if command == "resume":
+            sink.pause()
+        monkeypatch.setattr(sink, "_command", _a_bug)
+        with pytest.raises(KeyError):
+            getattr(sink, command)()
+        stop_recording_errors(token)
+        return errors
+
+    assert run_virtual(main) == _RECORDED
+
+
+class _Late(ClockedSink):
+    def _begin(self, start):
+        asyncio.get_running_loop().call_later(0.01, start)
+
+    def _obey(self, action):
+        asyncio.get_running_loop().call_later(0.01, action)
+
+
+@pytest.mark.parametrize("late", ["start", "clear", "pause"])
+def test_an_exception_in_a_start_or_a_stop_the_sink_delays_is_recorded(monkeypatch, late):
+    async def main():
+        errors = []
+        token = record_errors_in(errors)
+        ledger = Ledger(now_us, run="test")
+        table = StampTable(sample_rate=RATE)
+        table.add(1, 0, "w1", 2400)
+        sink = _Late(ledger, table)
+        if late == "start":
+            monkeypatch.setattr(sink, "_utterances", _a_bug)
+        await sink.capture_frame(_frame((1, 2400)))
+        await asyncio.sleep(0.02)  # started, unless starting is what breaks
+        if late == "clear":
+            monkeypatch.setattr(sink, "_finish", _a_bug)
+            sink.clear_buffer()
+        if late == "pause":
+            monkeypatch.setattr(sink, "_pause", _a_bug)
+            sink.pause()
+        await asyncio.sleep(0.02)
+        stop_recording_errors(token)
+        return errors
+
+    assert run_virtual(main) == _RECORDED
+
+
+def test_an_exception_as_a_segment_runs_out_is_recorded(monkeypatch):
+    async def main():
+        errors = []
+        token = record_errors_in(errors)
+        sink, _ = _sink([2400])
+        await sink.capture_frame(_frame((1, 2400)))
+        sink.flush()
+        monkeypatch.setattr(sink, "_finish", _a_bug)
+        await asyncio.sleep(0.2)  # the segment's audio ends on a timer
+        stop_recording_errors(token)
+        return errors
+
+    assert run_virtual(main) == _RECORDED

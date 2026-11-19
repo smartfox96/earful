@@ -256,16 +256,52 @@ def witness_tool(tool: Any) -> Any:
     return type(tool)(witnessed(tool, name=tool.info.name), tool.info)  # type: ignore[arg-type]
 
 
+def _tool_effects(tools: list[Any]) -> dict[str, Effect | None]:
+    return {
+        t.info.name: declared_effect(t)
+        for t in tools
+        if isinstance(t, (lk_llm.FunctionTool, lk_llm.RawFunctionTool))
+    }
+
+
 async def witness_agent_tools(agent: lk.Agent) -> dict[str, Effect | None]:
     """Replace each of ``agent``'s function tools with a recording copy. Returns each
     tool's name with the write ``effect_tool`` declared for it, if any."""
     originals = list(agent.tools)
     await agent.update_tools([witness_tool(t) for t in originals])
-    return {
-        t.info.name: declared_effect(t)
-        for t in originals
+    return _tool_effects(originals)
+
+
+def witness_session_tools(session: lk.AgentSession[Any]) -> dict[str, Effect | None]:
+    """The same for the tools the session gives every agent, and for each agent the
+    session is handed over to from here on."""
+    originals = list(session.tools)
+    session.tools[:] = [witness_tool(t) for t in originals]
+    update_agent = session.update_agent
+
+    def witnessed_update(agent: lk.Agent) -> None:
+        # An agent that is not running takes its tools without waiting.
+        setting = agent.update_tools([witness_tool(t) for t in agent.tools])
+        try:
+            setting.send(None)
+        except StopIteration:
+            pass
+        else:
+            setting.close()  # already running: the model's next call names what is missed
+        update_agent(agent)
+
+    setattr(session, "update_agent", witnessed_update)  # noqa: B010 - an instance's own copy
+    return _tool_effects(originals)
+
+
+def unwitnessed(tools: list[Any]) -> list[str]:
+    """The function tools among ``tools`` whose calls would not be recorded."""
+    return sorted(
+        t.info.name
+        for t in tools
         if isinstance(t, (lk_llm.FunctionTool, lk_llm.RawFunctionTool))
-    }
+        and not getattr(t, _MARK, False)
+    )
 
 
 __all__ = [
@@ -276,7 +312,9 @@ __all__ = [
     "json_value",
     "model_text",
     "uninstall",
+    "unwitnessed",
     "witness_agent_tools",
+    "witness_session_tools",
     "witness_tool",
     "witnessed",
 ]

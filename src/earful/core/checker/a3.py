@@ -20,9 +20,7 @@ def check(view: View, policy: policies.A3) -> ContractResult:
                 "words": [claim["first_word"], claim["last_word"]],
             }
             base = [reply.answer, playout.utterance.event if playout.utterance else None]
-            missing = playout.unattributable or (
-                "the run ended before the reply's playout finished" if playout.pending else None
-            )
+            missing = playout.unknown
             if missing:
                 verdicts.append(
                     verdict(
@@ -54,6 +52,22 @@ def check(view: View, policy: policies.A3) -> ContractResult:
                         f"cannot time the start of the claim about {intent!r}",
                         events=[*base, *finishes],
                         unobservable="the start of the claim's first word cannot be derived",
+                    )
+                )
+                continue
+
+            unseen = [c for c in view.unaccounted_calls(intent) if c["t_us"] <= heard_at]
+            if unseen:
+                verdicts.append(
+                    verdict(
+                        "A3",
+                        instance,
+                        f"cannot tell whether {intent!r} was committed before the claim was heard",
+                        events=[*base, *finishes, *unseen],
+                        unobservable=(
+                            "a tool for the intent was called but nothing reached the backend"
+                        ),
+                        measures={"claim_heard_us": heard_at},
                     )
                 )
                 continue

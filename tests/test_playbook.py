@@ -1,14 +1,12 @@
 """The scripted model written as rules: how a context is read and which rule answers."""
 
-from pathlib import Path
-
-import livekit.agents as lk
 import pytest
 
 from earful.core.ledger import first_difference, normalize
 from earful.livekit.cases import BOOKING_ACK, BOOKING_INTENT, CASES
 from earful.livekit.harness import InvalidRun, run_case
-from earful.livekit.playbook import (
+from earful.livekit.providers import Claim, Reply, ToolCall
+from earful.scripted.playbook import (
     Context,
     NoRule,
     ScriptedModel,
@@ -20,9 +18,6 @@ from earful.livekit.playbook import (
     user_ever_said,
     user_said,
 )
-from earful.livekit.providers import Claim, Reply, ToolCall
-
-GOLDEN = Path(__file__).parent / "golden"
 
 
 def user(text):
@@ -199,10 +194,10 @@ BOOKING_AS_RULES = (
 )
 
 
-def test_a_scenario_whose_model_is_written_as_rules_gives_the_very_same_ledger():
+def test_a_scenario_whose_model_is_written_as_rules_gives_the_very_same_ledger(reference_ledger):
+    path = reference_ledger("book_then_interrupt")
     case = CASES["book_then_interrupt"]()
     case.policy = BOOKING_AS_RULES
-    path = GOLDEN / f"lk-{lk.__version__}.book_then_interrupt.ledger.normalized.jsonl"
     lines = normalize(run_case(case).ledger.events)
     assert first_difference(path.read_text("ascii").splitlines(), lines) is None
 

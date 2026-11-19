@@ -19,7 +19,6 @@ from earful.core.ledger import Ledger
 from earful.core.schema import validate
 from earful.livekit import tools
 from earful.livekit.cases import CASES, LONG_REPLY, _barge_in_policy
-from earful.livekit.clock import now_us, run_virtual
 from earful.livekit.harness import Case, Delay, Fault, Intent, InvalidRun, run_case
 from earful.livekit.providers import (
     Claim,
@@ -31,6 +30,7 @@ from earful.livekit.providers import (
     WorldOrigin,
 )
 from earful.livekit.tools import witnessed
+from earful.scripted.clock import now_us, run_virtual
 
 
 def _of(events, kind):

@@ -1,0 +1,110 @@
+# Changelog
+
+What changes for someone who uses Earful, release by release. The format is
+[Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the version numbers follow
+[Semantic Versioning](https://semver.org/spec/v2.0.0.html). The ledger, case and bundle
+formats have versions of their own
+([`docs/ledger.md`](https://github.com/smartfox96/earful/blob/main/docs/ledger.md), Versioning).
+
+## [Unreleased]
+
+### Added
+
+- A Pipecat adapter, `earful.pipecat`, for pipecat-ai 1.16 on Python 3.11 or later.
+  Install it with `pip install "earful[pipecat]"`. A case can run its own pipeline around
+  Earful's scripted ends (`Case.pipeline`).
+  [`docs/pipecat.md`](https://github.com/smartfox96/earful/blob/main/docs/pipecat.md)
+  shows a first scenario and lists the limits.
+- `earful.scripted`, the package both adapters share: the virtual clock, the scripted
+  user, model and voice, and a scenario's intents, delays and faults. `earful.livekit`
+  exports the names it did before.
+- `assert_contracts(require=[...])` fails when a named contract got no pass or fail.
+- `M2/rule f`: a tool call or result shown to the model has the name and the arguments of
+  the call the model made.
+- With `pairs`, a search puts a second fault on a write that exists only because the
+  first one failed.
+- A bundle's manifest records the digest of each case file (`schema_minor` 1).
+- `earful search` prints how many cases it is about to run, and `--max-runs` (`max_runs=`)
+  stops it there. A search stopped by its budget is incomplete and fails.
+
+### Changed
+
+- The `earful` command and the pytest fixture choose the adapter from the scenario or
+  the kept bundle they are given. A kept bundle's directory is named after its framework
+  (`lk-` or `pc-`).
+- `allow=` and `--keep` refuse a rule that does not exist. `allow=["A3"]` was ignored
+  before and is now an error: name the rule, as in `A3/rule`.
+- A search that could judge none of its cases fails, and says why each case was not
+  judged. A rule counts as breaking at single instants only if every value at which it
+  breaks was measured.
+- `earful replay` checks every file of a bundle against its manifest before it runs, and
+  a replay with a run that was not valid evidence is neither reproduced nor clean.
+  A bundle is written only for a failure that repeats.
+- A run that starts a thread or a child process, waits on a file descriptor, or is woken
+  from another thread is invalid. An exception inside a scripted provider makes the run
+  invalid.
+- `time.monotonic`, `time.monotonic_ns` and `time.perf_counter_ns` read the virtual clock
+  during a run. [`docs/compatibility.md`](https://github.com/smartfox96/earful/blob/main/docs/compatibility.md)
+  lists the reads that are virtual and those that are not.
+- A scripted model call to a tool the agent does not offer, or with an argument the tool
+  does not take, makes the run invalid.
+- A search in which a case raised an exception fails.
+- A mistake in a scenario (a reference that is not a scenario, a speech that ends before
+  it starts, an unknown backend mode or fault) is refused in one line with exit status 2.
+- Under pytest, a test's `.earful/<test>/` directory is cleared when the test starts.
+- A1, A2 and A3 are all unobservable for a tool call that leaves nothing in the backend.
+  M2 rule e also holds tool items and replies to their place among the user turns. L2
+  no longer counts a gap in a streaming buffer as a reply stopping or starting.
+- The scripted LiveKit VAD sets `speaking` as the Silero plugin does, and a word's audio
+  has the same level whatever its stamp.
+
+### Fixed
+
+- A reply played in several segments was first audible when the first one began.
+- The logging level no longer changes a ledger's hash.
+- A ledger's hash replaces only the framework's own identifiers, so application ids that
+  look like them are kept.
+
+## [0.1.1] - 2026-11-18
+
+### Added
+
+- `earful init module:Class` writes a first test for an agent from the agent's own
+  function tools. The test runs as written.
+- `EARFUL_WORKERS` sets how many worker processes a search starts when no number is
+  given. The pytest fixture and `earful search` read it.
+- [`skills/earful/SKILL.md`](https://github.com/smartfox96/earful/blob/main/skills/earful/SKILL.md),
+  one page that tells a coding assistant how to write and read an Earful test.
+- `docs/testing.md` shows how to keep a failing test's reports as an artifact in CI.
+
+### Changed
+
+- Under pytest, `--earful-workers` defaults to `auto`: a search of a scenario that can
+  be imported starts one worker process per processor. A number on the command line or
+  in the call is used as given.
+- The README opens with the report of a failing run and links to two example reports.
+
+## [0.1.0] - 2026-11-18
+
+The first release.
+
+### Added
+
+- A livekit-agents `AgentSession` run on a virtual clock against a scripted user, a
+  scripted model, a scripted voice and a fake backend, and recorded as a ledger that is
+  the same byte for byte on every run. Tested with livekit-agents 1.5.6, 1.5.7, 1.6.5,
+  1.6.6 and 1.8.12, on Linux and macOS, Python 3.10 to 3.14.
+- Seven contracts decided from the ledger alone: A1, A2, A3, M1, M2, L1 and L2
+  ([`docs/contracts.md`](https://github.com/smartfox96/earful/blob/main/docs/contracts.md)).
+- A search of the timings and backend faults near a scenario, the reduction of a
+  failing run to a small case, and a bundle that replays it.
+- A report of a run as one HTML page: a timeline, the verdict of each contract and
+  every event.
+- The `earful` command (`check`, `run`, `search`, `replay`, `crosscheck`, `report`) and
+  the `earful` pytest fixture.
+- The formats `earful.ledger/1`, `earful.case/1` and `earful.bundle/1`, each with a
+  JSON Schema.
+
+[Unreleased]: https://github.com/smartfox96/earful/compare/v0.1.1...HEAD
+[0.1.1]: https://github.com/smartfox96/earful/compare/v0.1.0...v0.1.1
+[0.1.0]: https://github.com/smartfox96/earful/releases/tag/v0.1.0

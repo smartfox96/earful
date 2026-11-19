@@ -6,7 +6,7 @@ readme = "README.md"
 requires-python = ">=3.10"
 license = "Apache-2.0"
 license-files = ["LICENSE", "NOTICE"]
-keywords = ["voice agents", "livekit", "testing", "pytest", "deterministic", "regression"]
+keywords = ["voice agents", "livekit", "pipecat", "testing", "pytest", "deterministic", "regression"]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",
@@ -30,11 +30,14 @@ dependencies = ["jsonschema>=4.18"]
 Homepage = "https://github.com/smartfox96/earful"
 Documentation = "https://github.com/smartfox96/earful/blob/main/docs/testing.md"
 Repository = "https://github.com/smartfox96/earful"
+Changelog = "https://github.com/smartfox96/earful/blob/main/CHANGELOG.md"
 Issues = "https://github.com/smartfox96/earful/issues"
 
 [project.optional-dependencies]
 # The releases tested: docs/compatibility.md.
 livekit = ["livekit-agents>=1.5.6,<1.9"]
+# pipecat-ai needs Python 3.11: on 3.10 the extra installs nothing.
+pipecat = ["pipecat-ai>=1.16,<1.17; python_version >= '3.11'"]
 
 [project.scripts]
 earful = "earful.cli:main"
@@ -49,8 +52,22 @@ build-backend = "hatchling.build"
 [tool.hatch.build.targets.wheel]
 packages = ["src/earful"]
 
+# Everything the tests read, so that they run from an unpacked source distribution.
 [tool.hatch.build.targets.sdist]
-include = ["src", "tests", "docs", "examples", "skills", "scripts", "compat", "*.md", "LICENSE", "NOTICE"]
+include = [
+    "src",
+    "tests",
+    "docs",
+    "examples",
+    "skills",
+    "scripts",
+    "compat",
+    ".github",
+    ".pre-commit-config.yaml",
+    "*.md",
+    "LICENSE",
+    "NOTICE",
+]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

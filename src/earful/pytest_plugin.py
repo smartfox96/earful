@@ -3,23 +3,31 @@ Pytest loads it wherever Earful is installed, so the adapter is imported only wh
 
 from __future__ import annotations
 
+import contextlib
 import json
 import re
+import shutil
 from collections.abc import Generator
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import pytest
 
-from .core import html
+from . import _adapters
+from .core import bundle, html
 from .core.ledger import write_jsonl
 
 if TYPE_CHECKING:
-    from .core import bundle
     from .core.predicate import Predicate
     from .core.search import Exploration
-    from .livekit.harness import RunResult
-    from .livekit.scenario import Source
+    from .livekit.harness import RunResult as LiveKitResult
+    from .livekit.scenario import Scenario as LiveKitScenario
+    from .livekit.scenario import Source as LiveKitSource
+    from .pipecat.harness import RunResult as PipecatResult
+    from .pipecat.scenario import Scenario as PipecatScenario
+    from .pipecat.scenario import Source as PipecatSource
+
+    Source = LiveKitSource | PipecatSource | LiveKitScenario | PipecatScenario
 
 _KEY = pytest.StashKey["Earful"]()
 
@@ -62,42 +70,43 @@ class Earful:
         self.directory = directory  # where this test's evidence goes if it fails
         self.workers = workers  # None: as many as suits each search
         self.spread = spread  # this test run already uses the processors (pytest-xdist)
-        self.runs: list[RunResult] = []
+        self.runs: list[LiveKitResult | PipecatResult] = []
         self.searches: list[Exploration] = []
 
-    def run(self, scenario: Source, *, case: dict[str, Any] | None = None, seed: int = 0) -> Any:
-        """Run a scenario once: ``earful.livekit.run``."""
-        from . import livekit
+    def run(
+        self, scenario: Source, *, case: dict[str, Any] | None = None, seed: int = 0
+    ) -> LiveKitResult | PipecatResult:
+        """Run a scenario with its framework adapter."""
+        adapter, source = _adapters.select(scenario)
 
         try:
-            result = livekit.run(scenario, case=case, seed=seed)
-        except livekit.InvalidRun as exc:
+            result = adapter.run(source, case=case, seed=seed)
+        except adapter.InvalidRun as exc:
             self.runs.append(exc.result)
             raise
         self.runs.append(result)
         return result
 
-    def explore(self, scenario: Source, **options: Any) -> Any:
-        """Search a scenario: ``earful.livekit.explore``. Where neither the call nor the
+    def explore(self, scenario: Source, **options: Any) -> Exploration:
+        """Search a scenario. Where neither the call nor the
         command line gives ``workers``, an importable scenario gets one per processor."""
-        from . import livekit
+        adapter, source = _adapters.select(scenario)
 
         if "workers" in options or self.workers is not None:
             options.setdefault("workers", self.workers)
-            found = livekit.explore(scenario, **options)
+            found = adapter.explore(source, **options)
         else:
             try:
-                found = livekit.explore(scenario, workers=self._suited(scenario), **options)
-            except livekit.WorkersUnavailable:
-                found = livekit.explore(scenario, workers=0, **options)
+                found = adapter.explore(source, workers=self._suited(source.reference), **options)
+            except adapter.WorkersUnavailable:
+                found = adapter.explore(source, workers=0, **options)
         self.searches.append(found)
         return found
 
-    def _suited(self, scenario: Source) -> int:
-        from . import livekit
+    def _suited(self, reference: str | None) -> int:
         from .core.search import default_workers
 
-        if self.spread or livekit.Scenario.of(scenario).reference is None:
+        if self.spread or reference is None:
             return 0
         workers = default_workers()
         return workers if workers > 1 else 0  # one worker is no faster than this process
@@ -105,19 +114,21 @@ class Earful:
     def keep(
         self, found: Exploration, rule: Predicate | str, directory: Path | str | None = None
     ) -> bundle.Bundle:
-        """Keep a failure as a bundle: ``earful.livekit.keep``. The default directory is
+        """Keep a failure as a bundle. The default directory is
         under this test's evidence directory, named after the rule."""
-        from . import livekit
+        from .scripted.scenario import importable
 
+        reference = importable(found.case["scenario"], "keep a failure as a bundle")
+        adapter, _ = _adapters.select(reference)
         if directory is None:
             directory = self.directory / ("bundle." + _slug(str(rule)))
-        return livekit.keep(found, rule, directory)
+        return adapter.keep(found, rule, directory)
 
     def replay(self, directory: Path | str, *, repeats: int = 3) -> bundle.Replay:
-        """Run a bundle's reduced case again: ``earful.livekit.replay``."""
-        from . import livekit
-
-        return livekit.replay(directory, repeats=repeats)
+        """Run a bundle's reduced case with its recorded framework."""
+        kept = bundle.load(Path(directory))
+        adapter = _adapters.by_framework(kept.manifest["framework"]["name"])
+        return adapter.replay(kept, repeats=repeats)
 
     def evidence(self) -> list[str]:
         """Write what the test ran to its directory and return a line for each file."""
@@ -173,8 +184,13 @@ def earful(request: pytest.FixtureRequest) -> Earful:
     out = Path(config.getoption("--earful-out"))
     if not out.is_absolute():
         out = config.rootpath / out
+    directory = out / _slug(request.node.nodeid)
+    # What an earlier run of this test left is not evidence of this one.
+    shutil.rmtree(directory, ignore_errors=True)
+    with contextlib.suppress(OSError):
+        out.rmdir()  # only if nothing else is in it
     helper = Earful(
-        out / _slug(request.node.nodeid),
+        directory,
         config.getoption("--earful-workers"),
         spread=hasattr(config, "workerinput"),  # set in a worker process of pytest-xdist
     )

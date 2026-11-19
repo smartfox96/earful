@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# Build the wheel and sdist, install the wheel alone outside the repository, check it.
-#   scripts/wheel_smoke.sh
+# Install the wheel alone outside the repository and check it, and check the sdist.
+#   scripts/wheel_smoke.sh               builds both first
+#   scripts/wheel_smoke.sh <directory>   checks the wheel and the sdist already in it
 # The framework is left out on purpose: checking a ledger must work without it. Needs uv.
 set -euo pipefail
 
@@ -8,15 +9,29 @@ root="$(cd "$(dirname "$0")/.." && pwd)"
 work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
 
-uv build -q --out-dir "$work/dist" "$root"
-wheel="$(ls "$work"/dist/earful-*.whl)"
-sdist="$(ls "$work"/dist/earful-*.tar.gz)"
+if [ $# -gt 0 ]; then
+  dist="$(cd "$1" && pwd)"
+else
+  dist="$work/dist"
+  uv build -q --out-dir "$dist" "$root"
+fi
+version="$(sed -n 's/^version = "\(.*\)"$/\1/p' "$root/pyproject.toml")"
+wheel="$dist/earful-$version-py3-none-any.whl"
+sdist="$dist/earful-$version.tar.gz"
+
+echo "=== the version"
+if [ ! -f "$wheel" ] || [ ! -f "$sdist" ] || [ "$(ls "$dist" | wc -l)" -ne 2 ]; then
+  echo "$dist should hold the wheel and the sdist of $version and nothing else; it holds:" >&2
+  ls "$dist" >&2
+  exit 1
+fi
+echo "ok: $version"
 
 echo "=== what the wheel holds"
 listing="$(python3 -m zipfile -l "$wheel")"
 for wanted in earful/py.typed earful/core/schemas/earful.ledger-1.schema.json \
   earful/core/schemas/earful.case-1.schema.json earful/core/schemas/earful.bundle-1.schema.json \
-  earful/cli.py earful/pytest_plugin.py; do
+  earful/cli.py earful/pytest_plugin.py earful/pipecat/harness.py earful/scripted/scenario.py; do
   grep -q "$wanted" <<<"$listing" || {
     echo "the wheel does not hold $wanted" >&2
     exit 1
@@ -30,9 +45,10 @@ echo "ok"
 
 echo "=== what the source distribution holds"
 sources="$(tar tzf "$sdist")"
-for wanted in pyproject.toml README.md LICENSE NOTICE src/earful/py.typed \
+for wanted in pyproject.toml README.md CHANGELOG.md LICENSE NOTICE src/earful/py.typed \
   src/earful/core/schemas/earful.ledger-1.schema.json tests/test_golden.py docs/testing.md \
-  examples/booking/agent.py; do
+  examples/booking/agent.py scripts/ci_scope.sh .github/workflows/ci.yml \
+  .github/dependabot.yml .pre-commit-config.yaml SECURITY.md; do
   grep -q "/$wanted\$" <<<"$sources" || {
     echo "the source distribution does not hold $wanted" >&2
     exit 1
@@ -43,14 +59,6 @@ if grep -E '/(\.venvs|\.earful|__pycache__|\.git)/' <<<"$sources"; then
   exit 1
 fi
 echo "ok"
-
-echo "=== the version"
-version="$(sed -n 's/^version = "\(.*\)"$/\1/p' "$root/pyproject.toml")"
-[ "$(basename "$wheel")" = "earful-$version-py3-none-any.whl" ] || {
-  echo "the wheel is $(basename "$wheel"), and pyproject.toml says $version" >&2
-  exit 1
-}
-echo "ok: $version"
 
 uv venv -q --python "${EARFUL_PYTHON:-3.13}" "$work/venv"
 VIRTUAL_ENV="$work/venv" uv pip install -q "$wheel" pytest
@@ -69,6 +77,7 @@ import earful
 from earful import ContractFailure, Effect, Predicate, check, effect, read_ledger
 from earful.core import bundle, case, schema
 
+assert importlib.util.find_spec("pipecat") is None
 assert importlib.util.find_spec("livekit") is None, "the framework is installed"
 assert "site-packages" in earful.__file__, earful.__file__
 assert resources.files("earful").joinpath("py.typed").is_file()
@@ -91,6 +100,12 @@ except ImportError as missing:
     assert 'pip install "earful[livekit]"' in str(missing), missing
 else:
     raise SystemExit("earful.livekit imported without the framework")
+try:
+    import earful.pipecat  # noqa: F401
+except ImportError as missing:
+    assert 'pip install "earful[pipecat]"' in str(missing), missing
+else:
+    raise SystemExit("earful.pipecat imported without the framework")
 assert not [name for name in sys.modules if name.split(".")[0] in ("tests", "scripts", "breaks")]
 print("ok: earful", earful.__version__)
 PY

@@ -19,6 +19,14 @@ concurrency:
 permissions:
   contents: read
 
+# Named, so that every step runs with pipefail: a failure before a pipe fails the step.
+defaults:
+  run:
+    shell: bash
+
+env:
+  UV_VERSION: "0.13.9"
+
 jobs:
   changes:
     name: what changed
@@ -32,43 +40,46 @@ jobs:
     outputs:
       code: ${{ steps.scope.outputs.code }}
       docs: ${{ steps.scope.outputs.docs }}
+      mutants: ${{ steps.scope.outputs.mutants }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           fetch-depth: 0
-      - name: Decide from the changed paths (scripts/ci_scope.sh)
+          persist-credentials: false
+      - name: Decide from the event and the changed paths (scripts/ci_scope.sh)
         id: scope
         env:
           EVENT: ${{ github.event_name }}
           BEFORE: ${{ github.event.before }}
           GH_TOKEN: ${{ github.token }}
+        # No pipe: if the script fails, the step fails and no output is set.
         run: |
-          case "$EVENT" in
-            pull_request) scripts/ci_scope.sh HEAD^1 HEAD ;; # HEAD is the merge into the base
-            push)
-              if [ "$(scripts/ci_tested.sh "$GITHUB_SHA")" = "tested=true" ]; then
-                echo "These files passed ci as a pull request: nothing to run again." >&2
-                printf 'code=false\ndocs=false\n'
-              else
-                scripts/ci_scope.sh "$BEFORE" HEAD
-              fi ;;
-            *) printf 'code=true\ndocs=true\n' ;; # nightly and manual runs check everything
-          esac | tee -a "$GITHUB_OUTPUT"
+          scripts/ci_scope.sh --event "$EVENT" "$BEFORE" > "$RUNNER_TEMP/scope"
+          cat "$RUNNER_TEMP/scope"
+          cat "$RUNNER_TEMP/scope" >> "$GITHUB_OUTPUT"
 
-  # A change to docs/ alone runs only the test file that reads them.
+  # A change to prose alone runs only the tests that read it.
   docs:
     name: docs match the code
     needs: changes
     if: needs.changes.outputs.code != 'true' && needs.changes.outputs.docs == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v6
-      - name: Build pinned environment
-        run: scripts/make_env.sh 1.8.12 2026-11-14
-      - name: Tests that read docs/
-        run: .venvs/lk-1.8.12/bin/python -m pytest -q tests/test_docs.py
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6.8.0
+        with:
+          version: ${{ env.UV_VERSION }}
+      - name: Build one pinned environment for each framework
+        run: |
+          scripts/make_env.sh 1.8.12 2026-11-14
+          scripts/make_pipecat_env.sh
+      - name: Tests that read docs/ and the top-level Markdown
+        run: |
+          .venvs/lk-1.8.12/bin/python -m pytest -q tests/test_docs.py
+          scripts/ran_every_test.sh .venvs/pc-1.16.0/bin/python tests/test_pipecat.py
 
   lint:
     name: format, lint, types
@@ -77,8 +88,12 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v6
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6.8.0
+        with:
+          version: ${{ env.UV_VERSION }}
       - name: ruff format, ruff check, mypy, mutants apply (scripts/lint.sh)
         run: scripts/lint.sh
 
@@ -89,8 +104,12 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v6
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6.8.0
+        with:
+          version: ${{ env.UV_VERSION }}
       - name: Build the wheel, install it outside the repository and use it (scripts/wheel_smoke.sh)
         run: scripts/wheel_smoke.sh
 
@@ -101,10 +120,64 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v6
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6.8.0
+        with:
+          version: ${{ env.UV_VERSION }}
       - name: Install the wheel with livekit-agents and follow the README (scripts/quickstart_check.sh)
         run: scripts/quickstart_check.sh
+
+  pipecat:
+    name: pc ${{ matrix.pc.version }} / ${{ matrix.cell.os }} / py${{ matrix.cell.python }} / ${{ matrix.cell.from }}
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
+    runs-on: ${{ matrix.cell.os }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        pc:
+          - { version: "1.16.0", as_of: "2026-11-18" }
+        # Every Python the adapter supports, macOS once, and the built wheel once.
+        cell:
+          - { os: ubuntu-latest, python: "3.11", from: checkout }
+          - { os: ubuntu-latest, python: "3.12", from: wheel }
+          - { os: ubuntu-latest, python: "3.13", from: checkout }
+          - { os: macos-latest, python: "3.13", from: checkout }
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6.8.0
+        with:
+          version: ${{ env.UV_VERSION }}
+      - name: Build the wheel
+        if: matrix.cell.from == 'wheel'
+        run: uv build --wheel --out-dir dist
+      - name: Build pinned environment, and compare it with its lock file on Python 3.13
+        env:
+          EARFUL_PYTHON: ${{ matrix.cell.python }}
+          EARFUL_DIST: ${{ matrix.cell.from == 'wheel' && 'dist' || '' }}
+          EARFUL_LOCK: ${{ matrix.cell.python == '3.13' && 'check' || '' }}
+        run: scripts/make_pipecat_env.sh ${{ matrix.pc.version }} ${{ matrix.pc.as_of }}
+      - name: LiveKit is absent, and the package is the one this cell installs
+        env:
+          FROM: ${{ matrix.cell.from }}
+        run: |
+          .venvs/pc-${{ matrix.pc.version }}/bin/python - <<'PY'
+          import importlib.util
+          import os
+
+          import earful
+
+          assert importlib.util.find_spec("livekit") is None, "livekit is installed"
+          installed = "site-packages" in earful.__file__
+          assert installed == (os.environ["FROM"] == "wheel"), earful.__file__
+          PY
+      - name: Every Pipecat test runs, and none is skipped (scripts/ran_every_test.sh)
+        run: scripts/ran_every_test.sh .venvs/pc-${{ matrix.pc.version }}/bin/python tests/test_pipecat*.py
 
   determinism:
     name: lk ${{ matrix.lk.version }} / ${{ matrix.os }} / py${{ matrix.python }}
@@ -147,10 +220,17 @@ jobs:
             python: "3.14"
             lk: { version: "1.8.12", as_of: "2026-11-14" }
     steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v6
-      - name: Build pinned environment
-        run: EARFUL_PYTHON=${{ matrix.python }} scripts/make_env.sh ${{ matrix.lk.version }} ${{ matrix.lk.as_of }}
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6.8.0
+        with:
+          version: ${{ env.UV_VERSION }}
+      - name: Build pinned environment, and compare it with its lock file on Python 3.13
+        env:
+          EARFUL_PYTHON: ${{ matrix.python }}
+          EARFUL_LOCK: ${{ matrix.python == '3.13' && 'check' || '' }}
+        run: scripts/make_env.sh ${{ matrix.lk.version }} ${{ matrix.lk.as_of }}
       - name: Tests
         run: .venvs/lk-${{ matrix.lk.version }}/bin/python -m pytest -q
       - name: Repeatability (every case, 100 in-process + 20 subprocess) and committed-hash check
@@ -172,24 +252,44 @@ jobs:
       - name: The example reports the README links to still build (scripts/site.sh)
         if: matrix.os == 'ubuntu-latest' && matrix.python == '3.13' && matrix.lk.version == '1.8.12'
         run: scripts/site.sh "$RUNNER_TEMP/site"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: evidence-${{ matrix.lk.version }}-${{ matrix.os }}-py${{ matrix.python }}
           path: evidence/
 
-  # The check main requires: a skipped job passes, a failed or cancelled one does not.
+  # A change to src/ or tests/ runs every deliberate break, in the mutation workflow's jobs.
+  mutants:
+    name: deliberate breaks
+    needs: changes
+    if: needs.changes.outputs.mutants == 'true'
+    uses: ./.github/workflows/mutation.yml
+    permissions:
+      contents: read
+
+  # The check main requires. A job the scope asks for must have passed, and none may have
+  # failed or been cancelled (scripts/ci_result.sh).
   result:
     name: ci result
-    needs: [changes, docs, lint, wheel, quickstart, determinism]
+    needs: [changes, docs, lint, wheel, quickstart, pipecat, determinism, mutants]
     if: always() && github.event.action != 'closed'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - name: Every job that ran has passed
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - name: Every job did what the scope asked of it (scripts/ci_result.sh)
         env:
-          RESULTS: ${{ join(needs.*.result, ' ') }}
-        run: |
-          echo "changes, docs, lint, wheel, quickstart, determinism: $RESULTS"
-          case " $RESULTS " in
-            *" failure "* | *" cancelled "*) exit 1 ;;
-          esac
+          CODE: ${{ needs.changes.outputs.code }}
+          DOCS: ${{ needs.changes.outputs.docs }}
+          MUTANTS: ${{ needs.changes.outputs.mutants }}
+          RESULTS: >-
+            changes=${{ needs.changes.result }}
+            docs=${{ needs.docs.result }}
+            lint=${{ needs.lint.result }}
+            wheel=${{ needs.wheel.result }}
+            quickstart=${{ needs.quickstart.result }}
+            pipecat=${{ needs.pipecat.result }}
+            determinism=${{ needs.determinism.result }}
+            mutants=${{ needs.mutants.result }}
+        run: scripts/ci_result.sh

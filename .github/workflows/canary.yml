@@ -1,0 +1,57 @@
+name: canary
+
+# What an install gives today. Every other workflow installs a named release with its
+# dependencies as of a date. This one installs the newest livekit-agents and the newest
+# pipecat-ai the extras admit, with no date, and runs the tests under a second on each.
+# It also fails when PyPI has a release an extra does not admit.
+# No pull request runs it and main does not require it: a failed run is the report.
+on:
+  schedule:
+    - cron: "17 5 * * *" # an hour after the nightly run of ci
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# Named, so that every step runs with pipefail: a failure before a pipe fails the step.
+defaults:
+  run:
+    shell: bash
+
+env:
+  UV_VERSION: "0.13.9"
+
+jobs:
+  newest:
+    name: newest ${{ matrix.framework }} release the extra admits
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        framework: [livekit, pipecat]
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6.8.0
+        with:
+          version: ${{ env.UV_VERSION }}
+          enable-cache: false # the index is asked on every run
+      - name: Install with no date and run the tests under a second (scripts/canary.sh)
+        run: scripts/canary.sh ${{ matrix.framework }}
+
+  beyond:
+    name: no release beyond what the extras admit
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6.8.0
+        with:
+          version: ${{ env.UV_VERSION }}
+          enable-cache: false # the index is asked on every run
+      - name: The newest release of each framework is one its extra admits (scripts/newer_release.sh)
+        run: scripts/newer_release.sh

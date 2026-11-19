@@ -3,12 +3,14 @@ blocks the turns after it."""
 
 from __future__ import annotations
 
+from dataclasses import dataclass, field
+
 from . import policy as policies
 from .memory import user_turns
-from .report import ContractResult, Finding, result, verdict
+from .report import UNOBSERVABLE, ContractResult, Finding, result, verdict
 from .view import Event, ModelCall, Speech, View
 
-MET, MISSED, SUPERSEDED, UNOBSERVABLE = "met", "missed", "superseded", "unobservable"
+MET, MISSED, SUPERSEDED = "met", "missed", "superseded"
 LEFT = "the user left"
 AUDIO = "the first word of a reply starts playing"
 
@@ -66,16 +68,31 @@ class _Budget:
             return MISSED, deadline
 
 
-def _judge(
-    view: View, policy: policies.L1, speech: Speech, chain: list[ModelCall], calls: list[ModelCall]
-) -> tuple[_Budget, list[Step], list[Event | None], bool]:
-    """Returns the budget, the steps, the events used and whether a tool asked for silence."""
-    budget = _Budget(view, policy, speech)
-    steps: list[Step] = []
-    used: list[Event | None] = [speech.delivery]
-    by_call_id = {t.call_id: t for t in view.tools.values() if t.call_id is not None}
+@dataclass
+class _Turn:
+    """One turn's way through its milestones, and the scripted delays behind it so far."""
 
-    def ttfb_of(call: ModelCall | None) -> int:
+    view: View
+    policy: policies.L1
+    budget: _Budget
+    chain: list[ModelCall]  # the model calls made for this turn
+    steps: list[Step] = field(default_factory=list)
+    used: list[Event | None] = field(default_factory=list)
+    spoke: list[tuple[ModelCall, int]] = field(default_factory=list)  # replies, delays before each
+    progress: list[tuple[int, int]] = field(default_factory=list)  # (seq, delays by then)
+    walked: set[int] = field(default_factory=set)  # the calls followed through tool rounds
+    elapsed: int = 0  # scripted delays on the chain so far
+    silenced: bool = False  # every tool of a round asked for silence
+    stalled: bool = False  # a step of a tool round was not met, or could not be seen
+
+    def record(self, name: str, reached: int | None, chain_us: int) -> bool:
+        status, deadline = self.budget.settle(reached, chain_us)
+        self.steps.append((name, status, reached, deadline))
+        return status == MET
+
+    def ttfb_of(self, call: ModelCall | None) -> int:
+        """Time to first audio: of the reply's own utterance if it has one, else as declared."""
+        view = self.view
         said = next(
             (u for u in view.utterances.values() if call is not None and u.call == call.call), None
         )
@@ -83,105 +100,120 @@ def _judge(
             said.event["data"]["ttfb_us"] if said is not None else view.providers["tts"]["ttfb_us"]
         )
 
-    def record(name: str, reached: int | None, chain_us: int) -> bool:
-        status, deadline = budget.settle(reached, chain_us)
-        steps.append((name, status, reached, deadline))
-        return status == MET
 
-    first = chain[0] if chain else None
-    if not record("a model call sees the turn", first.request["t_us"] if first else None, 0):
-        return budget, steps, used, False
-
+def _first_call(turn: _Turn) -> ModelCall | None:
+    """Milestone 1: a model call whose context contains the turn."""
+    first = turn.chain[0] if turn.chain else None
+    if not turn.record("a model call sees the turn", first.request["t_us"] if first else None, 0):
+        return None
     assert first is not None
-    used.append(first.request)
-    spoke: list[tuple[ModelCall, int]] = []  # replies with text, and the delays before each
-    elapsed = 0
-    walked = {first.call}
-    progress = [(first.request["seq"], 0)]  # (seq, scripted delays on the chain by then)
-    silenced = False
-    on_track = True
+    turn.used.append(first.request)
+    turn.walked.add(first.call)
+    turn.progress.append((first.request["seq"], 0))
+    return first
+
+
+def _tool_round(
+    turn: _Turn, asking: ModelCall, number: int, calls: list[ModelCall]
+) -> ModelCall | None:
+    """Milestone 2, one round: the model call that follows the tools, if the round completes."""
+    view = turn.view
+    data = asking.answer["data"]
+    # A refused call has no event of its own: it is timed when the model finished asking.
+    asked = asking.answer["t_us"] + data["duration_us"]
+    ran = [
+        view.invocation_of[tc["call_id"]]
+        for tc in data["tool_calls"]
+        if tc["call_id"] in view.invocation_of
+    ]
+    rest = [tc for tc in data["tool_calls"] if tc["call_id"] not in view.invocation_of]
+    refused = [r for r in (view.refusal(tc["call_id"]) for tc in rest) if r is not None]
+    never = [tc["name"] for tc in rest if view.refusal(tc["call_id"]) is None]
+    if any(name not in view.witnessed_tools for name in never):
+        # A tool Earful does not witness: whether it was called cannot be known.
+        turn.steps.append((f"round {number}: every tool call is made", UNOBSERVABLE, None, 0))
+        turn.stalled = True
+        return None
+    made = max([t.called["t_us"] for t in ran] + [asked for _ in refused]) if not never else None
+    if not turn.record(
+        f"round {number}: every tool call is made", made, turn.elapsed + data["duration_us"]
+    ):
+        turn.stalled = True
+        return None
+    turn.used += [t.called for t in ran] + refused
+    ids = {t.tool for t in ran}
+    # A write costs its caller its latency, or the wait before it was told of a timeout.
+    latency = sum(
+        e.timed_out["data"]["after_us"] if e.timed_out else e.requested["data"]["latency_us"]
+        for e in view.effects.values()
+        if e.requested["data"]["tool"] in ids
+    )
+    # The framework finishes speaking a reply before it takes the next step.
+    audio = turn.ttfb_of(asking) + view.audio_us(asking) if asking.words else 0
+    turn.elapsed += data["duration_us"] + audio + latency
+    outcomes = [t.outcome for t in ran if t.outcome is not None]
+    done = len(outcomes) == len(ran) and all(o["kind"] != "tool.cancelled" for o in outcomes)
+    finished = max([o["t_us"] for o in outcomes] + [asked for _ in refused]) if done else None
+    if not turn.record(f"round {number}: every tool call finishes", finished, turn.elapsed):
+        turn.stalled = True
+        return None
+    turn.used += outcomes
+    last = max([o["seq"] for o in outcomes] + [r["seq"] - 1 for r in refused])
+    turn.progress.append((last, turn.elapsed))
+    if not refused and not any(o["data"]["expects_reply"] for o in outcomes):
+        turn.silenced = True  # every tool asked for silence: no further call is owed
+        return None
+    follow = next((c for c in calls if c.request["seq"] > last), None)
+    if not turn.record(
+        f"round {number}: a further model call follows",
+        follow.request["t_us"] if follow else None,
+        turn.elapsed,
+    ):
+        turn.stalled = True
+        return None
+    return follow
+
+
+def _tool_rounds(turn: _Turn, first: ModelCall, calls: list[ModelCall]) -> None:
+    """Milestone 2: each round of tool calls is made and finishes, and a further call follows."""
     current: ModelCall | None = first
     rounds = 0
     while current is not None and current.response is not None:
         data = current.response["data"]
-        used.append(current.response)
+        turn.used.append(current.response)
         if current.words:
-            spoke.append((current, elapsed))
-        if not data["tool_calls"] or rounds >= policy.max_steps:
-            elapsed += data["duration_us"]
-            progress.append((current.response["seq"], elapsed))
-            break
+            turn.spoke.append((current, turn.elapsed))
+        if not data["tool_calls"] or rounds >= turn.policy.max_steps:
+            turn.elapsed += data["duration_us"]
+            turn.progress.append((current.response["seq"], turn.elapsed))
+            return
         rounds += 1
-        # A refused call has no event of its own: it is timed when the model finished asking.
-        asked = current.response["t_us"] + data["duration_us"]
-        ran = [
-            by_call_id[tc["call_id"]] for tc in data["tool_calls"] if tc["call_id"] in by_call_id
-        ]
-        rest = [tc for tc in data["tool_calls"] if tc["call_id"] not in by_call_id]
-        refused = [r for r in (view.refusal(tc["call_id"]) for tc in rest) if r is not None]
-        never = [tc["name"] for tc in rest if view.refusal(tc["call_id"]) is None]
-        if any(name not in view.witnessed_tools for name in never):
-            # A tool Earful does not witness: whether it was called cannot be known.
-            steps.append((f"round {rounds}: every tool call is made", UNOBSERVABLE, None, 0))
-            on_track = False
-            break
-        made = (
-            max([t.called["t_us"] for t in ran] + [asked for _ in refused]) if not never else None
-        )
-        if not record(
-            f"round {rounds}: every tool call is made", made, elapsed + data["duration_us"]
-        ):
-            on_track = False
-            break
-        used += [t.called for t in ran] + refused
-        ids = {t.tool for t in ran}
-        # A write costs its caller its latency, or the wait before it was told of a timeout.
-        latency = sum(
-            e.timed_out["data"]["after_us"] if e.timed_out else e.requested["data"]["latency_us"]
-            for e in view.effects.values()
-            if e.requested["data"]["tool"] in ids
-        )
-        # The framework finishes speaking a reply before it takes the next step.
-        audio = ttfb_of(current) + view.audio_us(current) if current.words else 0
-        elapsed += data["duration_us"] + audio + latency
-        outcomes = [t.outcome for t in ran if t.outcome is not None]
-        done = len(outcomes) == len(ran) and all(o["kind"] != "tool.cancelled" for o in outcomes)
-        finished = max([o["t_us"] for o in outcomes] + [asked for _ in refused]) if done else None
-        if not record(f"round {rounds}: every tool call finishes", finished, elapsed):
-            on_track = False
-            break
-        used += outcomes
-        last = max([o["seq"] for o in outcomes] + [r["seq"] - 1 for r in refused])
-        progress.append((last, elapsed))
-        if not refused and not any(o["data"]["expects_reply"] for o in outcomes):
-            silenced = True  # every tool asked for silence: no further call is owed
-            break
-        follow = next((c for c in calls if c.request["seq"] > last), None)
-        if not record(
-            f"round {rounds}: a further model call follows",
-            follow.request["t_us"] if follow else None,
-            elapsed,
-        ):
-            on_track = False
-            break
+        follow = _tool_round(turn, current, rounds, calls)
+        if follow is None:
+            return
         # Stay on this turn's chain; a call made for a later turn is that turn's.
-        current = follow if follow in chain else None
+        current = follow if follow in turn.chain else None
         if current is not None:
-            walked.add(current.call)
+            turn.walked.add(current.call)
 
+
+def _first_audio(turn: _Turn) -> None:
+    """Milestone 3: of the turn's replies, the one whose audio started first counts."""
+    view = turn.view
     # A reply from a repeat call for the same turn is budgeted from the chain as it stood then.
-    for call in chain:
-        if call.words and call.call not in walked:
-            before = max((spent for seq, spent in progress if seq < call.request["seq"]), default=0)
-            spoke.append((call, before))
+    for call in turn.chain:
+        if call.words and call.call not in turn.walked:
+            before = max(
+                (spent for seq, spent in turn.progress if seq < call.request["seq"]), default=0
+            )
+            turn.spoke.append((call, before))
 
-    # Milestone 3: of the chain's replies, the one whose audio started first counts.
     def budget_of(call: ModelCall, before: int) -> int:
-        return before + call.answer["data"]["duration_us"] + ttfb_of(call)
+        return before + call.answer["data"]["duration_us"] + turn.ttfb_of(call)
 
     unknown = False
     heard: list[tuple[int, ModelCall, int]] = []
-    for call, before in spoke:
+    for call, before in turn.spoke:
         playout = view.playout(call.call)
         if playout.unattributable:
             unknown = True
@@ -190,20 +222,30 @@ def _judge(
     if heard:
         at, call, before = min(heard, key=lambda h: (h[0], h[1].call))
         playout = view.playout(call.call)
-        used += [playout.utterance.event if playout.utterance else None]
-        used += [s.started for s in playout.segments]
-        status, deadline = budget.settle(at, budget_of(call, before))
+        turn.used += [playout.utterance.event if playout.utterance else None]
+        turn.used += [s.started for s in playout.segments]
+        status, deadline = turn.budget.settle(at, budget_of(call, before))
         if status == MISSED and unknown:
             status = UNOBSERVABLE  # a reply whose audio cannot be attributed may have come first
-        steps.append((AUDIO, status, at, deadline))
+        turn.steps.append((AUDIO, status, at, deadline))
     elif unknown:
-        steps.append((AUDIO, UNOBSERVABLE, None, 0))
-    elif spoke:
-        record(AUDIO, None, max(budget_of(call, before) for call, before in spoke))
-    elif on_track and not silenced:
+        turn.steps.append((AUDIO, UNOBSERVABLE, None, 0))
+    elif turn.spoke:
+        turn.record(AUDIO, None, max(budget_of(call, before) for call, before in turn.spoke))
+    elif not turn.stalled and not turn.silenced:
         # Nothing was said and nothing excuses it: the turn is still owed its first word.
-        record(AUDIO, None, elapsed + ttfb_of(None))
-    return budget, steps, used, silenced
+        turn.record(AUDIO, None, turn.elapsed + turn.ttfb_of(None))
+
+
+def _milestones(
+    view: View, policy: policies.L1, speech: Speech, chain: list[ModelCall], calls: list[ModelCall]
+) -> _Turn:
+    turn = _Turn(view, policy, _Budget(view, policy, speech), chain, used=[speech.delivery])
+    first = _first_call(turn)
+    if first is not None:
+        _tool_rounds(turn, first, calls)
+        _first_audio(turn)
+    return turn
 
 
 def check(view: View, policy: policies.L1) -> ContractResult:
@@ -222,7 +264,8 @@ def check(view: View, policy: policies.L1) -> ContractResult:
         if not speech.expects_reply:
             continue
         chain = [c for c in calls if latest_turn[c.call] == speech.index]
-        budget, steps, used, silenced = _judge(view, policy, speech, chain, calls)
+        turn = _milestones(view, policy, speech, chain, calls)
+        budget, steps, used, silenced = turn.budget, turn.steps, turn.used, turn.silenced
         instance = {"speech": speech.index}
         statuses = [status for _name, status, _reached, _deadline in steps]
         audio = next((s for s in steps if s[0] == AUDIO and s[2] is not None), None)

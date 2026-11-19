@@ -13,27 +13,24 @@ Context = tuple[str, Event, list[dict[str, Any]]]
 READ = "most_favourable_reading"
 
 
-def _judged_in(view: View, playout: Playout) -> tuple[list[Context], list[str]]:
-    """The model contexts requested after the playout finished, else the final history."""
-    settled = playout.settled
-    flags = [] if settled is not None else ["never_reached_the_output"]
-    contexts = [
-        c
-        for c in view.contexts
-        if settled is not None and c[1]["kind"] == "llm.request" and c[1]["seq"] > settled["seq"]
-    ]
-    if not contexts:
-        # The final history counts only if it was read after the playout finished.
-        contexts = [
-            c
-            for c in view.contexts
-            if c[1]["kind"] == "history.final" and (settled is None or c[1]["seq"] > settled["seq"])
-        ]
-        flags.append("judged_on_final_history")
-    return contexts, flags
+def _judged_in(view: View, item: Spoken, playout: Playout) -> tuple[list[Context], list[str]]:
+    """The contexts that must agree with what was played of it, and the flags that say which."""
+    calls = [c for c in view.contexts if c[1]["kind"] == "llm.request"]
+    history = [c for c in view.contexts if c[1]["kind"] == "history.final"]
+    if playout.settled is None:
+        # No audio of it reached the sink, so it is owed absence from the moment it came to be.
+        after = item.born["seq"]
+        flags = ["never_reached_the_output", "judged_on_final_history"]
+        return [c for c in calls if c[1]["seq"] > after] + history, flags
+    after = playout.settled["seq"]
+    following = [c for c in calls if c[1]["seq"] > after]
+    if following:
+        return following, []
+    # The final history counts only if it was read after the playout finished.
+    return [c for c in history if c[1]["seq"] > after], ["judged_on_final_history"]
 
 
-def _judge(
+def _compare(
     view: View,
     policy: policies.M1,
     item: Spoken,
@@ -97,7 +94,7 @@ def _judge(
         )
     # A stop landing as the last word ended leaves the audio whole, so either mark is right.
     cut_short = played < len(words) or playout.interrupted
-    either_mark = played == len(words) and view.stopped_as_it_ended(playout)
+    either_mark = view.stopped_as_it_ended(playout, len(words))
     if (
         message is not None
         and policy.check_interrupted_flag
@@ -120,9 +117,9 @@ def _judge(
 def check(view: View, policy: policies.M1) -> ContractResult:
     playouts = view.playouts
     judged: dict[str, tuple[list[Context], list[str]]] = {
-        item.key: _judged_in(view, playouts[item.key])
+        item.key: _judged_in(view, item, playouts[item.key])
         for item in view.spoken
-        if not (playouts[item.key].unattributable or playouts[item.key].pending)
+        if playouts[item.key].unknown is None
     }
 
     # Among identical texts, the match that agrees best with what was played is taken.
@@ -137,7 +134,7 @@ def check(view: View, policy: policies.M1) -> ContractResult:
                 contexts = judged.get(item.key, ([], []))[0]
                 if not any(c[0] == label for c in contexts):
                     return (0, 0)  # this context does not judge it
-                row, findings = _judge(view, policy, item, playouts[item.key], message, context)
+                row, findings = _compare(view, policy, item, playouts[item.key], message, context)
                 return (len(findings), abs(row["drift_us"]))
 
             alignment = align(items, said)
@@ -153,9 +150,7 @@ def check(view: View, policy: policies.M1) -> ContractResult:
         instance = item.instance
         base = [item.born, playout.utterance.event if playout.utterance else None]
         base += [s.finished for s in playout.segments]
-        missing = playout.unattributable or (
-            "the run ended before its playout finished" if playout.pending else None
-        )
+        missing = playout.unknown
         if missing:
             verdicts.append(
                 verdict(
@@ -171,7 +166,7 @@ def check(view: View, policy: policies.M1) -> ContractResult:
         contexts, flags = judged[item.key]
         flags = list(flags)
         played, cut = playout.played, playout.cut
-        if played == len(item.words) and view.stopped_as_it_ended(playout):
+        if view.stopped_as_it_ended(playout, len(item.words)):
             flags.append("stopped_as_it_ended")
         if playout.outlasted_hangup:
             flags.append("played_on_after_the_hangup")  # judged on what the user heard
@@ -188,7 +183,7 @@ def check(view: View, policy: policies.M1) -> ContractResult:
                 continue
             chosen = chosen or item.key in ambiguous
             at = matched.get(item.key)
-            row, found = _judge(
+            row, found = _compare(
                 view, policy, item, playout, items[at] if at is not None else None, context
             )
             rows.append(row)

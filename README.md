@@ -1,14 +1,13 @@
 # Earful
 
-Deterministic regression tests for real-time voice agents. First target: LiveKit Agents
-(Python, STT-LLM-TTS pipelines).
+Deterministic regression tests for Python voice agents built with LiveKit Agents or Pipecat.
 
 A voice agent can sound fine in a demo and still book a table twice or keep talking over
 the caller. These failures live in timing: an interruption that lands while a tool is
 running, a write that commits after its caller gave up.
 
-Earful runs your real `AgentSession` on a virtual clock, against a scripted user, a
-scripted model, a scripted voice and a fake backend, and records everything that happened
+Earful runs a LiveKit `AgentSession` or a Pipecat pipeline on a virtual clock against a scripted
+user, a scripted model, a scripted voice and a fake backend, and records everything that happened
 in a ledger. It checks seven contracts against that ledger, searches the timings and
 backend faults near your scenario for a run that breaks one, and reduces what it finds to
 a small case that replays the same way every time.
@@ -20,14 +19,27 @@ each contract and every event. The picture is the failure the quickstart below f
 [Open that report](https://smartfox96.github.io/earful/booking.html) and select a verdict to see what it rests on, or
 look at [a known defect of livekit-agents 1.5.6](https://smartfox96.github.io/earful/livekit-3702.html) drawn the same way.
 
+The user, the model and the voice are scripted, so a test shows a failure only in
+behaviour its script models. The quickstart finds a double booking because its scripted
+model tries a failed tool call again.
+
+For Pipecat, use Python 3.11 or later and install from this checkout with
+`pip install -e ".[pipecat]"`. The
+[Pipecat quickstart](https://github.com/smartfox96/earful/blob/main/docs/pipecat.md)
+walks through running a greeting in pytest and inspecting its ledger from the command line.
+
 ## Quickstart
 
-Ten minutes, Python 3.10 or later. The two files below are in
+This LiveKit example takes ten minutes on Python 3.10 or later, with pytest installed.
+The two files below are in
 [`examples/booking`](https://github.com/smartfox96/earful/tree/main/examples/booking). The output shown is from livekit-agents 1.8.12.
 
 ```bash
-pip install "earful[livekit]" pytest
+pip install "earful[livekit]"
 ```
+
+The quotes keep the shell from reading the brackets, and `[livekit]` installs
+livekit-agents alongside in a release Earful is tested with.
 
 **1. An agent.** This one takes restaurant bookings. It is handed the service it books
 with and knows nothing of Earful. Save it as `agent.py`.
@@ -213,7 +225,7 @@ earful replay failures/lk-1.8.12.booking.A2-rule --expect clean    # the kept fa
 The kept failure is now a regression test: `earful replay --expect clean` fails if the
 double booking ever comes back.
 
-To test your own agent, let Earful write the first test from the agent's tools:
+To test your own LiveKit agent, generate a first test from its tools.
 
 ```bash
 earful init myapp.agent:SupportAgent    # writes test_support_agent.py
@@ -262,7 +274,7 @@ network, a client buffer or what a caller heard. It does not record production c
 ## Two known defects, reproduced
 
 Both were found by the same search and are checked by the same contracts on every
-supported release. Both also break the same rules when the reduced case is run on the
+supported LiveKit release. Both also break the same rules when the reduced case is run on the
 real clock (`earful crosscheck`).
 
 | Issue | What happens | Fails on | Passes on |
@@ -278,7 +290,8 @@ earful report tests/bundles/lk-1.5.6.book_then_interrupt.A2-rule -o report.html
 ## Supported
 
 livekit-agents 1.5.6, 1.5.7, 1.6.5, 1.6.6 and 1.8.12, on Linux and macOS, Python 3.10
-to 3.14. [`docs/compatibility.md`](https://github.com/smartfox96/earful/blob/main/docs/compatibility.md) has the exact dependency sets
+to 3.14. pipecat-ai 1.16.0, on Linux and macOS, Python 3.11 to 3.13.
+[`docs/compatibility.md`](https://github.com/smartfox96/earful/blob/main/docs/compatibility.md) has the exact dependency sets
 and what CI runs for each.
 
 ## Documentation
@@ -286,19 +299,25 @@ and what CI runs for each.
 | Page | What it covers |
 | --- | --- |
 | [`docs/testing.md`](https://github.com/smartfox96/earful/blob/main/docs/testing.md) | Writing a test: the scenario, the scripted model, side effects, pytest, the command line, the real clock |
+| [`docs/pipecat.md`](https://github.com/smartfox96/earful/blob/main/docs/pipecat.md) | Running a Pipecat scenario, registering tools and configuring turn detection |
 | [`docs/report.md`](https://github.com/smartfox96/earful/blob/main/docs/report.md) | The HTML report, lane by lane |
 | [`docs/contracts.md`](https://github.com/smartfox96/earful/blob/main/docs/contracts.md) | The seven contracts, their evidence and their policies |
 | [`docs/search.md`](https://github.com/smartfox96/earful/blob/main/docs/search.md) | The search, the reduction of a failing case, and the bundle that is kept |
 | [`docs/ledger.md`](https://github.com/smartfox96/earful/blob/main/docs/ledger.md) | Every event in a ledger, and what makes a run valid |
 | [`docs/compatibility.md`](https://github.com/smartfox96/earful/blob/main/docs/compatibility.md) | Supported releases and what is tested |
+| [`CHANGELOG.md`](https://github.com/smartfox96/earful/blob/main/CHANGELOG.md) | What changed in each release |
 | [`docs/gate0-feasibility.md`](https://github.com/smartfox96/earful/blob/main/docs/gate0-feasibility.md), [`gate1-core.md`](https://github.com/smartfox96/earful/blob/main/docs/gate1-core.md), [`gate2-historical-proof.md`](https://github.com/smartfox96/earful/blob/main/docs/gate2-historical-proof.md) | The evidence each stage of the project rests on |
 
 ## Layout
 
 - `src/earful/core/` is the portable part: ledger, validator, contract checker, effect
   backend, case format, search, shrinker, bundle, report. It imports no framework.
-- `src/earful/livekit/` is the adapter: virtual clock, scripted providers, tool witness,
-  clocked sink, harness.
+- `src/earful/scripted/` is what every adapter shares: the virtual clock, and the
+  scripted user, model and voice. It imports no framework either.
+- `src/earful/livekit/` is the LiveKit adapter: scripted providers, tool witness, clocked
+  sink, harness.
+- `src/earful/pipecat/` runs scripted providers and a clocked output transport through a
+  Pipecat pipeline.
 - `examples/` holds the quickstart. `tests/golden/` and `tests/bundles/` hold the
   reference ledgers and the two kept failures.
 

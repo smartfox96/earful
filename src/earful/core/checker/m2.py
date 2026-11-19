@@ -2,211 +2,358 @@
 
 from __future__ import annotations
 
+import json
+from dataclasses import dataclass, field
+
 from . import policy as policies
-from .memory import align, user_turns
+from .memory import Alignment, Item, UserTurns, align, user_turns
 from .report import ContractResult, Finding, result, verdict
-from .view import Event, View
+from .view import Event, Speech, Spoken, ToolInvocation, View
+
+_TOOL_ITEMS = {"function_call": "call", "function_call_output": "result"}
 
 
-def check(view: View, policy: policies.M2) -> ContractResult:
-    verdicts = []
-    by_call_id = {t.call_id: t for t in view.tools.values() if t.call_id is not None}
-    requested_by = {tc["call_id"]: c.call for c in view.calls.values() for tc in c.tool_calls}
-    turns_in: dict[int, set[int]] = {}  # model call -> speeches its context held
+@dataclass
+class _Context:
+    """A model context or the final history, and what the rules find in it."""
 
-    for label, event, items in view.contexts:
-        findings, unknown = [], []
-        used: list[Event | None] = [event]
-        delivered = [s for s in view.delivered if s.delivery["seq"] < event["seq"]]
+    label: str
+    event: Event
+    items: list[Item]
+    delivered: list[Speech]  # the transcripts delivered before it was requested
+    turns: UserTurns
+    findings: list[Finding] = field(default_factory=list)
+    unknown: list[str] = field(default_factory=list)  # what could not be compared, and why
+    used: list[Event | None] = field(default_factory=list)
 
-        # Rule a: the user text is the delivered transcripts, whole and in order.
-        turns = user_turns(items, delivered)
-        present = {s.index for s in turns.present}
-        if event["kind"] == "llm.request":
-            turns_in[event["data"]["call"]] = present
-        if turns.stray:
-            findings.append(
+    @property
+    def present(self) -> set[int]:
+        return {s.index for s in self.turns.present}
+
+    def places(self, kind: str, call_id: str) -> list[int]:
+        return [
+            index
+            for index, item in enumerate(self.items)
+            if item["type"] == kind and item["call_id"] == call_id
+        ]
+
+
+def _user_text(context: _Context) -> None:
+    """Rule a: the user text is the delivered transcripts, whole and in order."""
+    if context.turns.stray:
+        context.findings.append(
+            Finding(
+                "rule a",
+                "user text that is no delivered transcript in order: "
+                + repr(" ".join(context.turns.stray)),
+                (context.event["seq"],),
+            )
+        )
+
+
+def _no_loss(view: View, policy: policies.M2, context: _Context) -> None:
+    """Rule b: a delivered transcript is not lost once the user's turn can be over."""
+    event = context.event
+    for speech in context.delivered:
+        if speech.index in context.present or speech.backchannel:
+            continue
+        context.used.append(speech.delivery)
+        late = event["t_us"] - view.turn_over_us(speech)
+        if late > policy.user_commit_lag_us:
+            context.findings.append(
                 Finding(
-                    "rule a",
-                    "user text that is no delivered transcript in order: "
-                    + repr(" ".join(turns.stray)),
+                    "rule b",
+                    f"the turn of speech {speech.index} was over {late} us before "
+                    "this context, which does not hold its transcript",
+                    (speech.delivery["seq"], event["seq"]),
+                )
+            )
+
+
+def _replies(context: _Context, alignment: Alignment) -> None:
+    """Rule c: the assistant messages are the scripted speech, one to one and in order."""
+    if not alignment.possible:
+        texts = [repr(context.items[i].get("text")) for i in alignment.unmatched_items]
+        context.findings.append(
+            Finding(
+                "rule c",
+                "assistant message(s) that are not what the agent was scripted "
+                "to say, in order: " + ", ".join(texts),
+                (context.event["seq"],),
+            )
+        )
+
+
+def _tool_call(context: _Context, tool: ToolInvocation, call_id: str, later_turn: bool) -> bool:
+    """Rule d for one call a tool received; true if the context shows a stand-in result."""
+    event = context.event
+    done = tool.outcome if tool.outcome is not None and tool.outcome["seq"] < event["seq"] else None
+    returned = done if done is not None and done["kind"] == "tool.returned" else None
+    calls = context.places("function_call", call_id)
+    outputs = context.places("function_call_output", call_id)
+    if returned and returned["t_us"] == event["t_us"] and later_turn:
+        # Requested for a later turn the instant the tool returned: no order is owed.
+        returned = None
+    if not returned and not calls and not outputs:
+        return False
+    context.used += [tool.called, done]
+    seqs = tuple(e["seq"] for e in (tool.called, done, event) if e is not None)
+    name = f"{tool.name} ({call_id})"
+    state = "finished" if done is not None else "was called"
+    # Only a call that returned is owed its call and result; none may be shown twice.
+    if len(calls) > 1 or len(outputs) > 1 or (returned and (not calls or not outputs)):
+        context.findings.append(
+            Finding(
+                "rule d",
+                f"{name} {state} before this context, which holds "
+                f"{len(calls)} call item(s) and {len(outputs)} result item(s) for it",
+                seqs,
+            )
+        )
+        return False
+    if calls and outputs and outputs[0] < calls[0]:
+        context.findings.append(
+            Finding("rule d", f"the result of {name} comes before its call", seqs)
+        )
+    if not returned:
+        # A result shown for a running or cancelled call is a stand-in and is not judged.
+        return bool(outputs) and (done is None or done["kind"] == "tool.cancelled")
+    shown = context.items[outputs[0]]
+    if shown["is_error"]:
+        context.findings.append(
+            Finding(
+                "rule d", f"{name} returned normally, but its result is marked as an error", seqs
+            )
+        )
+    if returned["data"]["text"] is None:
+        context.unknown.append(f"the value {name} returned has no stable text form to compare")
+    elif shown["output"] != returned["data"]["text"]:
+        context.findings.append(
+            Finding(
+                "rule d",
+                f"{name} returned {returned['data']['text']!r}, but the context "
+                f"shows {shown['output']!r}",
+                seqs,
+            )
+        )
+    return False
+
+
+def _tool_calls(view: View, context: _Context, by_request: dict[int, _Context]) -> int:
+    """Rule d: every tool call that returned is shown once, with its result. Counts stand-ins."""
+    stand_ins = 0
+    for tool in view.tools.values():
+        if tool.call_id is None or tool.called["seq"] > context.event["seq"]:
+            continue
+        asked = view.request_of.get(tool.call_id)
+        asked_in = by_request[asked.request["seq"]] if asked is not None else None
+        later_turn = asked_in is not None and bool(context.present - asked_in.present)
+        stand_ins += _tool_call(context, tool, tool.call_id, later_turn)
+    return stand_ins
+
+
+def _unrun_results(view: View, context: _Context) -> int:
+    """Rule d: a result for a call no tool had received. Counts the calls the framework refused."""
+    refused = 0
+    event = context.event
+    for index, item in enumerate(context.items):
+        if item["type"] != "function_call_output":
+            continue
+        invocation = view.invocation_of.get(item["call_id"])
+        if invocation is not None and invocation.called["seq"] < event["seq"]:
+            continue  # judged with its call
+        if invocation is None and item["is_error"]:
+            # The framework answered a call no tool received: its own account, not judged.
+            refused += 1
+        elif invocation is None and item.get("name") not in view.witnessed_tools:
+            context.unknown.append(
+                f"the tool behind result {item['call_id']!r} was not witnessed, "
+                "or cannot be linked to it"
+            )
+        else:
+            context.findings.append(
+                Finding(
+                    "rule d",
+                    f"item {index} is a result for {item['call_id']!r}, a call no "
+                    "witnessed tool had received",
                     (event["seq"],),
                 )
             )
+    return refused
 
-        # Rule b: a delivered transcript is not lost once the user's turn can be over.
-        for speech in delivered:
-            if speech.index in present or speech.backchannel:
-                continue
-            used.append(speech.delivery)
-            late = event["t_us"] - view.turn_over_us(speech)
-            if late > policy.user_commit_lag_us:
-                findings.append(
-                    Finding(
-                        "rule b",
-                        f"the turn of speech {speech.index} was over {late} us before "
-                        "this context, which does not hold its transcript",
-                        (speech.delivery["seq"], event["seq"]),
-                    )
-                )
 
-        # Rule c: the assistant messages are the scripted speech, one to one and in order.
-        spoken = [s for s in view.spoken if s.born["seq"] < event["seq"]]
-        alignment = align(items, spoken)
-        if not alignment.possible:
-            texts = [repr(items[i].get("text")) for i in alignment.unmatched_items]
-            findings.append(
+def _after_its_turns(
+    context: _Context, index: int, what: str, source: Event, shown: _Context, why: str
+) -> None:
+    """Rule e: the item at ``index`` comes after each user turn the model was ``shown``."""
+    for speech in shown.turns.present:
+        ended = context.turns.ended_at.get(speech.index)
+        if ended is not None and index < ended:
+            context.findings.append(
                 Finding(
-                    "rule c",
-                    "assistant message(s) that are not what the agent was scripted "
-                    "to say, in order: " + ", ".join(texts),
-                    (event["seq"],),
+                    "rule e",
+                    f"{what} appears before speech {speech.index}, {why}",
+                    (source["seq"], context.event["seq"]),
                 )
             )
 
-        # Rule d: every tool call that returned is shown once, with its result.
-        stand_ins = refused = 0
-        for tool in view.tools.values():
-            if tool.call_id is None or tool.called["seq"] > event["seq"]:
+
+def _causal_order(
+    view: View,
+    context: _Context,
+    alignment: Alignment,
+    spoken: list[Spoken],
+    by_request: dict[int, _Context],
+) -> None:
+    """Rule e: a reply and a tool item come after the user turns the model answered from."""
+    calls_by_key = {s.key: s.call for s in spoken if s.call is not None}
+    for key, index in alignment.matched.items():
+        call = calls_by_key.get(key)
+        if call is None:
+            continue  # text the application spoke answers no particular turn
+        source = view.calls[call].request
+        shown = by_request[source["seq"]]
+        _after_its_turns(
+            context,
+            index,
+            f"the reply of call {call}",
+            source,
+            shown,
+            "which it was generated from",
+        )
+    for index, item in enumerate(context.items):
+        if item["type"] not in _TOOL_ITEMS:
+            continue
+        call_id = item["call_id"]
+        asked = view.request_of.get(call_id)
+        if asked is None or asked.request["seq"] >= context.event["seq"]:
+            continue  # no call the model had made: rule f
+        what = f"item {index}, the {_TOOL_ITEMS[item['type']]} of "
+        what += f"{view.asked[call_id]['name']} ({call_id!r})"
+        shown = by_request[asked.request["seq"]]
+        _after_its_turns(
+            context, index, what, asked.request, shown, "which the model was shown when it asked"
+        )
+
+
+def _played_before(view: View, context: _Context, alignment: Alignment) -> None:
+    """Rule e: what finished playing before a user turn began comes before that turn."""
+    if view.origin is None:
+        return  # no true start for any speech
+    for key, index in alignment.matched.items():
+        playout = view.playouts[key]
+        done = playout.settled
+        if done is None or playout.unknown:
+            continue
+        for speech in context.turns.present:
+            gap = speech.segment_start - done["t_us"]
+            if speech.index not in context.turns.placed or gap <= 0:
                 continue
-            done = (
-                tool.outcome
-                if tool.outcome is not None and tool.outcome["seq"] < event["seq"]
-                else None
-            )
-            returned = done if done is not None and done["kind"] == "tool.returned" else None
-            calls = [
-                i
-                for i, it in enumerate(items)
-                if it["type"] == "function_call" and it["call_id"] == tool.call_id
-            ]
-            outputs = [
-                i
-                for i, it in enumerate(items)
-                if it["type"] == "function_call_output" and it["call_id"] == tool.call_id
-            ]
-            if not returned and not calls and not outputs:
-                continue
-            asked_in = requested_by.get(tool.call_id)
-            if (
-                returned
-                and returned["t_us"] == event["t_us"]
-                and asked_in in turns_in
-                and present - turns_in[asked_in]
-            ):
-                # Requested for a later turn the instant the tool returned: no order is owed.
-                returned = None
-                if not calls and not outputs:
-                    continue
-            used += [tool.called, done]
-            seqs = tuple(e["seq"] for e in (tool.called, done, event) if e is not None)
-            name = f"{tool.name} ({tool.call_id})"
-            state = "finished" if done is not None else "was called"
-            # Only a call that returned is owed its call and result; none may be shown twice.
-            if len(calls) > 1 or len(outputs) > 1 or (returned and (not calls or not outputs)):
-                findings.append(
+            if context.turns.began_at[speech.index] < index:
+                context.used += [done, speech.delivery]
+                context.findings.append(
                     Finding(
-                        "rule d",
-                        f"{name} {state} before this context, which holds "
-                        f"{len(calls)} call item(s) and {len(outputs)} result item(s) for it",
-                        seqs,
+                        "rule e",
+                        f"{key} appears after speech {speech.index}, which began {gap} us "
+                        "after it finished playing",
+                        (done["seq"], speech.delivery["seq"], context.event["seq"]),
                     )
                 )
-                continue
-            if calls and outputs and outputs[0] < calls[0]:
-                findings.append(
-                    Finding("rule d", f"the result of {name} comes before its call", seqs)
-                )
-            if not returned:
-                # A result shown for a running or cancelled call is a stand-in and is not judged.
-                stand_ins += bool(outputs) and (done is None or done["kind"] == "tool.cancelled")
-                continue
-            shown = items[outputs[0]]
-            if shown["is_error"]:
-                findings.append(
+
+
+def _same_arguments(shown: str, asked: str) -> bool:
+    """Whether two argument texts are equal, as text or as JSON written out again."""
+    if shown == asked:
+        return True
+    try:
+        return bool(json.loads(shown) == json.loads(asked))
+    except ValueError:
+        return False
+
+
+def _as_asked(view: View, context: _Context) -> None:
+    """Rule f: a call item or a result item is of a call the model made, as it made it."""
+    event = context.event
+    for index, item in enumerate(context.items):
+        if item["type"] not in _TOOL_ITEMS:
+            continue
+        call_id = item["call_id"]
+        asked = view.request_of.get(call_id)
+        if asked is None or asked.answer["seq"] > event["seq"]:
+            if item["type"] == "function_call":
+                context.findings.append(
                     Finding(
-                        "rule d",
-                        f"{name} returned normally, but its result is marked as an error",
-                        seqs,
-                    )
-                )
-            if returned["data"]["text"] is None:
-                unknown.append(f"the value {name} returned has no stable text form to compare")
-            elif shown["output"] != returned["data"]["text"]:
-                findings.append(
-                    Finding(
-                        "rule d",
-                        f"{name} returned {returned['data']['text']!r}, but the context "
-                        f"shows {shown['output']!r}",
-                        seqs,
-                    )
-                )
-        for index, item in enumerate(items):
-            if item["type"] != "function_call_output":
-                continue
-            invocation = by_call_id.get(item["call_id"])
-            if invocation is not None and invocation.called["seq"] < event["seq"]:
-                continue  # judged above
-            if invocation is None and item["is_error"]:
-                # The framework answered a call no tool received: its own account, not judged.
-                refused += 1
-            elif invocation is None and item.get("name") not in view.witnessed_tools:
-                unknown.append(
-                    f"the tool behind result {item['call_id']!r} was not witnessed, "
-                    "or cannot be linked to it"
-                )
-            else:
-                findings.append(
-                    Finding(
-                        "rule d",
-                        f"item {index} is a result for {item['call_id']!r}, a call no "
-                        "witnessed tool had received",
+                        "rule f",
+                        f"item {index} is {item['name']} ({call_id!r}), a call the model "
+                        "had not made",
                         (event["seq"],),
                     )
                 )
-
-        # Rule e: a reply comes after the user turns it was generated from.
-        calls_by_key = {s.key: s.call for s in spoken if s.call is not None}
-        for key, index in alignment.matched.items():
-            call = calls_by_key.get(key)
-            if call is None:
-                continue  # text the application spoke answers no particular turn
-            source = view.calls[call]
-            seen = user_turns(
-                source.items,
-                [s for s in view.delivered if s.delivery["seq"] < source.request["seq"]],
-            )
-            for speech in seen.present:
-                ended = turns.ended_at.get(speech.index)
-                if ended is not None and index < ended:
-                    findings.append(
-                        Finding(
-                            "rule e",
-                            f"the reply of call {call} appears before speech "
-                            f"{speech.index}, which it was generated from",
-                            (source.request["seq"], event["seq"]),
-                        )
+            continue  # a result for such a call is rule d's
+        made = view.asked[call_id]
+        context.used.append(asked.answer)
+        seqs = (asked.answer["seq"], event["seq"])
+        if item["type"] == "function_call":
+            if item["name"] != made["name"] or not _same_arguments(
+                item["arguments"], made["arguments"]
+            ):
+                context.findings.append(
+                    Finding(
+                        "rule f",
+                        f"item {index} shows the call {call_id!r} as {item['name']} with "
+                        f"arguments {item['arguments']!r}; the model asked for {made['name']} "
+                        f"with {made['arguments']!r}",
+                        seqs,
                     )
+                )
+        elif item["name"] is not None and item["name"] != made["name"]:
+            context.findings.append(
+                Finding(
+                    "rule f",
+                    f"item {index} is a result named {item['name']!r} for the call {call_id!r}, "
+                    f"which the model made to {made['name']!r}",
+                    seqs,
+                )
+            )
 
-        instance = {"context": label}
-        measures = {
-            "user_turns": len(present),
-            "said_matched": len(alignment.matched),
-            "said_ambiguous": len(alignment.ambiguous),
-            "stand_in_results": stand_ins,
-            "refused_calls": refused,
-        }
+
+def check(view: View, policy: policies.M2) -> ContractResult:
+    contexts = []
+    for label, event, items in view.contexts:
+        delivered = [s for s in view.delivered if s.delivery["seq"] < event["seq"]]
+        turns = user_turns(items, delivered)
+        contexts.append(_Context(label, event, items, delivered, turns, used=[event]))
+    by_request = {c.event["seq"]: c for c in contexts}
+
+    verdicts = []
+    for context in contexts:
+        spoken = [s for s in view.spoken if s.born["seq"] < context.event["seq"]]
+        alignment = align(context.items, spoken)
+        _user_text(context)
+        _no_loss(view, policy, context)
+        _replies(context, alignment)
+        stand_ins = _tool_calls(view, context, by_request)
+        refused = _unrun_results(view, context)
+        _causal_order(view, context, alignment, spoken, by_request)
+        _played_before(view, context, alignment)
+        _as_asked(view, context)
         verdicts.append(
             verdict(
                 "M2",
-                instance,
-                f"{label} shows the conversation that happened"
-                if not findings
-                else f"{label} does not show the conversation that happened",
-                events=used,
-                findings=findings,
-                unobservable="; ".join(unknown) if unknown else None,
-                measures=measures,
+                {"context": context.label},
+                f"{context.label} shows the conversation that happened"
+                if not context.findings
+                else f"{context.label} does not show the conversation that happened",
+                events=context.used,
+                findings=context.findings,
+                unobservable="; ".join(context.unknown) if context.unknown else None,
+                measures={
+                    "user_turns": len(context.present),
+                    "said_matched": len(alignment.matched),
+                    "said_ambiguous": len(alignment.ambiguous),
+                    "stand_in_results": stand_ins,
+                    "refused_calls": refused,
+                },
             )
         )
     return result("M2", policy, verdicts)

@@ -1,7 +1,8 @@
 name: release
 
-# A tag v<version> builds, checks and publishes to PyPI through a trusted publisher:
-# no token is stored here. See CONTRIBUTING.md, "Releasing".
+# A tag v<version> builds the wheel and the source distribution once, checks those files
+# and publishes the same files to PyPI through a trusted publisher: no token is stored
+# here. See CONTRIBUTING.md, "Releasing".
 on:
   push:
     tags: ["v*"]
@@ -9,16 +10,28 @@ on:
 permissions:
   contents: read
 
+# Named, so that every step runs with pipefail: a failure before a pipe fails the step.
+defaults:
+  run:
+    shell: bash
+
+env:
+  UV_VERSION: "0.13.9"
+
 jobs:
-  build:
-    name: build and check
+  allowed:
+    name: the tag may be released
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read # scripts/ci_passed.sh asks which pull request the commit came from
+      actions: read # and whether ci passed on it, or on the commit in a run on main
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           fetch-depth: 0 # the next step asks whether main contains the tag's commit
-      - uses: astral-sh/setup-uv@v6
+          persist-credentials: false
       - name: The tag is on main
         run: |
           if ! git merge-base --is-ancestor HEAD origin/main; then
@@ -32,28 +45,109 @@ jobs:
             echo "the tag is $GITHUB_REF_NAME and pyproject.toml says $version" >&2
             exit 1
           fi
-      - name: The wheel installs clean (scripts/wheel_smoke.sh)
-        run: scripts/wheel_smoke.sh
-      - name: The README's quickstart works from the wheel (scripts/quickstart_check.sh)
-        run: scripts/quickstart_check.sh
+      - name: The changelog has a section for the version (scripts/changelog_section.sh)
+        run: scripts/changelog_section.sh "${GITHUB_REF_NAME#v}"
+      - name: ci passed on the tagged commit (scripts/ci_passed.sh)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: scripts/ci_passed.sh "$(git rev-parse HEAD)"
+
+  build:
+    name: build once
+    needs: allowed
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      sums: ${{ steps.sums.outputs.sums }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6.8.0
+        with:
+          version: ${{ env.UV_VERSION }}
+          enable-cache: false # what is published is built from the tagged commit alone
       - name: Build the wheel and the source distribution
         run: uv build --out-dir dist
-      - uses: actions/upload-artifact@v4
+      - name: Record the SHA-256 of each file
+        id: sums
+        run: |
+          (cd dist && shasum -a 256 earful-*) > "$RUNNER_TEMP/sums"
+          cat "$RUNNER_TEMP/sums"
+          { echo "sums<<END"; cat "$RUNNER_TEMP/sums"; echo "END"; } >> "$GITHUB_OUTPUT"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: dist
           path: dist/earful-*
+          if-no-files-found: error
+
+  check:
+    name: check the built files
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6.8.0
+        with:
+          version: ${{ env.UV_VERSION }}
+          enable-cache: false
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: dist
+          path: dist
+      - name: The files are the ones that were built
+        env:
+          SUMS: ${{ needs.build.outputs.sums }}
+        run: |
+          cd dist
+          shasum -a 256 --check --strict <<<"$SUMS"
+          [ "$(ls | wc -l)" -eq "$(wc -l <<<"$SUMS")" ]
+      - name: The wheel installs clean (scripts/wheel_smoke.sh)
+        run: scripts/wheel_smoke.sh dist
+      - name: The README's quickstart works from the wheel (scripts/quickstart_check.sh)
+        run: scripts/quickstart_check.sh dist
 
   publish:
     name: publish to PyPI
-    needs: build
+    needs: [build, check]
     runs-on: ubuntu-latest
     timeout-minutes: 10
     environment: pypi
     permissions:
       id-token: write # the trusted publisher's proof of which workflow this is
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           name: dist
           path: dist
-      - uses: pypa/gh-action-pypi-publish@release/v1
+      - name: The files are the ones that were built and checked
+        env:
+          SUMS: ${{ needs.build.outputs.sums }}
+        run: |
+          cd dist
+          shasum -a 256 --check --strict <<<"$SUMS"
+          [ "$(ls | wc -l)" -eq "$(wc -l <<<"$SUMS")" ]
+      - uses: pypa/gh-action-pypi-publish@7245906fb61fa33a13554f9d5fb856fe61758086 # v1.14.3
+
+  notes:
+    name: GitHub release
+    needs: publish
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write # creates the release; the tag is there already
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - name: Create the release, with the version's section of the changelog as its notes
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          scripts/changelog_section.sh "${GITHUB_REF_NAME#v}" > "$RUNNER_TEMP/notes.md"
+          gh release create "$GITHUB_REF_NAME" --verify-tag --title "$GITHUB_REF_NAME" \
+            --notes-file "$RUNNER_TEMP/notes.md"

@@ -7,39 +7,60 @@ import argparse
 import json
 import os
 import sys
+import traceback
 from collections.abc import Callable, Sequence
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
-from . import __version__
+from . import __version__, _adapters
 from .core import bundle, crosscheck, html, timeline
 from .core import case as cases
 from .core.checker import Report, check
-from .core.checker.report import allowed
+from .core.checker.report import RULES, allowed, required
 from .core.ledger import read_jsonl, write_jsonl
 from .core.predicate import Predicate
-from .core.search import default_workers
-
-if TYPE_CHECKING:
-    from types import ModuleType
+from .core.search import CaseRefused, default_workers
 
 OK, BROKEN, REFUSED, NO_VERDICT = 0, 1, 2, 3
+_PACKAGE = Path(__file__).resolve().parent
 
 
 class Refused(Exception):
     """The command cannot be carried out as asked. Its text is what the user is told."""
 
 
-def _adapter() -> ModuleType:
+def _scenario_path() -> None:
     # The installed script would not otherwise find a scenario's module in this directory.
     here = os.getcwd()
     if here not in sys.path:
         sys.path.insert(0, here)
+
+
+def _outside(exc: BaseException) -> str | None:
+    """Where code that is not Earful's raised ``exc``, as ``file, line N``, or None."""
+    if isinstance(exc, SyntaxError):
+        return f"{Path(exc.filename or '?').name}, line {exc.lineno}"
+    frames = traceback.extract_tb(exc.__traceback__)
+    if not frames or Path(frames[-1].filename).resolve().is_relative_to(_PACKAGE):
+        return None
+    return f"{Path(frames[-1].filename).name}, line {frames[-1].lineno}"
+
+
+def _scenario(reference: str) -> tuple[Any, Any]:
+    """The adapter and the scenario ``reference`` names, with its first case built."""
     try:
-        from . import livekit
-    except ImportError as exc:
-        raise Refused(str(exc)) from exc
-    return livekit
+        return _adapters.select(reference)
+    except (CaseRefused, ImportError):
+        raise
+    except Exception as exc:
+        # The module and its function are the author's code. Earful's own crash is raised.
+        where = _outside(exc)
+        if where is None:
+            raise
+        said = exc.msg if isinstance(exc, SyntaxError) else str(exc)
+        raise Refused(
+            f"scenario {reference!r} could not be built: {type(exc).__name__}: {said} ({where})"
+        ) from exc
 
 
 def _ledger(path: Path) -> list[dict[str, Any]]:
@@ -69,18 +90,25 @@ def _case(path: Path | None) -> cases.Case | None:
     return dict(data)
 
 
-def _status(reports: Sequence[Report], allow: Sequence[str] = ()) -> int:
+def _status(reports: Sequence[Report], allow: set[str], require: list[str]) -> int:
     # A rule that broke outranks a run that could not be judged.
-    if any(rule not in allowed(allow) for report in reports for rule in report.broken()):
+    if any(rule not in allow for report in reports for rule in report.broken()):
         return BROKEN
-    return NO_VERDICT if any(not report.valid for report in reports) else OK
+    unjudged = any(not report.valid or report.unjudged(require) for report in reports)
+    return NO_VERDICT if unjudged else OK
 
 
-def _rules(text: list[str] | None) -> list[str]:
-    return [str(Predicate.parse(rule)) for rule in text or []]
+def _asked(args: argparse.Namespace) -> tuple[set[str], list[str]]:
+    """What ``--allow`` and ``--require`` name, checked before anything runs."""
+    return allowed(args.allow or ()), required(args.require or ())
+
+
+def _required(report: Report, require: list[str]) -> list[str]:
+    return [f"required   {contract} {why}" for contract, why in report.unjudged(require).items()]
 
 
 def _check(args: argparse.Namespace) -> int:
+    allow, require = _asked(args)
     reports = []
     for path in args.ledger:
         report = check(_ledger(path))
@@ -89,15 +117,17 @@ def _check(args: argparse.Namespace) -> int:
             print(json.dumps({"ledger": path.name, **report.to_json()}))
             continue
         print(f"== {path.name}")
-        for line in report.lines(measures=args.measures):
+        for line in (*report.lines(measures=args.measures), *_required(report, require)):
             print(f"   {line}")
-    return _status(reports, _rules(args.allow))
+    return _status(reports, allow, require)
 
 
 def _run(args: argparse.Namespace) -> int:
-    adapter = _adapter()
+    allow, require = _asked(args)
+    case = _case(args.case)
+    adapter, source = _scenario(args.scenario)
     try:
-        result = adapter.run(args.scenario, case=_case(args.case), seed=args.seed)
+        result = adapter.run(source, case=case, seed=args.seed)
     except adapter.InvalidRun as exc:
         result = exc.result
     if args.ledger is not None:
@@ -106,23 +136,28 @@ def _run(args: argparse.Namespace) -> int:
     if args.json:
         print(json.dumps({"case": result.case, "hash": result.hash, **report.to_json()}))
     else:
+        unjudged = _required(report, require)
         print("\n".join([*timeline.heading(result.events), "", *report.lines()]))
+        if unjudged:
+            print("\n" + "\n".join(unjudged))
         if args.ledger is not None:
             print(f"\nledger     {args.ledger}")
-    return _status([report], _rules(args.allow))
+    return _status([report], allow, require)
 
 
 def _search(args: argparse.Namespace) -> int:
-    adapter = _adapter()
+    allow, require = _asked(args)
     keep = [Predicate.parse(rule) for rule in args.keep or []]
     if keep and args.out is None:
         raise Refused("--keep needs --out, the directory to write bundles to")
     faults = () if args.faults == "none" else tuple(args.faults.split(","))
     case = _case(args.case)
 
+    adapter, source = _scenario(args.scenario)
+
     def search(workers: int) -> Any:
         return adapter.explore(
-            args.scenario,
+            source,
             case=case,
             seed=args.seed,
             workers=workers,
@@ -131,6 +166,8 @@ def _search(args: argparse.Namespace) -> int:
             pairs=args.pairs,
             profiles=args.profiles,
             words=not args.no_words,
+            max_runs=args.max_runs,
+            planned=lambda plan: print(f"earful: {plan}", file=sys.stderr),
         )
 
     try:
@@ -148,8 +185,7 @@ def _search(args: argparse.Namespace) -> int:
     for predicate in keep:
         if not any(one.predicate == predicate for one in broken):
             continue
-        rule = f"{predicate.contract}-{predicate.rule}".replace(" ", "-")
-        directory = args.out / f"lk-{release.get('version')}.{function}.{rule}"
+        directory = args.out / _bundle_name(release, function, predicate)
         manifest = adapter.keep(found, predicate, directory).manifest
         kept[str(predicate)] = {
             "directory": str(directory),
@@ -161,81 +197,112 @@ def _search(args: argparse.Namespace) -> int:
             "replay": manifest["replay"],
         }
 
+    unjudged = found.unjudged(require)
     if args.json:
         summary = {"scenario": args.scenario, **found.summary(), "coverage": found.coverage()}
+        summary["unjudged"] = unjudged
         for one in broken:
             if not args.no_windows or one.predicate in keep:
                 entry = summary["found"][str(one.predicate)]
                 entry["windows"] = [w.to_json() for w in one.windows]
+                entry["unmeasured"] = one.unmeasured
                 entry["instants_only"] = one.instants_only
         summary["bundles"] = kept
         print(json.dumps(summary, indent=2))
     else:
-        print(found.describe(broken))
+        print(found.describe(broken, unjudged))
+        unmeasured = [str(one.predicate) for one in broken if one.predicate not in keep]
+        if args.no_windows and unmeasured:
+            print(
+                "\nnot measured, so counted even if they break only at single instants: "
+                + ", ".join(unmeasured)
+            )
         for rule, entry in kept.items():
             print(f"\nkept {rule} in {entry['directory']}")
         missing = [str(p) for p in keep if str(p) not in kept]
         if missing:
             print(f"\nnot kept, since no case broke them: {', '.join(missing)}")
-    counted = [
-        one
-        for one in broken
-        if not one.instants_only and str(one.predicate) not in allowed(_rules(args.allow))
-    ]
-    return BROKEN if counted else OK
+    if any(not one.instants_only and str(one.predicate) not in allow for one in broken):
+        return BROKEN
+    cut_short = found.nothing_judged or found.errored or not found.complete
+    return NO_VERDICT if unjudged or cut_short else OK
+
+
+# What the directory of a kept bundle begins with, for each framework.
+_SHORT = {"livekit-agents": "lk", "pipecat-ai": "pc"}
+
+
+def _bundle_name(framework: dict[str, str], function: str, predicate: Predicate) -> str:
+    rule = f"{predicate.contract}-{predicate.rule}".replace(" ", "-")
+    return f"{_SHORT[framework['name']]}-{framework['version']}.{function}.{rule}"
 
 
 def _replay(args: argparse.Namespace) -> int:
-    adapter = _adapter()
-    try:
-        kept = bundle.load(args.bundle)
-    except OSError as exc:
-        raise Refused(f"cannot read the bundle in {args.bundle}: {exc.strerror}") from exc
-    result = adapter.replay(args.bundle, repeats=args.repeats)
+    kept = bundle.load(args.bundle)
+    adapter = _adapters.by_framework(kept.manifest["framework"]["name"])
+    _scenario(kept.minimal["scenario"])  # refused here if its code cannot build a case
+    result = adapter.replay(kept, repeats=args.repeats)
+    kept_with = kept.manifest["environment"].get("earful")
     outcome = {
         "predicate": str(kept.predicate),
         "made_on": kept.manifest["framework"],
         "replayed_on": result.framework,
+        "kept_with_earful": kept_with,
+        "replayed_with_earful": __version__,
+        "judged": result.judged,
         "reproduced": result.reproduced,
+        "clean": result.clean,
         "repeatable": result.repeatable,
         "identical_to_recorded": result.identical,
         "scenario_code_changed": result.scenario_changed,
+        "unverified": list(result.unverified),
         "invalid": list(result.invalid),
     }
     if args.json:
         print(json.dumps(outcome, indent=2))
     else:
         made, on = kept.manifest["framework"], result.framework
+        if result.reproduced:
+            breaks = "yes"
+        elif result.clean:
+            breaks = "no"
+        else:
+            breaks = "in some runs" if result.judged else "not judged"
         print(f"{kept.predicate}, kept on {made.get('name')} {made.get('version')}")
         print(f"replayed {args.repeats} times on {on.get('name')} {on.get('version')}")
-        print(f"  breaks the rule       {'yes' if result.reproduced else 'no'}")
+        print(f"  breaks the rule       {breaks}")
         print(f"  every run the same    {'yes' if result.repeatable else 'no'}")
         print(f"  the ledger recorded   {'yes' if result.identical else 'no'}")
         changed = {None: "not known", True: "yes", False: "no"}[result.scenario_changed]
         print(f"  scenario code changed {changed}")
+        if result.unverified:
+            files = " and ".join(result.unverified)
+            print(f"  not verified: {files} (the manifest records no digest of them)")
+        if kept_with not in (None, __version__):
+            print(f"  kept with Earful {kept_with}, replayed with Earful {__version__}")
         for reason in result.invalid:
             print(f"  invalid: {reason}")
-    if result.invalid or not result.repeatable:
+    if not result.judged or not result.repeatable:
         return NO_VERDICT
     if args.expect is None:
         return OK
-    return OK if result.reproduced == (args.expect == "reproduced") else BROKEN
+    expected = result.reproduced if args.expect == "reproduced" else result.clean
+    return OK if expected else BROKEN
 
 
 def _crosscheck(args: argparse.Namespace) -> int:
-    adapter = _adapter()
-    reference: str = args.source
+    source = args.source
     case = _case(args.case)
     if Path(args.source).is_dir():  # a kept failure: its reduced case
-        try:
-            case = bundle.load(Path(args.source)).minimal
-        except OSError as exc:
-            raise Refused(f"cannot read the bundle in {args.source}: {exc.strerror}") from exc
-        reference = case["scenario"]
+        kept = bundle.load(Path(args.source))
+        case = kept.minimal
+        _adapters.by_framework(kept.manifest["framework"]["name"])  # imports its adapter
+        source = case["scenario"]
+    adapter, source = _scenario(source)
     tolerance = crosscheck.Tolerance(time_us=args.tolerance_ms * 1000, words=args.words)
     try:
         checked = adapter.cross_check(
-            reference, case=case, seed=args.seed, runs=args.runs, tolerance=tolerance
+            source, case=case, seed=args.seed, runs=args.runs, tolerance=tolerance
         )
     except adapter.InvalidRun as exc:
         print("the virtual run is not valid evidence, so there is nothing to compare with:")
@@ -303,7 +370,6 @@ def _ignored(directory: Path) -> str | None:
 
 
 def _init(args: argparse.Namespace) -> int:
-    _adapter()
     from .livekit.scaffold import scaffold
 
     made = scaffold(args.agent)
@@ -340,12 +406,19 @@ def _parser() -> argparse.ArgumentParser:
         sub.set_defaults(run=run)
         return sub
 
-    def allow(sub: Any) -> None:
+    def allow(sub: Any, required_of: str) -> None:
         sub.add_argument(
             "--allow",
             action="append",
             metavar="CONTRACT/RULE",
             help="a rule that may break without failing the command (repeatable)",
+        )
+        sub.add_argument(
+            "--require",
+            action="append",
+            metavar="CONTRACT",
+            help=f"a contract, one of {', '.join(RULES)}, that {required_of} must get a pass "
+            "or a fail for; unobservable or not exercised then exits 3 (repeatable)",
         )
 
     def scenario(sub: Any) -> None:
@@ -369,13 +442,13 @@ def _parser() -> argparse.ArgumentParser:
     sub.add_argument("ledger", nargs="+", type=Path, metavar="LEDGER")
     sub.add_argument("--json", action="store_true", help="one JSON report per ledger")
     sub.add_argument("--measures", action="store_true", help="what each verdict measured")
-    allow(sub)
+    allow(sub, "each ledger")
 
     sub = command("run", _run, "Run a scenario once and print its verdicts.")
     scenario(sub)
     sub.add_argument("--ledger", type=Path, metavar="FILE", help="write the ledger here")
     sub.add_argument("--json", action="store_true", help="the report as JSON")
-    allow(sub)
+    allow(sub, "the run")
 
     sub = command(
         "search", _search, "Search a scenario for the timings and faults that break a contract."
@@ -407,9 +480,16 @@ def _parser() -> argparse.ArgumentParser:
         "--no-words", action="store_true", help="the end of a played word is not a boundary"
     )
     sub.add_argument(
+        "--max-runs",
+        type=int,
+        metavar="N",
+        help="stop after N runs. A search cut short is incomplete and exits 3 unless a rule broke",
+    )
+    sub.add_argument(
         "--no-windows",
         action="store_true",
-        help="do not measure how wide each failure is (a kept one is still measured)",
+        help="do not measure how wide each failure is (a kept one is still measured). A "
+        "rule that breaks only at single instants then counts as broken",
     )
     sub.add_argument(
         "--keep",
@@ -426,7 +506,7 @@ def _parser() -> argparse.ArgumentParser:
         "or this process where worker processes cannot be started; 0 runs in this process)",
     )
     sub.add_argument("--json", action="store_true", help="the whole result as JSON")
-    allow(sub)
+    allow(sub, "the case as given")
 
     sub = command("replay", _replay, "Run a kept failure's reduced case again.")
     sub.add_argument("bundle", type=Path, metavar="BUNDLE_DIR")
@@ -492,8 +572,10 @@ def _parser() -> argparse.ArgumentParser:
 def main(argv: Sequence[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     try:
+        if args.run in (_init, _run, _search, _replay, _crosscheck):
+            _scenario_path()
         return int(args.run(args))
-    except Refused as exc:
+    except (Refused, ImportError) as exc:
         print(f"earful: {exc}", file=sys.stderr)
     except ValueError as exc:  # a scenario, a case or a bundle the core refuses
         print(f"earful: {exc}", file=sys.stderr)

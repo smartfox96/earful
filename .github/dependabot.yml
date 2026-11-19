@@ -1,0 +1,14 @@
+version: 2
+updates:
+  # Each workflow pins an action to a commit. This moves the pins to new releases, in
+  # one pull request a week.
+  # Python packages are left out. Every environment names its framework release and a
+  # date (docs/compatibility.md), so an update here would change nothing that is tested.
+  # The canary workflow reports a new framework release.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        patterns: ["*"]

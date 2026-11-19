@@ -13,11 +13,17 @@ from earful.core.ledger import Ledger, run_id
 from earful.core.schema import validate
 from earful.livekit import tools
 from earful.livekit.cases import BOOKING_INTENT
-from earful.livekit.clock import now_us, run_virtual
 from earful.livekit.harness import Case, Delay, Fault, Intent, run_case
-from earful.livekit.playbook import ScriptedModel, tool_succeeded, user_ever_said, user_said
 from earful.livekit.providers import Reply, ToolCall, UserSpeech
 from earful.livekit.tools import effect_tool, witnessed
+from earful.scripted.clock import now_us, run_virtual
+from earful.scripted.playbook import (
+    ScriptedModel,
+    tool_returned,
+    tool_succeeded,
+    user_ever_said,
+    user_said,
+)
 
 
 def _of(events, kind):
@@ -63,7 +69,8 @@ def test_the_header_names_the_tools_whose_body_did_not_run_and_their_intent():
 def test_a_scenario_without_effects_does_not_state_any():
     case = as_written_reads_the_error()
     case.agent, case.effects = lambda: lk.Agent(instructions="t"), {}
-    assert "effects" not in _scenario(run_case(case).ledger.events)
+    # The model calls a tool this agent has not got, which the header does not depend on.
+    assert "effects" not in _scenario(run_case(case, require_valid=False).ledger.events)
 
 
 def test_an_intent_the_scenario_lists_keeps_what_it_declares_and_gains_the_tool():
@@ -504,3 +511,167 @@ def test_a_header_whose_effects_do_not_fit_its_tools_and_intents_is_not_a_ledger
 
 def test_a_ledger_that_states_no_effects_is_valid(recorded):
     assert validate(_with_header(recorded, lambda s: s.pop("effects"))) == []
+
+
+class _Books(lk.Agent):
+    def __init__(self, chat_ctx):
+        super().__init__(instructions="You book tables.", chat_ctx=chat_ctx)
+
+    @lk.function_tool
+    async def book(self, party_size: int) -> str:
+        """Book a table.
+
+        Args:
+            party_size: Number of guests
+        """
+        return await effect("book", {"party_size": party_size})
+
+
+class _Greets(lk.Agent):
+    takes = 0.0  # seconds the handoff takes
+
+    def __init__(self):
+        super().__init__(instructions="You greet the caller.")
+
+    @lk.function_tool
+    async def transfer(self) -> lk.Agent:
+        """Hand the caller to the agent that books."""
+        await asyncio.sleep(self.takes)
+        return _Books(self.chat_ctx)
+
+
+class _GreetsSlowly(_Greets):
+    takes = 1.0
+
+
+def _handoff():
+    model = (
+        ScriptedModel()
+        .when(tool_succeeded("book"), say="Your table is booked.", claims=["book"])
+        .when(user_said("two"), call=("book", {"party_size": 2}))
+        .when(tool_succeeded("transfer"), say="How many guests?")
+        .otherwise(call=("transfer", {}))
+    )
+    return Case(
+        name="handoff",
+        agent=_Greets,
+        speeches=[
+            UserSpeech(0.5, 1.5, "I would like a table."),
+            UserSpeech(8.0, 9.5, "For two, please."),
+        ],
+        policy=model,
+        intents=[Intent("book", tools=("book",))],
+    )
+
+
+@pytest.mark.parametrize(
+    ("agent", "second"),
+    [
+        (_Greets, (8.0, 9.5)),  # the user speaks well after the handoff at 2.0 s
+        (_Greets, (2.5, 4.5)),  # just after it
+        (_GreetsSlowly, (2.5, 4.5)),  # across it: the handoff comes at 3.0 s
+    ],
+)
+def test_the_scripted_user_and_the_witness_follow_a_handoff_to_the_next_agent(agent, second):
+    case = _handoff()
+    case.agent, case.speeches[1] = agent, UserSpeech(*second, "For two, please.")
+    result = run_case(case)
+    events = result.ledger.events
+    assert [d["speech"] for d in _of(events, "user.vad_start")] == [0, 1]
+    assert [d["speech"] for d in _of(events, "user.vad_end")] == [0, 1]
+    assert [d["text"] for d in _of(events, "user.transcript_final")] == [
+        "I would like a table.",
+        "For two, please.",
+    ]
+    called = {d["name"]: d["tool"] for d in _of(events, "tool.called")}
+    assert list(called) == ["transfer", "book"]
+    (requested,) = _of(events, "effect.requested")
+    assert requested["tool"] == called["book"]
+    outcomes = result.report.outcomes()
+    assert outcomes["A2"] == outcomes["A3"] == outcomes["M1"] == outcomes["L2"] == PASS
+
+
+@lk.function_tool
+async def look_up_hours(day: str) -> str:
+    """Say when the restaurant is open.
+
+    Args:
+        day: A day of the week
+    """
+    return f"Open from five on {day}."
+
+
+def _asks_the_hours(**session):
+    model = (
+        ScriptedModel()
+        .when(tool_succeeded(), say="We open at five.")
+        .otherwise(call=("look_up_hours", {"day": "Friday"}))
+    )
+    return Case(
+        name="hours",
+        agent=lambda: lk.Agent(instructions="You answer questions."),
+        speeches=[UserSpeech(0.5, 1.5, "When do you open on Friday?")],
+        policy=model,
+        session_kwargs=session,
+    )
+
+
+def test_a_tool_the_session_gives_every_agent_is_witnessed():
+    result = run_case(_asks_the_hours(tools=[look_up_hours]))
+    result.assert_contracts()
+    events = result.ledger.events
+    assert _scenario(events)["witnessed_tools"] == ["look_up_hours"]
+    (called,) = _of(events, "tool.called")
+    (returned,) = _of(events, "tool.returned")
+    assert called["name"] == "look_up_hours" and called["arguments"] == {"day": "Friday"}
+    assert returned["tool"] == called["tool"] and returned["output"] == "Open from five on Friday."
+
+
+def test_a_tool_offered_to_the_model_without_the_witness_makes_the_run_invalid(monkeypatch):
+    monkeypatch.setattr(tools, "witness_session_tools", lambda session: {})
+    result = run_case(_asks_the_hours(tools=[look_up_hours]), require_valid=False)
+    assert any("['look_up_hours'] without the witness" in why for why in result.invalid)
+
+
+_HOURS = "the tool takes ['day'] and needs ['day']"
+
+
+@pytest.mark.parametrize(
+    ("call", "why"),
+    [
+        (
+            ("look_up_hour", {"day": "Friday"}),
+            "'look_up_hour', which the agent does not offer; it offers ['look_up_hours']",
+        ),
+        (
+            ("look_up_hours", {"date": "Friday"}),
+            f"'look_up_hours' with the arguments ['date']; {_HOURS}",
+        ),
+        (("look_up_hours", {}), f"'look_up_hours' with the arguments []; {_HOURS}"),
+        (
+            ("look_up_hours", {"day": "Friday", "week": 2}),
+            f"'look_up_hours' with the arguments ['day', 'week']; {_HOURS}",
+        ),
+        (
+            ToolCall("look_up_hours", "Friday"),
+            "'look_up_hours' with arguments that are not a JSON object: 'Friday'",
+        ),
+    ],
+)
+def test_a_scripted_call_the_offered_tools_cannot_take_makes_the_run_invalid(call, why):
+    case = _asks_the_hours(tools=[look_up_hours])
+    case.policy = ScriptedModel().when(tool_returned(), say="We open at five.").otherwise(call=call)
+    result = run_case(case, require_valid=False)
+    assert result.invalid == [f"harness error: call 1: the scripted model called {why}"]
+
+
+def test_a_tool_of_the_agent_handed_over_to_is_offered_only_after_the_handoff():
+    case = _handoff()  # as written, the model calls book once transfer has returned
+    case.policy = (
+        ScriptedModel()
+        .when(tool_returned(), say="Done.")
+        .otherwise(call=("book", {"party_size": 2}))
+    )
+    result = run_case(case, require_valid=False)
+    (why,) = result.invalid
+    assert why.endswith("called 'book', which the agent does not offer; it offers ['transfer']")

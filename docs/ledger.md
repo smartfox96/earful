@@ -74,7 +74,7 @@ All are deterministic: the same run gives the same identifiers.
 | `speech` | Scenario order, from 0 | One scripted user utterance |
 | `call` | Scripted model, from 1 | One model call; its request, its response and the reply it produced |
 | `utterance` | Scripted TTS, from 1 | One synthesized text |
-| stamp | Scripted TTS, from 1 | One synthesized word. Written into every audio sample of that word |
+| stamp | Scripted TTS, from 1 | One synthesized word. Any three samples of that word's audio in a row name it |
 | `segment` | Sink, from 1, at a segment's first frame | One playout segment, audible or not |
 | `tool` | Tool witness, from 1 | One invocation of a witnessed tool |
 | `call_id` | The model | Links a tool invocation to the model's tool call and to the framework's chat items |
@@ -83,7 +83,7 @@ All are deterministic: the same run gives the same identifiers.
 | `intent` | Scenario | One logical action |
 
 Framework identifiers (chat item and speech ids) are random. Normalization replaces them
-with ordinals; see Hashing.
+with ordinals, and replaces nothing else; see Hashing.
 
 ## Event kinds
 
@@ -121,6 +121,13 @@ when the first speech of the segment begins, an end after the last. While the se
 lasts it tells the framework the user has been speaking since the segment began, pauses
 included. The recognizer still delivers one transcript per speech. Which speeches make a
 segment follows from the header alone: the speeches and `min_silence_us`.
+
+The scripted VAD reports what the Silero plugin reports for a detector that is never
+wrong. From a segment's start to its end it reports every `min_speech_us`, with `speaking`
+set. The speech duration it reports keeps growing until it reports the end,
+`min_silence_us` after the last speech stopped. A framework that interrupts at a minimum
+speech duration can therefore interrupt for a speech shorter than that. The end report
+carries the segment's true length.
 
 A declared delay takes the place of what the scenario's code asks for, where it is
 applied: `llm.response` records the `ttft_us` and `duration_us` the model call had,
@@ -356,12 +363,18 @@ definition; it reads only the ledger and returns every reason a run is not valid
 - `executor_calls` is not zero: work left the virtual clock for a thread;
 - `underruns` is not zero: playout ran ahead of the audio it had been given, so word
   times are unreliable;
-- `harness_errors` is not empty: Earful's own simulation or recording failed. Examples: a
-  recording handler raised, the scripted providers disagreed about the origin, a declared
-  session option differs from the one the session holds, a scripted claim does not fit
-  its reply.
+- `harness_errors` is not empty: Earful's own simulation or recording failed, or the run
+  did not stay on the virtual clock. Examples: a recording handler raised, the scripted
+  providers disagreed about the origin, a declared session option differs from the one
+  the session holds, a scripted claim does not fit its reply, a tool started a thread or
+  waited on a socket (`work left the virtual clock (threads started: 1)`). What counts as
+  leaving the clock is listed in `docs/compatibility.md`, The virtual clock.
 
-`framework_warnings` is recorded but does not invalidate a run.
+`framework_warnings` is recorded but does not invalidate a run: a warning is the
+framework describing its own behaviour, and the contracts judge that behaviour from the
+ledger. An exception raised inside one of Earful's scripted providers or its output does
+invalidate it. The framework would treat it as a provider that failed and carry on, so it
+is recorded in `harness_errors`, as `the scripted voice raised KeyError: ...`.
 
 The harness refuses to return an invalid run unless asked to: `run_case` raises
 `InvalidRun`, which carries the result so the ledger can still be inspected.
@@ -372,6 +385,24 @@ A ledger is normalized before hashing: keys are sorted, separators are fixed, an
 framework identifiers (`item_3f2a…`) are replaced by first-appearance ordinals
 (`item_#1`). The hash is SHA-256 over the normalized lines, each followed by a newline,
 so `shasum -a 256` of a normalized ledger file equals its hash.
+
+An identifier is replaced only where the framework's own identifiers are recorded: a field
+named `id` or `speech_id`, in a `fw.*` event or in a context item of `llm.request` or
+`history.final`. There, a letter-led prefix that ends in `_` followed by 12 lowercase
+hexadecimal digits becomes that prefix, `#` and a number: 1 for the first identifier with
+that prefix in the ledger, 2 for the next. The same identifier gets the same ordinal
+everywhere, so references between events survive.
+
+Nothing else is rewritten. A payload, a tool's arguments and output, a call id, a
+transcript and a reply are hashed as recorded, including a value that looks like a
+framework identifier. Two runs that differ in an order number have different hashes. A
+run seeds Python's `random` module with the case's seed, so an identifier the application
+draws from it repeats. One drawn from `uuid.uuid4` differs on every run, and the hash with
+it.
+
+Earful 0.1.1 and earlier replaced such a value wherever it appeared. A ledger that holds
+one in application data therefore hashes differently now. None of the reference ledgers
+does.
 
 ## Reference ledgers
 

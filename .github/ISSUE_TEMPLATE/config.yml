@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Report a vulnerability
+    url: https://github.com/smartfox96/earful/security/advisories/new
+    about: Privately, to the maintainer. SECURITY.md says what is in scope.
+  - name: A contract broke and you are not sure whose defect it is
+    url: https://github.com/smartfox96/earful/blob/main/CONTRIBUTING.md#reporting-what-earful-finds
+    about: How to tell a defect in the framework from one in the application, the test or Earful.

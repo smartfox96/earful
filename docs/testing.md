@@ -1,5 +1,7 @@
 # Writing a test
 
+For a Pipecat pipeline, see [Writing a Pipecat scenario](pipecat.md).
+
 A test gives Earful a scenario, runs it against a real `AgentSession` on the virtual
 clock, and asserts the seven contracts (`docs/contracts.md`). This page covers the parts
 of a scenario, the calls a test makes, the `earful` command and the pytest fixture.
@@ -73,6 +75,20 @@ measure.
 `ScriptedModel` writes the model as ordered rules. The first rule whose condition holds
 gives the reply. `otherwise` gives the reply when none does. A context that no rule
 matches is an error in the scenario and makes the run invalid.
+
+So does a call the script got wrong. Each tool call of a reply is checked against the
+tools the framework offers the model for that call: a name none of them has, an argument
+the tool does not take, or a missing argument it needs makes the run invalid, and the
+reason says what was expected:
+
+```
+invalid: harness error: call 1: the scripted model called 'create_reservatoin', which the agent does not offer; it offers ['create_reservation']
+invalid: harness error: call 1: the scripted model called 'create_reservation' with the arguments ['party']; the tool takes ['party_size'] and needs ['party_size']
+```
+
+Argument names are checked and their values are not. On Pipecat the names are checked
+for a function whose parameters the context declares (`docs/pipecat.md`), and a function
+registered by name alone takes whatever the script gives it.
 
 | Condition | Holds when |
 | --- | --- |
@@ -211,8 +227,36 @@ L2  pass
 ```
 
 `assert_contracts(allow=["L2/rule b"])` lets a named rule break, for a known defect of a
-release under test. A run that is not valid evidence raises `InvalidRun` and yields no
-verdicts (`docs/ledger.md`, Validity).
+release under test. A rule is named by its contract and by what the report calls it:
+
+| Contract | Rules |
+| --- | --- |
+| A1 | `A1/rule`, `A1/in-flight` |
+| A2 | `A2/rule` |
+| A3 | `A3/rule` |
+| M1 | `M1/rule 2`, `M1/rule 3`, `M1/rule 4`, `M1/rule 5` |
+| M2 | `M2/rule a`, `M2/rule b`, `M2/rule c`, `M2/rule d`, `M2/rule e`, `M2/rule f` |
+| L1 | `L1/milestone 1`, `L1/milestone 2`, `L1/milestone 3` |
+| L2 | `L2/rule a`, `L2/rule b` |
+
+Only a failed contract fails the assertion. A contract that is `not_exercised` or
+`unobservable` does not, so a run in which the model never calls the booking tool writes
+nothing, leaves A2 not exercised and passes. `require` names the contracts a test is
+about. Each must end with a pass or a fail:
+
+```python
+result.assert_contracts(require=["A2", "A3"])
+```
+
+```
+booking (seed 0, livekit-agents 1.8.12) has no pass or fail for the required A2
+
+A2 was not exercised: the run has no write request for a declared intent
+```
+
+The verdicts follow, as above. A rule in `allow` or a contract in `require` that does not
+exist raises `ValueError`, which lists those that do. A run that is not valid evidence
+raises `InvalidRun` and yields no verdicts (`docs/ledger.md`, Validity).
 
 ## 5. A search
 
@@ -232,7 +276,20 @@ A3/rule  in 29 case(s)
 ```
 
 A rule that breaks only where two events fall on the same microsecond is reported and
-not counted (`docs/search.md`, section 4).
+not counted (`docs/search.md`, section 4). A rule the case breaks as written counts,
+whether or not a case the search tried breaks it.
+
+Cases that could not be judged are listed after the rules, grouped by reason, each with
+its count and an example. A case whose run raised an exception fails the assertion: that
+is an error in the scenario's code or in Earful, and the part of the search it stood for
+was not looked at. Cases that were refused, or whose runs were not valid evidence, are
+listed and do not fail it, unless none of the cases tried could be judged: such a search
+shows nothing about the contracts.
+
+On a search, `require` is asked of the case as written: the run the search starts from
+must give each named contract a pass or a fail. The cases a search tries are not held to
+it. A fault can remove what a contract judges, as a rejected write leaves no confirmation
+for A3 to check.
 
 `found.breaks()` gives each broken rule with an example case, as data. `run(case,
 case=example)` runs that example again.
@@ -283,11 +340,28 @@ again = replay("failures/double-booking")
 assert again.reproduced and again.identical
 ```
 
-`keep` reduces a case that breaks the rule to the smallest that still does, checks that
-it gives the same ledger each time, and writes it as a bundle (`docs/search.md`,
-section 6). `replay` runs the reduced case again on whatever release is installed:
-`reproduced` says whether it still breaks the rule, and `identical` whether the ledger is
-the one recorded.
+`keep` reduces a case that breaks the rule to the smallest that still does, runs it three
+more times, and writes it as a bundle if every run gives the ledger that broke the rule
+(`docs/search.md`, section 6). A failure that does not repeat raises `ValueError` and
+nothing is written.
+
+`replay` checks every file of the bundle, then runs the reduced case again on whatever
+release is installed. `reproduced` says that every run broke the rule, and `identical`
+that the ledger is the one recorded. Once the defect is fixed, the bundle is the
+regression test:
+
+```python
+def test_the_double_booking_stays_fixed():
+    assert replay("failures/double-booking").clean
+```
+
+`clean` says that every run was judged and none broke the rule. Assert `clean`, and never
+`not reproduced`: a replay whose runs were not valid evidence is not reproduced either,
+and it is not clean. `judged` says whether every run was valid evidence.
+
+`scenario_changed` says whether the module that defines the scenario's function differs
+from when the bundle was kept. It covers that one file. An agent or a service stand-in
+imported from another module is outside it (`docs/search.md`, section 6).
 
 ## 8. With pytest
 
@@ -316,7 +390,9 @@ search 1 (booking) breaks A3/rule: backend.error 1
     report  .earful/test_booking.py-test_searched/search-1.booking.A3-rule.html
 ```
 
-A test that passes writes nothing. `.earful/` belongs in `.gitignore`.
+A test's directory is cleared when the test starts, so it holds the evidence of its last
+run and nothing older. A test that passes writes nothing, and leaves no directory.
+`.earful/` belongs in `.gitignore`.
 
 | Option | Meaning |
 | --- | --- |
@@ -374,24 +450,41 @@ earful report failures/lk-1.8.12.booking.A3-rule -o report.html
 | `earful init AGENT` | Writes a first test for an agent, named as `module:Class`, into `test_<agent>.py` (`-o FILE` names another). The test runs as it is: the scripted model calls the agent's first tool, and every tool is declared an effect, so no tool body runs. The file marks what to change. An agent that cannot be built without arguments is built with `None` for each. Adds `.earful/` to `.gitignore` |
 | `earful check LEDGER...` | Prints the verdicts for recorded ledgers. `--measures` adds what each verdict measured, `--json` prints one report per line |
 | `earful run SCENARIO` | Runs a scenario once and prints its verdicts. `--case FILE` runs a saved case, `--ledger FILE` writes the ledger |
-| `earful search SCENARIO` | Searches a scenario, in one worker process per processor unless `--workers` says otherwise. Where worker processes cannot be started, as in some sandboxes and containers, it says so and searches in its own process; with `--workers N` given it refuses. `--keep CONTRACT/RULE --out DIR` writes a bundle for a rule that broke. `--variables`, `--faults`, `--pairs`, `--profiles`, `--no-words` and `--no-windows` narrow or widen the search |
-| `earful replay BUNDLE_DIR` | Runs a bundle's reduced case again. `--expect reproduced` or `--expect clean` makes the outcome the exit status |
+| `earful search SCENARIO` | Searches a scenario, in one worker process per processor unless `--workers` says otherwise. Where worker processes cannot be started, as in some sandboxes and containers, it says so and searches in its own process; with `--workers N` given it refuses. `--keep CONTRACT/RULE --out DIR` writes a bundle for a rule that broke, in a directory of `DIR` named after the framework release, the scenario's function and the rule: `lk-1.8.12.booking.A3-rule` on livekit-agents, `pc-1.16.0.booking.A3-rule` on pipecat-ai. `--variables`, `--faults`, `--pairs`, `--profiles`, `--no-words` and `--no-windows` narrow or widen the search. It prints how many cases it is about to run on standard error, and `--max-runs N` stops it after N runs: a search cut short is incomplete and exits 3 unless a rule broke. With `--no-windows` a rule that breaks only at single instants counts as broken, and the output names the rules that were not measured |
+| `earful replay BUNDLE_DIR` | Checks every file of a bundle against its manifest, then runs its reduced case again. `--expect reproduced` exits 0 if every run broke the rule, `--expect clean` if none did, and 1 otherwise. A replay with a run that was not valid evidence, or with runs that differ, exits 3 whatever is expected. `--repeats N` sets the number of runs |
 | `earful crosscheck SCENARIO` or `BUNDLE_DIR` | Runs a case once on the virtual clock and `--runs` times on the real clock, and says whether the real-clock runs agree with the virtual one (section 10). `--tolerance-ms` and `--words` set how far they may differ, `--out DIR` writes every run's ledger |
 | `earful report LEDGER` or `BUNDLE_DIR` | With `-o FILE.html`, draws the run as one HTML page: a timeline, the verdicts and every event (`docs/report.md`). Without it, writes the same out as text. `--format` names one or the other |
 
 A scenario is named `module:function` on the command line, so it has to be importable
 from where the command runs. `check` and `report` read files and work without the
 framework installed. `--allow CONTRACT/RULE` on `check`, `run` and `search` lets a named
-rule break.
+rule break. `--require CONTRACT` on the same three asks for a pass or a fail of that
+contract, of each ledger, of the run, or of the case a search starts from. Both are
+checked before anything runs.
 
 | Exit status | Meaning |
 | --- | --- |
 | 0 | Nothing broke, or the replay did what `--expect` names. For `report`: the report was written |
 | 1 | A contract rule broke, the replay did not do what `--expect` names, or a real-clock run did not agree with the virtual one |
-| 2 | The command could not be carried out: bad arguments, a file that is not what it should be, a scenario that does not exist |
-| 3 | No verdict: a run was not valid evidence, did not repeat, or could not be compared |
+| 2 | The command could not be carried out: bad arguments, a file that is not what it should be, a bundle with a file that is not what its manifest records, a scenario that does not exist, cannot be built or contradicts itself |
+| 3 | No verdict: a run was not valid evidence, did not repeat, or could not be compared, a required contract got no pass or fail, a case of a search raised, a search could judge none of the cases it tried, or its budget of runs cut it short |
 
 A rule that broke outranks a run without a verdict.
+
+A refusal is one line on standard error, and it says what was expected. An exception
+from the scenario's own code, while its module is imported or its function builds the
+case, is refused the same way, with the file and the line that raised it:
+
+```
+earful: a scenario is named module:function, such as test_booking:booking; got 'test_booking'
+earful: scenario 'test_booking:model' is not a function that takes no arguments and returns a Case: model is of type ScriptedModel
+earful: scenario 'test_booking:booking' could not be built: TypeError: Case.__init__() got an unexpected keyword argument 'speechs'. Did you mean 'speeches'? (test_booking.py, line 41)
+earful: agent is called once for each run and returns the agent, so it is a class or a function; got an object of BookingAgent. Write agent=lambda: BookingAgent(...)
+earful: unknown backend mode 'idempotent'; choose from ['plain', 'keyed']
+```
+
+What is raised once a run has started is shown whole, as a traceback: an agent whose
+constructor raises, or an error in Earful.
 
 ## 10. On the real clock
 

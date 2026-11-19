@@ -750,7 +750,7 @@
       "minimum": 1
     },
     "stamp": {
-      "description": "Identifies one synthesized word. Written into every audio sample of that word.",
+      "description": "Identifies one synthesized word. Any three samples of that word's audio in a row name it.",
       "type": "integer",
       "minimum": 1,
       "maximum": 32767

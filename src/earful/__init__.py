@@ -1,5 +1,5 @@
 """Earful: deterministic regression tests for real-time voice agents.
-This package imports no voice framework; ``earful.livekit`` is the LiveKit Agents adapter."""
+Framework adapters live in ``earful.livekit`` and ``earful.pipecat``."""
 
 from importlib import metadata as _metadata
 

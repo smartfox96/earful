@@ -4,8 +4,6 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
-import dataclasses
-import itertools
 import logging
 import random
 from collections.abc import Callable, Iterable
@@ -18,22 +16,25 @@ from livekit import rtc
 from livekit.agents import utils
 
 from ..core import backend as backends
-from ..core.backend import FAULTS, BackendMode, Effect, EffectBackend
+from ..core.backend import BackendMode, Effect, EffectBackend
 from ..core.checker import Report, check
-from ..core.checker.policy import parse_all
 from ..core.ledger import Ledger, ledger_hash
+from ..core.predicate import Predicate
 from ..core.schema import validity
 from ..core.timebase import to_seconds, to_us
-from . import tools
-from ._compat import TranscriptSynchronizer, io
-from .clock import (
+from ..scripted.case import DELAYS, Delay, Fault, Intent, InvalidRun, check_case, declared_intents
+from ..scripted.clock import (
     WALL_CLOCK_EPOCH,
     ClockPatchReport,
     VirtualTimeLoop,
+    left_the_clock,
     now_us,
     patch_report,
+    run_real,
     run_virtual,
 )
+from . import tools
+from ._compat import TranscriptSynchronizer, io
 from .providers import (
     Policy,
     ScriptedLLM,
@@ -42,6 +43,8 @@ from .providers import (
     StampedTTS,
     UserSpeech,
     WorldOrigin,
+    record_errors_in,
+    stop_recording_errors,
     summarize_item,
 )
 from .sink import ClockedSink
@@ -69,47 +72,6 @@ _DECLARED_OPTIONS = frozenset(
         "false_interruption_timeout",
     }
 )
-
-
-class InvalidRun(RuntimeError):
-    """The run finished but may not be used as evidence. ``result`` holds its ledger."""
-
-    def __init__(self, reasons: list[str], result: RunResult) -> None:
-        super().__init__("run is invalid: " + "; ".join(reasons))
-        self.reasons = reasons
-        self.result = result
-
-
-@dataclass(frozen=True)
-class Intent:
-    """A logical action the user wants done, carried out by the named tools."""
-
-    intent: str
-    tools: tuple[str, ...] = ()
-    authorized: int = 1  # durable effects the scenario allows for this intent
-
-
-DELAYS = ("llm.ttft", "llm.duration", "tts.ttfb", "backend.latency")
-
-
-@dataclass(frozen=True)
-class Delay:
-    """A provider delay the scenario declares as data, in seconds.
-    ``of`` is one of ``DELAYS``; ``nth`` is the occurrence, counted from 1."""
-
-    of: str
-    nth: int
-    seconds: float
-
-
-@dataclass(frozen=True)
-class Fault:
-    """A fault the scenario declares for backend write ``nth``, counted from 1.
-    A ``backend.timeout`` write still commits; ``backend.error`` and ``backend.drop`` do not."""
-
-    of: str
-    nth: int
-    seconds: float | None = None  # how long the caller waits; not used by backend.error
 
 
 @dataclass
@@ -151,55 +113,13 @@ class Case:
         clash = sorted(_DECLARED_OPTIONS & self.session_kwargs.keys())
         if clash:
             raise ValueError(f"session_kwargs may not set {clash}: use the Case fields")
-        parse_all(self.contracts)  # raises PolicyError, a ValueError, on anything undefined
-        ordered = sorted(self.speeches, key=lambda s: s.start)
-        for before, after in itertools.pairwise(ordered):
-            if before.end > after.start:
-                raise ValueError(f"the speeches at {before.start} s and {after.start} s overlap")
-        seen: set[tuple[str, int]] = set()
-        for delay in self.delays:
-            if delay.of not in DELAYS:
-                raise ValueError(f"unknown delay {delay.of!r}; choose from {list(DELAYS)}")
-            if delay.nth < 1 or delay.seconds < 0:
-                raise ValueError(
-                    f"delay {delay.of} #{delay.nth}: "
-                    "nth counts from 1 and a delay cannot be negative"
-                )
-            if (delay.of, delay.nth) in seen:
-                raise ValueError(f"delay {delay.of} #{delay.nth} is declared more than once")
-            seen.add((delay.of, delay.nth))
-        faulted: set[int] = set()
-        for fault in self.faults:
-            if fault.of not in FAULTS:
-                raise ValueError(f"unknown fault {fault.of!r}; choose from {list(FAULTS)}")
-            waits = fault.of != "backend.error"
-            if (
-                fault.nth < 1
-                or (waits and (fault.seconds is None or fault.seconds < 0))
-                or (not waits and fault.seconds is not None)
-            ):
-                raise ValueError(
-                    f"fault {fault.of} #{fault.nth}: nth counts from 1; a timeout or a drop says "
-                    "how long the caller waits, and an error does not"
-                )
-            if fault.nth in faulted:
-                raise ValueError(f"backend write #{fault.nth} has more than one fault")
-            faulted.add(fault.nth)
-        if self.hangup is not None:
-            if self.hangup < 0 or not self.speeches:
-                raise ValueError(
-                    "the user hangs up after their last speech; a user who never speaks cannot"
-                )
-            late = [speech.start for speech in self.speeches if speech.end_us > to_us(self.hangup)]
-            if late:
-                raise ValueError(
-                    f"the user hangs up at {self.hangup} s, "
-                    f"before the speech at {late[0]} s is over"
-                )
-        names = [it.intent for it in self.intents]
-        if len(set(names)) != len(names):
-            raise ValueError("an intent is declared more than once")
-        # The intents a speech retires are checked in ``_header``, once the agent is built.
+        if not callable(self.agent):
+            raise ValueError(  # noqa: TRY004 - a case that is refused, as the others here
+                "agent is called once for each run and returns the agent, so it is a class or "
+                f"a function; got an object of {type(self.agent).__name__}. Write "
+                f"agent=lambda: {type(self.agent).__name__}(...)"
+            )
+        check_case(self)
 
 
 @dataclass
@@ -226,13 +146,18 @@ class RunResult:
         """The verdict of every contract for this run."""
         return check(self.ledger.events)
 
-    def assert_contracts(self, *, allow: Iterable[Any] = ()) -> None:
+    def assert_contracts(
+        self, *, allow: Iterable[Predicate | str] | str = (), require: Iterable[str] | str = ()
+    ) -> None:
         """Raise ``ContractFailure``, an ``AssertionError``, if a contract rule broke.
-        ``allow`` names rules that may break, as ``CONTRACT/RULE``."""
+        ``allow`` names rules that may break, as ``CONTRACT/RULE``. ``require`` names
+        contracts, such as ``A2``, that must get a pass or a fail."""
         __tracebackhide__ = True  # pytest then shows the test's own line, not this one
         framework = self.versions["livekit-agents"]
         self.report.assert_contracts(
-            allow=allow, what=f"{self.case} (seed {self.seed}, livekit-agents {framework})"
+            allow=allow,
+            require=require,
+            what=f"{self.case} (seed {self.seed}, livekit-agents {framework})",
         )
 
 
@@ -274,6 +199,8 @@ def _session_kwargs(case: Case) -> dict[str, Any]:
                 min_delay=case.min_endpointing_delay, max_delay=case.max_endpointing_delay
             ),
             "interruption": lk.InterruptionOptions(
+                # The other mode is a model reached over the network.
+                mode="vad",
                 min_duration=case.min_interruption_duration,
                 false_interruption_timeout=case.false_interruption_timeout,
             ),
@@ -325,24 +252,9 @@ def _effects(case: Case, tools_found: dict[str, Effect | None]) -> dict[str, Eff
     return {**at_the_tool, **case.effects}
 
 
-def _intents(case: Case, effects: dict[str, Effect]) -> list[Intent]:
-    intents = {it.intent: it for it in case.intents}
-    for tool, declared in sorted(effects.items()):
-        known = intents.get(declared.intent, Intent(declared.intent))
-        if tool not in known.tools:
-            known = dataclasses.replace(known, tools=(*known.tools, tool))
-        intents[declared.intent] = known
-    return list(intents.values())
-
-
 def _header(case: Case, tools_found: dict[str, Effect | None]) -> dict[str, Any]:
     effects = _effects(case, tools_found)
-    intents = _intents(case, effects)
-    declared = {it.intent for it in intents}
-    for speech in case.speeches:
-        undeclared = sorted(set(speech.retires) - declared)
-        if undeclared:
-            raise ValueError(f"speech at {speech.start} s retires undeclared intents {undeclared}")
+    intents = declared_intents(case.intents, effects, case.speeches)
     header = _scenario(case, sorted(tools_found), intents)
     if effects:
         # Stated only where there are any: a tool listed here did not run its own body.
@@ -526,16 +438,19 @@ async def _run(case: Case, seed: int) -> RunResult:
     lk_logger.addHandler(warnings)
     witness_token = tools.install(witness)
     backend_token = backends.install(backend)
+    errors_token = record_errors_in(harness_errors)
     try:
         sink = await _play(
             case, seed, ledger, harness_errors, declared_us, witness, backend, virtual=virtual
         )
     finally:
         lk_logger.removeHandler(warnings)
+        stop_recording_errors(errors_token)
         backends.uninstall(backend_token)
         tools.uninstall(witness_token)
 
     executor_calls = loop.executor_calls if isinstance(loop, VirtualTimeLoop) else None
+    harness_errors += left_the_clock(loop)
     ledger.append(
         "harness",
         "run.end",
@@ -613,7 +528,8 @@ async def _play(
 
     # The agent is built first, so that the header can name its tools.
     agent = case.agent()
-    scenario = _header(case, await tools.witness_agent_tools(agent))
+    found = {**tools.witness_session_tools(session), **await tools.witness_agent_tools(agent)}
+    scenario = _header(case, found)
 
     declared, effective = _declared_session(case), _effective_session(session)
     for name in declared:
@@ -679,7 +595,20 @@ def run_case(
     if virtual:
         result = run_virtual(lambda: _run(case, seed))
     else:
-        result = asyncio.run(asyncio.wait_for(_run(case, seed), timeout=REAL_CLOCK_TIMEOUT))
+        result = run_real(lambda: _run(case, seed), timeout=REAL_CLOCK_TIMEOUT)
     if result.invalid and require_valid:
         raise InvalidRun(result.invalid, result)
     return result
+
+
+__all__ = [
+    "DELAYS",
+    "Case",
+    "Delay",
+    "Fault",
+    "Intent",
+    "InvalidRun",
+    "RunResult",
+    "run_case",
+    "versions",
+]

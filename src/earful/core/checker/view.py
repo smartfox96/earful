@@ -2,10 +2,8 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterator
 from dataclasses import dataclass, field
 from functools import cached_property
-from itertools import islice
 from typing import Any
 
 Event = dict[str, Any]
@@ -38,21 +36,69 @@ def candidates(events: list[Event]) -> dict[int, list[int]]:
 
 
 def readings(events: list[Event]) -> list[Reading]:
-    """Every way to give each ambiguous text one candidate reply; ``[{}]`` if none or too many."""
-    open_ = list(candidates(events).items())
+    """Each way to give every ambiguous text a reply of its own; ``[{}]`` if none or too many."""
+    texts = list(candidates(events).items())
+    reply: dict[int, int] = {}  # position of a text -> the reply it holds
+    holder: dict[int, int] = {}  # reply -> position of the text that holds it
 
-    def assign(at: int, used: frozenset[int]) -> Iterator[Reading]:
-        if at == len(open_):
-            yield {}
-            return
-        utterance, candidates = open_[at]
-        for call in candidates:
-            if call not in used:
-                for rest in assign(at + 1, used | {call}):
-                    yield {utterance: call, **rest}
+    def house(text: int, fixed: int) -> bool:
+        """Give ``text``, which holds nothing, a reply; texts before ``fixed`` keep theirs."""
+        wanted: dict[int, int] = {}  # reply -> the text that would take it
+        asking = [text]
+        for other in asking:
+            for call in texts[other][1]:
+                if call in wanted or (call in holder and holder[call] < fixed):
+                    continue
+                wanted[call] = other
+                if call in holder:
+                    asking.append(holder[call])  # its holder must find another
+                    continue
+                free: int | None = call
+                while free is not None:  # hand each reply on the path to the text that wanted it
+                    taker = wanted[free]
+                    gave_up = reply.get(taker)
+                    reply[taker], holder[free] = free, taker
+                    free = gave_up
+                return True
+        return False
 
-    found = list(islice(assign(0, frozenset()), MAX_READINGS + 1))
-    return found if 0 < len(found) <= MAX_READINGS else [{}]
+    def take(text: int, call: int) -> bool:
+        """Give ``text`` this reply if texts before it keep theirs and later ones can be housed."""
+        other = holder.get(call)
+        if other == text:
+            return True
+        if other is not None and other < text:
+            return False
+        mine = reply[text]
+        del holder[mine]
+        reply[text], holder[call] = call, text
+        if other is None:
+            return True
+        del reply[other]
+        if house(other, text + 1):
+            return True
+        reply[other], holder[call] = call, other
+        reply[text], holder[mine] = mine, text
+        return False
+
+    if not all(house(text, 0) for text in range(len(texts))):
+        return [{}]
+    # A candidate is taken only if the rest can then be housed, so no branch is without a reading.
+    found: list[Reading] = []
+    tried = [0] * len(texts)  # how many candidates of the text at each depth were tried
+    at = 0
+    while at >= 0 and len(found) <= MAX_READINGS:
+        if at == len(texts):
+            found.append({utterance: reply[n] for n, (utterance, _) in enumerate(texts)})
+            at -= 1
+        elif tried[at] == len(texts[at][1]):
+            tried[at] = 0
+            at -= 1
+        else:
+            tried[at] += 1
+            if take(at, texts[at][1][tried[at] - 1]):
+                at += 1
+    return found if len(found) <= MAX_READINGS else [{}]
 
 
 @dataclass
@@ -144,14 +190,16 @@ class Segment:
     pauses: list[tuple[Event, Event | None]] = field(default_factory=list)  # (paused, resumed)
     finished: Event | None = None
 
+    def gaps(self) -> list[tuple[Event, Event | None]]:
+        """The pauses that silenced it: one that ended the instant it began did not."""
+        return [(p, r) for p, r in self.pauses if r is None or r["t_us"] != p["t_us"]]
+
     def audible(self, until: int) -> list[tuple[int, int]]:
         """Intervals in which the segment was audible; one still open is closed at ``until``."""
         if self.started is None:
             return []
         out, opened = [], self.started["t_us"]
-        for paused, resumed in self.pauses:
-            if resumed is not None and resumed["t_us"] == paused["t_us"]:
-                continue
+        for paused, resumed in self.gaps():
             out.append((opened, paused["t_us"]))
             if resumed is None:
                 return out
@@ -199,6 +247,13 @@ class Playout:
     first_audible_us: int | None = None
     outlasted_hangup: bool = False
 
+    @property
+    def unknown(self) -> str | None:
+        """Why what was played of it cannot be told, if it cannot."""
+        if self.unattributable:
+            return self.unattributable
+        return "the run ended before its playout finished" if self.pending else None
+
 
 class View:
     def __init__(self, events: list[Event], reading: Reading | None = None) -> None:
@@ -225,6 +280,7 @@ class View:
             it["intent"]: it for it in self.scenario["intents"]
         }
         self.request_of: dict[str, ModelCall] = {}  # tool call id -> the model call that asked
+        self.asked: dict[str, dict[str, Any]] = {}  # tool call id -> the call as the model made it
 
         speech_events: dict[int, dict[str, Event]] = {}
         for e in events:
@@ -241,6 +297,7 @@ class View:
                 self.calls[d["call"]].response = e
                 for tool_call in d["tool_calls"]:
                     self.request_of[tool_call["call_id"]] = self.calls[d["call"]]
+                    self.asked[tool_call["call_id"]] = tool_call
             elif kind == "tts.synthesized":
                 call = d["call"]
                 if d["attribution"] == "ambiguous":
@@ -353,9 +410,22 @@ class View:
         unlinked = {t.name for t in self.tools.values() if t.call_id is None}
         return (set(self.scenario["witnessed_tools"]) | seen) - unlinked
 
+    def unaccounted_calls(self, intent: str) -> list[Event]:
+        """Calls of the intent's tools that made no write, if the backend saw none for it."""
+        if any(e.intent == intent for e in self.effects.values()):
+            return []  # the backend is where this intent is written: its record is complete
+        wrote = {e.requested["data"]["tool"] for e in self.effects.values()}
+        tools = self.intents[intent]["tools"]
+        return [t.called for t in self.tools.values() if t.name in tools and t.tool not in wrote]
+
+    @cached_property
+    def invocation_of(self) -> dict[str, ToolInvocation]:
+        """Call id -> the invocation the tool witness recorded for it."""
+        return {t.call_id: t for t in self.tools.values() if t.call_id is not None}
+
     def refusal(self, call_id: str) -> Event | None:
         """The first model context showing an error result for a call no witnessed tool received."""
-        if any(t.call_id == call_id for t in self.tools.values()):
+        if call_id in self.invocation_of:
             return None
         for call in self.calls.values():
             if any(
@@ -385,17 +455,16 @@ class View:
             over = max(over, stopped(later) + self.end_of_turn_us)
         return over
 
-    def stopped_as_it_ended(self, playout: Playout) -> bool:
-        """Whether a pause or clear reached the sink at the instant the playout's audio ended."""
-        ended = playout.settled
-        if ended is None:
+    def stopped_as_it_ended(self, playout: Playout, words: int) -> bool:
+        """Whether all its ``words`` played and a pause or clear reached the sink as they ended."""
+        done = playout.settled
+        if done is None or playout.played < words:
             return False
-        if ended["data"]["interrupted"]:
-            # Stopped with nothing left to play: the stop landed on the last sample.
-            return ended["data"]["position_us"] == ended["data"]["pushed_us"]
+        ended = {playout.completed_us.get(words - 1)}
+        if not done["data"]["interrupted"]:
+            ended.add(done["t_us"])  # the framework learns of the end when the sink reports it
         return any(
-            e["kind"] in ("sink.pause", "sink.clear") and e["t_us"] == ended["t_us"]
-            for e in self.commands
+            e["kind"] in ("sink.pause", "sink.clear") and e["t_us"] in ended for e in self.commands
         )
 
     @cached_property
@@ -419,10 +488,44 @@ class View:
             for index, stamp in enumerate(u.stamps)
         }
 
-    def audible(self) -> list[tuple[int, int, Segment]]:
+    def asked_to_pause(self, paused: Event, resumed: Event | None) -> bool:
+        """Whether the output had been asked to pause at some time during this silence."""
+        asked, until = False, resumed["seq"] if resumed else self.end["seq"]
+        for e in self.commands:
+            if e["seq"] > until:
+                break
+            if e["kind"] == "sink.pause":
+                asked = True
+            elif e["kind"] == "sink.resume" and e["seq"] < paused["seq"]:
+                asked = False
+        return asked
+
+    def runs(self) -> list[tuple[list[tuple[int, int]], Segment]]:
+        """Each stretch a segment was under way, as its audible spans. A gap left by an empty
+        buffer does not end a stretch; a pause the output was asked for does."""
         until = self.end["t_us"]
-        spans = [(a, b, seg) for seg in self.segments.values() for a, b in seg.audible(until)]
-        return sorted(spans, key=lambda span: span[0])
+        out = []
+        for segment in self.segments.values():
+            spans = segment.audible(until)
+            if not spans:
+                continue
+            run = [spans[0]]
+            for (paused, resumed), span in zip(segment.gaps(), spans[1:]):
+                if self.asked_to_pause(paused, resumed):
+                    out.append((run, segment))
+                    run = []
+                run.append(span)
+            out.append((run, segment))
+        return sorted(out, key=lambda run: run[0][0][0])
+
+    def resumes(self) -> list[Event]:
+        """Each time a segment became audible again after a pause the output was asked for."""
+        return [
+            resumed
+            for segment in self.segments.values()
+            for paused, resumed in segment.gaps()
+            if resumed is not None and self.asked_to_pause(paused, resumed)
+        ]
 
     @cached_property
     def playouts(self) -> dict[str, Playout]:
@@ -452,8 +555,8 @@ class View:
             playout = Playout(item.key, utterance, unattributable)
             if utterance is not None:
                 self._account(playout, utterance)
-                # Its audio may be in a segment still open, so what was played is not yet known.
-                playout.pending = not playout.segments and bool(self.open_segments())
+                # With none of it in a finished segment, any segment still open may hold it.
+                playout.pending |= not playout.segments and bool(self.open_segments())
             out[item.key] = playout
         return out
 
@@ -469,13 +572,15 @@ class View:
         def heard(at: int | None) -> int | None:
             return None if at is None or (left is not None and at >= left) else at
 
+        began: list[int] = []  # each instant a segment began to play audio of it
         for segment in self.segments.values():
             # A started segment names its first utterance even if the run ends before it finishes.
             if (
                 segment.started is not None
                 and segment.started["data"]["utterance"] == utterance.utterance
             ):
-                playout.first_audible_us = heard(segment.started["t_us"])
+                began.append(segment.started["t_us"])
+                playout.pending |= segment.finished is None
             done = segment.finished
             # What a segment played is known only once it has finished.
             if done is None or utterance.utterance not in done["data"]["utterances"]:
@@ -495,19 +600,21 @@ class View:
                 playout.cut = 1
             if playout.outlasted_hangup:
                 playout.cut = 1  # the word under way when the user left is the one they heard cut
-            if segment.started is not None and playout.first_audible_us is None:
+            if segment.started is not None:
                 if d["utterances"][0] == utterance.utterance:
                     # First in its segment: it began when the segment did.
-                    playout.first_audible_us = heard(segment.started["t_us"])
+                    began.append(segment.started["t_us"])
                 elif first_stamp in d["words_played"]:
                     # Not first in its segment: it began when the word before it completed.
                     position = d["words_played"].index(first_stamp)
                     if position > 0:
-                        playout.first_audible_us = heard(d["words_completed_us"][position - 1])
+                        began.append(d["words_completed_us"][position - 1])
                 elif d["word_cut"] == first_stamp and d["words_completed_us"]:
-                    playout.first_audible_us = heard(d["words_completed_us"][-1])
+                    began.append(d["words_completed_us"][-1])
             if playout.settled is None or done["seq"] > playout.settled["seq"]:
                 playout.settled = done
+        # One text can play in several segments; it was first audible at the earliest.
+        playout.first_audible_us = heard(min(began, default=None))
 
     def open_segments(self) -> list[int]:
         seen = {e["data"]["segment"] for e in self.commands if e["data"]["segment"] is not None}

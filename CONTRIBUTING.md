@@ -15,6 +15,21 @@ as of. `docs/compatibility.md` lists the supported releases with their dates. Th
 is installed editable, so the `earful` command and the pytest plugin in that environment
 run the code in your checkout.
 
+For the Pipecat-only environment, run `scripts/make_pipecat_env.sh` and
+`.venvs/pc-1.16.0/bin/python -m pytest -q tests/test_pipecat*.py`. The script takes a
+pipecat-ai release and a date the same way, and with no arguments builds the supported
+release.
+
+The files in `compat/` are generated. A release and a date decide what an environment
+holds, and a lock file records what the two resolve to on Python 3.13. Nothing installs
+from a lock file. CI builds each environment on Python 3.13 with `EARFUL_LOCK=check` and
+fails if it holds anything else, so a lock file that is wrong does not merge.
+`EARFUL_LOCK=write scripts/make_env.sh <version> <date>` writes one, and
+`scripts/make_pipecat_env.sh` takes the same setting.
+
+`pre-commit install` is optional. With it, each commit runs the ruff of `scripts/lint.sh`
+on the files it changes (`.pre-commit-config.yaml`).
+
 ## The checks
 
 | Command | What it runs | Time |
@@ -24,11 +39,19 @@ run the code in your checkout.
 | `scripts/wheel_smoke.sh` | Builds the wheel and the source distribution, installs the wheel alone outside the repository and uses it | 5 s |
 | `scripts/quickstart_check.sh` | Follows the README's quickstart from the wheel, with livekit-agents, outside the repository | 90 s |
 | `scripts/site.sh DIR` | Draws the two example reports the README links to, into `DIR` | 15 s |
-| `scripts/check_all.sh` | All of the above, then on each of the five releases: every test, repeatability of the reference ledgers, the two historical cases and the replays | 8 min |
-| `.venvs/lk-1.8.12/bin/python scripts/mutate.py` | Applies each deliberate break of `tests/mutants.py` and checks that a test it names fails | 5 min |
+| `scripts/check_all.sh` | All of the above, then on each of the five LiveKit releases: every test, repeatability of the reference ledgers, the two historical cases and the replays | 8 min |
+| `.venvs/lint/bin/python scripts/mutate.py` | Applies each deliberate break of `tests/mutants.py` and checks that a test it names fails | 5 min |
 
 CI runs `check_all.sh`'s parts on every pull request, on Linux for the five releases and
-on macOS for the oldest and the newest. The deliberate breaks run each night.
+on macOS for the oldest and the newest. The deliberate breaks run each night, and on a
+pull request that changes `src/` or `tests/`.
+
+Every environment above names a release and a date. The `canary` workflow is the one
+place with neither: each night `scripts/canary.sh livekit` and `scripts/canary.sh pipecat`
+install the newest release each extra admits, with that night's dependencies, and run the
+tests under a second on it. `scripts/newer_release.sh` fails there when PyPI has a
+release an extra does not admit. No pull request waits for the canary. A failed run is
+the report: GitHub mails it to whoever last changed the workflow's schedule.
 
 `main` takes a change only as a pull request, and only once that pull request's
 `ci result` check has passed. A pull request also needs the maintainer's approval, given
@@ -49,8 +72,9 @@ older releases have the two defects described in `docs/cases/`.
 ## Rules the code keeps
 
 **The core imports no framework.** Everything under `src/earful/core/` works on plain
-data. `tests/test_core_boundary.py` fails if a module there imports `livekit` or
-`earful.livekit`. Anything that touches livekit-agents belongs in `src/earful/livekit/`,
+data. `tests/test_core_boundary.py` fails if a module there imports `livekit`, `pipecat`
+or either Earful adapter. The same rule covers `src/earful/scripted/`. Anything that touches
+livekit-agents belongs in `src/earful/livekit/`,
 and a name taken from inside livekit-agents, one that it does not export at its top
 level, goes through `src/earful/livekit/_compat.py`.
 
@@ -98,26 +122,92 @@ uses fails one of them until the README is brought along.
 
 ## Adding a livekit-agents release
 
-1. `scripts/make_env.sh <version> <date>`, with a date a few days after the release. This
-   writes `compat/lk-<version>.lock.txt`.
+1. `EARFUL_LOCK=write scripts/make_env.sh <version> <date>`, with a date a few days after
+   the release. This builds `.venvs/lk-<version>` and writes
+   `compat/lk-<version>.lock.txt`.
 2. Add the release to `scripts/check_all.sh`, to the matrix in `.github/workflows/ci.yml`
-   and to `docs/compatibility.md`. A test fails while the three disagree.
+   and to `docs/compatibility.md`. A test fails while the three disagree. The newest
+   release is also the one in `scripts/make_lint_env.sh`, and the README lists them all.
 3. `scripts/check_all.sh --update` records its three reference ledgers.
 4. Read the new ledgers against those of the release before it
    (`python scripts/ledger_diff.py`). Differences in behaviour belong in the pull request.
 
+A release in a new minor series also moves the upper bound of the `livekit` extra in
+`pyproject.toml`, the sentence in `docs/compatibility.md` that states it, and the test
+that reads both. The canary's `beyond` job fails from the day such a release is on PyPI.
+
+## Moving to a pipecat-ai release
+
+One pipecat-ai release is supported at a time, so a new one takes the place of the old.
+
+1. `EARFUL_LOCK=write scripts/make_pipecat_env.sh <version> <date>`, with a date a few
+   days after the release. This builds `.venvs/pc-<version>` and writes
+   `compat/pc-<version>.lock.txt`. Delete the old lock file.
+2. Put the release and the date where the old ones are: the defaults of
+   `scripts/make_pipecat_env.sh`, `scripts/make_lint_env.sh`, `scripts/check_all.sh`, the
+   `pipecat` and `docs` jobs of `.github/workflows/ci.yml`, `docs/compatibility.md`, the
+   README, this page and `tests/test_ci.py`. A release in a new minor series also moves
+   the `pipecat` extra in `pyproject.toml`. Tests fail while these disagree.
+3. `scripts/ran_every_test.sh .venvs/pc-<version>/bin/python tests/test_pipecat*.py` runs
+   every Pipecat test and fails if one is skipped. `scripts/lint.sh` checks the adapter's
+   types against the new release.
+4. Pipecat has no reference ledgers. A test that had to change is the record of a
+   difference in behaviour: say in the pull request what changed and why.
+
+## Adding a contract
+
+A contract is decided from the ledger alone (`docs/contracts.md`, section 1). Write it
+down before the code.
+
+1. Add its section to `docs/contracts.md`, section 6, with the rows the others have: the
+   instance, the judged record, each rule, the policy values, when it is unobservable, a
+   deliberate break and a clean control. Section 2.2 says which events may decide a
+   verdict.
+2. Add `src/earful/core/checker/<name>.py` with a `check(view, policy)` that reads the
+   run through `View`. Register it in `_CHECKS` (`src/earful/core/checker/__init__.py`),
+   its policy in `POLICIES` (`src/earful/core/checker/policy.py`), its rules in `RULES`
+   and what exercises it in `_EXERCISED_BY` (`src/earful/core/checker/report.py`), and
+   its title in `CONTRACT_TITLES` (`src/earful/core/html.py`).
+3. Test it three ways. The break and the control are scenarios in
+   `tests/test_contract_breaks.py`. Hand-edited ledgers in `tests/test_checker.py` put a
+   run on each side of every tolerance. `tests/mutants.py` gets a deliberate break for
+   each rule and each tolerance.
+4. List its rules in `docs/testing.md`. A test fails while a rule is missing there or has
+   no row in its section of `docs/contracts.md`.
+5. A contract that needs an event or a field the ledger does not record is a change to
+   the format first (`docs/ledger.md`, Versioning).
+6. Run `scripts/check_all.sh` and say in the pull request what the contract finds on the
+   reference ledgers of the five releases.
+
+A kept bundle records the version of the contracts it was judged with,
+`earful.contracts/1`. A new contract changes what that version names. Raise in the pull
+request, before the code, whether it is a new version.
+
 ## Releasing
 
 A release is a tag. `.github/workflows/release.yml` builds the wheel and the source
-distribution from it, runs `scripts/wheel_smoke.sh` and `scripts/quickstart_check.sh`
-against them, and publishes both to PyPI.
+distribution from it once, runs `scripts/wheel_smoke.sh` and `scripts/quickstart_check.sh`
+on those two files, publishes the same two files to PyPI, and creates the GitHub release.
 
-1. Set `version` in `pyproject.toml` and merge that to `main`.
-2. Run the deliberate breaks on that commit: the `mutation` workflow, from the Actions
-   page. Every one has to be caught.
-3. `git tag v<version>` on that commit of `main` and push the tag. The workflow refuses a
-   tag that does not name the version in `pyproject.toml`, and a tag on a commit that is
-   not on `main`.
+1. In one pull request, set `version` in `pyproject.toml` and, in `CHANGELOG.md`, move
+   what is under `## [Unreleased]` to a new section `## [<version>] - <date>`, with its
+   link at the foot of the file. Merge it. A test fails while the newest section is not
+   the version's.
+2. The deliberate breaks ran on each pull request that changed `src/` or `tests/`. Check
+   that the last nightly run of the `mutation` workflow on `main` passed too, or start
+   one from the Actions page.
+3. `git tag v<version>` on that commit of `main` and push the tag.
+
+The workflow refuses a tag that does not name the version in `pyproject.toml`, a tag on a
+commit that is not on `main`, a version with no section in the changelog, and a commit on
+which ci has not passed (`scripts/ci_passed.sh`). ci has passed on a commit whose files
+passed as a pull request, and on one where a run of ci on `main` passed. If that run is
+still going, wait for it and run the failed job again.
+
+The two files are built in one job. The job that checks them and the job that publishes
+them each compare what they were handed with the SHA-256 sums the build recorded. The
+GitHub release takes the version's section of the changelog as its notes
+(`scripts/changelog_section.sh`).
 
 A `v*` tag cannot be moved or deleted once it is pushed. A release that went out wrong is
 followed by a new version.
@@ -134,14 +224,20 @@ changes what a recorded ledger hashes to says so in its notes.
 A broken contract is evidence, and what it is evidence of has to be worked out before
 anything is said in public. Classify a failure as one of: a defect in the framework, a
 default that is hazardous and documented, an error in the application or its backend, or
-an artifact of the harness. Compare the behaviour with what livekit-agents documents
-before attributing it to livekit-agents, reproduce it on purpose with `earful search`,
+an artifact of the harness. Compare the behaviour with what the framework documents
+before attributing it to the framework, reproduce it on purpose with `earful search`,
 and keep the bundle so that someone else can replay it. `docs/cases/` shows the form.
 
 ## Pull requests
 
 Work on a branch and open a pull request against `main`. Keep commit messages short: a
-subject line and a few plain sentences on what changed and why. CI has to pass.
+subject line and a few plain sentences on what changed and why. CI has to pass. The
+pull request template lists what to check. A change a user would notice gets a line under
+`## [Unreleased]` in `CHANGELOG.md`.
+
+A bug goes in an issue, with the ledger or the bundle that shows it. A vulnerability is
+reported privately (`SECURITY.md`). `CODE_OF_CONDUCT.md` applies to everyone who takes
+part.
 
 ## Prose
 

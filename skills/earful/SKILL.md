@@ -101,6 +101,10 @@ names what was changed to reach it, such as `backend.timeout 1`: the first backe
 timed out for its caller. The fix belongs in the agent, unless the scenario declared
 something untrue. `assert_contracts(allow=["L2/rule b"])` lets one named rule break.
 
+A contract the run never reached is reported as not exercised and does not fail. Name the contracts
+a test is about, and it fails unless each got a pass or a fail:
+`assert_contracts(require=["A2", "A3"])`.
+
 `earful run module:function` and `earful search module:function` do the same from the
 command line. An `InvalidRun` is a fault in the scenario, often a context the model has
 no rule for. It says nothing about the agent.

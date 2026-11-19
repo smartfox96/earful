@@ -97,7 +97,7 @@
     "scenario_digest": {
       "type": "string",
       "pattern": "^([0-9a-f]{64})?$",
-      "description": "A digest of the code of the scenario the cases name, as the adapter computes it. Empty if it could not be computed. A replay compares it to tell whether the code has changed."
+      "description": "SHA-256 of the source text of the module that defines the scenario function the cases name. It covers that one file and no module it imports. Empty if the source could not be read. A replay compares it to tell whether that file has changed."
     },
     "original": {
       "$ref": "#/$defs/kept",
@@ -227,7 +227,7 @@
     "schema_minor": {
       "type": "integer",
       "minimum": 0,
-      "description": "Additive format revision within major version 1. Absent means 0. Unknown optional fields are ignored by readers."
+      "description": "Additive format revision within major version 1. Absent means 0. Unknown optional fields are ignored by readers. 1 added case_digest."
     }
   },
   "$defs": {
@@ -246,6 +246,11 @@
           "type": "string",
           "pattern": "^[0-9a-f]{64}$",
           "description": "The ledger hash of running the case."
+        },
+        "case_digest": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$",
+          "description": "SHA-256 of the case file's contents as one line of JSON, keys sorted and no spaces. A reader refuses a case file that differs. Since schema_minor 1; absent from a bundle written before it, whose case files cannot be verified."
         },
         "speeches": {
           "type": "integer",

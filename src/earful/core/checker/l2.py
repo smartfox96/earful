@@ -9,20 +9,11 @@ from .view import View
 
 def check(view: View, policy: policies.L2) -> ContractResult:
     verdicts, notes = [], []
-    spans = view.audible()
+    runs = view.runs()
     minimum = view.session["min_interruption_duration_us"]
     stops = [e for e in view.commands if e["kind"] in ("sink.pause", "sink.clear")]
-    continuous = {
-        resumed["seq"]
-        for segment in view.segments.values()
-        for paused, resumed in segment.pauses
-        if resumed is not None and resumed["t_us"] == paused["t_us"]
-    }
-    starts = [
-        e
-        for e in view.events
-        if e["kind"] in ("playout.started", "playout.resumed") and e["seq"] not in continuous
-    ]
+    starts = [s.started for s in view.segments.values() if s.started] + view.resumes()
+    starts.sort(key=lambda e: e["seq"])
     ordered = sorted(view.speeches, key=lambda s: s.start)
 
     for position, speech in enumerate(ordered):
@@ -41,18 +32,14 @@ def check(view: View, policy: policies.L2) -> ContractResult:
             continue
         if speech.vad_start is None:
             # The framework was never told of this speech, so nobody held the floor.
-            notes.append(f"speech {speech.index}: the run ended before the VAD reported it")
+            notes.append(f"speech {speech.index}: the VAD never reported it, so it held no floor")
             continue
 
         # The floor opens when the VAD has reported the speech, and no earlier than its start.
         opened, closed = max(speech.vad_start["t_us"], speech.start), speech.end
         # The framework counts speech from the start of the VAD's segment, not of this speech.
         reached = max(speech.segment_start + minimum, speech.start)
-        point = (
-            reached
-            if reached <= speech.end and speech.segment_end - speech.segment_start >= minimum
-            else None
-        )
+        point = reached if reached <= speech.end else None
         following = (
             ordered[position + 1].start if position + 1 < len(ordered) else view.end["t_us"] + 1
         )
@@ -67,11 +54,13 @@ def check(view: View, policy: policies.L2) -> ContractResult:
             "stop_latency_us": None,
         }
 
-        # Rule a: audible at the interruption point -> silent by that point plus the bound.
+        # Rule a: under way at the interruption point -> silent by that point plus the bound.
         if policy.interruptions_allowed and point is not None:
-            span = next(((a, b, seg) for a, b, seg in spans if a < point <= b), None)
-            if span is not None:
-                _a, stopped, segment = span
+            run = next((r for r in runs if r[0][0][0] < point <= r[0][-1][1]), None)
+            # What was heard of it from the point on: a gap that outlasts the floor ends it.
+            heard = [b for a, b in run[0] if a < closed and b >= point] if run else []
+            if run is not None and heard:
+                stopped, segment = heard[-1], run[1]
                 used += [
                     segment.started,
                     segment.finished,
@@ -93,7 +82,7 @@ def check(view: View, policy: policies.L2) -> ContractResult:
                         # The framework did act, but later than Earful's model of its threshold.
                         flags.append("reference_in_doubt")
 
-        # Rule b: nothing starts or resumes while the user holds the floor.
+        # Rule b: nothing starts, or is resumed by command, while the user holds the floor.
         for e in starts:
             if opened + policy.start_grace_us < e["t_us"] < closed:
                 used.append(e)

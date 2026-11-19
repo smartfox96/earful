@@ -6,6 +6,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from .checker import FAIL, Report
+from .checker.report import parse_rule
 
 
 @dataclass(frozen=True, order=True)
@@ -24,10 +25,8 @@ class Predicate:
 
     @classmethod
     def parse(cls, text: str) -> Predicate:
-        contract, _, rule = text.partition("/")
-        if not contract or not rule:
-            raise ValueError(f"a predicate is CONTRACT/RULE, such as 'L2/rule b'; got {text!r}")
-        return cls(contract, rule)
+        """Raises ``ValueError`` for a rule no contract has."""
+        return cls(*parse_rule(text))
 
 
 def failures(report: Report) -> set[Predicate]:

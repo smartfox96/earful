@@ -3,6 +3,7 @@ each, kept so that the failure can be replayed."""
 
 from __future__ import annotations
 
+import hashlib
 import json
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -18,17 +19,20 @@ from .checker import CONTRACTS, check
 from .ledger import SCHEMA as LEDGER
 from .ledger import ledger_hash, read_jsonl, write_jsonl
 from .predicate import Predicate
+from .schema import validate as ledger_errors
 from .search import Run, Runner, judged
 from .shrink import shrink
 
 SCHEMA = "earful.bundle/1"
-SCHEMA_MINOR = 0
+SCHEMA_MINOR = 1  # 1 added case_digest
 SCHEMA_FILE = "earful.bundle-1.schema.json"
 MANIFEST = "manifest.json"
 FILES = {
     "original": ("original.case.json", "original.ledger.jsonl"),
     "minimal": ("minimal.case.json", "minimal.ledger.jsonl"),
 }
+# The formats this Earful reads, as a manifest names them.
+FORMATS = {"ledger": LEDGER, "contracts": CONTRACTS, "case": cases.SCHEMA}
 
 Event = dict[str, Any]
 
@@ -56,6 +60,11 @@ def _write_json(path: Path, value: Any) -> None:
     path.write_text(json.dumps(value, indent=2, sort_keys=True) + "\n", encoding="ascii")
 
 
+def case_digest(case: cases.Case) -> str:
+    """What a manifest records of a case file: SHA-256 of the case as one line of JSON."""
+    return hashlib.sha256(cases.canonical(case).encode("ascii")).hexdigest()
+
+
 def _findings(events: list[Event], predicate: Predicate) -> list[str]:
     return [
         finding.detail
@@ -78,18 +87,26 @@ def capture(
     environment: dict[str, str] | None = None,
     scenario_digest: str = "",
 ) -> dict[str, Any]:
-    """Reduce a failing ``case``, write the bundle to ``directory`` and return its manifest.
-    Raises ``ValueError`` if ``case`` does not break ``predicate``, or if the reduced case
-    does not give the same ledger in each of ``repeats`` runs."""
+    """Reduce a failing ``case``, write the bundle to ``directory`` and return its manifest."""
+    if repeats < 1:
+        raise ValueError(f"a bundle's case is run again at least once; got repeats={repeats}")
     runner = run if isinstance(run, Runner) else Runner(run)
     shrunk = shrink(case, runner, predicate, author=author, max_runs=max_runs)
+    not_kept = "a case that does not repeat is not kept as a bundle"
     found_events = runner.ledger(case)
-    if found_events is None:  # shrink has checked that the case breaks the rule
-        raise ValueError("the case cannot be judged")
+    if found_events is None or ledger_hash(found_events) != runner.outcome(case).hash:
+        raise ValueError(
+            f"the case as found did not give the ledger that broke {predicate} when it was "
+            f"run again; {not_kept}"
+        )
     runs = [runner.run(shrunk.case) for _ in range(repeats)]
-    distinct = len({ledger_hash(events) for events in runs})
-    if distinct != 1:
-        raise ValueError(f"the reduced case gave {distinct} different ledgers in {repeats} runs")
+    reduced = runner.outcome(shrunk.case).hash  # of the run the reduction judged
+    same = sum(ledger_hash(events) == reduced for events in runs)
+    if same != repeats:
+        raise ValueError(
+            f"the reduced case gave the ledger that broke {predicate} in {same} of the "
+            f"{repeats} runs made after the reduction; {not_kept}"
+        )
     minimal_events = runs[0]
     header = minimal_events[0]["data"]
     manifest = {
@@ -98,11 +115,12 @@ def capture(
         "predicate": {"contract": predicate.contract, "rule": predicate.rule},
         "framework": header["framework"],
         "clock": header["clock"],
-        "formats": {"ledger": LEDGER, "contracts": CONTRACTS, "case": cases.SCHEMA},
+        "formats": dict(FORMATS),
         "environment": environment or {},
         "scenario_digest": scenario_digest,
         "original": {
             "hash": ledger_hash(found_events),
+            "case_digest": case_digest(case),
             "speeches": len(case["speeches"]),
             "delays": len(case["delays"]),
             "faults": len(case["faults"]),
@@ -110,6 +128,7 @@ def capture(
         },
         "minimal": {
             "hash": ledger_hash(minimal_events),
+            "case_digest": case_digest(shrunk.case),
             "speeches": len(shrunk.case["speeches"]),
             "delays": len(shrunk.case["delays"]),
             "faults": len(shrunk.case["faults"]),
@@ -122,7 +141,7 @@ def capture(
             "differences": shrunk.differences,
         },
         "windows": [found.to_json() for found in shrunk.windows],
-        "replay": {"repeats": repeats, "distinct_hashes": distinct},
+        "replay": {"repeats": repeats, "distinct_hashes": 1},
     }
     directory.mkdir(parents=True, exist_ok=True)
     for name in (MANIFEST, *(f for pair in FILES.values() for f in pair)):
@@ -137,40 +156,103 @@ def capture(
 
 @dataclass
 class Bundle:
+    """A bundle as read, with every file of it checked against its manifest."""
+
     directory: Path
     manifest: dict[str, Any]
     predicate: Predicate
     minimal: cases.Case
     original: cases.Case
+    ledgers: dict[str, list[Event]]  # by "original" and "minimal"
+    unverified: tuple[str, ...] = ()  # the case files the manifest records no digest of
 
     def ledger(self, which: str = "minimal") -> list[Event]:
-        return read_jsonl(self.directory / FILES[which][1])
+        return self.ledgers[which]
+
+
+def _json(path: Path) -> Any:
+    try:
+        return json.loads(path.read_text(encoding="ascii"))
+    except OSError as exc:
+        raise ValueError(f"cannot read {path}: {exc.strerror}") from exc
+    except ValueError as exc:  # not JSON, or not ASCII
+        raise ValueError(f"{path} is not JSON: {exc}") from exc
+
+
+def _case(path: Path, recorded: dict[str, Any]) -> cases.Case:
+    case = _json(path)
+    errors = cases.validate(case)
+    if errors:
+        raise ValueError(f"{path} is not an {cases.SCHEMA} document: " + "; ".join(errors))
+    digest = recorded.get("case_digest")  # absent from a manifest written before minor 1
+    if digest is not None and case_digest(case) != digest:
+        raise ValueError(
+            f"{path} is not the case the manifest records: its digest is "
+            f"{case_digest(case)}, and the manifest has {digest}"
+        )
+    return case
+
+
+def _ledger(path: Path, recorded: dict[str, Any]) -> list[Event]:
+    try:
+        events = read_jsonl(path)
+    except OSError as exc:
+        raise ValueError(f"cannot read {path}: {exc.strerror}") from exc
+    except ValueError as exc:  # not JSON, or not ASCII
+        raise ValueError(f"{path} is not a ledger file: {exc}") from exc
+    errors = ledger_errors(events)
+    if errors:
+        more = f" (and {len(errors) - 1} more)" if len(errors) > 1 else ""
+        raise ValueError(f"{path} is not an {LEDGER} ledger: {errors[0]}{more}")
+    if ledger_hash(events) != recorded["hash"]:
+        raise ValueError(
+            f"{path} is not the ledger the manifest records: its hash is "
+            f"{ledger_hash(events)}, and the manifest has {recorded['hash']}"
+        )
+    return events
 
 
 def load(directory: Path) -> Bundle:
-    """Read a bundle. Raises ``ValueError`` if its manifest or one of its cases is invalid."""
-    manifest = json.loads((directory / MANIFEST).read_text(encoding="ascii"))
+    """Read a bundle and check every file of it. A ``ValueError`` names the file refused."""
+    path = directory / MANIFEST
+    manifest = _json(path)
     errors = validate(manifest)
     if errors:
-        raise ValueError(f"{directory / MANIFEST}: not an {SCHEMA} manifest: " + "; ".join(errors))
-    found = {}
-    for which, (case_file, _ledger_file) in FILES.items():
-        found[which] = json.loads((directory / case_file).read_text(encoding="ascii"))
-        errors = cases.validate(found[which])
-        if errors:
-            raise ValueError(f"{which} case: " + "; ".join(errors))
-    predicate = Predicate(manifest["predicate"]["contract"], manifest["predicate"]["rule"])
-    return Bundle(directory, manifest, predicate, found["minimal"], found["original"])
+        raise ValueError(f"{path} is not an {SCHEMA} manifest: " + "; ".join(errors))
+    for name, reads in FORMATS.items():
+        if manifest["formats"][name] != reads:
+            raise ValueError(
+                f"{path} names the {name} format {manifest['formats'][name]}; "
+                f"this Earful reads {reads}"
+            )
+    found = {which: _case(directory / FILES[which][0], manifest[which]) for which in FILES}
+    events = {which: _ledger(directory / FILES[which][1], manifest[which]) for which in FILES}
+    return Bundle(
+        directory,
+        manifest,
+        Predicate(manifest["predicate"]["contract"], manifest["predicate"]["rule"]),
+        found["minimal"],
+        found["original"],
+        events,
+        tuple(FILES[which][0] for which in FILES if "case_digest" not in manifest[which]),
+    )
 
 
 @dataclass
 class Replay:
-    reproduced: bool  # every run broke the bundle's rule
+    reproduced: bool  # every run was judged and broke the bundle's rule
     hashes: list[str]  # the ledger hash of each run
     recorded: str  # the hash the bundle recorded for the reduced case
     framework: dict[str, str]  # what it was replayed on
     scenario_changed: bool | None  # the scenario's code has changed; None if unknown
-    invalid: tuple[str, ...] = ()  # why the runs are not valid evidence, if they are not
+    invalid: tuple[str, ...] = ()  # why a run was not valid evidence, if one was not
+    clean: bool = False  # every run was judged and none broke the rule
+    unverified: tuple[str, ...] = ()  # the bundle's case files that nothing could check
+
+    @property
+    def judged(self) -> bool:
+        """Every run was valid evidence. A replay that was not judged shows nothing."""
+        return not self.invalid
 
     @property
     def repeatable(self) -> bool:
@@ -188,6 +270,8 @@ def replay(
     """Run the bundle's reduced case ``repeats`` times. This runs the scenario's code, so
     replay only bundles you trust. ``fingerprint`` digests a scenario's code, to tell whether
     it has changed since capture. Raises ``ValueError`` if the adapter refuses the case."""
+    if repeats < 1:
+        raise ValueError(f"a replay makes at least one run; got repeats={repeats}")
     recorded = bundle.manifest["scenario_digest"]
     changed = None
     if fingerprint is not None and recorded:
@@ -197,23 +281,30 @@ def replay(
         events = run(bundle.minimal)
         framework = events[0]["data"]["framework"]
         outcomes.append(judged(bundle.minimal, events))
+    # A run that is not valid evidence has no failures, so it never counts as breaking.
+    broke = [bundle.predicate in o.failures for o in outcomes]
+    invalid = next((o.invalid for o in outcomes if o.invalid), ())
     return Replay(
-        reproduced=all(bundle.predicate in o.failures for o in outcomes),
+        reproduced=all(broke),
         hashes=[o.hash or "" for o in outcomes],
         recorded=bundle.manifest["minimal"]["hash"],
         framework=framework,
         scenario_changed=changed,
-        invalid=next((o.invalid for o in outcomes if o.invalid), ()),
+        invalid=invalid,
+        clean=not invalid and not any(broke),
+        unverified=bundle.unverified,
     )
 
 
 __all__ = [
     "FILES",
+    "FORMATS",
     "MANIFEST",
     "SCHEMA",
     "Bundle",
     "Replay",
     "capture",
+    "case_digest",
     "load",
     "load_schema",
     "replay",

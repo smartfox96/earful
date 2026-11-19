@@ -5,7 +5,10 @@ from __future__ import annotations
 import json
 from collections.abc import Iterable
 from dataclasses import asdict, dataclass, field, replace
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from ..predicate import Predicate
 
 CONTRACTS = "earful.contracts/1"
 REPORT = "earful.report/1"
@@ -17,13 +20,64 @@ SPLIT = "reading_split"  # the flag on a verdict that another reading makes wors
 Event = dict[str, Any]
 
 
+# Contract -> the rules a failed verdict of it can name (docs/contracts.md, section 6).
+RULES: dict[str, tuple[str, ...]] = {
+    "A1": ("rule", "in-flight"),
+    "A2": ("rule",),
+    "A3": ("rule",),
+    "M1": ("rule 2", "rule 3", "rule 4", "rule 5"),
+    "M2": ("rule a", "rule b", "rule c", "rule d", "rule e", "rule f"),
+    "L1": ("milestone 1", "milestone 2", "milestone 3"),
+    "L2": ("rule a", "rule b"),
+}
+# Contract -> what a run holds when the contract has an instance to judge.
+_EXERCISED_BY = {
+    "A1": "speech that retires an intent and whose transcript was delivered",
+    "A2": "write request for a declared intent",
+    "A3": "claim whose last word was played",
+    "M1": "reply or spoken text whose playout finished or was abandoned",
+    "M2": "model call",
+    "L1": "delivered speech that expects a reply",
+    "L2": "speech the VAD reported that is neither noise nor a backchannel",
+}
+
+
 class ContractFailure(AssertionError):
     """A contract rule broke; raised by ``assert_contracts``."""
 
 
-def allowed(allow: Iterable[Any]) -> set[str]:
-    """The rules a caller lets break, each as ``CONTRACT/RULE`` text."""
-    return {str(rule) for rule in allow}
+def rule_names() -> list[str]:
+    """Every rule that can break, as ``CONTRACT/RULE``."""
+    return [f"{contract}/{rule}" for contract, rules in RULES.items() for rule in rules]
+
+
+def parse_rule(text: str) -> tuple[str, str]:
+    """The contract and the rule ``CONTRACT/RULE`` names. Raises ``ValueError`` if none has it."""
+    contract, _, name = text.partition("/")
+    if name not in RULES.get(contract, ()):
+        raise ValueError(
+            f"no contract rule {text!r}. A rule is CONTRACT/RULE, one of: {', '.join(rule_names())}"
+        )
+    return contract, name
+
+
+def allowed(allow: Iterable[Predicate | str] | str) -> set[str]:
+    """The rules a caller lets break, each as ``CONTRACT/RULE`` text.
+    Raises ``ValueError`` for a rule that does not exist."""
+    names = [allow] if isinstance(allow, str) else [str(one) for one in allow]
+    return {"/".join(parse_rule(name)) for name in names}
+
+
+def required(require: Iterable[str] | str) -> list[str]:
+    """The contracts a caller wants a pass or a fail for.
+    Raises ``ValueError`` for a contract that does not exist."""
+    names = [require] if isinstance(require, str) else list(require)
+    unknown = [name for name in names if name not in RULES]
+    if unknown:
+        raise ValueError(
+            f"no contract {', '.join(map(repr, unknown))}. The contracts are: {', '.join(RULES)}"
+        )
+    return names
 
 
 @dataclass(frozen=True)
@@ -112,19 +166,47 @@ class Report:
             out += [f"    note: {note}" for note in result.notes]
         return out
 
-    def assert_contracts(self, *, allow: Iterable[Any] = (), what: str = "the run") -> None:
-        """Raise ``ContractFailure`` if the run is invalid or breaks a rule not in ``allow``."""
+    def unjudged(self, require: Iterable[str] | str) -> dict[str, str]:
+        """Each contract in ``require`` that has no pass or fail, and why. Empty for an
+        invalid run, which has no results."""
+        out = {}
+        for contract in required(require):
+            result = self.results.get(contract)
+            if result is not None and result.outcome == NOT_EXERCISED:
+                out[contract] = f"was not exercised: the run has no {_EXERCISED_BY[contract]}"
+            elif result is not None and result.outcome == UNOBSERVABLE:
+                why = [f.detail for v in result.verdicts for f in v.findings]
+                out[contract] = f"is unobservable: {'; '.join(dict.fromkeys(why))}"
+        return out
+
+    def assert_contracts(
+        self,
+        *,
+        allow: Iterable[Predicate | str] | str = (),
+        require: Iterable[str] | str = (),
+        what: str = "the run",
+    ) -> None:
+        """Raise ``ContractFailure`` if the run is invalid, breaks a rule not in ``allow``, or
+        gives a contract in ``require`` no pass or fail. Raises ``ValueError`` for a rule or a
+        contract that does not exist."""
         __tracebackhide__ = True  # pytest then shows the test's own line, not this one
+        allowing, unjudged = allowed(allow), self.unjudged(require)
         if not self.valid:
             raise ContractFailure(
                 f"{what} is not valid evidence, so no contract was checked:\n"
                 + "\n".join(f"  {reason}" for reason in self.invalid)
             )
-        broken = [rule for rule in self.broken() if rule not in allowed(allow)]
-        if broken:
-            raise ContractFailure(
-                f"{what} breaks {', '.join(broken)}\n\n" + "\n".join(self.lines())
-            )
+        broken = [rule for rule in self.broken() if rule not in allowing]
+        if broken or unjudged:
+            said = [f"breaks {', '.join(broken)}"] if broken else []
+            if unjudged:
+                said.append(f"has no pass or fail for the required {', '.join(unjudged)}")
+            parts = [
+                f"{what} {' and '.join(said)}",
+                "\n".join(f"{contract} {why}" for contract, why in unjudged.items()),
+                "\n".join(self.lines()),
+            ]
+            raise ContractFailure("\n\n".join(part for part in parts if part))
 
 
 def verdict(
@@ -141,6 +223,9 @@ def verdict(
     """Build a verdict: fail on any finding, unobservable if ``unobservable`` is set, else pass."""
     used = sorted({e["seq"]: e for e in events if e is not None}.values(), key=lambda e: e["seq"])
     findings = list(findings)
+    unknown = [finding.rule for finding in findings if finding.rule not in RULES[contract]]
+    if unknown:
+        raise ValueError(f"{contract} has no rule {unknown[0]!r}; its rules are {RULES[contract]}")
     if findings:
         outcome = FAIL
     elif unobservable is not None:

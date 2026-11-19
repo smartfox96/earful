@@ -231,6 +231,43 @@ def test_m2_fails_when_a_user_turn_is_repeated():
     assert "rule a" in _rules(report, "M2")
 
 
+OTHER = '{"party_size": 2}'
+
+
+class _ShowsOtherArguments(_Booker):
+    async def llm_node(self, chat_ctx, tools, model_settings):
+        items = [
+            i.model_copy(update={"arguments": OTHER}) if i.type == "function_call" else i
+            for i in chat_ctx.items
+        ]
+        ctx = lk.llm.ChatContext(items=items)
+        async for chunk in lk.Agent.default.llm_node(self, ctx, tools, model_settings):
+            yield chunk
+
+
+class _ShowsToolCallsFirst(_Booker):
+    async def llm_node(self, chat_ctx, tools, model_settings):
+        tool_items = ("function_call", "function_call_output")
+        items = sorted(chat_ctx.items, key=lambda i: i.type not in tool_items)
+        ctx = lk.llm.ChatContext(items=items)
+        async for chunk in lk.Agent.default.llm_node(self, ctx, tools, model_settings):
+            yield chunk
+
+
+def test_m2_fails_when_a_tool_call_is_shown_with_arguments_the_model_did_not_give():
+    report = _report(_booking(_book_once(), agent=_ShowsOtherArguments))
+    assert _rules(report, "M2") == ["rule f"]
+    (failed,) = report.results["M2"].failures
+    assert failed.instance == {"context": "call 2"}
+    assert f"as create_reservation with arguments {OTHER!r}" in failed.findings[0].detail
+
+
+def test_m2_fails_when_a_tool_call_is_shown_before_the_turn_that_led_to_it():
+    report = _report(_booking(_book_once(), agent=_ShowsToolCallsFirst))
+    assert _rules(report, "M2") == ["rule e"]
+    assert report.results["M2"].failures[0].instance == {"context": "call 2"}
+
+
 def test_m2_passes_with_the_unmodified_agent():
     assert _report(_booking(_book_once())).outcome("M2") == PASS
 

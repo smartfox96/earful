@@ -12,8 +12,9 @@ from livekit import rtc
 
 from ..core.ledger import Ledger
 from ..core.timebase import US_PER_SECOND, to_seconds
+from ..scripted.voice import StampReader, StampTable, words_heard
 from ._compat import io
-from .providers import StampTable
+from .providers import scripted, scripted_call
 
 
 class _Segment:
@@ -77,40 +78,33 @@ class ClockedSink(io.AudioOutput):
         self._segment: _Segment | None = None
         self._paused = False  # what the framework last asked for; outlives segments
         self._finish_handle: asyncio.TimerHandle | None = None
-        self.stamp_errors = 0
+        self._reader = StampReader(table)
+        self._resampled = 0
         self.underruns = 0
+
+    @property
+    def stamp_errors(self) -> int:
+        return self._reader.errors + self._resampled
+
+    def _take(self, segment: _Segment, runs: list[tuple[int, int]]) -> None:
+        for stamp, count in runs:
+            if segment.runs and segment.runs[-1][0] == stamp:
+                segment.runs[-1][1] += count
+            else:
+                segment.runs.append([stamp, count])
 
     def _words_at(
         self, segment: _Segment, position_samples: int
     ) -> tuple[list[int], list[int], int | None, int]:
         # Returns the stamps fully played, when each ended (us), the stamp cut and its samples.
-        consumed: dict[int, int] = {}
-        last_sample: dict[int, int] = {}  # stamp -> offset just past its last consumed sample
-        offset = 0
-        for stamp, count in segment.runs:
-            take = max(0, min(count, position_samples - offset))
-            if stamp != 0 and take:
-                consumed[stamp] = consumed.get(stamp, 0) + take
-                last_sample[stamp] = offset + take
-            offset += count
-        played: list[int] = []
-        cut: int | None = None
-        cut_samples = 0
-        for stamp, got in consumed.items():
-            if got >= self._table.words[stamp]["samples"]:
-                played.append(stamp)
-            else:
-                cut, cut_samples = stamp, got
-        done = [
-            segment.time_of(-(-last_sample[s] * US_PER_SECOND // segment.sample_rate))
-            for s in played
-        ]
+        played, ended, cut, cut_samples = words_heard(segment.runs, position_samples, self._table)
+        done = [segment.time_of(-(-end * US_PER_SECOND // segment.sample_rate)) for end in ended]
         return played, done, cut, cut_samples
 
     def _utterances(self, segment: _Segment) -> list[int]:
         seen: list[int] = []
         for stamp, _count in segment.runs:
-            if stamp and stamp in self._table.words:
+            if stamp:
                 u = self._table.words[stamp]["utterance"]
                 if u not in seen:
                     seen.append(u)
@@ -139,7 +133,7 @@ class ClockedSink(io.AudioOutput):
             )
             self._schedule_finish(segment)
 
-        self._begin(start)
+        self._begin(scripted_call("output")(start))
 
     def _schedule_finish(self, segment: _Segment) -> None:
         self._cancel_finish()
@@ -150,6 +144,7 @@ class ClockedSink(io.AudioOutput):
             to_seconds(delay_us), lambda: self._exhausted(segment)
         )
 
+    @scripted_call("output")
     def _exhausted(self, segment: _Segment) -> None:
         if segment.flushed:
             self._finish(segment, interrupted=False)
@@ -192,6 +187,7 @@ class ClockedSink(io.AudioOutput):
             )
         else:
             position_us, position_samples = pushed_us, segment.pushed_samples
+        self._take(segment, self._reader.end())
         played, done, cut, cut_samples = self._words_at(segment, position_samples)
         self._ledger.append(
             "sink",
@@ -228,6 +224,7 @@ class ClockedSink(io.AudioOutput):
             "sink", f"sink.{name}", segment=self._segment.number if self._segment else None
         )
 
+    @scripted("output")
     async def capture_frame(self, frame: rtc.AudioFrame) -> None:
         await super().capture_frame(frame)
 
@@ -236,7 +233,7 @@ class ClockedSink(io.AudioOutput):
             self._segments += 1
             segment = self._segment = _Segment(self._segments, frame.sample_rate)
         elif frame.sample_rate != segment.sample_rate:
-            self.stamp_errors += 1  # resampled mid-segment: stamps can no longer be trusted
+            self._resampled += 1  # resampled mid-segment: stamps can no longer be trusted
         if (
             segment.started_us is not None
             and segment.pause_began_us is None
@@ -246,13 +243,7 @@ class ClockedSink(io.AudioOutput):
             self.underruns += 1
 
         samples = memoryview(frame.data).cast("B").cast("h")
-        for value in samples:
-            if value != 0 and value not in self._table.words:
-                self.stamp_errors += 1
-            if segment.runs and segment.runs[-1][0] == value:
-                segment.runs[-1][1] += 1
-            else:
-                segment.runs.append([value, 1])
+        self._take(segment, self._reader.read(samples))
         segment.pushed_samples += len(samples)
 
         if segment.starved:
@@ -265,6 +256,7 @@ class ClockedSink(io.AudioOutput):
         else:
             self._schedule_finish(segment)
 
+    @scripted_call("output")
     def flush(self) -> None:
         super().flush()
         self._command("flush")
@@ -277,6 +269,7 @@ class ClockedSink(io.AudioOutput):
         else:
             self._schedule_finish(segment)
 
+    @scripted_call("output")
     def clear_buffer(self) -> None:
         self._command("clear")
         segment = self._segment
@@ -287,8 +280,9 @@ class ClockedSink(io.AudioOutput):
             if self._segment is segment:  # not already finished by the time it is obeyed
                 self._finish(segment, interrupted=True)
 
-        self._obey(clear)
+        self._obey(scripted_call("output")(clear))
 
+    @scripted_call("output")
     def pause(self) -> None:
         super().pause()
         if self._paused:
@@ -307,8 +301,9 @@ class ClockedSink(io.AudioOutput):
             ):
                 self._pause(segment)
 
-        self._obey(pause)
+        self._obey(scripted_call("output")(pause))
 
+    @scripted_call("output")
     def resume(self) -> None:
         super().resume()
         if not self._paused:

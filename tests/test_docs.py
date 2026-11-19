@@ -117,31 +117,160 @@ def test_every_command_and_option_the_testing_page_names_exists():
 ROOT = Path(__file__).resolve().parents[1]
 
 
+def test_the_rules_a_test_can_allow_are_listed_and_each_is_a_row_of_its_contract():
+    from earful.core.checker.report import RULES, rule_names
+
+    assert set(re.findall(r"`([AML]\d/[a-z0-9 -]+)`", TESTING_DOC)) == set(rule_names())
+    page = (ROOT / "docs" / "contracts.md").read_text()
+    sections = dict(
+        re.findall(r"^### ([AML]\d)\. .*?\n(.*?)(?=^##)", page, re.MULTILINE | re.DOTALL)
+    )
+    for contract, rules in RULES.items():
+        rows = [
+            row.lower() for row in re.findall(r"^\| ([^|]+) \|", sections[contract], re.MULTILINE)
+        ]
+        for rule in rules:
+            assert any(row.startswith(rule) for row in rows), f"{contract}/{rule}"
+
+
+def test_the_policy_defaults_are_those_the_contracts_page_states():
+    import dataclasses
+
+    from earful.core.checker.policy import POLICIES
+
+    page = (ROOT / "docs" / "contracts.md").read_text()
+    row = re.compile(r"^### ([AML]\d)\. .*?^\| Policy \| (.*?) \|$", re.MULTILINE | re.DOTALL)
+    rows = dict(row.findall(page))
+    stated = {
+        contract: {
+            **{
+                name: {"true": True, "false": False}.get(value, value)
+                for name, value in re.findall(r"`(\w+)` \(default (true|false)", row)
+            },
+            **{
+                name: int(value.replace(" ", ""))
+                for name, value in re.findall(r"`(\w+)` \(default ([\d ]+)\)", row)
+            },
+            **dict(re.findall(r"`(\w+)`: `(\w+)` \(default\)", row)),
+        }
+        for contract, row in rows.items()
+    }
+    assert stated == {
+        contract: {
+            f.name: f.default for f in dataclasses.fields(cls) if not isinstance(f.default, tuple)
+        }
+        for contract, cls in POLICIES.items()
+    }
+
+
+COMPATIBILITY = (ROOT / "docs" / "compatibility.md").read_text()
+CI = (ROOT / ".github" / "workflows" / "ci.yml").read_text()
+_PINNED = r"^\| (\d+\.\d+\.\d+) \| (\d{4}-\d\d-\d\d) \|"
+
+
+def _section(heading):
+    """The part of the compatibility page under ``## heading``."""
+    _, found, rest = COMPATIBILITY.partition(f"\n## {heading}\n")
+    assert found, heading
+    return rest.partition("\n## ")[0]
+
+
+def _job(name):
+    """The text of one job of the ci workflow."""
+    (text,) = re.findall(rf"^  {name}:\n(.*?)(?=^  [a-z_]+:\n|\Z)", CI, re.MULTILINE | re.DOTALL)
+    return text
+
+
 def test_the_supported_releases_are_the_same_everywhere_they_are_listed():
-    page = (ROOT / "docs" / "compatibility.md").read_text()
-    declared = dict(re.findall(r"^\| (\d+\.\d+\.\d+) \| (\d{4}-\d\d-\d\d) \|", page, re.MULTILINE))
+    section = _section("livekit-agents")
+    declared = dict(re.findall(_PINNED, section, re.MULTILINE))
     assert len(declared) == 5
-    workflow = (ROOT / ".github" / "workflows" / "ci.yml").read_text()
-    in_ci = dict(re.findall(r'version: "([\d.]+)", as_of: "([\d-]+)"', workflow))
+    in_ci = dict(re.findall(r'version: "([\d.]+)", as_of: "([\d-]+)"', _job("determinism")))
     assert in_ci == declared
     script = (ROOT / "scripts" / "check_all.sh").read_text()
     assert dict(re.findall(r'"([\d.]+) (\d{4}-\d\d-\d\d)"', script)) == declared
     locked = {path.name[3:-9] for path in (ROOT / "compat").glob("lk-*.lock.txt")}
     assert locked == set(declared)
     for release in declared:
-        assert f"`compat/lk-{release}.lock.txt`" in page
+        assert f"`compat/lk-{release}.lock.txt`" in section
         assert (
             f"livekit-agents=={release}\n" in (ROOT / f"compat/lk-{release}.lock.txt").read_text()
         )
     golden = {path.name.split(".book")[0][3:] for path in (ROOT / "tests/golden").glob("*.book_*")}
     assert golden == set(declared)
+    lint_env = (ROOT / "scripts" / "make_lint_env.sh").read_text()
+    assert f'"livekit-agents=={list(declared)[-1]}"' in lint_env
 
 
-def test_the_extra_accepts_the_releases_the_page_says_it_does():
-    page = (ROOT / "docs" / "compatibility.md").read_text()
+def test_the_compatibility_page_names_every_clock_read_a_run_takes_from_the_loop():
+    from earful.scripted.clock import VIRTUAL_READS
+
+    section = _section("The virtual clock")
+    assert [name for name in VIRTUAL_READS if f"`time.{name}()`" not in section] == []
+
+
+def test_the_supported_pipecat_release_is_the_same_everywhere_it_is_listed():
+    section = _section("pipecat-ai")
+    ((release, as_of),) = re.findall(_PINNED, section, re.MULTILINE)
+    assert f"`compat/pc-{release}.lock.txt`" in section
+    locks = [path.name for path in (ROOT / "compat").glob("pc-*.lock.txt")]
+    assert locks == [f"pc-{release}.lock.txt"]
+    assert f"pipecat-ai=={release}\n" in (ROOT / "compat" / locks[0]).read_text()
+    script = (ROOT / "scripts" / "make_pipecat_env.sh").read_text()
+    assert f'version="${{1:-{release}}}"\nas_of="${{2:-{as_of}}}"\n' in script
+    assert f"pipecat-ai {release} as of {as_of}, in .venvs/pc-{release}" in script
+    lint_env = (ROOT / "scripts" / "make_lint_env.sh").read_text()
+    assert f"--exclude-newer {as_of} \\\n" in lint_env and f'"pipecat-ai=={release}"' in lint_env
+
+
+def test_a_lock_file_is_the_list_the_environment_scripts_write():
+    locks = sorted((ROOT / "compat").glob("*.lock.txt"))
+    assert len(locks) == 6
+    for path in locks:
+        lines = path.read_text().splitlines()
+        assert all(re.fullmatch(r"[a-z0-9][a-z0-9.-]*==[^\s=]+", line) for line in lines), path
+        names = [line.partition("==")[0] for line in lines]
+        assert names == sorted(names) and "earful" not in names, path
+
+
+def test_each_extra_accepts_the_releases_the_page_says_it_does():
     project = (ROOT / "pyproject.toml").read_text()
     assert 'livekit = ["livekit-agents>=1.5.6,<1.9"]' in project
-    assert "from 1.5.6 up to, and not\nincluding, 1.9" in page
+    assert "from 1.5.6 up to, and not\nincluding, 1.9" in _section("livekit-agents")
+    # The Pipecat extra takes the minor series of the tested release, where pipecat-ai installs.
+    ((release, _),) = re.findall(_PINNED, _section("pipecat-ai"), re.MULTILINE)
+    major, minor = (int(part) for part in release.split(".")[:2])
+    accepted = f"pipecat-ai>={major}.{minor},<{major}.{minor + 1}"
+    assert f"pipecat = [\"{accepted}; python_version >= '3.11'\"]" in project
+    said = f"from {major}.{minor} up to, and not\nincluding, {major}.{minor + 1}, on Python 3.11"
+    assert said in _section("pipecat-ai")
+    assert (
+        'requires-python = ">=3.10"' in project and '"pipecat"' in project.split("classifiers")[0]
+    )
+
+
+def test_the_pipecat_table_on_the_compatibility_page_is_what_the_workflow_runs():
+    ((release, as_of),) = re.findall(_PINNED, _section("pipecat-ai"), re.MULTILINE)
+    job = _job("pipecat")
+    assert re.findall(r'version: "([\d.]+)", as_of: "([\d-]+)"', job) == [(release, as_of)]
+    cells = re.findall(r'\{ os: (\w+)-latest, python: "([\d.]+)", from: (\w+) \}', job)
+    systems = {"ubuntu": "Linux", "macos": "macOS"}
+    sources = {"checkout": "the checkout", "wheel": "the built wheel"}
+    table = re.findall(
+        r"^\| ([\d.]+) \| ([\d.]+) \| (Linux|macOS) \| (the checkout|the built wheel) \|$",
+        _section("What CI runs for Pipecat"),
+        re.MULTILINE,
+    )
+    assert table == [
+        (release, python, systems[os], sources[source]) for os, python, source in cells
+    ]
+    # Every Python from the extra's marker to the newest, both systems, and the wheel once.
+    pythons = sorted({python for _, python, _ in cells})
+    assert pythons == ["3.11", "3.12", "3.13"]
+    assert {os for os, _, _ in cells} == set(systems)
+    assert [source for _, _, source in cells].count("wheel") == 1
+    supported = f"pipecat-ai {release}, on Linux and macOS, Python {pythons[0]} to {pythons[-1]}."
+    assert supported in README
 
 
 def test_the_ci_table_on_the_compatibility_page_is_what_the_workflow_runs():
@@ -170,6 +299,28 @@ def test_the_ci_table_on_the_compatibility_page_is_what_the_workflow_runs():
 README = (ROOT / "README.md").read_text()
 
 
+def test_the_releases_with_each_known_defect_are_the_same_everywhere_they_are_listed():
+    page = (ROOT / "docs" / "compatibility.md").read_text()
+    rows = re.findall(
+        r"^\| (\d+\.\d+\.\d+) \| [\d-]+ \| `[^`]+` \| (present|repaired) \| (present|repaired) \|",
+        page,
+        re.MULTILINE,
+    )
+    assert len(rows) == 5
+    tests = (ROOT / "tests" / "test_historical_cases.py").read_text()
+    for column, issue in ((1, "3702"), (2, "5509")):
+        script = (ROOT / "scripts" / f"spike_{issue}.py").read_text()
+        (fixed_in,) = re.findall(r"^FIXED_IN = \((\d+), (\d+), (\d+)\)", script, re.MULTILINE)
+        assert f"FIX_{issue} = ({', '.join(fixed_in)})" in tests
+        first_repaired = tuple(int(part) for part in fixed_in)
+        present = [row[0] for row in rows if row[column] == "present"]
+        repaired = [row[0] for row in rows if row[column] == "repaired"]
+        assert all(tuple(map(int, r.split("."))) < first_repaired for r in present)
+        assert all(tuple(map(int, r.split("."))) >= first_repaired for r in repaired)
+        (shown,) = re.findall(rf"^\| \[livekit/agents#{issue}\].*$", README, re.MULTILINE)
+        assert shown.endswith(f"| {', '.join(present)} | {', '.join(repaired)} |")
+
+
 def test_the_readme_shows_the_example_as_it_is_in_the_repository():
     for name in ("agent.py", "test_booking.py"):
         source = (ROOT / "examples" / "booking" / name).read_text()
@@ -182,6 +333,32 @@ def test_the_readme_shows_the_example_as_it_is_in_the_repository():
         "search 1 (booking) breaks A2/rule: backend.timeout 1, commit first",
     ):
         assert line in README, line
+
+
+def test_the_readme_says_before_the_quickstart_that_a_test_shows_only_what_its_script_models():
+    before, _, quickstart = README.partition("\n## Quickstart\n")
+    assert "a test shows a failure only in\nbehaviour its script models" in before
+    # What the limit is explained with is in the example: its model tries a failed call again.
+    assert "tries a failed tool call again" in before
+    assert '.when(tool_failed(), say="One moment, let me try that again.", call=BOOK)' in quickstart
+
+
+def test_the_changelog_has_a_section_for_the_version_under_one_for_what_is_unreleased():
+    changelog = (ROOT / "CHANGELOG.md").read_text()
+    project = (ROOT / "pyproject.toml").read_text()
+    (version,) = re.findall(r'^version = "(.+)"$', project, re.MULTILINE)
+    headings = re.findall(r"^## \[(.+?)\](?: - (\d{4}-\d\d-\d\d))?$", changelog, re.MULTILINE)
+    assert len(headings) == len(re.findall(r"^## ", changelog, re.MULTILINE))
+    names = [name for name, _ in headings]
+    assert names[:2] == ["Unreleased", version], "the newest section is not this version's"
+    assert not headings[0][1] and all(date for _, date in headings[1:])
+    released = [tuple(int(part) for part in name.split(".")) for name in names[1:]]
+    assert released == sorted(released, reverse=True)
+    for name in names:
+        link = rf"^\[{re.escape(name)}\]: https://github\.com/smartfox96/earful/"
+        assert re.search(link, changelog, re.MULTILINE), f"[{name}] links nowhere"
+    assert "https://github.com/smartfox96/earful/blob/main/CHANGELOG.md" in README
+    assert 'Changelog = "https://github.com/smartfox96/earful/blob/main/CHANGELOG.md"' in project
 
 
 SKILL = (ROOT / "skills" / "earful" / "SKILL.md").read_text()
@@ -286,6 +463,44 @@ def test_every_page_and_command_the_readme_names_exists():
     commands = _parser()._subparsers._group_actions[0].choices
     named = set(re.findall(r"^earful ([a-z]+) ", README, re.MULTILINE))
     assert named and named <= set(commands), named - set(commands)
-    page = (ROOT / "docs" / "compatibility.md").read_text()
-    releases = re.findall(r"^\| (\d+\.\d+\.\d+) \| \d{4}", page, re.MULTILINE)
+    releases = list(dict(re.findall(_PINNED, _section("livekit-agents"), re.MULTILINE)))
     assert f"livekit-agents {', '.join(releases[:-1])} and {releases[-1]}" in README
+
+
+_FOR_CONTRIBUTORS = (
+    "CONTRIBUTING.md",
+    "SECURITY.md",
+    ".github/pull_request_template.md",
+    ".github/ISSUE_TEMPLATE/bug.yml",
+    ".github/ISSUE_TEMPLATE/feature.yml",
+    ".github/ISSUE_TEMPLATE/config.yml",
+)
+_IN_THE_REPOSITORY = r"(?:scripts|tests|docs|src|compat|examples|skills|\.github)/[^`\s<>*]+"
+
+
+def _anchors(page):
+    """The anchor GitHub gives each heading of a Markdown page."""
+    headings = re.findall(r"^#+ (.+)$", page, re.MULTILINE)
+    return {re.sub(r"[^a-z0-9 -]", "", heading.lower()).replace(" ", "-") for heading in headings}
+
+
+def test_the_files_for_contributors_name_only_what_exists():
+    commands = _commands()
+    for name in _FOR_CONTRIBUTORS:
+        text = (ROOT / name).read_text()
+        # A path in backticks, up to its arguments. One with a placeholder in it is left out.
+        for path in re.findall(rf"`({_IN_THE_REPOSITORY})[`\s]", text):
+            assert (ROOT / path).exists(), f"{name} names {path}"
+        for command, rest in re.findall(r"`earful ([a-z]+)([^`]*)`", text):
+            assert command in commands, f"{name} names earful {command}"
+            for option in re.findall(r"--[a-z-]+", rest):
+                assert option in commands[command].format_help(), f"{name}: {command} {option}"
+        linked = r"https://github\.com/smartfox96/earful/blob/main/([^\s)#]+)(?:#([a-z0-9-]+))?"
+        for path, anchor in re.findall(linked, text):
+            assert (ROOT / path).is_file(), f"{name} links to {path}"
+            assert not anchor or anchor in _anchors((ROOT / path).read_text()), f"{name}: #{anchor}"
+    contributing = (ROOT / "CONTRIBUTING.md").read_text()
+    for said in re.findall(r'`?CONTRIBUTING\.md`?, "([^"]+)"', (ROOT / "SECURITY.md").read_text()):
+        assert f"\n## {said}\n" in contributing, said
+    template = (ROOT / ".github/pull_request_template.md").read_text()
+    assert 'CONTRIBUTING.md, "The checks"' in template and "\n## The checks\n" in contributing

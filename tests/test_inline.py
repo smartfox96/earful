@@ -1,5 +1,9 @@
 """A scenario built in a test: run and searched in process, refused where it needs a name."""
 
+import hashlib
+import sys
+from concurrent.futures.process import BrokenProcessPool
+
 import livekit.agents as lk
 import pytest
 from breaks import BOOKING, TalksToItsServiceItself, as_written_confirms_a_failed_booking
@@ -7,19 +11,20 @@ from breaks import BOOKING, TalksToItsServiceItself, as_written_confirms_a_faile
 from earful.core import case as cases
 from earful.core.checker import ContractFailure, check
 from earful.core.predicate import Predicate
+from earful.core.search import evaluate
 from earful.livekit import scenario
 from earful.livekit.api import WorkersUnavailable, explore, keep, replay, run
 from earful.livekit.cases import BOOKING_ACK, BOOKING_INTENT, barge_in_mid_word
-from earful.livekit.harness import Case, Delay, Fault, Intent
-from earful.livekit.playbook import (
+from earful.livekit.harness import Case, Delay, Fault, Intent, InvalidRun
+from earful.livekit.providers import UserSpeech
+from earful.livekit.scenario import INLINE, Scenario
+from earful.scripted.playbook import (
     ScriptedModel,
     reply,
     tool_returned,
     tool_succeeded,
     user_ever_said,
 )
-from earful.livekit.providers import UserSpeech
-from earful.livekit.scenario import INLINE, Scenario
 
 CONFIRMED_BUT_NOT_DONE = Predicate("A3", "rule")
 
@@ -86,10 +91,100 @@ def test_a_broken_contract_fails_the_test_and_says_which_rule_and_why():
     result.assert_contracts(allow=[CONFIRMED_BUT_NOT_DONE])
 
 
+def test_a_model_that_calls_a_tool_the_agent_lacks_gives_a_run_that_is_not_valid_evidence():
+    misspelt = (
+        ScriptedModel()
+        .when(tool_returned(), say="Your table is booked.")
+        .when(user_ever_said("table"), reply(BOOKING_ACK, call="create_reservatoin"))
+        .otherwise(say="How can I help?")
+    )
+    with pytest.raises(InvalidRun) as refused:
+        run(booking(misspelt))
+    (why,) = refused.value.reasons
+    assert why == (
+        "harness error: call 1: the scripted model called 'create_reservatoin', which the "
+        "agent does not offer; it offers ['create_reservation']"
+    )
+    with pytest.raises(ValueError, match="cannot be searched: .* does not offer; it offers"):
+        explore(booking(misspelt))
+
+
+def test_a_model_that_never_calls_the_tool_fails_a_test_that_requires_the_write():
+    only_talks = ScriptedModel().otherwise(say="Your table is booked.")
+    result = run(booking(only_talks))
+    result.assert_contracts()  # nothing was written, so nothing about a write broke
+    with pytest.raises(ContractFailure) as caught:
+        result.assert_contracts(require=["A2", "L1"])
+    head, why, _ = str(caught.value).split("\n\n", 2)
+    assert head == (
+        f"inline_booking (seed 0, livekit-agents {lk.__version__}) "
+        "has no pass or fail for the required A2"
+    )
+    assert why == "A2 was not exercised: the run has no write request for a declared intent"
+    run(booking(READS_THE_ERROR)).assert_contracts(require=["A2", "A3"])
+    with pytest.raises(ValueError, match="no contract rule 'A3'"):
+        result.assert_contracts(allow=["A3"])
+
+
+@pytest.mark.parametrize(
+    ("changes", "why"),
+    [
+        (
+            {"speeches": [UserSpeech(start=2.5, end=0.5, transcript="Book a table.")]},
+            "the speech at 2.5 s ends at 0.5 s; a speech ends after it starts",
+        ),
+        (
+            {"speeches": [UserSpeech(start=2.5, end=2.5, transcript="Book a table.")]},
+            "the speech at 2.5 s ends at 2.5 s; a speech ends after it starts",
+        ),
+        (
+            {"backend_mode": "idempotent"},
+            "unknown backend mode 'idempotent'; choose from ['plain', 'keyed']",
+        ),
+    ],
+)
+def test_a_case_that_contradicts_itself_is_refused_before_its_agent_is_built(changes, why):
+    built = []
+    case = booking(READS_THE_ERROR, agent=lambda: built.append(1), **changes)
+    with pytest.raises(ValueError) as refused:
+        run(case)
+    assert str(refused.value) == why and not built
+    with pytest.raises(ValueError, match="after it starts|idempotent"):
+        explore(case)
+    assert not built
+
+
+def test_an_agent_given_where_what_builds_one_is_expected_is_refused_and_told_what_to_write():
+    case = booking(READS_THE_ERROR, agent=TalksToItsServiceItself())
+    with pytest.raises(ValueError) as refused:
+        run(case)
+    assert str(refused.value) == (
+        "agent is called once for each run and returns the agent, so it is a class or a "
+        "function; got an object of TalksToItsServiceItself. Write "
+        "agent=lambda: TalksToItsServiceItself(...)"
+    )
+
+
 def test_a_ledger_that_is_not_a_valid_run_fails_the_assertion_and_says_why():
     events = run(booking(READS_THE_ERROR)).events[:-1]  # cut off before run.end
     with pytest.raises(ContractFailure, match="not valid evidence.*\n.*run.end"):
         check(events).assert_contracts(what="the truncated run")
+
+
+def test_a_search_calls_a_case_refused_only_if_the_adapter_refused_it_before_running():
+    def agent():
+        raise ValueError("no table of that size")
+
+    found = Scenario.of(booking(READS_THE_ERROR, agent=agent))
+    data = found.default()
+    raised = evaluate(found.run, data)
+    assert raised.why_not == "error" and raised.error == "ValueError: no table of that size"
+    for refused, why in (
+        ({**data, "settings": {**data["settings"], "volume": 11}}, "unknown setting 'volume'"),
+        ({**data, "contracts": {"A1": {"speed": 1}}}, "A1: unknown policy values"),
+    ):
+        outcome = evaluate(found.run, refused)
+        assert outcome.why_not == "refused" and why in outcome.refused
 
 
 def test_the_same_case_run_twice_gives_the_same_ledger_and_is_not_changed_by_running():
@@ -153,6 +248,27 @@ def test_only_a_function_at_the_top_of_a_module_has_a_name():
         assert found.reference is None and found.name == INLINE
         assert found.default()["scenario"] == INLINE
         assert cases.validate(found.default()) == []
+
+
+def test_the_digest_of_a_scenario_is_of_the_one_module_that_defines_its_function(
+    tmp_path, monkeypatch
+):
+    monkeypatch.syspath_prepend(tmp_path)
+    agent, scenarios = tmp_path / "digest_agent.py", tmp_path / "digest_scenarios.py"
+    agent.write_text("NAME = 'first'\n")
+    scenarios.write_text("import digest_agent\n\n\ndef booking():\n    return digest_agent.NAME\n")
+    (tmp_path / "digest_named_elsewhere.py").write_text("from digest_scenarios import booking\n")
+    try:
+        before = scenario.fingerprint("digest_scenarios:booking")
+        assert before == hashlib.sha256(scenarios.read_bytes()).hexdigest()
+        assert scenario.fingerprint("digest_named_elsewhere:booking") == before
+        agent.write_text("NAME = 'second, and longer'\n")  # code the scenario imports
+        assert scenario.fingerprint("digest_scenarios:booking") == before
+        scenarios.write_text(scenarios.read_text() + "# a comment is a change\n")
+        assert scenario.fingerprint("digest_scenarios:booking") != before
+    finally:
+        for name in ("digest_agent", "digest_scenarios", "digest_named_elsewhere"):
+            sys.modules.pop(name, None)
 
 
 def test_the_data_of_an_inline_case_cannot_be_run_by_name_and_says_what_to_do():
@@ -276,6 +392,43 @@ def test_a_case_given_as_a_scenario_keeps_its_lists_and_dicts_to_itself():
         assert list(again.effects) == ["create_reservation"] and again.faults == []
         assert again.contracts == {"L2": {"stop_bound_us": 100_000}}
         assert again.session_kwargs == {}
+
+
+class _DyingPool:
+    """A pool whose worker dies once ``after`` cases have run."""
+
+    def __init__(self, after):
+        self.after = after
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+    def map(self, run, wanted):
+        for case in wanted:
+            if not self.after:
+                raise BrokenProcessPool("A process in the process pool was terminated abruptly")
+            self.after -= 1
+            yield run(case)
+
+
+def test_a_worker_that_dies_is_said_to_have_died_before_any_case_or_after_how_many(monkeypatch):
+    narrow = {"variables": (), "faults": ["backend.error", "backend.drop"], "words": False}
+    monkeypatch.setattr(scenario, "pool", lambda workers=None: _DyingPool(after=0))
+    with pytest.raises(WorkersUnavailable) as died:
+        explore(as_written_confirms_a_failed_booking, workers=2, **narrow)
+    assert str(died.value).startswith("a worker process died before any had run a case. ")
+    assert '`if __name__ == "__main__":`' in str(died.value)
+    monkeypatch.setattr(scenario, "pool", lambda workers=None: _DyingPool(after=1))
+    with pytest.raises(WorkersUnavailable) as died:
+        explore(as_written_confirms_a_failed_booking, workers=2, **narrow)
+    assert str(died.value).startswith(
+        "a worker process died after the workers had run 1 cases. Something in the case it "
+        "was running ended the process"
+    )
+    assert "__main__" not in str(died.value)
 
 
 def test_an_inline_case_is_refused_by_worker_processes_before_anything_runs():
