@@ -370,7 +370,12 @@ def _ignored(directory: Path) -> str | None:
 
 
 def _init(args: argparse.Namespace) -> int:
-    from .livekit.scaffold import scaffold
+    try:
+        from .livekit.scaffold import scaffold
+    except ImportError as exc:
+        raise Refused(
+            f"`earful init` writes a test for a livekit-agents agent only. {exc}"
+        ) from exc
 
     made = scaffold(args.agent)
     target: Path = args.output or Path(made.filename)
@@ -384,6 +389,9 @@ def _init(args: argparse.Namespace) -> int:
     if made.tools:
         print(f"tools      {', '.join(made.tools)}")
         print("           each is declared an effect; delete those that only read")
+    if made.unbuilt:
+        print(f"build      None for each argument does not build the agent ({made.unbuilt})")
+        print("           give build() in the file a stand-in for each before running it")
     done = _ignored(Path.cwd())
     if done:
         print(f"ignored    .earful/ ({done})")
@@ -429,7 +437,7 @@ def _parser() -> argparse.ArgumentParser:
     sub = command(
         "init",
         _init,
-        "Write a first test for an agent, from the agent's own tools. It runs as it is.",
+        "Write a first test for a livekit-agents agent, from the agent's own tools.",
     )
     sub.add_argument(
         "agent", metavar="AGENT", help="module:Class, such as myapp.agent:SupportAgent"

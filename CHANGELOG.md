@@ -58,6 +58,11 @@ formats have versions of their own
   no longer counts a gap in a streaming buffer as a reply stopping or starting.
 - An adapter refuses to import on a framework release outside the range its extra accepts,
   and warns once (`UntestedRelease`) on a release inside the range that is not tested.
+- The test `earful init` writes has a model that calls the tool once more after a failed
+  call, and requires A2, A3 and L1 to reach a verdict. Its search fails on a write that
+  is repeated with no idempotency key declared. `earful init` gives an argument that is a
+  pydantic model, a date or an identifier a value the tool accepts, finds tools handed to
+  the agent's constructor, and refuses a tool it cannot write a call for.
 - `help()` shows `run`, `explore`, `cross_check`, `keep` and `replay` as functions of
   their adapter, with the adapter's `Case` and `RunResult` in the signature.
 - The scripted LiveKit VAD sets `speaking` as the Silero plugin does, and a word's audio
