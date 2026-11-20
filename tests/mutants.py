@@ -4301,4 +4301,11 @@ MUTANTS = [
         "if True:",
         first="pipecat_adapter_warns_once or pipecat_outside_the_range",
     ),
+    Mutant(
+        "api: a public function says it belongs to the shared class",
+        "src/earful/scripted/api.py",
+        "    call.__module__ = module\n    call.__qualname__ = call.__name__\n",
+        "",
+        first="help_shows_each_public_function",
+    ),
 ]

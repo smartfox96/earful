@@ -1,5 +1,8 @@
 """The documentation agrees with the code, schemas and workflows it describes."""
 
+import inspect
+import pickle
+import pydoc
 import re
 from pathlib import Path
 
@@ -203,6 +206,31 @@ def test_the_supported_releases_are_the_same_everywhere_they_are_listed():
     assert f'"livekit-agents=={list(declared)[-1]}"' in lint_env
 
 
+def test_help_shows_each_public_function_as_a_function_of_the_adapter():
+    import earful.livekit as adapter
+
+    for name in ("run", "explore", "cross_check", "keep", "replay"):
+        function = getattr(adapter, name)
+        shown = pydoc.render_doc(function, renderer=pydoc.plaintext)
+        said = f"Python Library Documentation: function {name} in module earful.livekit.api\n"
+        assert inspect.isfunction(function) and shown.startswith(said) and function.__doc__
+        assert pickle.loads(pickle.dumps(function)) is function
+    assert str(inspect.signature(adapter.run)) == (
+        "(source: 'str | Case | Callable[[], Case]', *, "
+        "case: 'dict[str, Any] | None' = None, seed: 'int' = 0) -> 'RunResult'"
+    )
+
+
+def test_the_old_import_paths_of_the_clock_and_the_scripted_model_give_the_same_objects():
+    from earful.livekit import clock, playbook
+    from earful.scripted import clock as shared_clock
+    from earful.scripted import playbook as shared_playbook
+
+    for old, shared in ((clock, shared_clock), (playbook, shared_playbook)):
+        assert old.__all__ and "earful.scripted" in old.__doc__
+        assert all(getattr(old, name) is getattr(shared, name) for name in old.__all__)
+
+
 def test_the_compatibility_page_names_every_clock_read_a_run_takes_from_the_loop():
     from earful.scripted.clock import VIRTUAL_READS
 
@@ -378,7 +406,6 @@ def test_the_skill_for_coding_agents_uses_only_what_exists():
     """The skill's code is parsed: its imports, keyword arguments and names in code type."""
     import ast
     import importlib
-    import inspect
 
     import earful
     import earful.livekit as adapter

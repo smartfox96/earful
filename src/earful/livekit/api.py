@@ -8,7 +8,7 @@ from collections.abc import Iterator
 from typing import Any
 
 from ..core import case as cases
-from ..scripted.api import AdapterAPI, WorkersUnavailable
+from ..scripted.api import AdapterAPI, WorkersUnavailable, function
 from . import scenario
 from .harness import Case, RunResult, run_case
 
@@ -32,10 +32,10 @@ def _run_quietly(data: cases.Case) -> list[dict[str, Any]]:
 
 
 _api = AdapterAPI[Case, RunResult](scenario, run_case, _run_quietly, _quiet_framework)
-run = _api.run
-explore = _api.explore
-cross_check = _api.cross_check
-keep = _api.keep
-replay = _api.replay
+run = function(_api.run, __name__)
+explore = function(_api.explore, __name__)
+cross_check = function(_api.cross_check, __name__)
+keep = function(_api.keep, __name__)
+replay = function(_api.replay, __name__)
 
 __all__ = ["WorkersUnavailable", "cross_check", "explore", "keep", "replay", "run"]

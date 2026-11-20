@@ -3,22 +3,26 @@
 from __future__ import annotations
 
 import contextlib
+import functools
 from collections.abc import Callable, Iterable
 from concurrent.futures.process import BrokenProcessPool
 from contextlib import AbstractContextManager
 from pathlib import Path
 from types import ModuleType
-from typing import Any, Generic, Protocol, TypeVar
+from typing import Any, Generic, ParamSpec, Protocol, TypeVar
 
 from ..core import bundle, crosscheck, search
 from ..core import case as cases
 from ..core.predicate import Predicate
 from ..core.shrink import nearest
 
-CaseT = TypeVar("CaseT")
-ResultT = TypeVar("ResultT", bound="Result")
+# Named as an adapter names its own classes: help() prints these names.
+Case = TypeVar("Case")
+RunResult = TypeVar("RunResult", bound="Result")
 CaseT_contra = TypeVar("CaseT_contra", contravariant=True)
 ResultT_co = TypeVar("ResultT_co", covariant=True)
+P = ParamSpec("P")
+R = TypeVar("R")
 
 
 class Result(Protocol):
@@ -36,14 +40,26 @@ class WorkersUnavailable(RuntimeError):
     """Worker processes could not be started, or one died before it ran a case."""
 
 
-class AdapterAPI(Generic[CaseT, ResultT]):
+def function(method: Callable[P, R], module: str) -> Callable[P, R]:
+    """A bound method as a function of ``module``, which is how ``help()`` then shows it."""
+
+    @functools.wraps(method)
+    def call(*args: P.args, **kwargs: P.kwargs) -> R:
+        return method(*args, **kwargs)
+
+    call.__module__ = module
+    call.__qualname__ = call.__name__
+    return call
+
+
+class AdapterAPI(Generic[Case, RunResult]):
     """Run, search and replay with one adapter's case builder and runner."""
 
     def __init__(
         self,
         scenario: ModuleType,
-        run_case: RunCase[CaseT, ResultT],
-        run_in_worker: Callable[[cases.Case], list[dict[str, Any]]],
+        run_case: RunCase[Case, RunResult],
+        run_in_worker: Callable[[dict[str, Any]], list[dict[str, Any]]],
         quiet: Callable[[], AbstractContextManager[Any]] = contextlib.nullcontext,
     ) -> None:
         self.scenario = scenario
@@ -53,11 +69,11 @@ class AdapterAPI(Generic[CaseT, ResultT]):
 
     def run(
         self,
-        source: str | CaseT | Callable[[], CaseT],
+        source: str | Case | Callable[[], Case],
         *,
-        case: cases.Case | None = None,
+        case: dict[str, Any] | None = None,
         seed: int = 0,
-    ) -> ResultT:
+    ) -> RunResult:
         """Run a scenario once and return its ledger, with the verdicts on ``report``.
         ``case`` is case data (earful.case/1), such as one a search found. Raises ``InvalidRun``
         if the run is not valid evidence, ``ValueError`` if the scenario or case is refused."""
@@ -68,9 +84,9 @@ class AdapterAPI(Generic[CaseT, ResultT]):
 
     def explore(
         self,
-        source: str | CaseT | Callable[[], CaseT],
+        source: str | Case | Callable[[], Case],
         *,
-        case: cases.Case | None = None,
+        case: dict[str, Any] | None = None,
         seed: int = 0,
         workers: int = 0,
         variables: Iterable[str] = search.DEFAULT_VARIABLES,
@@ -109,7 +125,7 @@ class AdapterAPI(Generic[CaseT, ResultT]):
         }
         if workers == 0:
 
-            def quietly(data: cases.Case) -> list[dict[str, Any]]:
+            def quietly(data: dict[str, Any]) -> list[dict[str, Any]]:
                 with self.quiet():
                     return found.run(data)
 
@@ -152,9 +168,9 @@ class AdapterAPI(Generic[CaseT, ResultT]):
 
     def cross_check(
         self,
-        source: str | CaseT | Callable[[], CaseT],
+        source: str | Case | Callable[[], Case],
         *,
-        case: cases.Case | None = None,
+        case: dict[str, Any] | None = None,
         seed: int = 0,
         runs: int = 3,
         tolerance: crosscheck.Tolerance | None = None,
@@ -166,7 +182,7 @@ class AdapterAPI(Generic[CaseT, ResultT]):
         if runs < 1:
             raise ValueError(f"a cross-check makes at least one real-clock run; got {runs}")
 
-        def built() -> tuple[CaseT, int]:
+        def built() -> tuple[Case, int]:
             return (found.make(), seed) if case is None else (found.build(case), case["seed"])
 
         scripted, with_seed = built()

@@ -17,7 +17,8 @@ formats have versions of their own
   shows a first scenario and lists the limits.
 - `earful.scripted`, the package both adapters share: the virtual clock, the scripted
   user, model and voice, and a scenario's intents, delays and faults. `earful.livekit`
-  exports the names it did before.
+  exports the names it did before, and `earful.livekit.clock` and
+  `earful.livekit.playbook` still import.
 - `assert_contracts(require=[...])` fails when a named contract got no pass or fail.
 - `M2/rule f`: a tool call or result shown to the model has the name and the arguments of
   the call the model made.
@@ -57,6 +58,8 @@ formats have versions of their own
   no longer counts a gap in a streaming buffer as a reply stopping or starting.
 - An adapter refuses to import on a framework release outside the range its extra accepts,
   and warns once (`UntestedRelease`) on a release inside the range that is not tested.
+- `help()` shows `run`, `explore`, `cross_check`, `keep` and `replay` as functions of
+  their adapter, with the adapter's `Case` and `RunResult` in the signature.
 - The scripted LiveKit VAD sets `speaking` as the Silero plugin does, and a word's audio
   has the same level whatever its stamp.
 

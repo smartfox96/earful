@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import inspect
 import json
 import os
 import re
@@ -668,3 +669,11 @@ def test_pipecat_a_name_an_untested_release_lacks_is_reported_with_the_tested_re
         "tested release (import of pipecat.clocks.base_clock halted"
     )
     assert said.endswith("The tested releases are: 1.16.0")
+
+
+def test_pipecat_help_shows_each_public_function_as_a_function_of_the_adapter():
+    for name in ("run", "explore", "cross_check", "keep", "replay"):
+        function = getattr(pc, name)
+        assert inspect.isfunction(function) and function.__doc__
+        assert (function.__module__, function.__qualname__) == ("earful.pipecat.api", name)
+    assert "source: 'str | Case | Callable[[], Case]'" in str(inspect.signature(pc.run))
