@@ -1552,21 +1552,15 @@ MUTANTS = [
     Mutant(
         "L1: a hangup excuses nothing",
         "src/earful/core/checker/l1.py",
-        (
-            "            if (\n"
-            "                self._left is not None\n"
-            "                and self._left < deadline\n"
-            "                and (reached is None or reached > self._left)\n"
-            "            ):\n"
-        ),
+        "            if self._left is not None and self._left < deadline:\n",
         "            if False:\n",
         first="test_l1_owes_nothing_to_a_user_who_hung_up_before_it_was_due",
     ),
     Mutant(
         "L1: a hangup excuses a turn that was overdue",
         "src/earful/core/checker/l1.py",
-        ("                self._left is not None\n                and self._left < deadline\n"),
-        "                self._left is not None\n",
+        "            if self._left is not None and self._left < deadline:\n",
+        "            if self._left is not None:\n",
         first="test_l1_still_fails_a_turn_that_was_overdue_when_the_user_left",
     ),
     Mutant(
@@ -4307,5 +4301,19 @@ MUTANTS = [
         "    call.__module__ = module\n    call.__qualname__ = call.__name__\n",
         "",
         first="help_shows_each_public_function",
+    ),
+    Mutant(
+        "L1: noise restarts a turn's clock without the false-interruption timeout",
+        "src/earful/core/checker/l1.py",
+        "self._base = max(self._base, nxt.end + self._resume)",
+        "self._base = max(self._base, nxt.end)",
+        first="clock_restarts_after_noise",
+    ),
+    Mutant(
+        "L1: noise after the deadline restarts a turn's clock",
+        "src/earful/core/checker/l1.py",
+        "            if nxt is not None and nxt.start < deadline:\n",
+        "            if nxt is not None:\n",
+        first="clock_restarts_after_noise",
     ),
 ]
