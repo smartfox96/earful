@@ -190,9 +190,8 @@ class _NullTextOutput(io.TextOutput):
 
 
 def _session_kwargs(case: Case) -> dict[str, Any]:
-    kwargs: dict[str, Any] = {}
-    if hasattr(lk, "TurnHandlingOptions"):
-        kwargs["turn_handling"] = {
+    kwargs: dict[str, Any] = {
+        "turn_handling": {
             # The default turn detector is an acoustic model: synthetic audio cannot fire it.
             "turn_detection": None,
             "endpointing": lk.EndpointingOptions(
@@ -204,15 +203,9 @@ def _session_kwargs(case: Case) -> dict[str, Any]:
                 min_duration=case.min_interruption_duration,
                 false_interruption_timeout=case.false_interruption_timeout,
             ),
-        }
-        kwargs["aec_warmup_duration"] = None
-    else:  # pre-TurnHandlingOptions releases
-        kwargs.update(
-            min_endpointing_delay=case.min_endpointing_delay,
-            max_endpointing_delay=case.max_endpointing_delay,
-            min_interruption_duration=case.min_interruption_duration,
-            false_interruption_timeout=case.false_interruption_timeout,
-        )
+        },
+        "aec_warmup_duration": None,
+    }
     kwargs.update(case.session_kwargs)
     return kwargs
 

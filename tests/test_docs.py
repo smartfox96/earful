@@ -4,6 +4,7 @@ import re
 from pathlib import Path
 
 from earful.core.schema import kinds, load_schema
+from earful.scripted.releases import SUPPORT
 
 DOC = (Path(__file__).resolve().parents[1] / "docs" / "ledger.md").read_text()
 MENTIONED = set(re.findall(r"`([^`\s]+)`", DOC))
@@ -184,7 +185,7 @@ def _job(name):
 def test_the_supported_releases_are_the_same_everywhere_they_are_listed():
     section = _section("livekit-agents")
     declared = dict(re.findall(_PINNED, section, re.MULTILINE))
-    assert len(declared) == 5
+    assert tuple(declared) == SUPPORT["livekit-agents"].tested
     in_ci = dict(re.findall(r'version: "([\d.]+)", as_of: "([\d-]+)"', _job("determinism")))
     assert in_ci == declared
     script = (ROOT / "scripts" / "check_all.sh").read_text()
@@ -212,6 +213,7 @@ def test_the_compatibility_page_names_every_clock_read_a_run_takes_from_the_loop
 def test_the_supported_pipecat_release_is_the_same_everywhere_it_is_listed():
     section = _section("pipecat-ai")
     ((release, as_of),) = re.findall(_PINNED, section, re.MULTILINE)
+    assert (release,) == SUPPORT["pipecat-ai"].tested
     assert f"`compat/pc-{release}.lock.txt`" in section
     locks = [path.name for path in (ROOT / "compat").glob("pc-*.lock.txt")]
     assert locks == [f"pc-{release}.lock.txt"]
@@ -233,20 +235,28 @@ def test_a_lock_file_is_the_list_the_environment_scripts_write():
         assert names == sorted(names) and "earful" not in names, path
 
 
-def test_each_extra_accepts_the_releases_the_page_says_it_does():
+def test_each_extra_accepts_the_releases_the_page_and_the_adapter_say_it_does():
     project = (ROOT / "pyproject.toml").read_text()
-    assert 'livekit = ["livekit-agents>=1.5.6,<1.9"]' in project
-    assert "from 1.5.6 up to, and not\nincluding, 1.9" in _section("livekit-agents")
+    livekit, pipecat = SUPPORT["livekit-agents"], SUPPORT["pipecat-ai"]
+    assert f'livekit = ["livekit-agents{livekit.requirement}"]' in project
+    said = f"from {livekit.lowest} up to, and not\nincluding, {livekit.below}"
+    assert said in _section("livekit-agents")
     # The Pipecat extra takes the minor series of the tested release, where pipecat-ai installs.
-    ((release, _),) = re.findall(_PINNED, _section("pipecat-ai"), re.MULTILINE)
-    major, minor = (int(part) for part in release.split(".")[:2])
-    accepted = f"pipecat-ai>={major}.{minor},<{major}.{minor + 1}"
+    major, minor = (int(part) for part in pipecat.tested[0].split(".")[:2])
+    assert (pipecat.lowest, pipecat.below) == (f"{major}.{minor}", f"{major}.{minor + 1}")
+    accepted = f"pipecat-ai{pipecat.requirement}"
     assert f"pipecat = [\"{accepted}; python_version >= '3.11'\"]" in project
-    said = f"from {major}.{minor} up to, and not\nincluding, {major}.{minor + 1}, on Python 3.11"
+    said = f"from {pipecat.lowest} up to, and not\nincluding, {pipecat.below}, on Python 3.11"
     assert said in _section("pipecat-ai")
     assert (
         'requires-python = ">=3.10"' in project and '"pipecat"' in project.split("classifiers")[0]
     )
+
+
+def test_the_compatibility_page_says_what_an_adapter_does_with_the_installed_release():
+    for heading in ("livekit-agents", "pipecat-ai"):
+        section = " ".join(_section(heading).split())
+        assert "warns once" in section and "refuses to import" in section
 
 
 def test_the_pipecat_table_on_the_compatibility_page_is_what_the_workflow_runs():

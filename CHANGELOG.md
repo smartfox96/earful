@@ -55,6 +55,8 @@ formats have versions of their own
 - A1, A2 and A3 are all unobservable for a tool call that leaves nothing in the backend.
   M2 rule e also holds tool items and replies to their place among the user turns. L2
   no longer counts a gap in a streaming buffer as a reply stopping or starting.
+- An adapter refuses to import on a framework release outside the range its extra accepts,
+  and warns once (`UntestedRelease`) on a release inside the range that is not tested.
 - The scripted LiveKit VAD sets `speaking` as the Silero plugin does, and a word's audio
   has the same level whatever its stamp.
 

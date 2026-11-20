@@ -651,3 +651,20 @@ def test_pipecat_search_is_quiet():
     finally:
         logger.remove(sink)
     assert not during and after
+
+
+def test_pipecat_adapter_warns_once_when_it_is_imported_on_an_untested_release(imported_on):
+    imported_on("pipecat-ai", "1.16.999").warns_once()
+
+
+def test_pipecat_outside_the_range_is_refused_by_the_command_before_the_adapter_loads(imported_on):
+    imported_on("pipecat-ai", "1.17.0").is_refused()
+
+
+def test_pipecat_a_name_an_untested_release_lacks_is_reported_with_the_tested_release(imported_on):
+    said = imported_on("pipecat-ai", "1.16.999").lacks("pipecat.clocks.base_clock")
+    assert said.startswith(
+        "ImportError: earful.pipecat cannot be imported on pipecat-ai 1.16.999, which is not a "
+        "tested release (import of pipecat.clocks.base_clock halted"
+    )
+    assert said.endswith("The tested releases are: 1.16.0")

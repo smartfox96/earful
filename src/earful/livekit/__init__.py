@@ -1,7 +1,9 @@
 """The LiveKit Agents adapter. Needs livekit-agents: pip install "earful[livekit]"."""
 
+from ..scripted.releases import importing as _importing
+
 try:
-    import livekit.agents as _lk  # noqa: F401
+    import livekit.agents as _lk
 except ModuleNotFoundError as exc:
     if (exc.name or "").split(".")[0] != "livekit":
         raise  # livekit-agents is installed; one of its own imports failed
@@ -10,27 +12,28 @@ except ModuleNotFoundError as exc:
         'Install it with: pip install "earful[livekit]"'
     ) from exc
 
-from ..core.backend import BackendError, BackendTimeout, Effect, effect
-from ..core.checker import ContractFailure
-from ..core.predicate import Predicate
-from ..scripted.playbook import (
-    Condition,
-    Context,
-    ScriptedModel,
-    ToolResult,
-    reply,
-    tool_failed,
-    tool_returned,
-    tool_succeeded,
-    user_ever_said,
-    user_said,
-)
-from .api import WorkersUnavailable, cross_check, explore, keep, replay, run
-from .harness import Case, Delay, Fault, Intent, InvalidRun, RunResult, run_case
-from .providers import Claim, Policy, Reply, ToolCall, UserSpeech
-from .scenario import Scenario
-from .sink import ClockedSink
-from .tools import effect_tool, witnessed
+with _importing("livekit-agents", _lk.__version__):
+    from ..core.backend import BackendError, BackendTimeout, Effect, effect
+    from ..core.checker import ContractFailure
+    from ..core.predicate import Predicate
+    from ..scripted.playbook import (
+        Condition,
+        Context,
+        ScriptedModel,
+        ToolResult,
+        reply,
+        tool_failed,
+        tool_returned,
+        tool_succeeded,
+        user_ever_said,
+        user_said,
+    )
+    from .api import WorkersUnavailable, cross_check, explore, keep, replay, run
+    from .harness import Case, Delay, Fault, Intent, InvalidRun, RunResult, run_case
+    from .providers import Claim, Policy, Reply, ToolCall, UserSpeech
+    from .scenario import Scenario
+    from .sink import ClockedSink
+    from .tools import effect_tool, witnessed
 
 __all__ = [
     "BackendError",

@@ -24,12 +24,16 @@ The last two columns say whether the release has the two known defects Earful re
 
 `pip install "earful[livekit]"` accepts livekit-agents from 1.5.6 up to, and not
 including, 1.9. A release between two rows, or a later 1.8 release, is accepted and not
-tested, except the newest one, in part ("What runs on the newest releases" below). On any
-release Earful checks two things in every run, and a run that fails either is invalid and
-yields no verdict: every tool the model is offered is one whose calls are recorded, and
-every pydantic field whose default is a clock read was given the virtual clock. A release
-that reads time some other way is not caught by these checks. The reads that are virtual
-are listed under The virtual clock.
+tested, except the newest one, in part ("What runs on the newest releases" below).
+`earful.livekit` warns once when it is imported on such a release, and refuses to import
+on a release outside the range. The warning's category is
+`earful.scripted.releases.UntestedRelease`.
+
+On any release Earful checks two things in every run, and a run that fails either is
+invalid and yields no verdict: every tool the model is offered is one whose calls are
+recorded, and every pydantic field whose default is a clock read was given the virtual
+clock. A release that reads time some other way is not caught by these checks. The reads
+that are virtual are listed under The virtual clock.
 
 ## pipecat-ai
 
@@ -42,7 +46,8 @@ One release is supported. It is pinned and recorded the same way
 
 `pip install "earful[pipecat]"` accepts pipecat-ai from 1.16 up to, and not
 including, 1.17, on Python 3.11 or later. pipecat-ai does not support Python 3.10, and
-there the extra installs Earful alone.
+there the extra installs Earful alone. `earful.pipecat` warns once when it is imported on
+a 1.16 release other than 1.16.0, and refuses to import on a release outside the range.
 
 The adapter uses Pipecat's VAD turn-start and speech-timeout turn-stop strategies.
 [Writing a Pipecat scenario](pipecat.md)

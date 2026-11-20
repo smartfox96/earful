@@ -18,6 +18,7 @@ from ..core import case as case_format
 from ..core.search import CaseRefused
 from ..core.timebase import to_seconds, to_us
 from .case import CaseData, Delay, Fault, check_case
+from .releases import quiet_worker
 from .world import UserSpeech
 
 CaseT = TypeVar("CaseT", bound=CaseData)
@@ -211,7 +212,11 @@ def build(
 
 def pool(workers: int | None = None) -> ProcessPoolExecutor:
     """Worker processes for running cases side by side, each spawned as a fresh interpreter."""
-    return ProcessPoolExecutor(max_workers=workers, mp_context=multiprocessing.get_context("spawn"))
+    return ProcessPoolExecutor(
+        max_workers=workers,
+        mp_context=multiprocessing.get_context("spawn"),
+        initializer=quiet_worker,
+    )
 
 
 def environment(versions: dict[str, str]) -> dict[str, str]:
