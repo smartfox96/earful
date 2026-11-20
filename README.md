@@ -233,8 +233,11 @@ pytest test_support_agent.py
 ```
 
 The test it writes runs as it is. Every tool is declared an effect, so no tool body runs
-and nothing reaches a real service. The file marks what to change: what the user says,
-which tool the model calls, and which tools only read. [`docs/testing.md`](https://github.com/smartfox96/earful/blob/main/docs/testing.md) covers
+and nothing reaches a real service. The scripted model calls the first tool, and calls it
+once more if the call fails. With no tool body run, Earful cannot see whether a write
+carries an idempotency key, so the search fails on the repeated write (A2) until the file
+declares the key the tool sends. The file marks that and what else to change: what the
+user says, which tool the model calls, and which tools only read. [`docs/testing.md`](https://github.com/smartfox96/earful/blob/main/docs/testing.md) covers
 the rest.
 
 ## With a coding assistant
@@ -282,6 +285,9 @@ real clock (`earful crosscheck`).
 | [livekit/agents#3702](https://github.com/smartfox96/earful/blob/main/docs/cases/3702-tool-result-lost-on-interruption.md) | A tool result is lost when its reply is interrupted, and the booking is made twice | 1.5.6, 1.5.7, 1.6.5 | 1.6.6, 1.8.12 |
 | [livekit/agents#5509](https://github.com/smartfox96/earful/blob/main/docs/cases/5509-reply-starts-over-new-turn.md) | A reply starts playing after the user has begun a new turn | 1.5.6 | 1.5.7, 1.6.5, 1.6.6, 1.8.12 |
 
+Both kept cases are in the repository, under `tests/bundles/`, and are not part of the
+installed package. From a checkout:
+
 ```bash
 earful replay tests/bundles/lk-1.5.6.book_then_interrupt.A2-rule
 earful report tests/bundles/lk-1.5.6.book_then_interrupt.A2-rule -o report.html
@@ -306,7 +312,7 @@ and what CI runs for each.
 | [`docs/ledger.md`](https://github.com/smartfox96/earful/blob/main/docs/ledger.md) | Every event in a ledger, and what makes a run valid |
 | [`docs/compatibility.md`](https://github.com/smartfox96/earful/blob/main/docs/compatibility.md) | Supported releases and what is tested |
 | [`CHANGELOG.md`](https://github.com/smartfox96/earful/blob/main/CHANGELOG.md) | What changed in each release |
-| [`docs/gate0-feasibility.md`](https://github.com/smartfox96/earful/blob/main/docs/gate0-feasibility.md), [`gate1-core.md`](https://github.com/smartfox96/earful/blob/main/docs/gate1-core.md), [`gate2-historical-proof.md`](https://github.com/smartfox96/earful/blob/main/docs/gate2-historical-proof.md) | The evidence each stage of the project rests on |
+| [`docs/history/`](https://github.com/smartfox96/earful/tree/main/docs/history) | What was measured at each stage of the first build, kept as written |
 
 ## Layout
 

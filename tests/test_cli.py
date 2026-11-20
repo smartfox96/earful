@@ -732,8 +732,10 @@ def test_without_the_framework_ledgers_are_checked_and_a_run_is_refused_with_wha
         f"assert main(['check', {str(CLEAN)!r}]) == 0\n"
         f"assert main(['report', {str(CLEAN)!r}]) == 0\n"
         "assert main(['run', 'earful.livekit.cases:barge_in_mid_word']) == 2\n"
+        "assert main(['init', 'myapp.agent:SupportAgent']) == 2\n"
         "assert not [m for m in sys.modules if m.startswith('earful.livekit.')]\n"
     )
     done = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, check=False)
     assert done.returncode == 0, done.stderr
     assert 'pip install "earful[livekit]"' in done.stderr
+    assert "earful: `earful init` writes a test for a livekit-agents agent only. " in done.stderr

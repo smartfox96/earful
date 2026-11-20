@@ -125,16 +125,18 @@ uses fails one of them until the README is brought along.
 1. `EARFUL_LOCK=write scripts/make_env.sh <version> <date>`, with a date a few days after
    the release. This builds `.venvs/lk-<version>` and writes
    `compat/lk-<version>.lock.txt`.
-2. Add the release to `scripts/check_all.sh`, to the matrix in `.github/workflows/ci.yml`
-   and to `docs/compatibility.md`. A test fails while the three disagree. The newest
-   release is also the one in `scripts/make_lint_env.sh`, and the README lists them all.
+2. Add the release to `SUPPORT` in `src/earful/scripted/releases.py`, to
+   `scripts/check_all.sh`, to the matrix in `.github/workflows/ci.yml` and to
+   `docs/compatibility.md`. A test fails while they disagree. The newest release is also
+   the one in `scripts/make_lint_env.sh`, and the README lists them all.
 3. `scripts/check_all.sh --update` records its three reference ledgers.
 4. Read the new ledgers against those of the release before it
    (`python scripts/ledger_diff.py`). Differences in behaviour belong in the pull request.
 
-A release in a new minor series also moves the upper bound of the `livekit` extra in
-`pyproject.toml`, the sentence in `docs/compatibility.md` that states it, and the test
-that reads both. The canary's `beyond` job fails from the day such a release is on PyPI.
+A release in a new minor series also moves the upper bound of the `livekit` extra: in
+`SUPPORT`, in `pyproject.toml` and in the sentence of `docs/compatibility.md` that states
+it. Until then `earful.livekit` refuses to import on that series. The canary's `beyond`
+job fails from the day such a release is on PyPI.
 
 ## Moving to a pipecat-ai release
 
@@ -146,8 +148,9 @@ One pipecat-ai release is supported at a time, so a new one takes the place of t
 2. Put the release and the date where the old ones are: the defaults of
    `scripts/make_pipecat_env.sh`, `scripts/make_lint_env.sh`, `scripts/check_all.sh`, the
    `pipecat` and `docs` jobs of `.github/workflows/ci.yml`, `docs/compatibility.md`, the
-   README, this page and `tests/test_ci.py`. A release in a new minor series also moves
-   the `pipecat` extra in `pyproject.toml`. Tests fail while these disagree.
+   README, this page, `tests/test_ci.py` and `SUPPORT` in
+   `src/earful/scripted/releases.py`. A release in a new minor series also moves the
+   `pipecat` extra, in `SUPPORT` and in `pyproject.toml`. Tests fail while these disagree.
 3. `scripts/ran_every_test.sh .venvs/pc-<version>/bin/python tests/test_pipecat*.py` runs
    every Pipecat test and fails if one is skipped. `scripts/lint.sh` checks the adapter's
    types against the new release.

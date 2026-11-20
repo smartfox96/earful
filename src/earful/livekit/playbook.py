@@ -1,4 +1,4 @@
-"""Compatibility imports for the shared scripted model."""
+"""The old import path of ``earful.scripted.playbook``, kept for code written against 0.1."""
 
 from ..scripted.playbook import (
     Call,

@@ -1,4 +1,4 @@
-"""Compatibility imports for the shared virtual clock."""
+"""The old import path of ``earful.scripted.clock``, kept for code written against 0.1."""
 
 from ..scripted.clock import (
     STALL_SECONDS,

@@ -1552,21 +1552,15 @@ MUTANTS = [
     Mutant(
         "L1: a hangup excuses nothing",
         "src/earful/core/checker/l1.py",
-        (
-            "            if (\n"
-            "                self._left is not None\n"
-            "                and self._left < deadline\n"
-            "                and (reached is None or reached > self._left)\n"
-            "            ):\n"
-        ),
+        "            if self._left is not None and self._left < deadline:\n",
         "            if False:\n",
         first="test_l1_owes_nothing_to_a_user_who_hung_up_before_it_was_due",
     ),
     Mutant(
         "L1: a hangup excuses a turn that was overdue",
         "src/earful/core/checker/l1.py",
-        ("                self._left is not None\n                and self._left < deadline\n"),
-        "                self._left is not None\n",
+        "            if self._left is not None and self._left < deadline:\n",
+        "            if self._left is not None:\n",
         first="test_l1_still_fails_a_turn_that_was_overdue_when_the_user_left",
     ),
     Mutant(
@@ -2542,8 +2536,8 @@ MUTANTS = [
     Mutant(
         "api: a case's data is not what is run",
         "src/earful/scripted/api.py",
-        '        return self.run_case(found.build(case), seed=case["seed"])\n',
-        '        return self.run_case(found.make(), seed=case["seed"])\n',
+        '        return self.run_case(found.build(data), seed=data["seed"])\n',
+        '        return self.run_case(found.make(), seed=data["seed"])\n',
         first="run_from_its_data",
     ),
     Mutant(
@@ -3145,8 +3139,8 @@ MUTANTS = [
     Mutant(
         "cli: what a run may break is checked once it has run",
         "src/earful/cli.py",
-        "    allow, require = _asked(args)\n    case = _case(args.case)\n    adapter, source = _scenario(args.scenario)\n    try:\n        result = adapter.run(source, case=case, seed=args.seed)\n",
-        "    case = _case(args.case)\n    adapter, source = _scenario(args.scenario)\n    allow, require = _asked(args)\n    try:\n        result = adapter.run(source, case=case, seed=args.seed)\n",
+        "    allow, require = _asked(args)\n    case = _case(args.case)\n    adapter, source = _scenario(args.scenario)\n    try:\n        result = adapter.run(source, data=case, seed=args.seed)\n",
+        "    case = _case(args.case)\n    adapter, source = _scenario(args.scenario)\n    allow, require = _asked(args)\n    try:\n        result = adapter.run(source, data=case, seed=args.seed)\n",
         first="does_not_exist_is_refused_before_anything_runs",
     ),
     Mutant(
@@ -3777,11 +3771,11 @@ MUTANTS = [
         first="writes_a_test_from_the_agents_tools",
     ),
     Mutant(
-        "scaffold: an agent that needs arguments is built to find its tools",
+        "scaffold: an agent that needs arguments is not built to find its tools",
         "src/earful/livekit/scaffold.py",
-        "    found = build().tools if not needs else lk_llm.find_function_tools(object.__new__(agent))\n",
-        "    found = build().tools\n",
-        first="cannot_be_built_without_arguments",
+        "        found = build(*positional, **named).tools\n",
+        "        found = build().tools\n",
+        first="tools_handed_to_the_constructor_are_found",
     ),
     Mutant(
         "scaffold: an agent that needs arguments is given none",
@@ -3793,15 +3787,15 @@ MUTANTS = [
     Mutant(
         "scaffold: an argument that has a default is given a value",
         "src/earful/livekit/scaffold.py",
-        "        return {name: _placeholder(properties.get(name, {})) for name in required}\n",
-        "        return {name: _placeholder(properties.get(name, {})) for name in properties}\n",
+        '            for name in schema.get("required", [])\n',
+        "            for name in properties\n",
         first="a_value_for_each_argument_the_tool_requires",
     ),
     Mutant(
         "scaffold: a whole number is given a text",
         "src/earful/livekit/scaffold.py",
-        '        "integer": 1,\n',
-        '        "integer": "example",\n',
+        '_PLAIN = {"integer": 1, ',
+        '_PLAIN = {"integer": "example", ',
         first="a_value_for_each_argument_the_tool_requires",
     ),
     Mutant(
@@ -3814,8 +3808,8 @@ MUTANTS = [
     Mutant(
         "scaffold: the model claims an intent no effect has",
         "src/earful/livekit/scaffold.py",
-        '        intent = _literal(names[0].replace("_", "-"))\n',
-        "        intent = _literal(names[0])\n",
+        '        intent = _literal(called.replace("_", "-"))\n',
+        "        intent = _literal(called)\n",
         first="a_value_for_each_argument_the_tool_requires or init_writes_runs_as_it_is",
     ),
     Mutant(
@@ -4244,5 +4238,145 @@ MUTANTS = [
         'if role == "tool" or (deferred is not None and deferred.kind == "final"):',
         'if role == "tool":',
         first="reads_async_tool_results_from_the_context",
+    ),
+    Mutant(
+        "releases: the release the extra stops at is admitted",
+        "src/earful/scripted/releases.py",
+        "not lowest <= numbers < below",
+        "not lowest <= numbers <= below",
+        first="outside_the_range_is_refused",
+    ),
+    Mutant(
+        "releases: a release older than the range is admitted",
+        "src/earful/scripted/releases.py",
+        "not lowest <= numbers < below",
+        "not numbers < below",
+        first="outside_the_range_is_refused",
+    ),
+    Mutant(
+        "releases: an untested release is admitted without a warning",
+        "src/earful/scripted/releases.py",
+        "    if installed not in support.tested:\n        warnings.warn(",
+        "    if False:\n        warnings.warn(",
+        first="not_tested_is_warned_about or warns_once",
+    ),
+    Mutant(
+        "releases: a pre-release is refused whatever its number",
+        "src/earful/scripted/releases.py",
+        'leading = re.match(r"\\d+(?:\\.\\d+)*", version)',
+        'leading = re.fullmatch(r"\\d+(?:\\.\\d+)*", version)',
+        first="not_tested_is_warned_about",
+    ),
+    Mutant(
+        "releases: a name a tested release lacks is blamed on the release",
+        "src/earful/scripted/releases.py",
+        "        if installed in support.tested:\n            raise\n",
+        "",
+        first="untested_livekit_release_lacks",
+    ),
+    Mutant(
+        "releases: a worker process repeats the warning",
+        "src/earful/scripted/scenario.py",
+        "        initializer=quiet_worker,\n",
+        "",
+        first="worker_process_does_not_repeat",
+    ),
+    Mutant(
+        "releases: the LiveKit adapter loads on any release",
+        "src/earful/livekit/__init__.py",
+        'with _importing("livekit-agents", _lk.__version__):',
+        "if True:",
+        first="livekit_adapter_warns_once or refuses_livekit_agents_outside",
+    ),
+    Mutant(
+        "releases: the Pipecat adapter loads on any release",
+        "src/earful/pipecat/__init__.py",
+        'with _importing("pipecat-ai", _pc.__version__):',
+        "if True:",
+        first="pipecat_adapter_warns_once or pipecat_outside_the_range",
+    ),
+    Mutant(
+        "api: a public function says it belongs to the shared class",
+        "src/earful/scripted/api.py",
+        "    call.__module__ = module\n    call.__qualname__ = call.__name__\n",
+        "",
+        first="help_shows_each_public_function",
+    ),
+    Mutant(
+        "L1: noise restarts a turn's clock without the false-interruption timeout",
+        "src/earful/core/checker/l1.py",
+        "self._base = max(self._base, nxt.end + self._resume)",
+        "self._base = max(self._base, nxt.end)",
+        first="clock_restarts_after_noise",
+    ),
+    Mutant(
+        "L1: noise after the deadline restarts a turn's clock",
+        "src/earful/core/checker/l1.py",
+        "            if nxt is not None and nxt.start < deadline:\n",
+        "            if nxt is not None:\n",
+        first="clock_restarts_after_noise",
+    ),
+    Mutant(
+        "scaffold: the model gives up after one failed call",
+        "src/earful/livekit/scaffold.py",
+        '"        tool_failed() & (lambda context: len(context.tool_results) >= 2),",',
+        '"        tool_failed(),",',
+        first="fails_on_a_write_the_model_repeats_without_a_key",
+    ),
+    Mutant(
+        "scaffold: the test of one run requires no contract",
+        "src/earful/livekit/scaffold.py",
+        'f"    earful.run({scenario}).assert_contracts(require=REQUIRED)",',
+        'f"    earful.run({scenario}).assert_contracts()",',
+        first="init_writes_runs_as_it_is",
+    ),
+    Mutant(
+        "scaffold: a call the tool refuses is written",
+        "src/earful/livekit/scaffold.py",
+        "            lk_llm.utils.function_arguments_to_pydantic_model(tool).model_validate(arguments)\n",
+        "            pass\n",
+        first="cannot_write_a_test_for_is_refused",
+    ),
+    Mutant(
+        "scaffold: a model inside an argument is given a text",
+        "src/earful/livekit/scaffold.py",
+        '    if "$ref" in schema:\n',
+        "    if False:\n",
+        first="a_model_a_date_and_an_identifier",
+    ),
+    Mutant(
+        "scaffold: a date is given any text",
+        "src/earful/livekit/scaffold.py",
+        'return _FORMATS.get(schema.get("format", ""), "example")',
+        'return "example"',
+        first="a_model_a_date_and_an_identifier",
+    ),
+    Mutant(
+        "scaffold: a list that needs an item is left empty",
+        "src/earful/livekit/scaffold.py",
+        '        return [item] * schema.get("minItems", 0)\n',
+        "        return []\n",
+        first="a_model_a_date_and_an_identifier",
+    ),
+    Mutant(
+        "scaffold: an agent None does not build is not reported",
+        "src/earful/livekit/scaffold.py",
+        '        unbuilt = f"{type(exc).__name__}: {exc}"\n',
+        "",
+        first="none_does_not_build_gets_a_test_that_says_so",
+    ),
+    Mutant(
+        "scaffold: a tool no call can be written for stops the others being tried",
+        "src/earful/livekit/scaffold.py",
+        "            refused.append(exc)\n",
+        "            raise\n",
+        first="first_tool_a_call_can_be_written_for",
+    ),
+    Mutant(
+        "cli: init does not say that the search it wrote will fail",
+        "src/earful/cli.py",
+        '    if made.tools:\n        print("           its search fails (A2)',
+        '    if False:\n        print("           its search fails (A2)',
+        first="says_what_to_do_next",
     ),
 ]

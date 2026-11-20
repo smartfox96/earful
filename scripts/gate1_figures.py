@@ -1,4 +1,4 @@
-"""Measure the figures that docs/gate1-core.md states, on the release this runs with.
+"""Measure the figures that docs/history/gate1-core.md states, on the release this runs with.
 
 .venvs/lk-1.8.12/bin/python scripts/gate1_figures.py
 """

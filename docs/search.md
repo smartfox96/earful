@@ -1,12 +1,11 @@
 # Search, reduction and replay
 
-Status: **implemented**, 16 November 2026, in `src/earful/core/` (`case.py`, `search.py`,
-`shrink.py`, `bundle.py`, `predicate.py`).
-
 The checker says whether one run broke a contract (`docs/contracts.md`). This document
 covers what surrounds it: how Earful looks for the timings and faults under which a
 scenario fails, how wide the failure is, how a failing case is reduced to the smallest one
-that fails the same way, and what is kept so that anyone can run that case again.
+that fails the same way, and what is kept so that anyone can run that case again. The
+code is in `src/earful/core/` (`case.py`, `search.py`, `shrink.py`, `bundle.py`,
+`predicate.py`).
 
 ```python
 from earful.core import bundle, search
@@ -501,7 +500,7 @@ the one way they change.
   of a transition, such as from 2 ms to 8 ms after it.
   Stepping a variable in fixed increments (`scripts/contracts_sweep.py`) covers those,
   and found nothing the boundary search missed on the supported releases
-  (`docs/gate1-core.md`).
+  (`docs/history/gate1-core.md`).
 - **Reached means aimed at.** The coverage list records that a case was built to put a
   handle beside a transition of the run the search read, and that the run of that case
   could be judged. It does not check that the transition still fell at that instant in

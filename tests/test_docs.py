@@ -1,9 +1,17 @@
 """The documentation agrees with the code, schemas and workflows it describes."""
 
+import inspect
+import pickle
+import pydoc
 import re
+import subprocess
+import sys
 from pathlib import Path
 
+import pytest
+
 from earful.core.schema import kinds, load_schema
+from earful.scripted.releases import SUPPORT
 
 DOC = (Path(__file__).resolve().parents[1] / "docs" / "ledger.md").read_text()
 MENTIONED = set(re.findall(r"`([^`\s]+)`", DOC))
@@ -184,7 +192,7 @@ def _job(name):
 def test_the_supported_releases_are_the_same_everywhere_they_are_listed():
     section = _section("livekit-agents")
     declared = dict(re.findall(_PINNED, section, re.MULTILINE))
-    assert len(declared) == 5
+    assert tuple(declared) == SUPPORT["livekit-agents"].tested
     in_ci = dict(re.findall(r'version: "([\d.]+)", as_of: "([\d-]+)"', _job("determinism")))
     assert in_ci == declared
     script = (ROOT / "scripts" / "check_all.sh").read_text()
@@ -202,6 +210,31 @@ def test_the_supported_releases_are_the_same_everywhere_they_are_listed():
     assert f'"livekit-agents=={list(declared)[-1]}"' in lint_env
 
 
+def test_help_shows_each_public_function_as_a_function_of_the_adapter():
+    import earful.livekit as adapter
+
+    for name in ("run", "explore", "cross_check", "keep", "replay"):
+        function = getattr(adapter, name)
+        shown = pydoc.render_doc(function, renderer=pydoc.plaintext)
+        said = f"Python Library Documentation: function {name} in module earful.livekit.api\n"
+        assert inspect.isfunction(function) and shown.startswith(said) and function.__doc__
+        assert pickle.loads(pickle.dumps(function)) is function
+    assert str(inspect.signature(adapter.run)) == (
+        "(source: 'str | Case | Callable[[], Case]', *, "
+        "data: 'dict[str, Any] | None' = None, seed: 'int' = 0) -> 'RunResult'"
+    )
+
+
+def test_the_old_import_paths_of_the_clock_and_the_scripted_model_give_the_same_objects():
+    from earful.livekit import clock, playbook
+    from earful.scripted import clock as shared_clock
+    from earful.scripted import playbook as shared_playbook
+
+    for old, shared in ((clock, shared_clock), (playbook, shared_playbook)):
+        assert old.__all__ and "earful.scripted" in old.__doc__
+        assert all(getattr(old, name) is getattr(shared, name) for name in old.__all__)
+
+
 def test_the_compatibility_page_names_every_clock_read_a_run_takes_from_the_loop():
     from earful.scripted.clock import VIRTUAL_READS
 
@@ -212,6 +245,7 @@ def test_the_compatibility_page_names_every_clock_read_a_run_takes_from_the_loop
 def test_the_supported_pipecat_release_is_the_same_everywhere_it_is_listed():
     section = _section("pipecat-ai")
     ((release, as_of),) = re.findall(_PINNED, section, re.MULTILINE)
+    assert (release,) == SUPPORT["pipecat-ai"].tested
     assert f"`compat/pc-{release}.lock.txt`" in section
     locks = [path.name for path in (ROOT / "compat").glob("pc-*.lock.txt")]
     assert locks == [f"pc-{release}.lock.txt"]
@@ -233,20 +267,28 @@ def test_a_lock_file_is_the_list_the_environment_scripts_write():
         assert names == sorted(names) and "earful" not in names, path
 
 
-def test_each_extra_accepts_the_releases_the_page_says_it_does():
+def test_each_extra_accepts_the_releases_the_page_and_the_adapter_say_it_does():
     project = (ROOT / "pyproject.toml").read_text()
-    assert 'livekit = ["livekit-agents>=1.5.6,<1.9"]' in project
-    assert "from 1.5.6 up to, and not\nincluding, 1.9" in _section("livekit-agents")
+    livekit, pipecat = SUPPORT["livekit-agents"], SUPPORT["pipecat-ai"]
+    assert f'livekit = ["livekit-agents{livekit.requirement}"]' in project
+    said = f"from {livekit.lowest} up to, and not\nincluding, {livekit.below}"
+    assert said in _section("livekit-agents")
     # The Pipecat extra takes the minor series of the tested release, where pipecat-ai installs.
-    ((release, _),) = re.findall(_PINNED, _section("pipecat-ai"), re.MULTILINE)
-    major, minor = (int(part) for part in release.split(".")[:2])
-    accepted = f"pipecat-ai>={major}.{minor},<{major}.{minor + 1}"
+    major, minor = (int(part) for part in pipecat.tested[0].split(".")[:2])
+    assert (pipecat.lowest, pipecat.below) == (f"{major}.{minor}", f"{major}.{minor + 1}")
+    accepted = f"pipecat-ai{pipecat.requirement}"
     assert f"pipecat = [\"{accepted}; python_version >= '3.11'\"]" in project
-    said = f"from {major}.{minor} up to, and not\nincluding, {major}.{minor + 1}, on Python 3.11"
+    said = f"from {pipecat.lowest} up to, and not\nincluding, {pipecat.below}, on Python 3.11"
     assert said in _section("pipecat-ai")
     assert (
         'requires-python = ">=3.10"' in project and '"pipecat"' in project.split("classifiers")[0]
     )
+
+
+def test_the_compatibility_page_says_what_an_adapter_does_with_the_installed_release():
+    for heading in ("livekit-agents", "pipecat-ai"):
+        section = " ".join(_section(heading).split())
+        assert "warns once" in section and "refuses to import" in section
 
 
 def test_the_pipecat_table_on_the_compatibility_page_is_what_the_workflow_runs():
@@ -321,6 +363,49 @@ def test_the_releases_with_each_known_defect_are_the_same_everywhere_they_are_li
         assert shown.endswith(f"| {', '.join(present)} | {', '.join(repaired)} |")
 
 
+def _newest_tested_release():
+    import livekit.agents as lk
+
+    if lk.__version__ != SUPPORT["livekit-agents"].tested[-1]:
+        pytest.skip("the pages quote a search on the newest tested release")
+    return lk.__version__
+
+
+def test_the_readme_and_the_search_page_quote_the_cases_the_example_search_plans():
+    release = _newest_tested_release()
+    done = subprocess.run(
+        [sys.executable, "-m", "earful", "search", "test_booking:booking"]
+        + ["--max-runs", "1", "--workers", "0"],
+        capture_output=True,
+        text=True,
+        check=False,
+        cwd=ROOT / "examples" / "booking",
+    )
+    (planned,) = re.findall(
+        r"^(earful: (\d+) cases .* to find them)\. The budget", done.stderr, re.MULTILINE
+    )
+    line, cases = planned
+    assert f"```\n{line}\n```" in (ROOT / "docs" / "search.md").read_text()
+    assert f"booking on livekit-agents {release}: {cases} cases tried, {cases} judged" in README
+    assert f"Earful ran the conversation {cases} times" in README
+
+
+def test_the_testing_page_quotes_the_cases_its_search_plans():
+    from test_inline import CONFIRMS_ANYTHING, booking
+
+    from earful.livekit import explore
+
+    release = _newest_tested_release()
+    plans = []
+    explore(booking(CONFIRMS_ANYTHING), planned=plans.append, max_runs=1)
+    page, cases = (ROOT / "docs" / "testing.md").read_text(), plans[0].cases
+    assert (
+        f"inline_booking on livekit-agents {release}: {cases} cases tried, {cases} judged" in page
+    )
+    assert f"The default search above is {cases} cases." in page
+    assert f"the {cases} cases of section 5 take" in " ".join(page.split())
+
+
 def test_the_readme_shows_the_example_as_it_is_in_the_repository():
     for name in ("agent.py", "test_booking.py"):
         source = (ROOT / "examples" / "booking" / name).read_text()
@@ -368,7 +453,6 @@ def test_the_skill_for_coding_agents_uses_only_what_exists():
     """The skill's code is parsed: its imports, keyword arguments and names in code type."""
     import ast
     import importlib
-    import inspect
 
     import earful
     import earful.livekit as adapter

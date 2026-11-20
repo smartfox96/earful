@@ -469,6 +469,6 @@ def test_a_case_with_its_own_pipeline_is_searched_and_built_again_from_its_data(
     assert found.tried and all(t.outcome.ran for t in found.tried)
     data = scenario.describe(menu_with_a_listener(), "test_pipecat_pipeline:menu_with_a_listener")
     assert scenario.build(data).pipeline is not None
-    assert pc.run(menu_with_a_listener, case=data).hash == pc.run(menu_with_a_listener()).hash
+    assert pc.run(menu_with_a_listener, data=data).hash == pc.run(menu_with_a_listener()).hash
     kept = menu_with_a_listener()
     assert pc.run(kept).hash == pc.run(kept).hash  # the pipeline is built for each run

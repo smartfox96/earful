@@ -145,7 +145,10 @@ class RunResult:
 def _header(case: Case, tools: set[str], options: dict[str, Any]) -> dict[str, Any]:
     unknown = sorted(case.effects.keys() - tools)
     if unknown:
-        raise ValueError(f"effects declared for unregistered functions {unknown}")
+        raise ValueError(
+            f"effects are declared for {unknown}, which are not functions the bot registers; "
+            f"it registers {sorted(tools)}"
+        )
     intents = declared_intents(case.intents, case.effects, case.speeches)
     return {
         "speeches": [

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import inspect
 import json
 import os
 import re
@@ -154,7 +155,7 @@ def test_pipecat_case_settings_and_delays_survive_serialization():
     assert data["settings"]["tts_word_timestamps"] is True
     assert data["settings"]["vad_start_us"] == 200_000
     assert scenario.describe(scenario.build(data), data["scenario"], 21) == data
-    result = pc.run(greeting, case=data)
+    result = pc.run(greeting, data=data)
     assert result.hash == pc.run(built, seed=21).hash
     assert events(result, "llm.response")[0]["ttft_us"] == 700_000
     assert events(result, "tts.synthesized")[0]["ttfb_us"] == 400_000
@@ -168,8 +169,12 @@ def test_pipecat_case_settings_and_delays_survive_serialization():
 def test_pipecat_rejects_unknown_tools_and_retired_intents():
     built = booking()
     built.effects = {"misspelled": pc.Effect("table")}
-    with pytest.raises(ValueError, match="unregistered.*misspelled"):
+    with pytest.raises(ValueError) as refused:
         pc.run(built)
+    assert str(refused.value) == (
+        "effects are declared for ['misspelled'], which are not functions the bot registers; "
+        "it registers ['book']"
+    )
     built = greeting()
     built.speeches = [replace(built.speeches[0], retires=("unknown",))]
     with pytest.raises(ValueError, match="retires undeclared"):
@@ -651,3 +656,28 @@ def test_pipecat_search_is_quiet():
     finally:
         logger.remove(sink)
     assert not during and after
+
+
+def test_pipecat_adapter_warns_once_when_it_is_imported_on_an_untested_release(imported_on):
+    imported_on("pipecat-ai", "1.16.999").warns_once()
+
+
+def test_pipecat_outside_the_range_is_refused_by_the_command_before_the_adapter_loads(imported_on):
+    imported_on("pipecat-ai", "1.17.0").is_refused()
+
+
+def test_pipecat_a_name_an_untested_release_lacks_is_reported_with_the_tested_release(imported_on):
+    said = imported_on("pipecat-ai", "1.16.999").lacks("pipecat.clocks.base_clock")
+    assert said.startswith(
+        "ImportError: earful.pipecat cannot be imported on pipecat-ai 1.16.999, which is not a "
+        "tested release (import of pipecat.clocks.base_clock halted"
+    )
+    assert said.endswith("The tested releases are: 1.16.0")
+
+
+def test_pipecat_help_shows_each_public_function_as_a_function_of_the_adapter():
+    for name in ("run", "explore", "cross_check", "keep", "replay"):
+        function = getattr(pc, name)
+        assert inspect.isfunction(function) and function.__doc__
+        assert (function.__module__, function.__qualname__) == ("earful.pipecat.api", name)
+    assert "source: 'str | Case | Callable[[], Case]'" in str(inspect.signature(pc.run))

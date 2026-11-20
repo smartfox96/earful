@@ -19,7 +19,7 @@ Gate 0 is complete when each of these is demonstrated.
 | --- | --- |
 | The same scenario and seed give identical normalized ledgers on repeated runs | Result; `scripts/gate0_repeat.py` |
 | A full playout and memory event path is observable | Sample trace; `sink` and `llm` events in every ledger |
-| A public technical note states the exact versions, commands, sample trace, repeatability result, raw output and limits | This document and `docs/gate0/evidence/` |
+| A public technical note states the exact versions, commands, sample trace, repeatability result, raw output and limits | This document and `docs/history/gate0/evidence/` |
 | If threads, timers or room requirements escape control, the supported boundary is stated | Supported boundary |
 
 ## Result
@@ -43,7 +43,7 @@ seconds of wall time.
 
 For every case, the hash for each release is the same on macOS arm64 and Linux x86_64,
 and on Python 3.10, 3.12 and 3.13. CI asserts it: each of the 12 jobs fails unless every
-case's hash equals the SHA-256 of the ledger committed in `docs/gate0/evidence/`, which
+case's hash equals the SHA-256 of the ledger committed in `docs/history/gate0/evidence/`, which
 was recorded on macOS arm64. All 12 jobs pass.
 
 Negative control: the same case on the real clock, with nothing patched, gave 3 distinct
@@ -91,7 +91,7 @@ scripts/make_env.sh 1.6.5 2026-07-20                      # one pinned environme
 .venvs/lk-1.6.5/bin/python scripts/show_run.py barge_in_mid_word   # print one ledger
 ```
 
-Raw output is in `docs/gate0/evidence/`. A normalized ledger's hash can be checked with
+Raw output is in `docs/history/gate0/evidence/`. A normalized ledger's hash can be checked with
 standard tools: `shasum -a 256 <file>.ledger.normalized.jsonl` equals `reference_hash` in
 the matching `.repeat.json`. Reproducing a result rewrites these files byte for byte, so
 `git status` stays clean after `scripts/gate0_all.sh`.

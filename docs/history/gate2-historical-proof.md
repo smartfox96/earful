@@ -2,7 +2,7 @@
 
 Status: **passed.** 16 November 2026.
 
-Gate 1 showed that the checker catches deliberate breaks (`docs/gate1-core.md`). Gate 2
+Gate 1 showed that the checker catches deliberate breaks (`docs/history/gate1-core.md`). Gate 2
 tests it against two defects that LiveKit users reported and the maintainers fixed. Each
 must fail on the releases that have it and pass on the releases that fixed it, with one
 checker and no code written for the defect.

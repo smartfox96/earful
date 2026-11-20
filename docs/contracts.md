@@ -1,10 +1,8 @@
 # Contracts
 
-Status: **implemented**, 16 November 2026, as contracts version `earful.contracts/1` in
-`src/earful/core/checker/`.
-
-This document defines what Earful checks. The checker, the ledger schema and the deliberate
-breaks that prove the checker works are all built against it. Section 10 records what the
+This document defines what Earful checks, as contracts version `earful.contracts/1`. The
+checker (`src/earful/core/checker/`), the ledger schema and the deliberate breaks that
+prove the checker works are all built against it. Section 10 records what the
 checker measured on the reference ledgers. The default policy values rest on those
 measurements.
 
@@ -382,7 +380,7 @@ after it.
 | Rule | Fail if a milestone has not occurred by its deadline. The deadline is the start of the clock, plus the declared end-of-turn delay, plus the scripted provider delays on the chain so far, plus `slack_us`. A finding names the milestone that was missed (`milestone 1`, `milestone 2`, `milestone 3`), so that a failure to call the model and a reply that never plays are different failures |
 | End-of-turn delay | The scripted VAD's `min_silence_us` plus the session's `min_endpointing_delay_us`: the latest the framework can decide the turn is over |
 | Delays on the chain | For each step already taken: the model's `duration_us`; if it spoke, the `ttfb_us` of its own utterance plus the length of its audio, since the framework finishes speaking before the next step; and, for each write its tools made, the backend `latency_us`, or the wait before the caller was told the write timed out. A tool's own running time is not on the chain: the scenario's code decides it and nothing declares it. A turn whose tool takes long by design needs a larger `slack_us` |
-| Excused | The user began speaking again before the milestone was due. If that speech expects a reply it carries the obligation, and this turn has no verdict. If it is noise or a backchannel, the turn keeps the obligation and its clock restarts when that speech ends plus the false-interruption timeout. The user hung up before the milestone was due: the turn has no verdict. A milestone that was already overdue when the user left still fails |
+| Excused | The user began speaking again before the milestone was due. If that speech expects a reply it carries the obligation, and this turn has no verdict. If it is noise or a backchannel, the turn keeps the obligation and its clock restarts when that speech ends plus the false-interruption timeout. A header whose `false_interruption_timeout_us` is null adds nothing: Pipecat declares none, because it does not resume a reply. The user hung up before the milestone was due: the turn has no verdict. A milestone that was already overdue when the user left still fails |
 | Policy | `slack_us` (default 1 000 000). `max_steps` (default 4) |
 | Unobservable | The scenario ended (the final history was read) before the deadline passed; a tool the model called was not witnessed; or the reply's audio cannot be attributed |
 | Flags | `silenced_by_a_tool`: the turn got no spoken reply because its tools asked for none. `most_favourable_reading`: which of the turn's replies was voiced is a reading (section 2.5) |

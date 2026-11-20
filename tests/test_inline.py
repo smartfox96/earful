@@ -223,7 +223,7 @@ def test_a_run_of_a_case_a_search_found_is_run_from_its_data():
     source = booking(CONFIRMS_ANYTHING)
     data = cases.with_fault(Scenario.of(source).default(), "backend.error", 1)
     with pytest.raises(ContractFailure, match="A3/rule"):
-        run(source, case=data).assert_contracts()
+        run(source, data=data).assert_contracts()
     run(source).assert_contracts()
 
 
@@ -231,7 +231,7 @@ def test_what_is_not_a_scenario_is_refused():
     with pytest.raises(TypeError, match="a Case, a function that returns one"):
         run(42)
     with pytest.raises(ValueError, match="returned NoneType, not a Case"):
-        run(lambda: None, case=Scenario.of(booking(READS_THE_ERROR)).default())
+        run(lambda: None, data=Scenario.of(booking(READS_THE_ERROR)).default())
 
 
 def test_only_a_function_at_the_top_of_a_module_has_a_name():
@@ -298,7 +298,7 @@ def test_a_case_built_in_a_test_is_searched_in_the_process_of_the_test():
     (one,) = found.breaks()
     assert not one.instants_only and not one.everywhere and one.details
     with pytest.raises(ContractFailure, match="A3/rule"):
-        run(booking(CONFIRMS_ANYTHING), case=one.example).assert_contracts()
+        run(booking(CONFIRMS_ANYTHING), data=one.example).assert_contracts()
 
     control = explore(booking(READS_THE_ERROR), variables=(), words=False)
     control.assert_contracts()
@@ -347,7 +347,7 @@ def test_what_a_search_is_asked_for_is_checked_before_a_worker_is_started(pools)
     with pytest.raises(ValueError, match="unknown faults \\['backend.melts'\\]"):
         explore(scenario_, workers=2, faults=["backend.melts"])
     with pytest.raises(ValueError, match="not an earful.case/1 document"):
-        explore(scenario_, workers=2, case={"schema": "earful.case/0"})
+        explore(scenario_, workers=2, data={"schema": "earful.case/0"})
     assert pools == []
 
 

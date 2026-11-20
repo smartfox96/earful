@@ -1697,6 +1697,37 @@ def test_l1_a_later_speech_carries_the_obligation():
     assert "the later speech carries the obligation" in result.notes[0]
 
 
+def _noise_after_the_turn(events, start_us, timeout_us):
+    """Speech 1 ends at 6.0 s and its clock starts at 6.2 s, with nothing to spare: the model
+    call at 6.5 s is late unless the noise at ``start_us`` restarts the clock."""
+    scenario = events[0]["data"]["scenario"]
+    noise = {**scenario["speeches"][1], "speech": 2, "transcript": "", "expects_reply": False}
+    scenario["speeches"].append({**noise, "start_us": start_us, "end_us": start_us + 50_000})
+    scenario["session"]["false_interruption_timeout_us"] = timeout_us
+    scenario["session"]["min_endpointing_delay_us"] = 0
+    scenario["providers"]["vad"]["min_silence_us"] = 0
+    (_, turn) = check(declare(events, L1={"slack_us": 0})).results["L1"].verdicts
+    first = turn.measures["milestones"][0]
+    return turn.outcome, first["deadline_us"]
+
+
+@pytest.mark.parametrize(
+    ("start_us", "timeout_us", "expected"),
+    [
+        (6_050_000, 2_000_000, (PASS, 8_100_000)),  # the noise ends at 6.1 s
+        (6_050_000, 300_000, (FAIL, 6_400_000)),
+        (6_050_000, 0, (FAIL, 6_200_000)),
+        (6_050_000, None, (FAIL, 6_200_000)),  # Pipecat declares none: it resumes no reply
+        (6_199_999, 2_000_000, (PASS, 8_249_999)),
+        (6_200_000, 2_000_000, (FAIL, 6_200_000)),  # noise at the deadline is after it
+    ],
+)
+def test_l1_a_turns_clock_restarts_after_noise_by_the_false_interruption_timeout(
+    barge, start_us, timeout_us, expected
+):
+    assert _noise_after_the_turn(barge, start_us, timeout_us) == expected
+
+
 def test_l1_reports_time_to_first_model_call_and_first_audio(barge):
     measures = check(barge).results["L1"].verdicts[0].measures
     assert measures["time_to_first_model_call_us"] == 0

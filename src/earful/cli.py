@@ -127,7 +127,7 @@ def _run(args: argparse.Namespace) -> int:
     case = _case(args.case)
     adapter, source = _scenario(args.scenario)
     try:
-        result = adapter.run(source, case=case, seed=args.seed)
+        result = adapter.run(source, data=case, seed=args.seed)
     except adapter.InvalidRun as exc:
         result = exc.result
     if args.ledger is not None:
@@ -158,7 +158,7 @@ def _search(args: argparse.Namespace) -> int:
     def search(workers: int) -> Any:
         return adapter.explore(
             source,
-            case=case,
+            data=case,
             seed=args.seed,
             workers=workers,
             variables=() if args.variables == "none" else tuple(args.variables.split(",")),
@@ -302,7 +302,7 @@ def _crosscheck(args: argparse.Namespace) -> int:
     tolerance = crosscheck.Tolerance(time_us=args.tolerance_ms * 1000, words=args.words)
     try:
         checked = adapter.cross_check(
-            source, case=case, seed=args.seed, runs=args.runs, tolerance=tolerance
+            source, data=case, seed=args.seed, runs=args.runs, tolerance=tolerance
         )
     except adapter.InvalidRun as exc:
         print("the virtual run is not valid evidence, so there is nothing to compare with:")
@@ -370,7 +370,12 @@ def _ignored(directory: Path) -> str | None:
 
 
 def _init(args: argparse.Namespace) -> int:
-    from .livekit.scaffold import scaffold
+    try:
+        from .livekit.scaffold import scaffold
+    except ImportError as exc:
+        raise Refused(
+            f"`earful init` writes a test for a livekit-agents agent only. {exc}"
+        ) from exc
 
     made = scaffold(args.agent)
     target: Path = args.output or Path(made.filename)
@@ -384,10 +389,16 @@ def _init(args: argparse.Namespace) -> int:
     if made.tools:
         print(f"tools      {', '.join(made.tools)}")
         print("           each is declared an effect; delete those that only read")
+    if made.unbuilt:
+        print(f"build      None for each argument does not build the agent ({made.unbuilt})")
+        print("           give build() in the file a stand-in for each before running it")
     done = _ignored(Path.cwd())
     if done:
         print(f"ignored    .earful/ ({done})")
     print(f"next       pytest {target}")
+    if made.tools:
+        print("           its search fails (A2) while a write has no idempotency key declared;")
+        print("           the file says where to declare one")
     return OK
 
 
@@ -429,7 +440,7 @@ def _parser() -> argparse.ArgumentParser:
     sub = command(
         "init",
         _init,
-        "Write a first test for an agent, from the agent's own tools. It runs as it is.",
+        "Write a first test for a livekit-agents agent, from the agent's own tools.",
     )
     sub.add_argument(
         "agent", metavar="AGENT", help="module:Class, such as myapp.agent:SupportAgent"

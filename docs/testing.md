@@ -266,12 +266,13 @@ every moment the system changes state, and adds each backend fault to each write
 broke a rule, and says what was changed to reach the failure and how wide it is:
 
 ```
-inline_booking on livekit-agents 1.8.12: 112 cases tried, 112 judged, 1 contract rule(s) broken
+inline_booking on livekit-agents 1.8.12: 857 cases tried, 857 judged, 1 contract rule(s) broken
 
-A3/rule  in 29 case(s)
+A3/rule  in 89 case(s)
     the claim was heard at 9780000 us; the first effect for 'book-table-1' was never committed
     changed: backend.error 1
     also by changing: backend.drop 1, backend.drop 1 + backend.wait 1, backend.timeout 1, commit first + backend.latency 1
+    breaks with backend.wait 1 from 0.000 s (no case exists beyond it) to 32.768 s (still breaks where the search stopped)
     breaks with backend.latency 1 from 6.781 s (passes beyond it) to 39.558 s (still breaks where the search stopped)
 ```
 
@@ -292,12 +293,12 @@ it. A fault can remove what a contract judges, as a rejected write leaves no con
 for A3 to check.
 
 `found.breaks()` gives each broken rule with an example case, as data. `run(case,
-case=example)` runs that example again.
+data=example)` runs that example again.
 
 The options narrow a search: `variables` (which times to move), `faults` (which faults to
 add), `speeches`, `moments`, `words`, `pairs` and `profiles`. `docs/search.md`, section
-3, says what each does. A default search of a one-turn booking scenario is about
-860 runs.
+3, says what each does, and how a search reports the number of cases it is about to run.
+The default search above is 857 cases.
 
 ## 6. Where a scenario lives
 
@@ -316,9 +317,9 @@ before anything runs, and say what to change. A search also checks what it is as
 (the case, the variables, the faults) before it starts a worker, and raises
 `WorkersUnavailable` where worker processes cannot be started at all.
 
-`explore(scenario, workers=N)` runs the cases in N worker processes. On a 15-core
-machine the 860 runs above take 36 s in the process of the test and 9 s in 15 workers.
-The workers are started for the search and stopped when it ends, so each search runs the
+`explore(scenario, workers=N)` runs the cases in N worker processes. On a 15-core machine
+the 857 cases of section 5 take 18 s in the process of the test and 5 s in 15 workers. The
+workers are started for the search and stopped when it ends, so each search runs the
 scenario's code as it is at that moment. Each worker is a fresh interpreter that imports
 the main module of the process that started it, so a script that searches with workers
 needs the `if __name__ == "__main__":` guard. Under pytest nothing is needed, and the
@@ -400,12 +401,11 @@ run and nothing older. A test that passes writes nothing, and leaves no director
 | `--earful-workers N` | Worker processes for a search that does not name a number; 0 runs it in the test's process. Default `auto` |
 
 With `auto`, `earful.explore` gives a search one worker process per processor if its
-scenario can be imported (section 6), and runs it in the test's process otherwise. The
-README's search of 736 cases takes 33 s in the test's process and 13 s with workers, on a
-15-core machine. Three things keep a search in the test's process under `auto`: a
-scenario built inline, a test run that pytest-xdist has already spread over the
-processors, and a machine where worker processes cannot be started. A number, on the
-command line or in the call, is always taken as given.
+scenario can be imported (section 6), and runs it in the test's process otherwise. Three
+things keep a search in the test's process under `auto`: a scenario built inline, a test
+run that pytest-xdist has already spread over the processors, and a machine where worker
+processes cannot be started. A number, on the command line or in the call, is always taken
+as given.
 
 `EARFUL_WORKERS=N` in the environment gives `auto`, and `earful search`, a number to use
 in place of one per processor. Set it where several test runs share a machine: each would
@@ -447,7 +447,7 @@ earful report failures/lk-1.8.12.booking.A3-rule -o report.html
 
 | Command | Does |
 | --- | --- |
-| `earful init AGENT` | Writes a first test for an agent, named as `module:Class`, into `test_<agent>.py` (`-o FILE` names another). The test runs as it is: the scripted model calls the agent's first tool, and every tool is declared an effect, so no tool body runs. The file marks what to change. An agent that cannot be built without arguments is built with `None` for each. Adds `.earful/` to `.gitignore` |
+| `earful init AGENT` | Writes a first test for a livekit-agents agent, named as `module:Class`, into `test_<agent>.py` (`-o FILE` names another). The scripted model calls the agent's first tool with a value for each argument the tool requires, and once more if the call fails. Every tool is declared an effect, so no tool body runs. Both tests require A2, A3 and L1 to reach a verdict, and the search fails on a write the model repeats until the file declares that write's idempotency key. The file marks what to change. An agent that cannot be built without arguments is built with `None` for each. A tool it cannot write a call for, because no value it has is one the tool accepts, is refused. Adds `.earful/` to `.gitignore` |
 | `earful check LEDGER...` | Prints the verdicts for recorded ledgers. `--measures` adds what each verdict measured, `--json` prints one report per line |
 | `earful run SCENARIO` | Runs a scenario once and prints its verdicts. `--case FILE` runs a saved case, `--ledger FILE` writes the ledger |
 | `earful search SCENARIO` | Searches a scenario, in one worker process per processor unless `--workers` says otherwise. Where worker processes cannot be started, as in some sandboxes and containers, it says so and searches in its own process; with `--workers N` given it refuses. `--keep CONTRACT/RULE --out DIR` writes a bundle for a rule that broke, in a directory of `DIR` named after the framework release, the scenario's function and the rule: `lk-1.8.12.booking.A3-rule` on livekit-agents, `pc-1.16.0.booking.A3-rule` on pipecat-ai. `--variables`, `--faults`, `--pairs`, `--profiles`, `--no-words` and `--no-windows` narrow or widen the search. It prints how many cases it is about to run on standard error, and `--max-runs N` stops it after N runs: a search cut short is incomplete and exits 3 unless a rule broke. With `--no-windows` a rule that breaks only at single instants counts as broken, and the output names the rules that were not measured |

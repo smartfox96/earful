@@ -45,23 +45,16 @@ class _Budget:
             deadline = self._base + self._end_of_turn + chain_us + self._slack
             if reached is not None and reached <= deadline:
                 return MET, deadline
+            # The milestone is unreached or late here: what precedes the deadline precedes it.
             nxt = self._later[self._used] if self._used < len(self._later) else None
-            if (
-                nxt is not None
-                and nxt.start < deadline
-                and (reached is None or nxt.start < reached)
-            ):
+            if nxt is not None and nxt.start < deadline:
                 if nxt.expects_reply:
                     return SUPERSEDED, deadline  # the later speech carries the obligation
                 # Noise or a backchannel restarts the clock once it is known not to interrupt.
                 self._used += 1
                 self._base = max(self._base, nxt.end + self._resume)
                 continue
-            if (
-                self._left is not None
-                and self._left < deadline
-                and (reached is None or reached > self._left)
-            ):
+            if self._left is not None and self._left < deadline:
                 return LEFT, deadline
             if reached is None and self._ended < deadline:
                 return UNOBSERVABLE, deadline

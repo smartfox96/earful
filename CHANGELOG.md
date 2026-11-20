@@ -17,7 +17,8 @@ formats have versions of their own
   shows a first scenario and lists the limits.
 - `earful.scripted`, the package both adapters share: the virtual clock, the scripted
   user, model and voice, and a scenario's intents, delays and faults. `earful.livekit`
-  exports the names it did before.
+  exports the names it did before, and `earful.livekit.clock` and
+  `earful.livekit.playbook` still import.
 - `assert_contracts(require=[...])` fails when a named contract got no pass or fail.
 - `M2/rule f`: a tool call or result shown to the model has the name and the arguments of
   the call the model made.
@@ -55,6 +56,17 @@ formats have versions of their own
 - A1, A2 and A3 are all unobservable for a tool call that leaves nothing in the backend.
   M2 rule e also holds tool items and replies to their place among the user turns. L2
   no longer counts a gap in a streaming buffer as a reply stopping or starting.
+- An adapter refuses to import on a framework release outside the range its extra accepts,
+  and warns once (`UntestedRelease`) on a release inside the range that is not tested.
+- The test `earful init` writes has a model that calls the tool once more after a failed
+  call, and requires A2, A3 and L1 to reach a verdict. Its search fails on a write that
+  is repeated with no idempotency key declared. `earful init` gives an argument that is a
+  pydantic model, a date or an identifier a value the tool accepts, finds tools handed to
+  the agent's constructor, and refuses a tool it cannot write a call for.
+- `run`, `explore`, `cross_check` and the fixture's `earful.run` take a case as data in
+  `data=`. The keyword was `case=`, which also named the `Case` class.
+- `help()` shows `run`, `explore`, `cross_check`, `keep` and `replay` as functions of
+  their adapter, with the adapter's `Case` and `RunResult` in the signature.
 - The scripted LiveKit VAD sets `speaking` as the Silero plugin does, and a word's audio
   has the same level whatever its stamp.
 

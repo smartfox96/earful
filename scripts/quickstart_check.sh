@@ -80,10 +80,25 @@ grep -q "2 passed" <<<"$output" || fail "pytest did not pass both tests: $output
 earful replay "$kept" --expect clean >/dev/null || fail "the kept failure still reproduces"
 echo "ok"
 
-echo "=== after it: earful init writes a first test for an agent, and that test passes"
+echo "=== after it: earful init writes a first test, whose search fails until the key is declared"
 earful init agent:BookingAgent >/dev/null || fail "earful init refused the example's agent"
-output="$(pytest -q test_booking_agent.py 2>&1)" || fail "the test earful init wrote fails: $output"
-grep -q "2 passed" <<<"$output" || fail "the test earful init wrote did not pass: $output"
+status=0
+output="$(pytest -q test_booking_agent.py 2>&1)" || status=$?
+[ "$status" -eq 1 ] || fail "pytest on the test earful init wrote exited $status, not 1: $output"
+grep -q "1 failed, 1 passed" <<<"$output" || fail "the written search did not fail alone: $output"
+grep -q "2 durable effects for 'create-reservation'" <<<"$output" || fail "no A2: $output"
+python - <<'PY'
+from pathlib import Path
+
+test = Path("test_booking_agent.py")
+source = test.read_text()
+declared, built = 'Effect("create-reservation")', "        policy=model,\n"
+assert source.count(declared) == 1 and source.count(built) == 1
+source = source.replace(declared, 'Effect("create-reservation", key="table")')
+test.write_text(source.replace(built, built + '        backend_mode="keyed",\n'))
+PY
+output="$(pytest -q test_booking_agent.py 2>&1)" || fail "it fails with the key declared: $output"
+grep -q "2 passed" <<<"$output" || fail "the written test did not pass: $output"
 echo "ok"
 
 echo "the quickstart took $(( $(date +%s) - installed )) s after a $((installed - began)) s install"
