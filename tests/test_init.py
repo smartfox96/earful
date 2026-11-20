@@ -39,6 +39,8 @@ def test_init_writes_a_test_from_the_agents_tools_and_says_what_to_do_next(here,
         "tools      issue_refund, look_up",
         "           each is declared an effect; delete those that only read",
         "next       pytest test_support_agent.py",
+        "           its search fails (A2) while a write has no idempotency key declared;",
+        "           the file says where to declare one",
     ]
     source = (here / "test_support_agent.py").read_text()
     assert "from scaffolded import SupportAgent\n" in source

@@ -71,22 +71,22 @@ class AdapterAPI(Generic[Case, RunResult]):
         self,
         source: str | Case | Callable[[], Case],
         *,
-        case: dict[str, Any] | None = None,
+        data: dict[str, Any] | None = None,
         seed: int = 0,
     ) -> RunResult:
         """Run a scenario once and return its ledger, with the verdicts on ``report``.
-        ``case`` is case data (earful.case/1), such as one a search found. Raises ``InvalidRun``
-        if the run is not valid evidence, ``ValueError`` if the scenario or case is refused."""
+        ``data`` is a case as data (earful.case/1), such as one a search found. Raises
+        ``InvalidRun`` if the run is not valid evidence, ``ValueError`` if either is refused."""
         found = self.scenario.Scenario.of(source)
-        if case is None:
+        if data is None:
             return self.run_case(found.make(), seed=seed)
-        return self.run_case(found.build(case), seed=case["seed"])
+        return self.run_case(found.build(data), seed=data["seed"])
 
     def explore(
         self,
         source: str | Case | Callable[[], Case],
         *,
-        case: dict[str, Any] | None = None,
+        data: dict[str, Any] | None = None,
         seed: int = 0,
         workers: int = 0,
         variables: Iterable[str] = search.DEFAULT_VARIABLES,
@@ -109,7 +109,7 @@ class AdapterAPI(Generic[Case, RunResult]):
             raise ValueError(f"workers is a number of processes, 0 for this one; got {workers}")
         if workers:
             self.scenario.importable(found.reference, "search in worker processes")
-        start = found.default(seed) if case is None else case
+        start = found.default(seed) if data is None else data
         # Checked here too, before any worker process is started.
         variables, faults = search.check_arguments(start, variables, faults)
         options: dict[str, Any] = {
@@ -170,7 +170,7 @@ class AdapterAPI(Generic[Case, RunResult]):
         self,
         source: str | Case | Callable[[], Case],
         *,
-        case: dict[str, Any] | None = None,
+        data: dict[str, Any] | None = None,
         seed: int = 0,
         runs: int = 3,
         tolerance: crosscheck.Tolerance | None = None,
@@ -183,7 +183,7 @@ class AdapterAPI(Generic[Case, RunResult]):
             raise ValueError(f"a cross-check makes at least one real-clock run; got {runs}")
 
         def built() -> tuple[Case, int]:
-            return (found.make(), seed) if case is None else (found.build(case), case["seed"])
+            return (found.make(), seed) if data is None else (found.build(data), data["seed"])
 
         scripted, with_seed = built()
         virtual = self.run_case(scripted, seed=with_seed).events

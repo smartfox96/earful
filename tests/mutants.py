@@ -2536,8 +2536,8 @@ MUTANTS = [
     Mutant(
         "api: a case's data is not what is run",
         "src/earful/scripted/api.py",
-        '        return self.run_case(found.build(case), seed=case["seed"])\n',
-        '        return self.run_case(found.make(), seed=case["seed"])\n',
+        '        return self.run_case(found.build(data), seed=data["seed"])\n',
+        '        return self.run_case(found.make(), seed=data["seed"])\n',
         first="run_from_its_data",
     ),
     Mutant(
@@ -3139,8 +3139,8 @@ MUTANTS = [
     Mutant(
         "cli: what a run may break is checked once it has run",
         "src/earful/cli.py",
-        "    allow, require = _asked(args)\n    case = _case(args.case)\n    adapter, source = _scenario(args.scenario)\n    try:\n        result = adapter.run(source, case=case, seed=args.seed)\n",
-        "    case = _case(args.case)\n    adapter, source = _scenario(args.scenario)\n    allow, require = _asked(args)\n    try:\n        result = adapter.run(source, case=case, seed=args.seed)\n",
+        "    allow, require = _asked(args)\n    case = _case(args.case)\n    adapter, source = _scenario(args.scenario)\n    try:\n        result = adapter.run(source, data=case, seed=args.seed)\n",
+        "    case = _case(args.case)\n    adapter, source = _scenario(args.scenario)\n    allow, require = _asked(args)\n    try:\n        result = adapter.run(source, data=case, seed=args.seed)\n",
         first="does_not_exist_is_refused_before_anything_runs",
     ),
     Mutant(
@@ -4371,5 +4371,12 @@ MUTANTS = [
         "            refused.append(exc)\n",
         "            raise\n",
         first="first_tool_a_call_can_be_written_for",
+    ),
+    Mutant(
+        "cli: init does not say that the search it wrote will fail",
+        "src/earful/cli.py",
+        '    if made.tools:\n        print("           its search fails (A2)',
+        '    if False:\n        print("           its search fails (A2)',
+        first="says_what_to_do_next",
     ),
 ]

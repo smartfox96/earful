@@ -127,7 +127,7 @@ def _run(args: argparse.Namespace) -> int:
     case = _case(args.case)
     adapter, source = _scenario(args.scenario)
     try:
-        result = adapter.run(source, case=case, seed=args.seed)
+        result = adapter.run(source, data=case, seed=args.seed)
     except adapter.InvalidRun as exc:
         result = exc.result
     if args.ledger is not None:
@@ -158,7 +158,7 @@ def _search(args: argparse.Namespace) -> int:
     def search(workers: int) -> Any:
         return adapter.explore(
             source,
-            case=case,
+            data=case,
             seed=args.seed,
             workers=workers,
             variables=() if args.variables == "none" else tuple(args.variables.split(",")),
@@ -302,7 +302,7 @@ def _crosscheck(args: argparse.Namespace) -> int:
     tolerance = crosscheck.Tolerance(time_us=args.tolerance_ms * 1000, words=args.words)
     try:
         checked = adapter.cross_check(
-            source, case=case, seed=args.seed, runs=args.runs, tolerance=tolerance
+            source, data=case, seed=args.seed, runs=args.runs, tolerance=tolerance
         )
     except adapter.InvalidRun as exc:
         print("the virtual run is not valid evidence, so there is nothing to compare with:")
@@ -396,6 +396,9 @@ def _init(args: argparse.Namespace) -> int:
     if done:
         print(f"ignored    .earful/ ({done})")
     print(f"next       pytest {target}")
+    if made.tools:
+        print("           its search fails (A2) while a write has no idempotency key declared;")
+        print("           the file says where to declare one")
     return OK
 
 

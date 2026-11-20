@@ -74,13 +74,13 @@ class Earful:
         self.searches: list[Exploration] = []
 
     def run(
-        self, scenario: Source, *, case: dict[str, Any] | None = None, seed: int = 0
+        self, scenario: Source, *, data: dict[str, Any] | None = None, seed: int = 0
     ) -> LiveKitResult | PipecatResult:
         """Run a scenario with its framework adapter."""
         adapter, source = _adapters.select(scenario)
 
         try:
-            result = adapter.run(source, case=case, seed=seed)
+            result = adapter.run(source, data=data, seed=seed)
         except adapter.InvalidRun as exc:
             self.runs.append(exc.result)
             raise

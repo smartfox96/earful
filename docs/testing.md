@@ -293,7 +293,7 @@ it. A fault can remove what a contract judges, as a rejected write leaves no con
 for A3 to check.
 
 `found.breaks()` gives each broken rule with an example case, as data. `run(case,
-case=example)` runs that example again.
+data=example)` runs that example again.
 
 The options narrow a search: `variables` (which times to move), `faults` (which faults to
 add), `speeches`, `moments`, `words`, `pairs` and `profiles`. `docs/search.md`, section

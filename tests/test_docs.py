@@ -221,7 +221,7 @@ def test_help_shows_each_public_function_as_a_function_of_the_adapter():
         assert pickle.loads(pickle.dumps(function)) is function
     assert str(inspect.signature(adapter.run)) == (
         "(source: 'str | Case | Callable[[], Case]', *, "
-        "case: 'dict[str, Any] | None' = None, seed: 'int' = 0) -> 'RunResult'"
+        "data: 'dict[str, Any] | None' = None, seed: 'int' = 0) -> 'RunResult'"
     )
 
 

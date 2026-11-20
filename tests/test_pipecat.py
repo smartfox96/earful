@@ -155,7 +155,7 @@ def test_pipecat_case_settings_and_delays_survive_serialization():
     assert data["settings"]["tts_word_timestamps"] is True
     assert data["settings"]["vad_start_us"] == 200_000
     assert scenario.describe(scenario.build(data), data["scenario"], 21) == data
-    result = pc.run(greeting, case=data)
+    result = pc.run(greeting, data=data)
     assert result.hash == pc.run(built, seed=21).hash
     assert events(result, "llm.response")[0]["ttft_us"] == 700_000
     assert events(result, "tts.synthesized")[0]["ttfb_us"] == 400_000
@@ -169,8 +169,12 @@ def test_pipecat_case_settings_and_delays_survive_serialization():
 def test_pipecat_rejects_unknown_tools_and_retired_intents():
     built = booking()
     built.effects = {"misspelled": pc.Effect("table")}
-    with pytest.raises(ValueError, match="unregistered.*misspelled"):
+    with pytest.raises(ValueError) as refused:
         pc.run(built)
+    assert str(refused.value) == (
+        "effects are declared for ['misspelled'], which are not functions the bot registers; "
+        "it registers ['book']"
+    )
     built = greeting()
     built.speeches = [replace(built.speeches[0], retires=("unknown",))]
     with pytest.raises(ValueError, match="retires undeclared"):

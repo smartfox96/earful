@@ -63,6 +63,8 @@ formats have versions of their own
   is repeated with no idempotency key declared. `earful init` gives an argument that is a
   pydantic model, a date or an identifier a value the tool accepts, finds tools handed to
   the agent's constructor, and refuses a tool it cannot write a call for.
+- `run`, `explore`, `cross_check` and the fixture's `earful.run` take a case as data in
+  `data=`. The keyword was `case=`, which also named the `Case` class.
 - `help()` shows `run`, `explore`, `cross_check`, `keep` and `replay` as functions of
   their adapter, with the adapter's `Case` and `RunResult` in the signature.
 - The scripted LiveKit VAD sets `speaking` as the Silero plugin does, and a word's audio
