@@ -4,7 +4,11 @@ import inspect
 import pickle
 import pydoc
 import re
+import subprocess
+import sys
 from pathlib import Path
+
+import pytest
 
 from earful.core.schema import kinds, load_schema
 from earful.scripted.releases import SUPPORT
@@ -357,6 +361,49 @@ def test_the_releases_with_each_known_defect_are_the_same_everywhere_they_are_li
         assert all(tuple(map(int, r.split("."))) >= first_repaired for r in repaired)
         (shown,) = re.findall(rf"^\| \[livekit/agents#{issue}\].*$", README, re.MULTILINE)
         assert shown.endswith(f"| {', '.join(present)} | {', '.join(repaired)} |")
+
+
+def _newest_tested_release():
+    import livekit.agents as lk
+
+    if lk.__version__ != SUPPORT["livekit-agents"].tested[-1]:
+        pytest.skip("the pages quote a search on the newest tested release")
+    return lk.__version__
+
+
+def test_the_readme_and_the_search_page_quote_the_cases_the_example_search_plans():
+    release = _newest_tested_release()
+    done = subprocess.run(
+        [sys.executable, "-m", "earful", "search", "test_booking:booking"]
+        + ["--max-runs", "1", "--workers", "0"],
+        capture_output=True,
+        text=True,
+        check=False,
+        cwd=ROOT / "examples" / "booking",
+    )
+    (planned,) = re.findall(
+        r"^(earful: (\d+) cases .* to find them)\. The budget", done.stderr, re.MULTILINE
+    )
+    line, cases = planned
+    assert f"```\n{line}\n```" in (ROOT / "docs" / "search.md").read_text()
+    assert f"booking on livekit-agents {release}: {cases} cases tried, {cases} judged" in README
+    assert f"Earful ran the conversation {cases} times" in README
+
+
+def test_the_testing_page_quotes_the_cases_its_search_plans():
+    from test_inline import CONFIRMS_ANYTHING, booking
+
+    from earful.livekit import explore
+
+    release = _newest_tested_release()
+    plans = []
+    explore(booking(CONFIRMS_ANYTHING), planned=plans.append, max_runs=1)
+    page, cases = (ROOT / "docs" / "testing.md").read_text(), plans[0].cases
+    assert (
+        f"inline_booking on livekit-agents {release}: {cases} cases tried, {cases} judged" in page
+    )
+    assert f"The default search above is {cases} cases." in page
+    assert f"the {cases} cases of section 5 take" in " ".join(page.split())
 
 
 def test_the_readme_shows_the_example_as_it_is_in_the_repository():

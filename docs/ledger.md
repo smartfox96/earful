@@ -484,7 +484,7 @@ not `earful.ledger/1`.
 
 ### Changes in development version 1
 
-Development version 0 was used for Gate 0 (`docs/gate0-feasibility.md`); commit `70bbc4c`
+Development version 0 was used for Gate 0 (`docs/history/gate0-feasibility.md`); commit `70bbc4c`
 reproduces it. These came with development version 1.
 
 - Added: a published JSON Schema; the run id; the framework release and clock in the

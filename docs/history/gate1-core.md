@@ -3,7 +3,7 @@
 Status: **passed.** 16 November 2026.
 
 Gate 0 showed that a real LiveKit `AgentSession` can be run deterministically
-(`docs/gate0-feasibility.md`). Gate 1 covers the core built on that: the ledger, the
+(`docs/history/gate0-feasibility.md`). Gate 1 covers the core built on that: the ledger, the
 checker, the search for the timings and faults at which a scenario fails, and the
 reduction of a failing case to one that is kept and replayed.
 

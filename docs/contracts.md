@@ -1,10 +1,8 @@
 # Contracts
 
-Status: **implemented**, 16 November 2026, as contracts version `earful.contracts/1` in
-`src/earful/core/checker/`.
-
-This document defines what Earful checks. The checker, the ledger schema and the deliberate
-breaks that prove the checker works are all built against it. Section 10 records what the
+This document defines what Earful checks, as contracts version `earful.contracts/1`. The
+checker (`src/earful/core/checker/`), the ledger schema and the deliberate breaks that
+prove the checker works are all built against it. Section 10 records what the
 checker measured on the reference ledgers. The default policy values rest on those
 measurements.
 
