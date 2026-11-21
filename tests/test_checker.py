@@ -1164,6 +1164,55 @@ def shown(events, call, kind):
     return next(i for i in context(events, call) if i["type"] == kind)
 
 
+@pytest.mark.parametrize(
+    "returned, owed",
+    [
+        ({}, ["call 2", "call 3", "final history"]),
+        ({"handoff": True}, ["call 2", "final history"]),  # a value came with the agent
+        ({"handoff": True, "expects_reply": False, "text": ""}, ["final history"]),
+    ],
+)
+def test_m2_a_call_that_handed_over_is_owed_in_its_follow_up_and_in_the_final_history(
+    affected, returned, owed
+):
+    """No context after the first booking returned shows its call or its result (#3702)."""
+    of(affected, "tool.returned")["data"].update(returned)
+    report = check(affected)
+    contexts = ("call 2", "call 3", "final history")
+    assert [label for label in contexts if "rule d" in _broken(report, label)] == owed
+
+
+def test_m2_a_context_that_shows_a_call_that_handed_over_is_held_to_the_rest_of_rule_d(fixed):
+    of(fixed, "tool.returned")["data"].update(handoff=True, expects_reply=False, text="")
+    assert _broken(check(fixed), "call 2") == ["rule d"]  # not the value the tool returned
+    shown(fixed, 2, "function_call_output")["output"] = ""
+    assert _broken(check(fixed), "call 2") == []
+    context(fixed, 2).remove(shown(fixed, 2, "function_call_output"))
+    assert _broken(check(fixed), "call 2") == ["rule d"]  # a call item without its result
+    context(fixed, 2).remove(shown(fixed, 2, "function_call"))
+    assert _broken(check(fixed), "call 2") == []  # the next agent's context need not show it
+
+
+@pytest.mark.parametrize("handoff", [False, True])
+def test_m2_an_error_result_for_a_handoff_is_the_frameworks_account_and_is_not_judged(
+    fixed, handoff
+):
+    if handoff:
+        of(fixed, "tool.returned")["data"]["handoff"] = True
+    shown(fixed, 2, "function_call_output").update(is_error=True, output="it did not happen")
+    judged = _judged(check(fixed), "call 2")
+    assert [f.rule for f in judged.findings] == ([] if handoff else ["rule d", "rule d"])
+    assert judged.measures["stand_in_results"] == int(handoff)
+
+
+def test_l1_a_turn_that_was_spoken_to_is_not_silenced_by_its_tool(fixed):
+    """The reply that calls the booking tool also speaks, and its first word plays at 3.2 s."""
+    of(fixed, "tool.returned")["data"]["expects_reply"] = False
+    (turn,) = [v for v in check(fixed).results["L1"].verdicts if v.instance == {"speech": 0}]
+    assert turn.outcome == PASS and turn.flags == ()
+    assert turn.summary == "the turn of speech 0 got its response in time"
+
+
 def test_m2_fails_when_the_model_is_shown_a_different_result(fixed):
     shown(fixed, 2, "function_call_output")["output"] = "Reservation R9 confirmed for 2 guests."
     report = check(fixed)

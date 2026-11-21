@@ -84,7 +84,9 @@ def _replies(context: _Context, alignment: Alignment) -> None:
         )
 
 
-def _tool_call(context: _Context, tool: ToolInvocation, call_id: str, later_turn: bool) -> bool:
+def _tool_call(
+    context: _Context, tool: ToolInvocation, call_id: str, later_turn: bool, owed: bool
+) -> bool:
     """Rule d for one call a tool received; true if the context shows a stand-in result."""
     event = context.event
     done = tool.outcome if tool.outcome is not None and tool.outcome["seq"] < event["seq"] else None
@@ -94,6 +96,9 @@ def _tool_call(context: _Context, tool: ToolInvocation, call_id: str, later_turn
     if returned and returned["t_us"] == event["t_us"] and later_turn:
         # Requested for a later turn the instant the tool returned: no order is owed.
         returned = None
+    handed_over = bool(returned and returned["data"].get("handoff"))
+    if handed_over and not owed and not calls and not outputs:
+        return False  # the application builds the context of the agent handed over to
     if not returned and not calls and not outputs:
         return False
     context.used += [tool.called, done]
@@ -119,6 +124,8 @@ def _tool_call(context: _Context, tool: ToolInvocation, call_id: str, later_turn
         # A result shown for a running or cancelled call is a stand-in and is not judged.
         return bool(outputs) and (done is None or done["kind"] == "tool.cancelled")
     shown = context.items[outputs[0]]
+    if shown["is_error"] and handed_over:
+        return True  # the framework's account of a handoff it did not make
     if shown["is_error"]:
         context.findings.append(
             Finding(
@@ -139,6 +146,16 @@ def _tool_call(context: _Context, tool: ToolInvocation, call_id: str, later_turn
     return False
 
 
+def _owes_a_handoff(view: View, context: _Context, tool: ToolInvocation) -> bool:
+    """Whether ``context`` is owed a call that handed the session over: the model call that
+    follows it up, if it asked for one, and the final history."""
+    done = tool.outcome
+    if context.event["kind"] == "history.final" or done is None or not done["data"].get("handoff"):
+        return True
+    later = [c.request["seq"] for c in view.calls.values() if c.request["seq"] > done["seq"]]
+    return bool(done["data"]["expects_reply"]) and context.event["seq"] == min(later, default=None)
+
+
 def _tool_calls(view: View, context: _Context, by_request: dict[int, _Context]) -> int:
     """Rule d: every tool call that returned is shown once, with its result. Counts stand-ins."""
     stand_ins = 0
@@ -148,7 +165,8 @@ def _tool_calls(view: View, context: _Context, by_request: dict[int, _Context]) 
         asked = view.request_of.get(tool.call_id)
         asked_in = by_request[asked.request["seq"]] if asked is not None else None
         later_turn = asked_in is not None and bool(context.present - asked_in.present)
-        stand_ins += _tool_call(context, tool, tool.call_id, later_turn)
+        owed = _owes_a_handoff(view, context, tool)
+        stand_ins += _tool_call(context, tool, tool.call_id, later_turn, owed)
     return stand_ins
 
 

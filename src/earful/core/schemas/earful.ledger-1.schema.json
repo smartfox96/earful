@@ -1598,6 +1598,10 @@
         "expects_reply": {
           "description": "Whether this outcome asks the framework to give the model another call. False when the tool asked for silence.",
           "type": "boolean"
+        },
+        "handoff": {
+          "description": "True when the tool returned an agent for the session to hand over to. Absent otherwise. Since schema_minor 1.",
+          "type": "boolean"
         }
       }
     },

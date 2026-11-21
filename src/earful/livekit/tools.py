@@ -31,22 +31,56 @@ def _plain(value: Any) -> bool:
     return False
 
 
+def _shown(output: Any) -> tuple[Any, bool] | None:
+    """What livekit-agents makes of a tool's return value: the value it shows the model, and
+    whether an agent came with it. None for several agents, which releases answer differently."""
+    if isinstance(output, lk.Agent):
+        return None, True
+    if not isinstance(output, (list, tuple, set, frozenset)):
+        return output, False
+    agents = [item for item in output if isinstance(item, lk.Agent)]
+    others = [item for item in output if not isinstance(item, lk.Agent)]
+    if len(agents) > 1:
+        return None
+    if isinstance(output, (set, frozenset)) and len(others) > 1:
+        return frozenset(others), bool(agents)  # in no stable order, so with no stable text
+    if not agents:
+        return others, False
+    return (others[0] if len(others) == 1 else others or None), True
+
+
 def model_text(value: Any) -> str | None:
     """The text livekit-agents shows the model for a tool's return value, or None for a
     value whose ``str`` is not a stable function of its content."""
-    if value is None:
-        return ""
-    if not _plain(value):
+    parts = _shown(value)
+    if parts is None:
         return None
-    return str(value)
+    shown, _ = parts
+    if shown is None:
+        return ""
+    if not _plain(shown):
+        return None
+    return str(shown)
+
+
+def hands_over(output: Any) -> bool:
+    """Whether a tool's return value hands the session to another agent."""
+    parts = _shown(output)
+    return parts is not None and parts[1]
 
 
 def expects_reply(outcome: Any) -> bool:
     """Whether livekit-agents gives the model another call after a tool ends this way.
-    A tool that returns nothing, or raises ``StopResponse``, asks for silence."""
-    if isinstance(outcome, lk.StopResponse) or outcome is None:
+    A tool that returns nothing or only an agent, or raises ``StopResponse``, asks for silence."""
+    if isinstance(outcome, lk.StopResponse):
         return False
-    required = getattr(outcome, "reply_required", None)
+    parts = _shown(outcome)
+    if parts is None:
+        return True
+    shown, _ = parts
+    if shown is None:
+        return False
+    required = getattr(shown, "reply_required", None)
     return True if required is None else bool(required)
 
 
@@ -90,6 +124,7 @@ class ToolWitness:
             output=json_value(output),
             text=model_text(output),
             expects_reply=expects_reply(output),
+            **({"handoff": True} if hands_over(output) else {}),
         )
 
     def raised(self, tool: int, name: str, exc: BaseException) -> None:

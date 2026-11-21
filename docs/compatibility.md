@@ -36,6 +36,10 @@ recorded, and every pydantic field whose default is a clock read was given the v
 clock. A release that reads time some other way is not caught by these checks. The reads
 that are virtual are listed under The virtual clock.
 
+A tool that returns an agent hands the session over on every release above. The scripted
+user and the tool witness follow the session to that agent, and the contracts are judged
+across the handoff ([`contracts.md`](contracts.md#m2-turn-integrity), rule d).
+
 ## pipecat-ai
 
 One release is supported. It is pinned and recorded the same way
@@ -167,9 +171,5 @@ ledgers, and reads bundles. It runs nothing. Python 3.10 or later.
 - A turn detector that is a model. Turns end on the scripted VAD's silence.
 - Interruption detection that is a model. The session is set to detect interruptions
   from the VAD, whatever the environment configures.
-- Contracts across a handoff. The scripted user and the tool witness follow the session to
-  the agent it hands over to, and A1 to A3 are judged there. M2 and L1 do not model a
-  handoff yet: M2 expects the tool that returned the agent in the next agent's context,
-  and L1 expects a model call to follow it.
 - A tool whose calls cannot be recorded, such as one inside a toolset. The run is invalid
   and names the tool.

@@ -104,8 +104,10 @@ What the contracts leave alone:
   among themselves.
 - L1 does not put a tool's own running time on a turn's budget. A turn whose tool takes
   long by design needs a larger `slack_us`.
-- M2 and L1 do not model a handoff between agents yet. A1 to A3 are judged across one
-  ([`compatibility.md`](compatibility.md#what-is-outside)).
+- Across a handoff between agents, M2 does not judge what the agent handed over to is
+  told of the handoff itself: the application builds that agent's context. The rest of
+  the conversation is owed there as anywhere
+  ([`contracts.md`](contracts.md#m2-turn-integrity)).
 - Two events at the same instant have no order the scenario decides. A stop that reaches
   the sink as the audio ends, and a tool that returns as a call for a later turn is made,
   are held to neither order ([`contracts.md`](contracts.md#23-order-and-time)).

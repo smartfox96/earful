@@ -4970,4 +4970,100 @@ MUTANTS = [
         '            out["settings"].__setitem__(\n',
         first="test_the_differences_between_two_cases_turn_one_into_the_other",
     ),
+    # A tool that returns an agent.
+    Mutant(
+        "witness: an agent a tool returns is its result",
+        "src/earful/livekit/tools.py",
+        "    if isinstance(output, lk.Agent):\n        return None, True\n",
+        "",
+        first="returns_an_agent_is_shown or taken_out_of_what_a_tool_returns",
+    ),
+    Mutant(
+        "witness: a tuple is shown to the model as a tuple",
+        "src/earful/livekit/tools.py",
+        "    if not agents:\n        return others, False\n",
+        "    if not agents:\n        return output, False\n",
+        first="tuple_a_tool_returns_is_recorded_as_the_list",
+    ),
+    Mutant(
+        "witness: a tool that returns several agents hands over",
+        "src/earful/livekit/tools.py",
+        "    if len(agents) > 1:\n        return None\n",
+        "",
+        first="taken_out_of_what_a_tool_returns",
+    ),
+    Mutant(
+        "witness: a set beside an agent is shown in the order it happens to have",
+        "src/earful/livekit/tools.py",
+        "    if isinstance(output, (set, frozenset)) and len(others) > 1:\n",
+        "    if False:\n",
+        first="taken_out_of_what_a_tool_returns",
+    ),
+    Mutant(
+        "witness: a handoff is not recorded",
+        "src/earful/livekit/tools.py",
+        '            **({"handoff": True} if hands_over(output) else {}),\n',
+        "",
+        first="returns_an_agent_is_shown",
+    ),
+    Mutant(
+        "M2: a call that handed over is owed in every later context",
+        "src/earful/core/checker/m2.py",
+        "    if handed_over and not owed and not calls and not outputs:\n",
+        "    if False:\n",
+        first="handed_over_is_owed_in_its_follow_up",
+    ),
+    Mutant(
+        "M2: a call that handed over is not owed in the final history",
+        "src/earful/core/checker/m2.py",
+        '    if context.event["kind"] == "history.final" or done is None or not done["data"].get("handoff"):\n',
+        '    if done is None or not done["data"].get("handoff"):\n',
+        first="handed_over_is_owed_in_its_follow_up",
+    ),
+    Mutant(
+        "M2: a handoff that asked for no reply is owed in the next model call",
+        "src/earful/core/checker/m2.py",
+        '    return bool(done["data"]["expects_reply"]) and context.event["seq"] == min(later, default=None)\n',
+        '    return context.event["seq"] == min(later, default=None)\n',
+        first="handed_over_is_owed_in_its_follow_up",
+    ),
+    Mutant(
+        "M2: every model call after a handoff follows it up",
+        "src/earful/core/checker/m2.py",
+        '    return bool(done["data"]["expects_reply"]) and context.event["seq"] == min(later, default=None)\n',
+        '    return bool(done["data"]["expects_reply"]) and context.event["seq"] in later\n',
+        first="handed_over_is_owed_in_its_follow_up",
+    ),
+    Mutant(
+        "M2: an error result for a handoff is judged",
+        "src/earful/core/checker/m2.py",
+        '    if shown["is_error"] and handed_over:\n',
+        "    if False:\n",
+        first="error_result_for_a_handoff",
+    ),
+    Mutant(
+        "M2: an error result for any call is the framework's account",
+        "src/earful/core/checker/m2.py",
+        '    if shown["is_error"] and handed_over:\n',
+        '    if shown["is_error"]:\n',
+        first="error_result_for_a_handoff",
+    ),
+    Mutant(
+        "M2: a context that shows a call that handed over is not held to its value",
+        "src/earful/core/checker/m2.py",
+        '    handed_over = bool(returned and returned["data"].get("handoff"))\n',
+        (
+            '    handed_over = bool(returned and returned["data"].get("handoff"))\n'
+            "    if handed_over and not owed:\n"
+            "        return False\n"
+        ),
+        first="shows_a_call_that_handed_over_is_held",
+    ),
+    Mutant(
+        "L1: a turn that was spoken to is flagged as silenced by its tool",
+        "src/earful/core/checker/l1.py",
+        "        silenced = turn.silenced and audio is None  # a turn that was spoken to is not silenced\n",
+        "        silenced = turn.silenced\n",
+        first="spoken_to_is_not_silenced or handed_over_to_answers_is_not_silenced",
+    ),
 ]

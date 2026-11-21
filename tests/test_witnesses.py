@@ -197,6 +197,43 @@ def test_values_json_cannot_hold_are_named_not_printed():
     assert tools.model_text(None) == ""  # a tool that returns nothing is shown as empty text
 
 
+def test_an_agent_is_taken_out_of_what_a_tool_returns_and_the_rest_is_shown():
+    agent, other = lk.Agent(instructions="next"), lk.Agent(instructions="another")
+    assert tools.model_text(agent) == "" and tools.model_text((agent, "a")) == "a"
+    assert tools.model_text([agent, "a", "b"]) == "['a', 'b']"
+    assert tools.model_text({agent, "a"}) == "a"
+    assert tools.model_text({agent, "a", "b"}) is None  # a set has no order to show them in
+    assert tools.hands_over(agent) and tools.hands_over(("a", agent))
+    assert not tools.hands_over("a") and not tools.hands_over(("a", "b"))
+    assert not tools.expects_reply(agent) and not tools.expects_reply((agent, None))
+    assert tools.expects_reply((agent, "")) and tools.expects_reply((agent, "a", "b"))
+    # Several agents: the framework hands over to none, and each release answers its own way.
+    assert tools.model_text((agent, other)) is None and not tools.hands_over((agent, other))
+    assert tools.expects_reply((agent, other))
+
+
+class _PairAgent(lk.Agent):
+    def __init__(self):
+        super().__init__(instructions="test")
+
+    @lk.function_tool
+    async def lookup(self, code: str):
+        """Look up a code.
+
+        Args:
+            code: the code
+        """
+        return code, 4
+
+
+def test_a_tuple_a_tool_returns_is_recorded_as_the_list_the_model_is_shown():
+    result = run_case(_one_turn("pair", _PairAgent, _tool_policy("lookup", '{"code": "X1"}')))
+    (returned,) = _of(result.ledger.events, "tool.returned")
+    assert returned["data"]["output"] == ["X1", 4] and returned["data"]["text"] == "['X1', 4]"
+    assert tools.model_text(("X1", 4)) == tools.model_text(["X1", 4])
+    assert result.report.outcome("M2") == PASS
+
+
 def test_the_user_hangs_up_and_a_write_under_way_still_commits():
     """The user leaves at 5 s, mid-reply, with a 6 s write requested at about 3 s."""
     case = CASES["book_then_interrupt"]()

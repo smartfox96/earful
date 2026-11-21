@@ -161,7 +161,7 @@ and a ledger must hash the same on every machine. They belong to a run's manifes
 | --- | --- | --- |
 | `tts.synthesized` | `utterance`, `call`, `attribution`, `candidates`, `text`, `stamps` (one per word), `word_samples` (one per word), `sample_rate`, `ttfb_us`, `started_us` | One utterance is finalized at input flush/end or cancellation |
 | `tool.called` | `tool`, `name`, `call_id`, `arguments` (by parameter name) | A witnessed tool starts |
-| `tool.returned` | `tool`, `name`, `output`, `text`, `expects_reply` | It returns |
+| `tool.returned` | `tool`, `name`, `output`, `text`, `expects_reply`, `handoff` | It returns |
 | `tool.raised` | `tool`, `name`, `error` (exception type), `message`, `expects_reply` | It raises |
 | `tool.cancelled` | `tool`, `name` | It is cancelled |
 
@@ -224,14 +224,21 @@ A tool's result is recorded twice. `output` is the returned value itself, as JSO
 is that value as the framework presents it to the model (for livekit-agents, `str(value)`,
 and the empty string for a tool that returns nothing). Earful computes it from the value
 the tool returned and never reads it from the framework. A contract compares what the
-model was shown with `text`. A value JSON cannot hold, such as an object or an agent handoff, is
+model was shown with `text`. A value JSON cannot hold, such as an object, is
 recorded as `{"unrepresentable": "<type name>"}` and its `text` is null: its default text
 form would put a memory address in the ledger.
 
+`handoff` is true when the tool returned an agent for the session to hand over to, and
+absent otherwise. livekit-agents takes the agent out of what the tool returned and shows
+the model the rest: `text` is the empty string for an agent alone and the text of the one
+value beside it otherwise. `output` still records the agent as unrepresentable. A tuple
+with no agent in it is shown as a list. A tool that returns several agents hands over to
+none of them, and its `text` is null.
+
 `expects_reply` says whether the outcome asks the framework to give the model another
-call. It is false when the tool asked for silence: in livekit-agents, by returning nothing
-or raising `StopResponse`. The progress contract does not wait for a reply that was not
-asked for.
+call. It is false when the tool asked for silence: in livekit-agents, by returning nothing,
+returning only an agent, or raising `StopResponse`. The progress contract does not wait
+for a reply that was not asked for.
 
 ### llm: the scripted model
 

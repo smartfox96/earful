@@ -80,6 +80,12 @@ formats have versions of their own
   their adapter, with the adapter's `Case` and `RunResult` in the signature.
 - The scripted LiveKit VAD sets `speaking` as the Silero plugin does, and a word's audio
   has the same level whatever its stamp.
+- M2 and L1 judge a conversation that is handed to another agent. A tool that returns an
+  agent is recorded with `handoff`, with the text the model is shown for what came with
+  the agent, and as asking for no reply when nothing did. M2 rule d owes that call in the
+  final history and in the model call that follows it up, and no longer in the contexts
+  of the agent handed over to.
+- L1 gives `silenced_by_a_tool` only to a turn that got no spoken reply.
 
 ### Fixed
 
@@ -88,6 +94,8 @@ formats have versions of their own
   milestone could still have been met then, so the turn is unobservable.
 - A ledger whose header declares overlapping speeches is refused, as a case that
   declares them already was.
+- A tuple a LiveKit tool returns is recorded with the text the model is shown, which is
+  that of a list. M2 rule d failed on such a tool.
 - The logging level no longer changes a ledger's hash.
 - A ledger's hash replaces only the framework's own identifiers, so application ids that
   look like them are kept.
