@@ -4,11 +4,13 @@ Exit status: 0 nothing broke, 1 a rule broke, 2 the command was refused, 3 no ve
 from __future__ import annotations
 
 import argparse
+import contextlib
 import json
 import os
 import sys
+import sysconfig
 import traceback
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Iterator, Sequence
 from pathlib import Path
 from typing import Any
 
@@ -23,6 +25,13 @@ from .core.search import CaseRefused, default_workers
 
 OK, BROKEN, REFUSED, NO_VERDICT = 0, 1, 2, 3
 _PACKAGE = Path(__file__).resolve().parent
+# The standard library and the installed packages: code there is not the scenario's.
+_INSTALLED = tuple(
+    {
+        Path(sysconfig.get_path(name)).resolve()
+        for name in ("stdlib", "platstdlib", "purelib", "platlib")
+    }
+)
 
 
 class Refused(Exception):
@@ -60,6 +69,33 @@ def _scenario(reference: str) -> tuple[Any, Any]:
         said = exc.msg if isinstance(exc, SyntaxError) else str(exc)
         raise Refused(
             f"scenario {reference!r} could not be built: {type(exc).__name__}: {said} ({where})"
+        ) from exc
+
+
+def _in_the_scenario(exc: BaseException) -> str | None:
+    """The innermost line of the scenario's own code under ``exc``, unless Earful raised it."""
+    frames = traceback.extract_tb(exc.__traceback__)
+    if not frames or Path(frames[-1].filename).resolve().is_relative_to(_PACKAGE):
+        return None
+    for frame in reversed(frames):
+        path = Path(frame.filename).resolve()
+        ours = frame.filename.startswith("<") or path.is_relative_to(_PACKAGE)
+        if not ours and not any(path.is_relative_to(home) for home in _INSTALLED):
+            return f"{path.name}, line {frame.lineno}"
+    return None
+
+
+@contextlib.contextmanager
+def _running(reference: str) -> Iterator[None]:
+    """A crash of the scenario's own code during a run is a refusal. Any other is raised."""
+    try:
+        yield
+    except Exception as exc:
+        where = _in_the_scenario(exc)
+        if where is None:
+            raise
+        raise Refused(
+            f"scenario {reference!r} could not be run: {type(exc).__name__}: {exc} ({where})"
         ) from exc
 
 
@@ -127,7 +163,8 @@ def _run(args: argparse.Namespace) -> int:
     case = _case(args.case)
     adapter, source = _scenario(args.scenario)
     try:
-        result = adapter.run(source, data=case, seed=args.seed)
+        with _running(args.scenario):
+            result = adapter.run(source, data=case, seed=args.seed)
     except adapter.InvalidRun as exc:
         result = exc.result
     if args.ledger is not None:
@@ -241,7 +278,8 @@ def _replay(args: argparse.Namespace) -> int:
     kept = bundle.load(args.bundle)
     adapter = _adapters.by_framework(kept.manifest["framework"]["name"])
     _scenario(kept.minimal["scenario"])  # refused here if its code cannot build a case
-    result = adapter.replay(kept, repeats=args.repeats)
+    with _running(kept.minimal["scenario"]):
+        result = adapter.replay(kept, repeats=args.repeats)
     kept_with = kept.manifest["environment"].get("earful")
     outcome = {
         "predicate": str(kept.predicate),
@@ -298,12 +336,14 @@ def _crosscheck(args: argparse.Namespace) -> int:
         case = kept.minimal
         _adapters.by_framework(kept.manifest["framework"]["name"])  # imports its adapter
         source = case["scenario"]
+    reference = source
     adapter, source = _scenario(source)
     tolerance = crosscheck.Tolerance(time_us=args.tolerance_ms * 1000, words=args.words)
     try:
-        checked = adapter.cross_check(
-            source, data=case, seed=args.seed, runs=args.runs, tolerance=tolerance
-        )
+        with _running(reference):
+            checked = adapter.cross_check(
+                source, data=case, seed=args.seed, runs=args.runs, tolerance=tolerance
+            )
     except adapter.InvalidRun as exc:
         print("the virtual run is not valid evidence, so there is nothing to compare with:")
         for reason in exc.reasons:

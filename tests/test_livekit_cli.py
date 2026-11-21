@@ -203,6 +203,109 @@ def test_what_earful_itself_raises_while_a_scenario_is_built_is_not_made_a_refus
         main(["run", "earful.livekit.cases:barge_in_mid_word"])
 
 
+CRASHES = """
+import json
+
+import livekit.agents as lk
+
+from earful.core.timebase import to_us
+from earful.livekit.cases import barge_in_mid_word
+
+
+class NoDatabase(lk.Agent):
+    def __init__(self):
+        raise RuntimeError("no database")
+
+
+class BadSettings(lk.Agent):
+    def __init__(self):
+        json.loads("{")
+
+
+class MisusesEarful(lk.Agent):
+    def __init__(self):
+        to_us(None)
+
+
+def _with(agent):
+    case = barge_in_mid_word()
+    case.agent = agent
+    return case
+
+
+def no_database():
+    return _with(NoDatabase)
+
+
+def bad_settings():
+    return _with(BadSettings)
+
+
+def misuses_earful():
+    return _with(MisusesEarful)
+"""
+
+
+@pytest.fixture
+def crashes(tmp_path, monkeypatch):
+    (tmp_path / "crashes.py").write_text(CRASHES)
+    monkeypatch.syspath_prepend(tmp_path)
+    monkeypatch.delitem(sys.modules, "crashes", raising=False)
+
+
+@pytest.mark.parametrize(
+    "scenario, said",
+    [
+        ("no_database", "RuntimeError: no database (crashes.py, line 12)"),
+        # Raised inside the standard library: the line is the scenario's that led there.
+        ("bad_settings", "(char 1) (crashes.py, line 17)"),
+    ],
+)
+def test_a_scenario_whose_own_code_raises_during_a_run_is_refused_in_one_line(
+    capsys, crashes, scenario, said
+):
+    for command in (("run",), ("crosscheck", "--runs", "1")):
+        status, out, err = earful(capsys, *command, f"crashes:{scenario}")
+        assert status == REFUSED and out == "", err
+        assert len(err.splitlines()) == 1 and err.endswith(f"{said}\n")
+        assert err.startswith(f"earful: scenario 'crashes:{scenario}' could not be run: ")
+
+
+def test_what_earful_itself_raises_during_a_run_is_not_made_a_refusal(crashes, monkeypatch):
+    with pytest.raises(TypeError, match="NoneType"):  # under the scenario's code, in Earful's
+        main(["run", "crashes:misuses_earful"])
+    monkeypatch.setattr("earful.livekit.harness.validity", None)  # no code of the scenario's
+    with pytest.raises(TypeError, match="not callable"):
+        main(["run", "earful.livekit.cases:barge_in_mid_word"])
+
+
+class _NoDatabase(lk.Agent):
+    def __init__(self):
+        raise RuntimeError("no database")
+
+
+def test_a_kept_failure_whose_scenario_raises_when_it_is_run_is_refused_in_one_line(
+    capsys, tmp_path, monkeypatch
+):
+    from earful.livekit import cases as shipped
+
+    def crashes_when_run(build=shipped.book_then_interrupt):
+        case = build()
+        case.agent = _NoDatabase
+        return case
+
+    kept = tmp_path / "kept"
+    shutil.copytree(KEPT_3702, kept)
+    monkeypatch.setattr(shipped, "book_then_interrupt", crashes_when_run)
+    for command in ("replay", "crosscheck"):
+        status, out, err = earful(capsys, command, kept)
+        assert status == REFUSED and out == "", err
+        assert len(err.splitlines()) == 1 and err.startswith(
+            "earful: scenario 'earful.livekit.cases:book_then_interrupt' could not be run: "
+            "RuntimeError: no database (test_livekit_cli.py, line "
+        )
+
+
 def test_a_kept_failure_whose_scenario_no_longer_builds_is_refused_in_one_line(
     capsys, tmp_path, monkeypatch
 ):

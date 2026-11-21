@@ -18,12 +18,14 @@ from ..core import case as case_format
 from ..core.search import CaseRefused
 from ..core.timebase import to_seconds, to_us
 from .case import CaseData, Delay, Fault, check_case
-from .releases import quiet_worker
+from .releases import SUPPORT, quiet_worker
 from .world import UserSpeech
 
 CaseT = TypeVar("CaseT", bound=CaseData)
 
 INLINE = "__inline__:case"
+# The package that provides each framework's top-level module.
+_FRAMEWORKS = {"livekit": "livekit-agents", "pipecat": "pipecat-ai"}
 _REFERENCE = re.compile(r"^[A-Za-z_][A-Za-z0-9_.]*:[A-Za-z_][A-Za-z0-9_.]*$")
 
 
@@ -42,9 +44,23 @@ def resolve(scenario: str) -> Callable[[], Any]:
     module, _, name = scenario.partition(":")
     try:
         target: Any = importlib.import_module(module)
+    except ImportError as exc:
+        absent = exc.name if isinstance(exc, ModuleNotFoundError) else None
+        if absent and f"{module}.".startswith(f"{absent}."):
+            raise CaseRefused(f"no scenario {scenario!r}: {exc}") from exc
+        # The module is there, and something it imports is not.
+        package = _FRAMEWORKS.get((absent or "").partition(".")[0])
+        why = str(exc)
+        if package is not None:
+            why = (
+                f"it needs {package}, which is not installed. "
+                f'Install it with: pip install "earful[{SUPPORT[package].extra}]"'
+            )
+        raise CaseRefused(f"scenario {scenario!r} could not be imported: {why}") from exc
+    try:
         for part in name.split("."):
             target = getattr(target, part)
-    except (ImportError, AttributeError) as exc:
+    except AttributeError as exc:
         raise CaseRefused(f"no scenario {scenario!r}: {exc}") from exc
     wrong = _not_a_factory(target)
     if wrong is not None:

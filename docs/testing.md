@@ -471,7 +471,7 @@ checked before anything runs.
 | --- | --- |
 | 0 | Nothing broke, or the replay did what `--expect` names. For `report`: the report was written |
 | 1 | A contract rule broke, the replay did not do what `--expect` names, or a real-clock run did not agree with the virtual one |
-| 2 | The command could not be carried out: bad arguments, a file that is not what it should be, a bundle with a file that is not what its manifest records, a scenario that does not exist, cannot be built or contradicts itself |
+| 2 | The command could not be carried out: bad arguments, a file that is not what it should be, a bundle with a file that is not what its manifest records, a scenario that does not exist, cannot be imported, built or run, or contradicts itself |
 | 3 | No verdict: a run was not valid evidence, did not repeat, or could not be compared, a required contract got no pass or fail, a case of a search raised, a search could judge none of the cases it tried, or its budget of runs cut it short |
 
 A rule that broke outranks a run without a verdict.
@@ -488,8 +488,14 @@ earful: agent is called once for each run and returns the agent, so it is a clas
 earful: unknown backend mode 'idempotent'; choose from ['plain', 'keyed']
 ```
 
-What is raised once a run has started is shown whole, as a traceback: an agent whose
-constructor raises, or an error in Earful.
+An exception from the scenario's own code once a run has started, such as an agent whose
+constructor raises, is refused the same way:
+
+```
+earful: scenario 'test_booking:booking' could not be run: RuntimeError: no database (agent.py, line 12)
+```
+
+An error in Earful itself is shown whole, as a traceback.
 
 ## 10. On the real clock
 

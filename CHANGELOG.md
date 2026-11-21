@@ -67,6 +67,11 @@ formats have versions of their own
   is repeated with no idempotency key declared. `earful init` gives an argument that is a
   pydantic model, a date or an identifier a value the tool accepts, finds tools handed to
   the agent's constructor, and refuses a tool it cannot write a call for.
+- `earful run`, `replay` and `crosscheck` refuse a scenario whose own code raises during
+  the run, in one line and with exit status 2. It was a traceback and status 1, the
+  status of a broken rule. An exception Earful raises is still a traceback.
+- A scenario whose module cannot be imported is told apart from one that does not exist,
+  and a missing livekit-agents or pipecat-ai is named with the extra that installs it.
 - `run`, `explore`, `cross_check` and the fixture's `earful.run` take a case as data in
   `data=`. The keyword was `case=`, which also named the `Case` class.
 - `help()` shows `run`, `explore`, `cross_check`, `keep` and `replay` as functions of

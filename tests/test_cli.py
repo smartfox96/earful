@@ -93,6 +93,47 @@ def test_a_command_that_does_not_exist_is_a_usage_error(capsys):
     assert stopped.value.code == REFUSED
 
 
+_IMPORTS = {
+    "needs_livekit": "import livekit.agents as lk",
+    "needs_pipecat": "from pipecat.frames import frames",
+    "needs_another": "import a_module_nobody_has",
+    "needs_nothing": "import json",
+}
+_REFUSALS = """\
+earful: scenario 'needs_livekit:booking' could not be imported: it needs livekit-agents, \
+which is not installed. Install it with: pip install "earful[livekit]"
+earful: scenario 'needs_pipecat:booking' could not be imported: it needs pipecat-ai, \
+which is not installed. Install it with: pip install "earful[pipecat]"
+earful: scenario 'needs_another:booking' could not be imported: \
+No module named 'a_module_nobody_has'
+earful: no scenario 'needs_nothing:reservation': \
+module 'needs_nothing' has no attribute 'reservation'
+earful: no scenario 'needs_nobody:booking': No module named 'needs_nobody'
+earful: no scenario 'needs_nobody.at_all:booking': No module named 'needs_nobody'
+earful: no scenario 'needs_nothing.more:booking': \
+No module named 'needs_nothing.more'; 'needs_nothing' is not a package
+"""
+
+
+def test_a_scenario_that_cannot_be_imported_is_told_apart_from_one_that_does_not_exist(tmp_path):
+    for module, line in _IMPORTS.items():
+        (tmp_path / f"{module}.py").write_text(f"{line}\n\n\ndef booking():\n    return None\n")
+    scenarios = [f"{module}:booking" for module in list(_IMPORTS)[:3]]
+    scenarios += ["needs_nothing:reservation", "needs_nobody:booking"]
+    scenarios += ["needs_nobody.at_all:booking", "needs_nothing.more:booking"]
+    code = (
+        "import sys\n"
+        "sys.modules['livekit'] = sys.modules['pipecat'] = None\n"  # importing either now raises
+        "from earful.cli import main\n"
+        f"assert [main(['run', one]) for one in {scenarios!r}] == [2] * {len(scenarios)}\n"
+    )
+    done = subprocess.run(
+        [sys.executable, "-c", code], capture_output=True, text=True, check=False, cwd=tmp_path
+    )
+    assert done.returncode == 0, done.stderr
+    assert done.stderr == _REFUSALS
+
+
 def test_a_kept_bundle_is_named_after_its_framework_its_scenario_and_its_rule():
     from earful import _adapters
     from earful.cli import _SHORT, _bundle_name

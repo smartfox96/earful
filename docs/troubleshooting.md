@@ -21,10 +21,11 @@ ImportError: earful.livekit needs livekit-agents, which is not installed. Instal
 extra of the framework the agent uses: `earful[livekit]` or `earful[pipecat]`. On
 Python 3.10 the `pipecat` extra installs Earful alone, since pipecat-ai needs 3.11.
 
-From the command, the same cause shows as the scenario's own import failing:
+From the command, a scenario whose module imports a framework that is not installed is
+refused with the extra to install:
 
 ```text
-earful: no scenario 'test_booking:booking': No module named 'livekit'
+earful: scenario 'test_booking:booking' could not be imported: it needs livekit-agents, which is not installed. Install it with: pip install "earful[livekit]"
 ```
 
 ### The framework release is outside the range
@@ -270,9 +271,15 @@ be rebuilt. The message names the model and the field
 
 ## A run that raises
 
-An exception from the agent's own code during a run is not caught. A test fails with it,
-and the command prints the traceback and ends with Python's status for an uncaught
-exception, which is 1. An agent whose constructor raises is the common case.
+An exception from the scenario's own code during a run fails a test as it is. The
+command refuses it in one line, with the file and the line of the scenario, and exits 2:
+
+```text
+earful: scenario 'test_booking:booking' could not be run: RuntimeError: no database (agent.py, line 12)
+```
+
+An agent whose constructor raises is the common case. An exception that Earful itself
+raised is not caught: the command prints the traceback, and that is a bug to report.
 
 A run in which nothing is scheduled and nothing can happen is ended after 60 real seconds:
 

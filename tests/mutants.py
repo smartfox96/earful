@@ -1465,11 +1465,100 @@ MUTANTS = [
         "adapter: unknown scenario not a ValueError",
         "src/earful/scripted/scenario.py",
         (
-            "    except (ImportError, AttributeError) as exc:\n"
+            "    except AttributeError as exc:\n"
             '        raise CaseRefused(f"no scenario {scenario!r}: {exc}") from exc\n'
         ),
-        ("    except (ImportError, AttributeError):\n        raise\n"),
+        ("    except AttributeError:\n        raise\n"),
         first="test_a_scenario_or_a_case_that_does_not_exist_is_refused",
+    ),
+    Mutant(
+        "scenario: a module that is not there is said to have failed to import",
+        "src/earful/scripted/scenario.py",
+        '        if absent and f"{module}.".startswith(f"{absent}."):\n',
+        "        if False:\n",
+        first="cannot_be_imported_is_told_apart",
+    ),
+    Mutant(
+        "scenario: a module whose import fails is said not to exist",
+        "src/earful/scripted/scenario.py",
+        '        if absent and f"{module}.".startswith(f"{absent}."):\n',
+        "        if absent:\n",
+        first="cannot_be_imported_is_told_apart",
+    ),
+    Mutant(
+        "scenario: a module whose package is not there is said to have failed to import",
+        "src/earful/scripted/scenario.py",
+        '        if absent and f"{module}.".startswith(f"{absent}."):\n',
+        "        if absent == module:\n",
+        first="cannot_be_imported_is_told_apart",
+    ),
+    Mutant(
+        "scenario: a framework that is not installed is not named with its extra",
+        "src/earful/scripted/scenario.py",
+        "        if package is not None:\n",
+        "        if False:\n",
+        first="cannot_be_imported_is_told_apart",
+    ),
+    Mutant(
+        "cli: a crash of the scenario's code during a run is a traceback",
+        "src/earful/cli.py",
+        (
+            "        where = _in_the_scenario(exc)\n"
+            "        if where is None:\n"
+            "            raise\n"
+            "        raise Refused(\n"
+            '            f"scenario {reference!r} could not be run: '
+        ),
+        (
+            "        where = _in_the_scenario(exc)\n"
+            "        if True:\n"
+            "            raise\n"
+            "        raise Refused(\n"
+            '            f"scenario {reference!r} could not be run: '
+        ),
+        first="own_code_raises_during_a_run or scenario_raises_when_it_is_run",
+    ),
+    Mutant(
+        "cli: a crash under the scenario's code is placed in the library that raised",
+        "src/earful/cli.py",
+        "        if not ours and not any(path.is_relative_to(home) for home in _INSTALLED):\n",
+        "        if not ours:\n",
+        first="own_code_raises_during_a_run",
+    ),
+    Mutant(
+        "cli: what Earful raises under the scenario's code is put down to the scenario",
+        "src/earful/cli.py",
+        (
+            "    if not frames or Path(frames[-1].filename).resolve().is_relative_to(_PACKAGE):\n"
+            "        return None\n"
+            "    for frame in reversed(frames):\n"
+        ),
+        "    for frame in reversed(frames):\n",
+        first="earful_itself_raises_during_a_run",
+    ),
+    Mutant(
+        "cli: a crash of the scenario's code in a run is not caught",
+        "src/earful/cli.py",
+        (
+            "        with _running(args.scenario):\n"
+            "            result = adapter.run(source, data=case, seed=args.seed)\n"
+        ),
+        ("        if True:\n            result = adapter.run(source, data=case, seed=args.seed)\n"),
+        first="own_code_raises_during_a_run",
+    ),
+    Mutant(
+        "cli: a crash of the scenario's code in a replay is not caught",
+        "src/earful/cli.py",
+        '    with _running(kept.minimal["scenario"]):\n',
+        "    if True:\n",
+        first="scenario_raises_when_it_is_run",
+    ),
+    Mutant(
+        "cli: a crash of the scenario's code in a cross-check is not caught",
+        "src/earful/cli.py",
+        "        with _running(reference):\n",
+        "        if True:\n",
+        first="own_code_raises_during_a_run or scenario_raises_when_it_is_run",
     ),
     Mutant(
         "adapter: fingerprint constant",
@@ -3128,8 +3217,8 @@ MUTANTS = [
     Mutant(
         "cli: what Earful raises while a scenario is built is refused in one line",
         "src/earful/cli.py",
-        "    if not frames or Path(frames[-1].filename).resolve().is_relative_to(_PACKAGE):\n",
-        "    if not frames:\n",
+        "    if not frames or Path(frames[-1].filename).resolve().is_relative_to(_PACKAGE):\n        return None\n    return f",
+        "    if not frames:\n        return None\n    return f",
         first="earful_itself_raises_while_a_scenario_is_built",
     ),
     Mutant(
@@ -3142,8 +3231,8 @@ MUTANTS = [
     Mutant(
         "cli: a cross-check of a kept failure builds its scenario unguarded",
         "src/earful/cli.py",
-        '        source = case["scenario"]\n    adapter, source = _scenario(source)\n',
-        '        source = case["scenario"]\n    adapter, source = _adapters.select(source)\n',
+        "    reference = source\n    adapter, source = _scenario(source)\n",
+        "    reference = source\n    adapter, source = _adapters.select(source)\n",
         first="kept_failure_whose_scenario_no_longer_builds",
     ),
     Mutant(
@@ -3542,8 +3631,8 @@ MUTANTS = [
     Mutant(
         "cli: what a run may break is checked once it has run",
         "src/earful/cli.py",
-        "    allow, require = _asked(args)\n    case = _case(args.case)\n    adapter, source = _scenario(args.scenario)\n    try:\n        result = adapter.run(source, data=case, seed=args.seed)\n",
-        "    case = _case(args.case)\n    adapter, source = _scenario(args.scenario)\n    allow, require = _asked(args)\n    try:\n        result = adapter.run(source, data=case, seed=args.seed)\n",
+        "    allow, require = _asked(args)\n    case = _case(args.case)\n    adapter, source = _scenario(args.scenario)\n    try:\n        with _running(args.scenario):\n",
+        "    case = _case(args.case)\n    adapter, source = _scenario(args.scenario)\n    allow, require = _asked(args)\n    try:\n        with _running(args.scenario):\n",
         first="does_not_exist_is_refused_before_anything_runs",
     ),
     Mutant(
