@@ -179,6 +179,14 @@ jobs:
           PY
       - name: Every test that needs no LiveKit runs, and none is skipped (scripts/ran_every_test.sh)
         run: scripts/ran_every_test.sh --without livekit .venvs/pc-${{ matrix.pc.version }}/bin/python
+      - name: Repeatability (every case, 100 in-process + 20 subprocess) and committed-hash check
+        run: >-
+          .venvs/pc-${{ matrix.pc.version }}/bin/python scripts/repeat.py
+          --check tests/golden --out evidence
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: evidence-pc-${{ matrix.pc.version }}-${{ matrix.cell.os }}-py${{ matrix.cell.python }}-${{ matrix.cell.from }}
+          path: evidence/
 
   determinism:
     name: lk ${{ matrix.lk.version }} / ${{ matrix.os }} / py${{ matrix.python }}

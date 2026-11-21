@@ -670,8 +670,9 @@ Taken while reading each rule against the code, 19 November 2026:
 
 ## 10. What the reference ledgers measure
 
-`earful check tests/golden/*.jsonl --measures` prints these. The 18 reference
-ledgers are three cases on six releases.
+`earful check tests/golden/lk-*.jsonl --measures` prints these. The 18 LiveKit reference
+ledgers are three cases on six releases. The three Pipecat reference ledgers
+(`tests/golden/pc-*`) pass every contract they exercise.
 
 | Measure | Observed | Default it supports |
 | --- | --- | --- |

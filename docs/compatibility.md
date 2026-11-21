@@ -82,7 +82,9 @@ imports and checks a ledger with nothing but its own dependencies.
 On every pull request, each row below builds the pinned environment without
 livekit-agents and runs every test that does not need it: the Pipecat tests and the
 tests of the core. A row fails if any of those is skipped
-(`scripts/ran_every_test.sh --without livekit`).
+(`scripts/ran_every_test.sh --without livekit`). Each row also runs the three Pipecat
+reference cases 120 times and compares them with the committed ledgers
+(`scripts/repeat.py`).
 
 | pipecat-ai | Python | System | Earful installed from |
 | --- | --- | --- | --- |
@@ -96,8 +98,8 @@ tests of the core. A row fails if any of those is skipped
 Each night the `canary` workflow installs the newest livekit-agents and the newest
 pipecat-ai the extras accept, with their dependencies as of that night, on Linux and
 Python 3.13 (`scripts/canary.sh`). It runs the tests that take under a second. A
-livekit-agents release with no row above has no reference ledgers, and there the tests
-that compare a run with one are skipped. The workflow also fails when PyPI has a release
+release with no row above has no reference ledgers, and there the tests that compare a
+run with one do not run. The workflow also fails when PyPI has a release
 an extra does not accept (`scripts/newer_release.sh`). No pull request runs it.
 
 

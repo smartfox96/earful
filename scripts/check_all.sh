@@ -22,7 +22,6 @@ done
 
 scripts/lint.sh
 scripts/make_pipecat_env.sh
-scripts/ran_every_test.sh --without livekit .venvs/pc-1.16.0/bin/python
 scripts/wheel_smoke.sh
 scripts/quickstart_check.sh
 SITE="$(mktemp -d)"
@@ -65,6 +64,8 @@ check() {
 if [ "${1:-}" = "--update" ]; then
   # Every release first: the checks below compare each release with all committed ledgers.
   side_by_side update
+  echo "=== updating reference ledgers: pipecat-ai 1.16.0"
+  .venvs/pc-1.16.0/bin/python scripts/repeat.py --update "$GOLDEN" | grep -E '"(case|identical)"'
   # The reference bundles are made on the oldest release, which has both known defects.
   echo "=== updating reference bundles: livekit-agents 1.5.6"
   rm -rf "$BUNDLES"
@@ -76,6 +77,9 @@ if [ "${1:-}" = "--update" ]; then
   keep earful.livekit.cases:speak_over_new_turn "L2/rule b" | grep -E '"(directory|distinct_hashes)"'
 fi
 
+echo "=== pipecat-ai 1.16.0"
+scripts/ran_every_test.sh --without livekit .venvs/pc-1.16.0/bin/python
+.venvs/pc-1.16.0/bin/python scripts/repeat.py --check "$GOLDEN" | grep -E '"(case|distinct_hashes|identical|matches_committed)"'
 side_by_side check
 
 echo "=== negative control: real clock, nothing patched (must give different hashes)"

@@ -96,9 +96,9 @@ a framework threshold is decided by the scenario and never by float rounding.
 `backend` and `harness` events. The framework's own `fw.*` events explain a run and
 decide nothing (`docs/contracts.md`, section 2).
 
-**The reference ledgers change only on purpose.** `tests/golden/` holds 18 ledgers that
-every platform must reproduce byte for byte, and `tests/bundles/` the two reduced
-historical failures. Checks never write there. If a change is meant to alter a ledger,
+**The reference ledgers change only on purpose.** `tests/golden/` holds 21 ledgers that
+every platform must reproduce byte for byte, 18 of LiveKit and 3 of Pipecat, and
+`tests/bundles/` the two reduced historical failures. Checks never write there. If a change is meant to alter a ledger,
 run `scripts/check_all.sh --update`, read the diff, and say in the pull request why each
 change is expected. An unexplained diff in a reference ledger is a bug.
 
@@ -172,8 +172,10 @@ One pipecat-ai release is supported at a time, so a new one takes the place of t
 3. `scripts/ran_every_test.sh --without livekit .venvs/pc-<version>/bin/python` runs
    every test that does not need livekit-agents and fails if one is skipped.
    `scripts/lint.sh` checks the adapter's types against the new release.
-4. Pipecat has no reference ledgers. A test that had to change is the record of a
-   difference in behaviour: say in the pull request what changed and why.
+4. `scripts/check_all.sh --update` records the three Pipecat reference ledgers under the
+   new release's name. Delete the old release's, and read the new ones against them
+   (`python scripts/ledger_diff.py`). A difference in behaviour, in a ledger or in a test
+   that had to change, belongs in the pull request.
 
 ## Adding a contract
 

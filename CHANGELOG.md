@@ -15,6 +15,8 @@ formats have versions of their own
   Earful's scripted ends (`Case.pipeline`).
   [`docs/pipecat.md`](https://github.com/smartfox96/earful/blob/main/docs/pipecat.md)
   shows a first scenario and lists the limits.
+- `earful.pipecat.cases` holds three reference scenarios, `greeting`, `reserve_table` and
+  `barge_in`, as `earful.livekit.cases` holds LiveKit's.
 - `earful.scripted`, the package both adapters share: the virtual clock, the scripted
   user, model and voice, and a scenario's intents, delays and faults. `earful.livekit`
   exports the names it did before, and `earful.livekit.clock` and

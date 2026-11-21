@@ -86,7 +86,7 @@ def barge():
 
 
 def _release(path):
-    return tuple(int(n) for n in path.name.removeprefix("lk-").split(".")[:3])
+    return tuple(int(n) for n in path.name[3:].split(".")[:3])  # after lk- or pc-
 
 
 @pytest.mark.parametrize(
@@ -108,6 +108,8 @@ def test_reference_ledgers_get_the_documented_outcomes(path):
         expected.update(A2=FAIL if has_3702 else PASS, A3=PASS, M2=FAIL if has_3702 else PASS)
     if case == "speak_over_new_turn" and release < (1, 5, 7):
         expected["L2"] = FAIL
+    if case == "reserve_table":
+        expected.update(A2=PASS, A3=PASS)
     assert check(read_jsonl(path)).outcomes() == expected
 
 

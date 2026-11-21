@@ -592,6 +592,25 @@ def test_a_file_that_skips_itself_for_the_framework_named_absent_is_left_out(tmp
     assert done.returncode == 2 and "takes the name of a module" in done.stderr
 
 
+def test_the_reference_ledgers_of_both_frameworks_are_repeated_and_compared():
+    repeated = "bin/python scripts/repeat.py\n          --check tests/golden --out evidence\n"
+    jobs = _jobs(CI)
+    assert ".venvs/lk-${{ matrix.lk.version }}/" + repeated in jobs["determinism"]
+    assert ".venvs/pc-${{ matrix.pc.version }}/" + repeated in jobs["pipecat"]
+    everything = (SCRIPTS / "check_all.sh").read_text()
+    pipecat = ".venvs/pc-1.16.0/bin/python scripts/repeat.py"
+    for command in (
+        '".venvs/lk-$1/bin/python" scripts/repeat.py --update "$GOLDEN" | grep ',
+        '"$py" scripts/repeat.py --check "$GOLDEN" | grep ',
+        f'{pipecat} --update "$GOLDEN" | grep ',
+        f'{pipecat} --check "$GOLDEN" | grep ',
+    ):
+        assert command in everything, command
+    # Recorded before the Pipecat tests compare a run with them.
+    tests = "scripts/ran_every_test.sh --without livekit .venvs/pc-1.16.0/bin/python\n"
+    assert everything.index(f"{pipecat} --update") < everything.index(tests)
+
+
 def test_where_livekit_is_absent_every_other_test_runs_and_a_skip_fails_the_job():
     jobs = _jobs(CI)
     ran = "scripts/ran_every_test.sh --without livekit .venvs/pc-{}/bin/python\n"
@@ -924,9 +943,13 @@ def test_the_canary_installs_what_an_extra_admits_today_and_runs_the_fast_tests(
     done, calls = canary("pipecat")
     assert done.returncode == 0, done.stderr
     assert calls[1] == "uv pip install -q -e .[pipecat] --group test"
-    # A test that is skipped fails the run, as it does in ci.
+    # A test that is skipped fails the run, as it does in ci. The one test left out
+    # compares a run with a reference ledger, which a newer release does not have.
     ran = "ran_every_test.sh --without livekit .venvs/canary-pipecat/bin/python -m not slow"
-    assert len(calls) == 4 and calls[3] == ran
+    left_out = "tests/test_pipecat_golden.py::test_pipecat_run_reproduces_the_committed_ledger"
+    assert len(calls) == 4 and calls[3] == f"{ran} --deselect {left_out}"
+    path, _, name = left_out.partition("::")
+    assert f"\ndef {name}(" in (ROOT / path).read_text()
     assert "=== what an install holds today: pipecat-ai==1.16.2\n" in done.stdout
 
 
