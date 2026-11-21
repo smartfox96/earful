@@ -22,7 +22,7 @@ from pipecat.turns.user_stop.speech_timeout_user_turn_stop_strategy import (
 from pipecat.turns.user_turn_strategies import UserTurnStrategies
 
 from earful import pipecat as pc
-from earful.core.checker import FAIL, PASS
+from earful.core.checker import FAIL, NOT_EXERCISED, PASS
 
 INTENT = "book-table"
 MENU = (
@@ -238,3 +238,60 @@ def test_l2_passes_with_a_bot_that_stops_when_the_user_speaks():
     result = pc.run(_menu(pipeline=_pipeline()))
     assert result.report.outcome("L2") == PASS
     assert result.report.results["L2"].verdicts[1].measures["stop_latency_us"] <= 100_000
+
+
+# "Your table is booked." is the claim, and the reply goes on after it.
+CONFIRMS = "Your table is booked. I will see you tonight at eight."
+_confirms_whatever_came_back = (
+    pc.ScriptedModel()
+    .when(pc.user_said("wait"), say="Yes?")
+    .when(pc.tool_returned(), say=CONFIRMS, claims=[pc.Claim(INTENT, 0, 3)])
+    .otherwise(say=ACK, call=BOOK)
+)
+REJECTED = [pc.Fault("backend.error", 1)]
+
+
+def _confirmed(wait_at, **kwargs):
+    """The user says "Wait." over the confirmation, which starts playing at 8.1 s."""
+    wait = pc.UserSpeech(wait_at, wait_at + 0.6, "Wait.")
+    result = pc.run(_booking(_confirms_whatever_came_back, wait, **kwargs))
+    cut = _played(result)[1]
+    assert cut["interrupted"]
+    return result, len(cut["words_played"])
+
+
+def test_a3_fails_when_the_user_heard_a_failed_booking_confirmed_before_speaking_over_the_rest():
+    result, heard = _confirmed(8.9, faults=REJECTED)
+    assert heard == 5  # the four words of the claim, and one more
+    assert result.report.outcome("A3") == FAIL
+    (failed,) = result.report.results["A3"].failures
+    assert failed.instance["intent"] == INTENT
+
+
+def test_a3_passes_when_the_booking_the_user_heard_confirmed_was_made():
+    result, heard = _confirmed(8.9)
+    assert heard == 5 and result.report.outcome("A3") == PASS
+
+
+def test_a3_has_no_claim_to_judge_when_the_user_cut_the_confirmation_before_it_was_said():
+    result, heard = _confirmed(8.5, faults=REJECTED)
+    assert heard == 3  # "Your table is"
+    assert result.report.outcome("A3") == NOT_EXERCISED
+
+
+def _stopped(*, word_times):
+    return pc.run_case(replace(_menu(), tts_word_timestamps=word_times), require_valid=False)
+
+
+def test_m1_fails_when_a_voice_without_word_times_is_cut_and_the_bot_forgets_what_it_said():
+    """Pipecat cannot tell how much of the reply had played, and keeps none of it."""
+    report = _stopped(word_times=False).report
+    assert report.outcome("M1") == FAIL and _rules(report, "M1") == ["rule 2"]
+    (forgotten,) = report.results["M1"].failures
+    assert (forgotten.measures["played"], forgotten.measures["cut"]) == (5, 1)
+
+
+def test_m1_passes_when_the_voice_sends_word_times_and_the_bot_remembers_what_was_heard():
+    report = _stopped(word_times=True).report
+    assert report.outcome("M1") == PASS
+    assert report.results["M1"].verdicts[0].measures["played"] == 5
