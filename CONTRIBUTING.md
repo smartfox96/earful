@@ -16,9 +16,10 @@ is installed editable, so the `earful` command and the pytest plugin in that env
 run the code in your checkout.
 
 For the Pipecat-only environment, run `scripts/make_pipecat_env.sh` and
-`.venvs/pc-1.16.0/bin/python -m pytest -q tests/test_pipecat*.py`. The script takes a
-pipecat-ai release and a date the same way, and with no arguments builds the supported
-release.
+`.venvs/pc-1.16.0/bin/python -m pytest -q`. The script takes a pipecat-ai release and a
+date the same way, and with no arguments builds the supported release. Each environment
+runs the tests of the core and of its own framework, and pytest reports the test files
+of the other framework as skipped.
 
 The files in `compat/` are generated. A release and a date decide what an environment
 holds, and a lock file records what the two resolve to on Python 3.13. Nothing installs
@@ -77,6 +78,15 @@ or either Earful adapter. The same rule covers `src/earful/scripted/`. Anything 
 livekit-agents belongs in `src/earful/livekit/`,
 and a name taken from inside livekit-agents, one that it does not export at its top
 level, goes through `src/earful/livekit/_compat.py`.
+
+**A test file says which framework it needs.** A file under `tests/` that imports
+livekit-agents or the LiveKit adapter starts with `pytest.importorskip("livekit.agents")`,
+before those imports, and a Pipecat file with `pytest.importorskip("pipecat")`. A file
+with neither line imports no framework and runs in every environment, so a test of the
+core goes in one of those. `tests/test_core_boundary.py` fails while a file disagrees
+with its imports. CI runs the Pipecat environment with
+`scripts/ran_every_test.sh --without livekit`, where the LiveKit files are left out and
+any other skip fails the job.
 
 **Time is integer microseconds.** Authors write seconds. Providers, the sink and the
 backend convert once (`earful.core.timebase`) and compute in integers, so that an event on
@@ -151,9 +161,9 @@ One pipecat-ai release is supported at a time, so a new one takes the place of t
    README, this page, `tests/test_ci.py` and `SUPPORT` in
    `src/earful/scripted/releases.py`. A release in a new minor series also moves the
    `pipecat` extra, in `SUPPORT` and in `pyproject.toml`. Tests fail while these disagree.
-3. `scripts/ran_every_test.sh .venvs/pc-<version>/bin/python tests/test_pipecat*.py` runs
-   every Pipecat test and fails if one is skipped. `scripts/lint.sh` checks the adapter's
-   types against the new release.
+3. `scripts/ran_every_test.sh --without livekit .venvs/pc-<version>/bin/python` runs
+   every test that does not need livekit-agents and fails if one is skipped.
+   `scripts/lint.sh` checks the adapter's types against the new release.
 4. Pipecat has no reference ledgers. A test that had to change is the record of a
    difference in behaviour: say in the pull request what changed and why.
 

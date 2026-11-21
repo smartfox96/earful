@@ -17,7 +17,7 @@ GOLDEN = Path(__file__).parent / "golden"
 @pytest.fixture
 def reference_ledger():
     """Gives a case's committed ledger for the installed livekit-agents, or skips the test."""
-    import livekit.agents as lk  # absent where only Pipecat is installed
+    import livekit.agents as lk  # a test that asks for this is in a file that needs LiveKit
 
     def committed(case):
         release = lk.__version__
@@ -39,7 +39,6 @@ class _Imported:
     def _run(self, then, without=None):
         support = SUPPORT[self.package]
         module = {"livekit-agents": "livekit.agents", "pipecat-ai": "pipecat"}[self.package]
-        pytest.importorskip(module)
         code = (
             f"import sys, warnings\nimport {module} as framework\n"
             f"framework.__version__ = {self.version!r}\n"

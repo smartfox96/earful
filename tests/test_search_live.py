@@ -4,8 +4,11 @@ import functools
 import re
 from pathlib import Path
 
-import livekit.agents as lk
 import pytest
+
+pytest.importorskip("livekit.agents")
+
+import livekit.agents as lk
 from breaks import SEVENTH_WORD_ENDS_US
 
 from earful.core import bundle

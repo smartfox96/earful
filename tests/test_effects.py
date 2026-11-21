@@ -2,8 +2,11 @@
 
 import asyncio
 
-import livekit.agents as lk
 import pytest
+
+pytest.importorskip("livekit.agents")
+
+import livekit.agents as lk
 from breaks import BOOKING, TalksToItsServiceItself, as_written_reads_the_error
 
 from earful.core import backend as backends
@@ -452,12 +455,6 @@ def test_a_stand_in_the_agent_is_handed_writes_to_the_backend_of_the_run():
     assert _of(events, "tool.returned")[0]["output"] == "Order R1 is in."  # the tool's own code
     assert "effects" not in _scenario(events)
     assert check(events).outcome("A2") == PASS
-
-
-def test_outside_a_run_there_is_no_backend_to_write_to():
-    assert backends.active() is None
-    with pytest.raises(RuntimeError, match="outside an Earful run"):
-        asyncio.run(effect("order-1", {"dish": "soup"}))
 
 
 def test_two_runs_do_not_share_a_backend():

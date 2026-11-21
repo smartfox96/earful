@@ -2,8 +2,11 @@
 
 import asyncio
 
-import livekit.agents as lk
 import pytest
+
+pytest.importorskip("livekit.agents")
+
+import livekit.agents as lk
 from livekit.agents import llm
 
 from earful.core.ledger import Ledger

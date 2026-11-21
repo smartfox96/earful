@@ -5,6 +5,8 @@ import subprocess
 
 import pytest
 
+pytest.importorskip("livekit.agents")
+
 from earful.cli import OK, REFUSED, main
 from earful.core.checker import ContractFailure
 from earful.livekit import Effect, Fault, run

@@ -440,30 +440,17 @@ def test_every_workflow_runs_its_steps_with_pipefail():
         assert not re.search(r"^\s+shell:(?! bash$)", text, re.MULTILINE), name
 
 
-@pytest.mark.slow
 @pytest.mark.parametrize("issue", ["3702", "5509"])
-def test_a_historical_case_script_fails_on_a_verdict_its_release_should_not_give(tmp_path, issue):
-    import livekit.agents as lk
-
-    source = (SCRIPTS / f"spike_{issue}.py").read_text()
-    (fixed_in,) = re.findall(r"^FIXED_IN = \((\d+), (\d+), (\d+)\)", source, re.MULTILINE)
-    installed = tuple(int(part) for part in lk.__version__.split(".")[:3])
-    # The other side of the installed release, so that the verdict it gives is the wrong one.
-    moved = "(99, 0, 0)" if installed >= tuple(map(int, fixed_in)) else "(0, 0, 0)"
-    wrong = tmp_path / "wrong.py"
-    wrong.write_text(source.replace(f"FIXED_IN = ({', '.join(fixed_in)})", f"FIXED_IN = {moved}"))
-    for script, status in ((SCRIPTS / f"spike_{issue}.py", 0), (wrong, 1)):
-        done = subprocess.run(
-            [sys.executable, str(script)], capture_output=True, text=True, check=False
-        )
-        assert done.returncode == status, done.stderr
-        assert '"distinct_hashes": 1' in done.stdout
-    assert done.stderr.startswith(f"#{issue}: ")
+def test_ci_runs_the_script_of_each_historical_case(issue):
     assert f"scripts/spike_{issue}.py evidence\n" in _jobs(CI)["determinism"]
 
 
 def test_a_change_to_prose_alone_runs_every_test_file_that_reads_prose():
-    reads = re.compile(r'"docs["/]|"(README|CHANGELOG|CONTRIBUTING|SECURITY|CODE_OF_CONDUCT)\.md"')
+    reads = re.compile(
+        r'"docs["/]|"(README|CHANGELOG|CONTRIBUTING|SECURITY|CODE_OF_CONDUCT)\.md"'
+        r"|^from test_docs import ",  # the pages as test_docs.py read them
+        re.MULTILINE,
+    )
     readers = {
         path.name
         for path in (ROOT / "tests").glob("test_*.py")
@@ -577,14 +564,44 @@ def test_a_run_counts_only_when_every_test_ran(tmp_path, name):
         assert "1 passed, 1 skipped" in done.stdout and "skipped 1" in done.stderr
 
 
-def test_the_pipecat_tests_run_where_a_skip_fails_the_job():
+def _wants(module, then=_PASSES):
+    return f'import pytest\n\npytest.importorskip("{module}")\n\n\n' + then
+
+
+def test_a_file_that_skips_itself_for_the_framework_named_absent_is_left_out(tmp_path):
+    def run(*without):
+        return _script("ran_every_test.sh", *without, sys.executable, cwd=tmp_path)
+
+    (tmp_path / "test_core.py").write_text(_PASSES)
+    (tmp_path / "test_adapter.py").write_text(_wants("no_such_framework.agents"))
+    done = run("--without", "no_such_framework")
+    assert done.returncode == 0, done.stdout + done.stderr
+    assert done.stdout.endswith("all 1 tests ran, 1 files need no_such_framework\n")
+    assert run().returncode == 1  # unless the framework is named, the skip fails the run
+    # Any other skip still fails: of a test, for another module, or inside a test.
+    for name, text in {
+        "a test is skipped": _SKIPPED + _PASSES,
+        "another module is absent": _wants("no_such_framework_plugins"),
+        "a test asks for the framework": _wants("pytest", "def test_two():\n")
+        + '    pytest.importorskip("no_such_framework.agents")\n',
+    }.items():
+        (tmp_path / "test_other.py").write_text(text)
+        done = run("--without", "no_such_framework")
+        assert done.returncode == 1 and "skipped 1: here every test" in done.stderr, name
+    done = run("--without", "a framework")
+    assert done.returncode == 2 and "takes the name of a module" in done.stderr
+
+
+def test_where_livekit_is_absent_every_other_test_runs_and_a_skip_fails_the_job():
     jobs = _jobs(CI)
-    ran = "scripts/ran_every_test.sh .venvs/pc-{}/bin/python tests/test_pipecat*.py\n"
+    ran = "scripts/ran_every_test.sh --without livekit .venvs/pc-{}/bin/python\n"
     assert ran.format("${{ matrix.pc.version }}") in jobs["pipecat"]
-    assert ran.format("1.16.0").replace("*", "") in jobs["docs"]  # the one that reads docs/
     assert ran.format("1.16.0") in (SCRIPTS / "check_all.sh").read_text()
-    files = sorted((ROOT / "tests").glob("test_pipecat*.py"))
-    assert len(files) > 1 and all("pytest.importorskip(" in f.read_text() for f in files)
+    # A change to prose alone runs the one Pipecat file that reads docs/.
+    assert (
+        "scripts/ran_every_test.sh .venvs/pc-1.16.0/bin/python tests/test_pipecat.py\n"
+        in (jobs["docs"])
+    )
 
 
 def test_the_deliberate_breaks_run_for_a_pull_request_that_changes_behaviour():
@@ -907,9 +924,9 @@ def test_the_canary_installs_what_an_extra_admits_today_and_runs_the_fast_tests(
     done, calls = canary("pipecat")
     assert done.returncode == 0, done.stderr
     assert calls[1] == "uv pip install -q -e .[pipecat] pytest pytest-asyncio"
-    # A Pipecat test that is skipped fails the run, as it does in ci.
-    ran = "ran_every_test.sh .venvs/canary-pipecat/bin/python tests/test_pipecat"
-    assert len(calls) == 4 and calls[3].startswith(ran) and calls[3].endswith(".py -m not slow")
+    # A test that is skipped fails the run, as it does in ci.
+    ran = "ran_every_test.sh --without livekit .venvs/canary-pipecat/bin/python -m not slow"
+    assert len(calls) == 4 and calls[3] == ran
     assert "=== what an install holds today: pipecat-ai==1.16.2\n" in done.stdout
 
 

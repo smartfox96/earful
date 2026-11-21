@@ -4,6 +4,9 @@ import asyncio
 from array import array
 
 import pytest
+
+pytest.importorskip("livekit.agents")
+
 from livekit import rtc
 
 from earful.core.ledger import Ledger

@@ -4,10 +4,13 @@ import re
 import shutil
 from pathlib import Path
 
-import livekit.agents as lk
 import pytest
 
-import earful.livekit  # noqa: F401 - before pytest is run on a project; see test_pytest_plugin
+pytest.importorskip("livekit.agents")
+
+import livekit.agents as lk
+
+import earful.livekit  # noqa: F401 - before pytest is run on a project; see test_livekit_pytest_plugin
 
 EXAMPLE = Path(__file__).resolve().parents[1] / "examples" / "booking"
 AS_SHIPPED = "await self._reservations.create(party_size)"

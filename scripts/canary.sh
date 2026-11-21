@@ -27,7 +27,7 @@ echo "$holds"
 
 echo "=== the tests under a second"
 if [ "$1" = pipecat ]; then
-  scripts/ran_every_test.sh "$env_dir/bin/python" tests/test_pipecat*.py -m "not slow"
+  scripts/ran_every_test.sh --without livekit "$env_dir/bin/python" -m "not slow"
 else
   # A release with no reference ledgers skips the tests that compare with them.
   "$env_dir/bin/python" -m pytest -q -m "not slow" -rs
