@@ -968,6 +968,14 @@ def test_a_hangup_is_a_difference_and_a_reduction_keeps_it_only_if_the_failure_n
     assert reduced.case["hangup_us"] is None and "removed the hangup" in reduced.steps
 
 
+def test_a_hangup_the_failure_does_not_need_keeps_no_speech_in_the_reduced_case():
+    # A user who hangs up must have spoken, so the hangup goes before the speeches are tried.
+    leaving = a_case(BOOK, hangup_us=9_000_000)
+    reduced = shrink(leaving, answers(lambda case: True), A2)
+    assert reduced.case["speeches"] == [] and reduced.case["hangup_us"] is None
+    assert reduced.steps == ["removed the hangup", "removed 1 of 1 speeches"]
+
+
 SLOW_WRITE = {"of": "backend.latency", "nth": 1, "us": 1_500_000}
 
 

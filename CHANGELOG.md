@@ -83,6 +83,8 @@ formats have versions of their own
 - The logging level no longer changes a ledger's hash.
 - A ledger's hash replaces only the framework's own identifiers, so application ids that
   look like them are kept.
+- A reduced case no longer keeps a speech only because the case it came from had a hangup
+  the failure does not need.
 
 ## [0.1.1] - 2026-11-18
 

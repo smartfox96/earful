@@ -331,9 +331,10 @@ keeps the step only if the run still breaks the same predicate.
    Hildebrandt's *ddmin*) over that list gives a smallest set of differences that still
    fails. The result is the author's scenario with only those changes. If the author's
    scenario fails as written, it is the author's scenario.
-2. **Remove.** ddmin again, over the speeches, then the declared delays, then the faults
-   that remain, the author's own included. Then the hangup, if the case still fails with
-   a user who stays.
+2. **Remove.** The hangup first, if the case still fails with a user who stays: a user
+   who hangs up must have spoken, so a hangup keeps one speech in the case. Then ddmin
+   again, over the speeches, then the declared delays, then the faults that remain, the
+   author's own included.
 3. **Settle.** For each time that still differs from the author's, measure its window. If
    the failure has an edge along that time, put the time on the roundest value in the
    middle half of the window: a whole second if one is there, else half a second, a
