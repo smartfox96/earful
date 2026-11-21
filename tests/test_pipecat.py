@@ -656,6 +656,19 @@ def test_pipecat_a_reply_spoken_across_two_audio_contexts_is_one_utterance():
     assert first["words_played"] + second["words_played"] == utterance["stamps"]
 
 
+def test_pipecat_a_reply_waits_for_its_first_audio_once_whatever_audio_contexts_it_takes():
+    """The second sentence is synthesized as the model finishes, in a new audio context."""
+    built = greeting()
+    built.policy = pc.ScriptedModel().otherwise(say="Good morning to you. How are you today?")
+    built.delays = [pc.Delay("llm.duration", 1, 8.0)]
+    result = pc.run(built)
+    (utterance,) = events(result, "tts.synthesized")
+    (answered,) = [e["t_us"] for e in result.events if e["kind"] == "llm.response"]
+    first, second = [e["t_us"] for e in result.events if e["kind"] == "playout.started"]
+    assert first == utterance["started_us"] + utterance["ttfb_us"]
+    assert second == answered + 8_000_000
+
+
 def test_pipecat_a_voice_slower_than_pipecat_waits_is_judged():
     """Pipecat reports an audio context that got no audio within 3 s. The run is still
     evidence: what Pipecat said of itself is an event, without the context's random id."""

@@ -4319,6 +4319,13 @@ MUTANTS = [
         first="spoken_across_two_audio_contexts",
     ),
     Mutant(
+        "pipecat: a reply waits for its first audio again in each audio context",
+        "src/earful/pipecat/providers.py",
+        "        first = one is None  # the utterance waits for its first audio once\n",
+        "        first = one is None or context_id not in one.contexts\n",
+        first="waits_for_its_first_audio_once",
+    ),
+    Mutant(
         "pipecat: a tool the context advertises is not witnessed",
         "src/earful/pipecat/providers.py",
         "            self._sync_registered_tool_handlers(advertised)\n",

@@ -176,7 +176,9 @@ time). An unfinished trailing word waits for more text or an input flush. Cancel
 drops that fragment and finalizes the words already synthesized.
 
 There is one utterance per nonempty TTS input segment, not per sentence or word, and at
-most one attributed utterance per model call. Its metadata can follow `playout.started`:
+most one attributed utterance per model call. On Pipecat a model reply is one utterance,
+whatever the number of audio contexts it is spoken in, and `ttfb_us` is waited once,
+before its first audio. Its metadata can follow `playout.started`:
 the final word list is unknown at the first frame, and the ledger never rewrites it.
 The validator resolves these references after reading the complete ledger and rejects
 playout earlier than `started_us + ttfb_us`. Attribution considers replies available at

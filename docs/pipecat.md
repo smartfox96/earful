@@ -197,6 +197,8 @@ an `fw.error` event and counted in `run.end`. The run is still judged.
 
 All case times are in seconds. `vad_start_secs` and `vad_stop_secs` set the scripted
 VAD timing. `user_speech_timeout` and `user_turn_stop_timeout` configure Pipecat's
-turn-stop strategy and aggregator. Set `tts_word_timestamps=True` to send word times
-alongside the stamped audio. A hangup cancels the pipeline. For a real-clock control
-run, use `cross_check` with the same scenario.
+turn-stop strategy and aggregator. `tts_ttfb` is the voice's time to first audio, and a
+reply waits it once: a reply is one utterance, also where Pipecat ends an audio context
+between two of its sentences because the model was slow. Set `tts_word_timestamps=True`
+to send word times alongside the stamped audio. A hangup cancels the pipeline. For a
+real-clock control run, use `cross_check` with the same scenario.
