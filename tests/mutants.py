@@ -1703,6 +1703,20 @@ MUTANTS = [
         first="test_a_fault_is_a_difference_and_a_reduction_keeps_it_only_if_the_failure_needs_it",
     ),
     Mutant(
+        "validator: speeches may overlap",
+        "src/earful/core/schema.py",
+        '        if n and speech["start_us"] < speeches[n - 1]["end_us"]:\n',
+        "        if False:\n",
+        first="speech_may_start_as_the_one_before_it_ends",
+    ),
+    Mutant(
+        "validator: a speech may not start as the one before it ends",
+        "src/earful/core/schema.py",
+        '        if n and speech["start_us"] < speeches[n - 1]["end_us"]:\n',
+        '        if n and speech["start_us"] <= speeches[n - 1]["end_us"]:\n',
+        first="speech_may_start_as_the_one_before_it_ends",
+    ),
+    Mutant(
         "validator: a caller may give up twice",
         "src/earful/core/schema.py",
         '            if d["request"] not in effect_requests or d["request"] in gave_up:\n',

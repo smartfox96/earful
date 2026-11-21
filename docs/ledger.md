@@ -327,9 +327,9 @@ They never decide a verdict.
 - `seq` counts from 0 without gaps, and `t_us` never decreases;
 - every event carries the same `run`, and it is the digest of `run.start`. Editing the
   header of a recorded ledger is detected;
-- speeches are numbered in order, end no earlier than they start, and scripted-user
-  events name a declared speech, come after the origin, and occur at most once per
-  speech; a VAD report names the first or the last speech of a segment;
+- speeches are numbered in order, end no earlier than they start and do not overlap, and
+  scripted-user events name a declared speech, come after the origin, and occur at most
+  once per speech; a VAD report names the first or the last speech of a segment;
 - a hangup is recorded at most once, only if the scenario declares one, and no declared
   speech ends after it. On the virtual clock it is at the declared time after the origin,
   to the microsecond;

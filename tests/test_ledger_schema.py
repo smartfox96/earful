@@ -195,6 +195,16 @@ def test_validator_rejects(booking, mutate, expected):
     assert any(expected in e for e in errors), errors
 
 
+@pytest.mark.parametrize("early_us", [0, 1])
+def test_a_speech_may_start_as_the_one_before_it_ends_and_no_earlier(booking, early_us):
+    events = copy.deepcopy(booking)
+    first, second = events[0]["data"]["scenario"]["speeches"]
+    second["start_us"] = first["end_us"] - early_us
+    _reseal(events)
+    refused = [e for e in validate(events) if "starts before speech 0 has ended" in e]
+    assert len(refused) == early_us
+
+
 def test_schema_version():
     assert SCHEMA == "earful.ledger/1"
     assert load_schema()["properties"]["schema"]["const"] == SCHEMA

@@ -75,6 +75,8 @@ formats have versions of their own
 - A reply played in several segments was first audible when the first one began.
 - L1 failed a turn whose milestone came due at the very instant the scenario ended. The
   milestone could still have been met then, so the turn is unobservable.
+- A ledger whose header declares overlapping speeches is refused, as a case that
+  declares them already was.
 - The logging level no longer changes a ledger's hash.
 - A ledger's hash replaces only the framework's own identifiers, so application ids that
   look like them are kept.

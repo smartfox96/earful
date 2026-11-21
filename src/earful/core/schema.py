@@ -113,6 +113,8 @@ def _check_ledger(events: list[Event], errors: list[str]) -> None:
             errors.append(f"run.start speech {n}: speech index must be {n}")
         if speech["end_us"] < speech["start_us"]:
             errors.append(f"run.start speech {n}: ends before it starts")
+        if n and speech["start_us"] < speeches[n - 1]["end_us"]:
+            errors.append(f"run.start speech {n}: starts before speech {n - 1} has ended")
     intents = [it["intent"] for it in scenario["intents"]]
     if len(set(intents)) != len(intents):
         errors.append("run.start: an intent is declared more than once")
