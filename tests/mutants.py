@@ -4768,4 +4768,96 @@ MUTANTS = [
         '    if False:\n        print("           its search fails (A2)',
         first="says_what_to_do_next",
     ),
+    # What the properties of tests/test_properties.py hold on generated inputs.
+    Mutant(
+        "timebase: a time in seconds is cut off at the microsecond below",
+        "src/earful/core/timebase.py",
+        "    return round(seconds * US_PER_SECOND)\n",
+        "    return int(seconds * US_PER_SECOND)\n",
+        first="test_a_time_an_author_writes_in_seconds_is_that_many_microseconds",
+    ),
+    Mutant(
+        "checker: a speech's start is counted from the clock's zero",
+        "src/earful/core/checker/view.py",
+        '                    start=(t0 or 0) + s["start_us"],\n',
+        '                    start=s["start_us"],\n',
+        first="test_where_the_clock_began_decides_nothing",
+    ),
+    Mutant(
+        "checker: a speech's end is counted from the clock's zero",
+        "src/earful/core/checker/view.py",
+        '                    end=(t0 or 0) + s["end_us"],\n',
+        '                    end=s["end_us"],\n',
+        first="test_where_the_clock_began_decides_nothing",
+    ),
+    Mutant(
+        "shrink: the hangup is tried after the speeches",
+        "src/earful/core/shrink.py",
+        (
+            '    if current["hangup_us"] is not None and not spent() and breaks(cases.without_hangup(current)):\n'
+            "        current = cases.without_hangup(current)\n"
+            '        steps.append("removed the hangup")\n'
+            "\n"
+            "    for name, plural in (\n"
+            '        ("speeches", "speeches"),\n'
+            '        ("delays", "declared delays"),\n'
+            '        ("faults", "faults"),\n'
+            "    ):\n"
+            "        items = current[name]\n"
+            "        if items and not spent():\n"
+            "\n"
+            "            def fails(keep: list[int], whole: dict[str, Any] = current, name: str = name) -> bool:\n"
+            "                return breaks(_keeping(whole, name, keep))\n"
+            "\n"
+            "            kept = ddmin(range(len(items)), fails)\n"
+            "            if len(kept) < len(items):\n"
+            "                current = _keeping(current, name, kept)\n"
+            '                steps.append(f"removed {len(items) - len(kept)} of {len(items)} {plural}")\n'
+            "\n"
+        ),
+        (
+            "    for name, plural in (\n"
+            '        ("speeches", "speeches"),\n'
+            '        ("delays", "declared delays"),\n'
+            '        ("faults", "faults"),\n'
+            "    ):\n"
+            "        items = current[name]\n"
+            "        if items and not spent():\n"
+            "\n"
+            "            def fails(keep: list[int], whole: dict[str, Any] = current, name: str = name) -> bool:\n"
+            "                return breaks(_keeping(whole, name, keep))\n"
+            "\n"
+            "            kept = ddmin(range(len(items)), fails)\n"
+            "            if len(kept) < len(items):\n"
+            "                current = _keeping(current, name, kept)\n"
+            '                steps.append(f"removed {len(items) - len(kept)} of {len(items)} {plural}")\n'
+            "\n"
+            '    if current["hangup_us"] is not None and not spent() and breaks(cases.without_hangup(current)):\n'
+            "        current = cases.without_hangup(current)\n"
+            '        steps.append("removed the hangup")\n'
+            "\n"
+        ),
+        first="test_a_reduced_case_still_fails_and_holds_nothing_the_failure_does_not_need or hangup_the_failure_does_not_need_keeps_no_speech",
+    ),
+    Mutant(
+        "shrink: a time is settled on the one edge its window has",
+        "src/earful/core/shrink.py",
+        "        lo = aim = min(found.lo_us + MARGIN_US, found.hi_us)\n",
+        "        lo = aim = found.lo_us\n",
+        first="test_a_settled_time_is_inside_its_window_and_as_round_as_the_window_allows",
+    ),
+    Mutant(
+        "shrink: what a speech retires is no difference",
+        "src/earful/core/shrink.py",
+        '        for name in ("stt_delay_us", "expects_reply", "backchannel", "retires"):\n',
+        '        for name in ("stt_delay_us", "expects_reply", "backchannel"):\n',
+        first="test_the_differences_between_two_cases_turn_one_into_the_other",
+    ),
+    Mutant(
+        "shrink: a setting the found case does not have is left in as null",
+        "src/earful/core/shrink.py",
+        '            out["settings"].pop(target[1], None) if to is None else out["settings"].__setitem__(\n',
+        '            out["settings"].__setitem__(\n',
+        first="test_the_differences_between_two_cases_turn_one_into_the_other",
+    ),
 ]

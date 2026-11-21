@@ -118,6 +118,14 @@ brought along. A break that no test can catch is a sign the code it breaks is no
 
 **Tests over a second are marked `slow`.** `pytest -m "not slow"` is the loop to work in.
 
+**Property tests try the same inputs on every run.** `tests/test_properties.py` states
+what the checker, the shrinker and the time conversion keep on inputs that
+[Hypothesis](https://hypothesis.readthedocs.io/) generates. Its profile is derandomized
+and keeps no example database: an environment tries the same inputs each time, and a
+failure repeats. The inputs differ between Hypothesis releases, and so between
+environments. The test tools are the `test` dependency group in `pyproject.toml`, which
+every environment script installs.
+
 **The README's picture and its example reports are made from the code.** The two reports
 are drawn by `scripts/site.sh`: on every pull request, to see that they still build, and
 from `main` by the `pages` workflow, which publishes them. The picture,
