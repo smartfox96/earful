@@ -202,7 +202,7 @@ def test_the_supported_pipecat_release_is_the_same_everywhere_it_is_listed():
 
 def test_a_lock_file_is_the_list_the_environment_scripts_write():
     locks = sorted((ROOT / "compat").glob("*.lock.txt"))
-    assert len(locks) == 6
+    assert len(locks) == 7
     for path in locks:
         lines = path.read_text().splitlines()
         assert all(re.fullmatch(r"[a-z0-9][a-z0-9.-]*==[^\s=]+", line) for line in lines), path
@@ -269,7 +269,7 @@ def test_the_ci_table_on_the_compatibility_page_is_what_the_workflow_runs():
             re.MULTILINE,
         )
     }
-    assert len(table) == 5
+    assert len(table) == 6
     # The releases the workflow leaves out of a pull request on macOS run nightly only.
     left_out = set(re.findall(r"\|\| 'macos-latest' }}\n\s+lk: \{ version: \"([\d.]+)\"", workflow))
     assert {release for release, (macos, _) in table.items() if macos == "nightly"} == left_out
@@ -291,7 +291,7 @@ def test_the_releases_with_each_known_defect_are_the_same_everywhere_they_are_li
         page,
         re.MULTILINE,
     )
-    assert len(rows) == 5
+    assert len(rows) == 6
     tests = (ROOT / "tests" / "test_historical_cases.py").read_text()
     for column, issue in ((1, "3702"), (2, "5509")):
         script = (ROOT / "scripts" / f"spike_{issue}.py").read_text()

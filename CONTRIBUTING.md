@@ -6,8 +6,8 @@ Earful needs [uv](https://docs.astral.sh/uv/) and nothing else installed by hand
 
 ```bash
 git clone https://github.com/smartfox96/earful && cd earful
-scripts/make_env.sh 1.8.12 2026-11-14     # one pinned environment: .venvs/lk-1.8.12
-.venvs/lk-1.8.12/bin/python -m pytest -m "not slow"
+scripts/make_env.sh 1.8.13 2026-11-20     # one pinned environment: .venvs/lk-1.8.13
+.venvs/lk-1.8.13/bin/python -m pytest -m "not slow"
 ```
 
 `make_env.sh` takes a livekit-agents release and the date its dependencies are resolved
@@ -35,15 +35,15 @@ on the files it changes (`.pre-commit-config.yaml`).
 
 | Command | What it runs | Time |
 | --- | --- | --- |
-| `.venvs/lk-1.8.12/bin/python -m pytest -m "not slow"` | Every test under a second, on one release | 20 s |
+| `.venvs/lk-1.8.13/bin/python -m pytest -m "not slow"` | Every test under a second, on one release | 20 s |
 | `scripts/lint.sh` | ruff format, ruff, mypy, and that every deliberate break still applies. `--fix` reformats first | 20 s |
 | `scripts/wheel_smoke.sh` | Builds the wheel and the source distribution, installs the wheel alone outside the repository and uses it | 5 s |
 | `scripts/quickstart_check.sh` | Follows the README's quickstart from the wheel, with livekit-agents, outside the repository | 90 s |
 | `scripts/site.sh DIR` | Draws the two example reports the README links to, into `DIR` | 15 s |
-| `scripts/check_all.sh` | All of the above, then on each of the five LiveKit releases: every test, repeatability of the reference ledgers, the two historical cases and the replays | 8 min |
+| `scripts/check_all.sh` | All of the above, then on each of the six LiveKit releases: every test, repeatability of the reference ledgers, the two historical cases and the replays | 8 min |
 | `.venvs/lint/bin/python scripts/mutate.py` | Applies each deliberate break of `tests/mutants.py` and checks that a test it names fails | 5 min |
 
-CI runs `check_all.sh`'s parts on every pull request, on Linux for the five releases and
+CI runs `check_all.sh`'s parts on every pull request, on Linux for the six releases and
 on macOS for the oldest and the newest. The deliberate breaks run each night, and on a
 pull request that changes `src/` or `tests/`.
 
@@ -59,7 +59,7 @@ the report: GitHub mails it to whoever last changed the workflow's schedule.
 after its last push (`.github/CODEOWNERS`). Nobody can push to `main`, and a merged
 branch is deleted from the repository.
 
-`check_all.sh` is heavy: five test runs side by side for six minutes. It shares the
+`check_all.sh` is heavy: six test runs side by side for six minutes. It shares the
 processors between them (`EARFUL_WORKERS`), and it is still not something to run on
 battery or after every change. While working, the first row of the table is the check to
 run. CI runs everything on the pull request, and the deliberate breaks run there in seven
@@ -96,7 +96,7 @@ a framework threshold is decided by the scenario and never by float rounding.
 `backend` and `harness` events. The framework's own `fw.*` events explain a run and
 decide nothing (`docs/contracts.md`, section 2).
 
-**The reference ledgers change only on purpose.** `tests/golden/` holds 15 ledgers that
+**The reference ledgers change only on purpose.** `tests/golden/` holds 18 ledgers that
 every platform must reproduce byte for byte, and `tests/bundles/` the two reduced
 historical failures. Checks never write there. If a change is meant to alter a ledger,
 run `scripts/check_all.sh --update`, read the diff, and say in the pull request why each
@@ -198,7 +198,7 @@ down before the code.
 5. A contract that needs an event or a field the ledger does not record is a change to
    the format first (`docs/ledger.md`, Versioning).
 6. Run `scripts/check_all.sh` and say in the pull request what the contract finds on the
-   reference ledgers of the five releases.
+   reference ledgers of the six releases.
 
 A kept bundle records the version of the contracts it was judged with,
 `earful.contracts/1`. A new contract changes what that version names. Raise in the pull

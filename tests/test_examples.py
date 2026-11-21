@@ -17,7 +17,7 @@ AS_SHIPPED = "await self._reservations.create(party_size)"
 FIXED = 'await self._reservations.create(party_size, idempotency_key=f"table-for-{party_size}")'
 
 VERSION = tuple(int(part) for part in lk.__version__.split(".")[:3])
-QUICKSTART_RELEASE = (1, 8, 12)  # the release scripts/quickstart_check.sh installs
+QUICKSTART_RELEASE = (1, 8, 13)  # the release scripts/quickstart_check.sh installs
 
 pytestmark = pytest.mark.slow
 

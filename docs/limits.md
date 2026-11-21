@@ -155,7 +155,7 @@ other work on the machine shows as drift
 
 | | Tested |
 | --- | --- |
-| livekit-agents | 1.5.6, 1.5.7, 1.6.5, 1.6.6, 1.8.12 |
+| livekit-agents | 1.5.6, 1.5.7, 1.6.5, 1.6.6, 1.8.12, 1.8.13 |
 | pipecat-ai | 1.16.0 |
 | Python | 3.10 to 3.14 with livekit-agents, 3.11 to 3.13 with pipecat-ai |
 | Systems | Linux and macOS. Windows is not tested |

@@ -30,6 +30,7 @@ formats have versions of their own
 - Four pages: an API reference (`docs/api.md`), the messages Earful prints and what to do
   about each (`docs/troubleshooting.md`), every limit in one place (`docs/limits.md`), and
   a glossary (`docs/glossary.md`).
+- livekit-agents 1.8.13 is a tested release.
 
 ### Changed
 

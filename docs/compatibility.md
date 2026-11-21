@@ -5,7 +5,7 @@ is not claimed to.
 
 ## livekit-agents
 
-Five releases are supported. Each is installed with its dependencies resolved as of a
+Six releases are supported. Each is installed with its dependencies resolved as of a
 date a few days after it came out, which gives the set the release was tested with at the
 time (`scripts/make_env.sh`). The date runs to the end of that day in UTC. The set each
 release resolves to on Python 3.13 is recorded in `compat/`, and CI fails if an
@@ -18,6 +18,7 @@ environment it builds on Python 3.13 holds anything else.
 | 1.6.5 | 2026-07-20 | `compat/lk-1.6.5.lock.txt` | present | repaired |
 | 1.6.6 | 2026-07-20 | `compat/lk-1.6.6.lock.txt` | repaired | repaired |
 | 1.8.12 | 2026-11-14 | `compat/lk-1.8.12.lock.txt` | repaired | repaired |
+| 1.8.13 | 2026-11-20 | `compat/lk-1.8.13.lock.txt` | repaired | repaired |
 
 The last two columns say whether the release has the two known defects Earful reproduces
 (`docs/cases/`). A search of your own agent on an affected release can meet them.
@@ -64,7 +65,8 @@ and 20 in fresh processes, runs the two historical cases, and replays both kept 
 | 1.5.7 | every change | nightly | |
 | 1.6.5 | every change | nightly | |
 | 1.6.6 | every change | nightly | 3.10 |
-| 1.8.12 | every change | every change | 3.12, 3.14 |
+| 1.8.12 | every change | nightly | |
+| 1.8.13 | every change | every change | 3.12, 3.14 |
 
 Python 3.10 to 3.14 are each tested with one release. Windows is not tested.
 

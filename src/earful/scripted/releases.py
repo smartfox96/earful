@@ -30,7 +30,7 @@ SUPPORT = {
     "livekit-agents": Support(
         adapter="earful.livekit",
         extra="livekit",
-        tested=("1.5.6", "1.5.7", "1.6.5", "1.6.6", "1.8.12"),
+        tested=("1.5.6", "1.5.7", "1.6.5", "1.6.6", "1.8.12", "1.8.13"),
         lowest="1.5.6",
         below="1.9",
     ),

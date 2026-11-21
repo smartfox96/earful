@@ -670,8 +670,8 @@ Taken while reading each rule against the code, 19 November 2026:
 
 ## 10. What the reference ledgers measure
 
-`earful check tests/golden/*.jsonl --measures` prints these. The 15 reference
-ledgers are three cases on five releases.
+`earful check tests/golden/*.jsonl --measures` prints these. The 18 reference
+ledgers are three cases on six releases.
 
 | Measure | Observed | Default it supports |
 | --- | --- | --- |
