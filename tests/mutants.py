@@ -1703,6 +1703,20 @@ MUTANTS = [
         first="test_a_fault_is_a_difference_and_a_reduction_keeps_it_only_if_the_failure_needs_it",
     ),
     Mutant(
+        "pipecat: on the real clock each chunk plays from when its write came",
+        "src/earful/pipecat/sink.py",
+        "        start = self._due if 0 < now - self._due <= self._late_us else now\n",
+        "        start = now\n",
+        first="chunk_that_comes_a_little_late_continues_the_audio",
+    ),
+    Mutant(
+        "pipecat: a chunk continues the audio before it however late it comes",
+        "src/earful/pipecat/sink.py",
+        "        start = self._due if 0 < now - self._due <= self._late_us else now\n",
+        "        start = self._due if 0 < now - self._due else now\n",
+        first="chunk_that_comes_a_little_late_continues_the_audio or preserves_gaps_between_chunks",
+    ),
+    Mutant(
         "validator: speeches may overlap",
         "src/earful/core/schema.py",
         '        if n and speech["start_us"] < speeches[n - 1]["end_us"]:\n',

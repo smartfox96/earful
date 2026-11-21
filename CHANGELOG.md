@@ -85,6 +85,8 @@ formats have versions of their own
   look like them are kept.
 - A reduced case no longer keeps a speech only because the case it came from had a hangup
   the failure does not need.
+- On the real clock a Pipecat reply played each chunk of audio from when its write came,
+  so every late wake-up added to its length and a cross-check of a long reply differed.
 
 ## [0.1.1] - 2026-11-18
 

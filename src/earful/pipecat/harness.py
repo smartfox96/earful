@@ -216,6 +216,8 @@ def _header(case: Case, tools: set[str], options: dict[str, Any]) -> dict[str, A
 
 
 QUIET_FOR_US = 1_000_000
+# On the real clock a sleep ends late. An output with this much audio buffered plays on.
+REAL_CLOCK_LATE_US = 20_000
 # Pipecat names an audio context by a random id and a processor by a count kept per process.
 _UNSTABLE = re.compile(r"[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}|(?<=#)\d+")
 
@@ -290,7 +292,7 @@ async def _run(case: Case, seed: int) -> RunResult:
         ttfb_us=declared_us("tts.ttfb"),
         word_timestamps=case.tts_word_timestamps,
     )
-    output = ClockedOutput(ledger, voice.table)
+    output = ClockedOutput(ledger, voice.table, late_us=0 if virtual else REAL_CLOCK_LATE_US)
 
     token = backends.install(backend)
     reported = 0  # errors the pipeline reported about itself

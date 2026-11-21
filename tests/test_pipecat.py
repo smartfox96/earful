@@ -317,6 +317,30 @@ def test_pipecat_playout_preserves_gaps_between_chunks():
     assert data["position_us"] == 20_000
 
 
+@pytest.mark.parametrize("late_us, second_ends_us", [(5_000, 20_000), (20_001, 40_001)])
+def test_pipecat_on_the_real_clock_a_chunk_that_comes_a_little_late_continues_the_audio(
+    late_us, second_ends_us
+):
+    """The witness is told how late a write may be, as the harness tells it on the real clock."""
+
+    async def play():
+        table = StampTable(sample_rate=24000)
+        ledger = Ledger(now_us, run="test")
+        output = ClockedOutput(ledger, table, late_us=20_000)
+        for index, word in enumerate(("hi", "there")):
+            stamp = table.add(1, index, word, 240)
+            if index:
+                await asyncio.sleep(late_us / 1_000_000)
+            frame = OutputAudioRawFrame(table.audio(stamp).tobytes(), 24000, 1)
+            await output.write_audio_frame(frame)
+        await output.cancel(CancelFrame())
+        return ledger.events[-1]["data"], now_us()
+
+    data, ended_us = run_virtual(play)
+    assert data["words_completed_us"] == [10_000, second_ends_us]
+    assert data["position_us"] == 20_000 and ended_us == second_ends_us
+
+
 def test_pipecat_witness_forwards_intermediate_callbacks_and_records_only_the_final_result():
     from pipecat.services.llm_service import FunctionCallParams
 
