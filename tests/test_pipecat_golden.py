@@ -1,7 +1,9 @@
-"""The committed Pipecat reference ledgers: this machine reproduces them, run after run."""
+"""The committed Pipecat reference ledgers: every machine reproduces them, run after run."""
 
 from __future__ import annotations
 
+import asyncio
+import sys
 from pathlib import Path
 
 import pytest
@@ -12,8 +14,10 @@ import pipecat
 from loguru import logger
 
 from earful.core.ledger import first_difference, normalize
+from earful.pipecat import clock
 from earful.pipecat.cases import CASES
 from earful.pipecat.harness import run_case
+from earful.scripted.clock import run_virtual
 from earful.scripted.releases import SUPPORT
 
 GOLDEN = Path(__file__).parent / "golden"
@@ -62,6 +66,44 @@ def test_pipecat_every_reference_case_has_a_ledger_of_the_supported_release_and_
     tested = SUPPORT["pipecat-ai"].tested[-1]
     committed = sorted(path.name for path in GOLDEN.glob("pc-*"))
     assert committed == sorted(f"pc-{tested}.{name}.ledger.normalized.jsonl" for name in CASES)
+
+
+def test_pipecat_a_run_waits_with_the_standard_wait_for_whatever_pipecat_installed(monkeypatch):
+    """On Python 3.11 pipecat-ai installs wait_for2's, which orders one instant otherwise."""
+    before, called = asyncio.wait_for, []
+
+    def installed(awaitable, timeout):
+        called.append(timeout)
+        return before(awaitable, timeout)
+
+    monkeypatch.setattr(asyncio, "wait_for", installed)
+    run_case(CASES["greeting"]())
+    assert not called and asyncio.wait_for is installed
+
+
+STANDARD = [clock._wait_for, *([asyncio.tasks.wait_for] if sys.version_info >= (3, 12) else [])]
+
+
+@pytest.mark.parametrize("wait_for", STANDARD)
+def test_pipecat_wait_for_runs_what_it_waits_for_in_the_calling_task(wait_for):
+    ran = []
+
+    async def body():
+        ran.append(asyncio.current_task())
+        return "done"
+
+    async def main():
+        assert await wait_for(body(), 1) == "done" and ran == [asyncio.current_task()]
+        with pytest.raises(TimeoutError):
+            await wait_for(asyncio.sleep(2), 1)
+        finished = asyncio.get_running_loop().create_future()
+        finished.set_result("ready")
+        assert await wait_for(finished, 0) == "ready"
+        with pytest.raises(TimeoutError):
+            await wait_for(body(), 0)  # out of time before it starts
+        assert len(ran) == 1
+
+    run_virtual(main)
 
 
 @pytest.mark.parametrize("name", sorted(CASES))

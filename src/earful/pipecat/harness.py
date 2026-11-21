@@ -47,7 +47,7 @@ from ..scripted.clock import (
 from ..scripted.model import Policy
 from ..scripted.world import UserSpeech, WorldOrigin, sleep_until
 from . import pipeline as pipelines
-from .clock import VirtualClock
+from .clock import VirtualClock, wait_for_of_python_3_12
 from .pipeline import Ends
 from .providers import SAMPLE_RATE, ScriptedLLM, ScriptedSTT, ScriptedUser, StampedTTS, summarize
 from .sink import ClockedOutput
@@ -450,10 +450,11 @@ def run_case(
     case: Case, seed: int = 0, *, virtual: bool = True, require_valid: bool = True
 ) -> RunResult:
     """Run a fresh pipeline and raise InvalidRun if its ledger cannot be judged."""
-    if virtual:
-        result = run_virtual(lambda: _run(case, seed))
-    else:
-        result = run_real(lambda: _run(case, seed), timeout=120)
+    with wait_for_of_python_3_12():
+        if virtual:
+            result = run_virtual(lambda: _run(case, seed))
+        else:
+            result = run_real(lambda: _run(case, seed), timeout=120)
     if result.invalid and require_valid:
         raise InvalidRun(result.invalid, result)
     return result

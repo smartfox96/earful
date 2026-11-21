@@ -97,6 +97,12 @@ reference cases 120 times and compares them with the committed ledgers
 | 1.16.0 | 3.13 | Linux | the checkout |
 | 1.16.0 | 3.13 | macOS | the checkout |
 
+The reference ledgers are the same on every row. On Python 3.11 pipecat-ai replaces
+`asyncio.wait_for` with the one from the `wait_for2` package, which takes more steps of
+the event loop: tasks due at one instant would run in another order than on Python 3.12,
+and the ledger would differ. During a run `asyncio.wait_for` is the standard library's,
+as Python 3.12 and later have it.
+
 ## What runs on the newest releases
 
 Each night the `canary` workflow installs the newest livekit-agents and the newest

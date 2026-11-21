@@ -3853,6 +3853,27 @@ MUTANTS = [
         first="names_its_framework_as_missing",
     ),
     Mutant(
+        "pipecat: a run waits with the wait_for pipecat-ai installed",
+        "src/earful/pipecat/harness.py",
+        "    with wait_for_of_python_3_12():\n",
+        "    if True:\n",
+        first="standard_wait_for_whatever",
+    ),
+    Mutant(
+        "pipecat: wait_for runs what it waits for in a task of its own",
+        "src/earful/pipecat/clock.py",
+        "        return await awaitable\n",
+        "        return await asyncio.ensure_future(awaitable)\n",
+        first="in_the_calling_task",
+    ),
+    Mutant(
+        "pipecat: a wait_for with no time left runs what it waits for",
+        "src/earful/pipecat/clock.py",
+        "            task.cancel()\n",
+        "            pass\n",
+        first="in_the_calling_task",
+    ),
+    Mutant(
         "ledger: a ledger file is read only from a Path",
         "src/earful/core/ledger.py",
         '    text = Path(path).read_text(encoding="ascii")\n',
