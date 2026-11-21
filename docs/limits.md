@@ -62,6 +62,11 @@ Some things are not seen, and the run stays valid:
   They return real time, so code that measures a wait with one sees no time pass.
 - A thread that was running before the run began, until it wakes the loop.
 
+On Python 3.11 a Pipecat run uses `asyncio.wait_for` as Python 3.12 has it. A Pipecat bot
+deployed on 3.11 uses the one from `wait_for2`, which pipecat-ai installs there, and tasks
+due at one instant can run in another order than in the run
+([`compatibility.md`](compatibility.md#what-ci-runs-for-pipecat)).
+
 [`compatibility.md`](compatibility.md#the-virtual-clock) lists every read that is virtual
 and every read that is not.
 
