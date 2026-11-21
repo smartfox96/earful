@@ -104,15 +104,33 @@ with ordinals, and replaces nothing else; see Hashing.
 | `intents` | Per intent: `intent`, `tools`, `authorized` (durable effects allowed) |
 | `witnessed_tools` | The names of the function tools of the agent the run starts with. The tool witness records every call of each, so a call to one of them that leaves no `tool.called` was never made |
 | `effects` | Tools that stand for one durable write. Per tool: `tool` and `intent`. In this run a call of such a tool made the write and did not run the tool's own body. Absent when there are none |
-| `session` | The framework options the contracts depend on: `min_interruption_duration_us`, `false_interruption_timeout_us`, `min_endpointing_delay_us`, `max_endpointing_delay_us`, `turn_detection`, and `extra_options` (any further options, by name, with their values) |
+| `session` | The framework options the contracts depend on: `min_interruption_duration_us`, `false_interruption_timeout_us`, `min_endpointing_delay_us`, `max_endpointing_delay_us`, `turn_end_delay_us` (how long after a speech ends the framework ends the user's turn, when no speech follows), `turn_detection`, and `extra_options` (any further options, by name, with their values) |
 | `delays` | Provider delays the scenario declares, each in place of what its code would ask for. Per delay: `of` (`llm.ttft`, `llm.duration`, `tts.ttfb` or `backend.latency`), `nth` (which model call, utterance or backend request, from 1) and `us`. Empty when the scenario declares none |
 | `faults` | Faults the scenario declares, each for one backend write. Per fault: `of` (`backend.error`, `backend.timeout` or `backend.drop`), `nth` (which backend request, from 1) and `us` (how long the caller waits before it is told the write timed out; null for `backend.error`). Empty when the scenario declares none |
-| `providers` | `vad` (`min_speech_us`, `min_silence_us`), `tts` (`seconds_per_letter_us`, `ttfb_us`), `sink` (`can_pause`), `backend` (`mode`: `plain` or `keyed`) |
+| `providers` | `vad` (`min_speech_us`, `min_silence_us`), `tts` (`seconds_per_letter_us`, `ttfb_us`, and on Pipecat `word_timestamps`: whether the voice tells the framework when each word starts), `sink` (`can_pause`), `backend` (`mode`: `plain` or `keyed`) |
 
 The four `session` times are declared by the scenario and cannot be set any other way.
 After constructing the session, the harness reads the same options back from it; a
 difference is a harness error and the run is invalid. The header therefore states what
 the framework was configured with.
+
+The names are those of livekit-agents. The Pipecat adapter writes what plays the same
+part in a Pipecat pipeline:
+
+| Field | On Pipecat |
+| --- | --- |
+| `min_interruption_duration_us` | The VAD's `start_secs`: a turn starts, and interrupts the bot, when the VAD reports speech |
+| `false_interruption_timeout_us` | Null. Pipecat does not resume a reply it has cut |
+| `min_endpointing_delay_us` | `user_speech_timeout` of the turn-stop strategy, counted from the VAD's report that speech ended |
+| `max_endpointing_delay_us` | `user_turn_stop_timeout` of the user aggregator |
+| `providers.vad.min_speech_us`, `min_silence_us` | The VAD's `start_secs` and `stop_secs` |
+| `providers.sink.can_pause` | False. Pipecat's output has no pause |
+
+`turn_end_delay_us` is where the two frameworks differ. livekit-agents counts the
+endpointing delay from the end of the speech, beside the VAD's silence, so a turn ends
+after the longer of the two. Pipecat counts its timeout from the VAD's report, so a turn
+ends after `min_silence_us` plus `min_endpointing_delay_us`. A search aims at the end of
+a turn with this field. A ledger without it is read as livekit-agents'.
 
 Scripted speeches may be as close together as an author likes, short of overlapping. A
 VAD reports the end of speech only after `min_silence_us` of silence, so speech that
@@ -161,7 +179,7 @@ and a ledger must hash the same on every machine. They belong to a run's manifes
 | --- | --- | --- |
 | `tts.synthesized` | `utterance`, `call`, `attribution`, `candidates`, `text`, `stamps` (one per word), `word_samples` (one per word), `sample_rate`, `ttfb_us`, `started_us` | One utterance is finalized at input flush/end or cancellation |
 | `tool.called` | `tool`, `name`, `call_id`, `arguments` (by parameter name) | A witnessed tool starts |
-| `tool.returned` | `tool`, `name`, `output`, `text`, `expects_reply` | It returns |
+| `tool.returned` | `tool`, `name`, `output`, `text`, `expects_reply`, `handoff` | It returns |
 | `tool.raised` | `tool`, `name`, `error` (exception type), `message`, `expects_reply` | It raises |
 | `tool.cancelled` | `tool`, `name` | It is cancelled |
 
@@ -176,7 +194,9 @@ time). An unfinished trailing word waits for more text or an input flush. Cancel
 drops that fragment and finalizes the words already synthesized.
 
 There is one utterance per nonempty TTS input segment, not per sentence or word, and at
-most one attributed utterance per model call. Its metadata can follow `playout.started`:
+most one attributed utterance per model call. On Pipecat a model reply is one utterance,
+whatever the number of audio contexts it is spoken in, and `ttfb_us` is waited once,
+before its first audio. Its metadata can follow `playout.started`:
 the final word list is unknown at the first frame, and the ledger never rewrites it.
 The validator resolves these references after reading the complete ledger and rejects
 playout earlier than `started_us + ttfb_us`. Attribution considers replies available at
@@ -222,14 +242,21 @@ A tool's result is recorded twice. `output` is the returned value itself, as JSO
 is that value as the framework presents it to the model (for livekit-agents, `str(value)`,
 and the empty string for a tool that returns nothing). Earful computes it from the value
 the tool returned and never reads it from the framework. A contract compares what the
-model was shown with `text`. A value JSON cannot hold, such as an object or an agent handoff, is
+model was shown with `text`. A value JSON cannot hold, such as an object, is
 recorded as `{"unrepresentable": "<type name>"}` and its `text` is null: its default text
 form would put a memory address in the ledger.
 
+`handoff` is true when the tool returned an agent for the session to hand over to, and
+absent otherwise. livekit-agents takes the agent out of what the tool returned and shows
+the model the rest: `text` is the empty string for an agent alone and the text of the one
+value beside it otherwise. `output` still records the agent as unrepresentable. A tuple
+with no agent in it is shown as a list. A tool that returns several agents hands over to
+none of them, and its `text` is null.
+
 `expects_reply` says whether the outcome asks the framework to give the model another
-call. It is false when the tool asked for silence: in livekit-agents, by returning nothing
-or raising `StopResponse`. The progress contract does not wait for a reply that was not
-asked for.
+call. It is false when the tool asked for silence: in livekit-agents, by returning nothing,
+returning only an agent, or raising `StopResponse`. The progress contract does not wait
+for a reply that was not asked for.
 
 ### llm: the scripted model
 
@@ -327,9 +354,9 @@ They never decide a verdict.
 - `seq` counts from 0 without gaps, and `t_us` never decreases;
 - every event carries the same `run`, and it is the digest of `run.start`. Editing the
   header of a recorded ledger is detected;
-- speeches are numbered in order, end no earlier than they start, and scripted-user
-  events name a declared speech, come after the origin, and occur at most once per
-  speech; a VAD report names the first or the last speech of a segment;
+- speeches are numbered in order, end no earlier than they start and do not overlap, and
+  scripted-user events name a declared speech, come after the origin, and occur at most
+  once per speech; a VAD report names the first or the last speech of a segment;
 - a hangup is recorded at most once, only if the scenario declares one, and no declared
   speech ends after it. On the virtual clock it is at the declared time after the origin,
   to the microsecond;
@@ -359,10 +386,13 @@ definition; it reads only the ledger and returns every reason a run is not valid
 
 - the ledger does not validate;
 - `clock` is not `virtual`;
-- `stamp_errors` is not zero: audio reached the sink altered;
+- `stamp_errors` is not zero: audio reached the sink altered. A sample names no word that
+  was synthesized, the audio is at another sample rate than the voice's, or a word other
+  than the last one written arrived with part of its audio missing;
 - `executor_calls` is not zero: work left the virtual clock for a thread;
 - `underruns` is not zero: playout ran ahead of the audio it had been given, so word
-  times are unreliable;
+  times are unreliable. On Pipecat it is always zero: the output plays each write from
+  its arrival, a gap between two writes is silence, and the word times include it;
 - `harness_errors` is not empty: Earful's own simulation or recording failed, or the run
   did not stay on the virtual clock. Examples: a recording handler raised, the scripted
   providers disagreed about the origin, a declared session option differs from the one
@@ -432,6 +462,10 @@ is absent means what it meant before the field existed. Such an addition raises
 change to the type or meaning of an existing field, or a change to a rule that spans
 events is a new major version, with its own schema file. A change that alters what a
 recorded ledger hashes to regenerates the reference ledgers.
+
+`schema_minor` 1 added three optional fields: `handoff` on `tool.returned`,
+`turn_end_delay_us` in the header's `session`, and `word_timestamps` in its
+`providers.tts`.
 
 ## Before `earful.ledger/1`
 

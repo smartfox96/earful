@@ -363,6 +363,10 @@ def shrink(
                     "from the author's scenario"
                 )
 
+    if current["hangup_us"] is not None and not spent() and breaks(cases.without_hangup(current)):
+        current = cases.without_hangup(current)
+        steps.append("removed the hangup")
+
     for name, plural in (
         ("speeches", "speeches"),
         ("delays", "declared delays"),
@@ -378,10 +382,6 @@ def shrink(
             if len(kept) < len(items):
                 current = _keeping(current, name, kept)
                 steps.append(f"removed {len(items) - len(kept)} of {len(items)} {plural}")
-
-    if current["hangup_us"] is not None and not spent() and breaks(cases.without_hangup(current)):
-        current = cases.without_hangup(current)
-        steps.append("removed the hangup")
 
     def measured(variable: Variable) -> Window | None:
         """None if the budget ran out first: a window half measured is no measurement."""

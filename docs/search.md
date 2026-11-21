@@ -181,7 +181,7 @@ used.
 | `interrupt` | The speech has lasted long enough to interrupt: its start plus `min_interruption_duration_us`. Absent for a shorter speech. Moved by `speech.position` |
 | `transcript` | The final transcript arrives: its end plus `stt_delay_us`. Absent for noise. Moved by `speech.position`, `speech.end` and `speech.stt_delay` |
 | `vad_end` | The VAD tells the framework the user stopped: its end plus `min_silence_us`. Moved by `speech.position` and `speech.end` |
-| `turn_end` | The turn can be committed: its end plus the longer of `min_silence_us` and `min_endpointing_delay_us`. Moved by `speech.position` and `speech.end` |
+| `turn_end` | The framework ends the turn: the speech's end plus the header's `turn_end_delay_us`. On livekit-agents that is the longer of `min_silence_us` and `min_endpointing_delay_us`, and on Pipecat their sum. Moved by `speech.position` and `speech.end` |
 | `done` | A provider delay runs out: the model's first token or last, the first audio, the commit. Moved by that delay |
 | `hangup` | The user leaves and the session is closed. Moved by `user.hangup` |
 
@@ -331,9 +331,10 @@ keeps the step only if the run still breaks the same predicate.
    Hildebrandt's *ddmin*) over that list gives a smallest set of differences that still
    fails. The result is the author's scenario with only those changes. If the author's
    scenario fails as written, it is the author's scenario.
-2. **Remove.** ddmin again, over the speeches, then the declared delays, then the faults
-   that remain, the author's own included. Then the hangup, if the case still fails with
-   a user who stays.
+2. **Remove.** The hangup first, if the case still fails with a user who stays: a user
+   who hangs up must have spoken, so a hangup keeps one speech in the case. Then ddmin
+   again, over the speeches, then the declared delays, then the faults that remain, the
+   author's own included.
 3. **Settle.** For each time that still differs from the author's, measure its window. If
    the failure has an edge along that time, put the time on the roundest value in the
    middle half of the window: a whole second if one is there, else half a second, a
@@ -342,9 +343,10 @@ keeps the step only if the run still breaks the same predicate.
    window that runs past the limit is cut off there, and the time is put just inside the
    edge the window has below it. The window is still reported whole.
 
-The result is 1-minimal: undoing any one remaining difference, or removing any one
-remaining speech, declared delay or fault, makes it pass. It is not necessarily the smallest
-failing case there is. A reduction can only undo differences, so of several failing
+The result is 1-minimal: undoing any one remaining change of a value, or removing any one
+remaining speech, declared delay or fault, makes it pass. What step 2 removed is a
+difference too, and putting it back leaves the case failing. It is not necessarily the
+smallest failing case there is. A reduction can only undo differences, so of several failing
 candidates the one to reduce is the one nearest the author's scenario
 (`earful.core.shrink.nearest`).
 
@@ -418,7 +420,7 @@ A bundle that fails a check is refused with one line that names the file. `earfu
 `earful crosscheck` and `earful report` print it and exit 2:
 
 ```text
-earful: failures/lk-1.8.12.booking.A2-rule/minimal.case.json is not the case the manifest records: its digest is 5d0c…, and the manifest has e41a…
+earful: failures/lk-1.8.13.booking.A2-rule/minimal.case.json is not the case the manifest records: its digest is 5d0c…, and the manifest has e41a…
 ```
 
 `case_digest` was added in `schema_minor` 1. A bundle written before it is still read. Its
@@ -454,7 +456,8 @@ expected. A replay makes at least one run: `repeats` below 1 is a `ValueError`.
 
 `earful replay` also prints the Earful version that kept the bundle, which the manifest
 records in `environment`, when it is not the version replaying it. It names any case file
-it could not verify.
+it could not verify. A bundle kept under an earlier version of the contracts is replayed
+and judged by the current one, and the replay says which it was kept under.
 
 **What the scenario's digest covers.** A case names its code as `module:function`.
 `scenario_digest` is SHA-256 of the source text of one file: the module in which that

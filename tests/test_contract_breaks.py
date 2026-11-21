@@ -3,8 +3,11 @@
 import asyncio
 import copy
 
-import livekit.agents as lk
 import pytest
+
+pytest.importorskip("livekit.agents")
+
+import livekit.agents as lk
 
 from earful.core.backend import effect
 from earful.core.checker import FAIL, NOT_EXERCISED, PASS, UNOBSERVABLE, check

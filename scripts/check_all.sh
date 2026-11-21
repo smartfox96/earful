@@ -5,9 +5,9 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-# Five runs side by side share the processors.
+# The runs side by side share the processors.
 cores="$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 4)"
-declare -a RELEASES=("1.5.6 2026-04-30" "1.5.7 2026-05-06" "1.6.5 2026-07-20" "1.6.6 2026-07-20" "1.8.12 2026-11-14")
+declare -a RELEASES=("1.5.6 2026-04-30" "1.5.7 2026-05-06" "1.6.5 2026-07-20" "1.6.6 2026-07-20" "1.8.12 2026-11-14" "1.8.13 2026-11-20")
 shared=$(( cores / ${#RELEASES[@]} ))
 export EARFUL_WORKERS="${EARFUL_WORKERS:-$(( shared > 1 ? shared : 1 ))}"
 GOLDEN=tests/golden
@@ -22,7 +22,6 @@ done
 
 scripts/lint.sh
 scripts/make_pipecat_env.sh
-scripts/ran_every_test.sh .venvs/pc-1.16.0/bin/python tests/test_pipecat*.py
 scripts/wheel_smoke.sh
 scripts/quickstart_check.sh
 SITE="$(mktemp -d)"
@@ -65,6 +64,8 @@ check() {
 if [ "${1:-}" = "--update" ]; then
   # Every release first: the checks below compare each release with all committed ledgers.
   side_by_side update
+  echo "=== updating reference ledgers: pipecat-ai 1.16.0"
+  .venvs/pc-1.16.0/bin/python scripts/repeat.py --update "$GOLDEN" | grep -E '"(case|identical)"'
   # The reference bundles are made on the oldest release, which has both known defects.
   echo "=== updating reference bundles: livekit-agents 1.5.6"
   rm -rf "$BUNDLES"
@@ -76,7 +77,10 @@ if [ "${1:-}" = "--update" ]; then
   keep earful.livekit.cases:speak_over_new_turn "L2/rule b" | grep -E '"(directory|distinct_hashes)"'
 fi
 
+echo "=== pipecat-ai 1.16.0"
+scripts/ran_every_test.sh --without livekit .venvs/pc-1.16.0/bin/python
+.venvs/pc-1.16.0/bin/python scripts/repeat.py --check "$GOLDEN" | grep -E '"(case|distinct_hashes|identical|matches_committed)"'
 side_by_side check
 
 echo "=== negative control: real clock, nothing patched (must give different hashes)"
-.venvs/lk-1.8.12/bin/python scripts/realtime_control.py 2 | grep -E '"(distinct_hashes|kinds_identical|all_marked_invalid)"'
+.venvs/lk-1.8.13/bin/python scripts/realtime_control.py 2 | grep -E '"(distinct_hashes|kinds_identical|all_marked_invalid)"'

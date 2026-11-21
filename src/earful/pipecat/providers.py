@@ -424,6 +424,7 @@ class StampedTTS(TTSService):
         # audio context between two of them because the model was slow.
         key = self._reply or context_id
         one = self._open.get(key)
+        first = one is None  # the utterance waits for its first audio once
         if one is None:
             self._utterances += 1
             one = self._open[key] = _Utterance(
@@ -432,7 +433,6 @@ class StampedTTS(TTSService):
                 ttfb_us=self._ttfb_by_utterance.get(self._utterances, self._ttfb_us),
                 eligible=set(self._register.replies),
             )
-        first = context_id not in one.contexts
         one.contexts.add(context_id)
         t0, starts, pcm = now_us(), [], bytearray()
         for word in text.split():

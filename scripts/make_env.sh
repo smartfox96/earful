@@ -17,7 +17,7 @@ env_dir="$root/.venvs/lk-$version"
 rm -rf "$env_dir"
 uv venv -q --python "${EARFUL_PYTHON:-3.13}" "$env_dir"
 VIRTUAL_ENV="$env_dir" uv pip install -q --exclude-newer "$as_of" \
-  -e "$root" "livekit-agents==$version" pytest pytest-asyncio
+  -e "$root" "livekit-agents==$version" --group "$root/pyproject.toml:test"
 "$root/scripts/env_lock.sh" "$env_dir" "$root/compat/lk-$version.lock.txt"
 
 "$env_dir/bin/python" -c 'import livekit.agents as a, livekit.rtc as r; print("livekit-agents", a.__version__, "| livekit", r.__version__)'

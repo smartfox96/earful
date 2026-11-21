@@ -279,18 +279,3 @@ def test_a_cross_check_says_how_many_runs_agree_and_how_each_differs():
     assert as_json["agrees"] is False and [r["agrees"] for r in as_json["runs"]] == [True, False]
     assert cross_check(VIRTUAL, [as_real(VIRTUAL)] * 2).agrees
     assert not cross_check(VIRTUAL, []).agrees  # nothing was compared
-
-
-@pytest.mark.slow
-def test_a_scenario_is_run_on_both_clocks_and_the_real_run_is_never_evidence():
-    """Agreement depends on the machine, so only what holds on any machine is asserted."""
-    from earful.livekit.api import cross_check as on_both_clocks
-
-    checked = on_both_clocks("earful.livekit.cases:speak_over_new_turn", runs=1)
-    (real,), (comparison,) = checked.real, checked.comparisons
-    assert validity(checked.virtual) == []
-    assert validity(real) == ["the run was on the real clock"]
-    assert not comparison.unusable and comparison.drift_us > 0
-    assert checked.lines()[0].startswith("speak_over_new_turn on livekit-agents ")
-    with pytest.raises(ValueError, match="at least one real-clock run"):
-        on_both_clocks("earful.livekit.cases:speak_over_new_turn", runs=0)

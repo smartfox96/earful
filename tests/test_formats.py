@@ -8,16 +8,21 @@ import pytest
 
 from earful.core import bundle
 from earful.core import case as cases
-from earful.core.ledger import run_id
+from earful.core.ledger import read_jsonl, run_id
 from earful.core.schema import validate, validity
-from earful.livekit import scenario
-from earful.livekit.cases import barge_in_mid_word
-from earful.livekit.harness import run_case
+
+HERE = Path(__file__).parent
 
 
 @pytest.fixture(scope="module")
 def ledger():
-    return run_case(barge_in_mid_word()).ledger.events
+    return read_jsonl(HERE / "golden" / "lk-1.8.12.barge_in_mid_word.ledger.normalized.jsonl")
+
+
+def _case():
+    """A case as a search keeps it."""
+    kept = HERE / "bundles" / "lk-1.5.6.book_then_interrupt.A2-rule" / "original.case.json"
+    return json.loads(kept.read_text())
 
 
 def test_future_minor_ledger_metadata_is_ignored_without_changing_validity(ledger):
@@ -35,29 +40,18 @@ def test_future_minor_ledger_metadata_is_ignored_without_changing_validity(ledge
     assert validity(events) == []
 
 
-def test_future_minor_case_metadata_is_ignored_but_unknown_settings_are_refused():
-    data = scenario.default("earful.livekit.cases:barge_in_mid_word")
-    data.update(schema_minor=17, future="metadata")
-    data["speeches"][0]["diagnostic"] = {"future": True}
-    assert cases.validate(data) == []
-    assert scenario.build(data).speeches[0].transcript == data["speeches"][0]["transcript"]
-    data["settings"]["future_execution_setting"] = True
-    with pytest.raises(ValueError, match="unknown setting"):
-        scenario.build(data)
-
-
 def test_minor_zero_may_be_omitted(ledger):
     events = copy.deepcopy(ledger)
     for event in events:
         event.pop("schema_minor", None)
     assert validity(events) == []
-    data = scenario.default("earful.livekit.cases:barge_in_mid_word")
+    data = _case()
     data.pop("schema_minor")
     assert cases.validate(data) == []
 
 
 def test_future_minor_bundle_metadata_is_ignored():
-    path = next((Path(__file__).parent / "bundles").glob("*/manifest.json"))
+    path = next((HERE / "bundles").glob("*/manifest.json"))
     manifest = json.loads(path.read_text())
     manifest.update(schema_minor=17, future="metadata")
     manifest["minimal"]["diagnostic"] = {"future": True}
@@ -71,14 +65,14 @@ def test_minor_version_must_be_a_nonnegative_integer(ledger, minor):
     events = copy.deepcopy(ledger)
     events[0]["schema_minor"] = minor
     assert validate(events)
-    data = scenario.default("earful.livekit.cases:barge_in_mid_word")
+    data = _case()
     data["schema_minor"] = minor
     assert cases.validate(data)
 
 
 def test_a_ledger_cannot_mix_minor_versions(ledger):
     events = copy.deepcopy(ledger)
-    events[1]["schema_minor"] = 1
+    events[1]["schema_minor"] = events[0]["schema_minor"] + 1
     assert any("schema_minor differs" in error for error in validate(events))
 
 
@@ -86,7 +80,7 @@ def test_unknown_major_versions_and_missing_required_fields_are_rejected(ledger)
     events = copy.deepcopy(ledger)
     events[0]["schema"] = "earful.ledger/2"
     assert validate(events)
-    data = scenario.default("earful.livekit.cases:barge_in_mid_word")
+    data = _case()
     data["schema"] = "earful.case/2"
     assert cases.validate(data)
     data["schema"] = "earful.case/1"

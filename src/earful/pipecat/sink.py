@@ -21,7 +21,7 @@ from pipecat.transports.base_transport import TransportParams
 
 from ..core.ledger import Ledger
 from ..core.timebase import US_PER_SECOND, to_seconds
-from ..scripted.voice import StampReader, StampTable, words_heard
+from ..scripted.voice import StampReader, StampTable, words_heard, words_missing_audio
 from .providers import SAMPLE_RATE
 
 
@@ -49,7 +49,7 @@ class ClockedOutput(BaseOutputTransport):
     transport one chunk at a time and waits for the write to return. A chunk plays for
     its own length here, and what was written is what was heard."""
 
-    def __init__(self, ledger: Ledger, table: StampTable) -> None:
+    def __init__(self, ledger: Ledger, table: StampTable, *, late_us: int = 0) -> None:
         super().__init__(
             TransportParams(
                 audio_out_enabled=True,
@@ -58,6 +58,8 @@ class ClockedOutput(BaseOutputTransport):
             )
         )
         self._ledger, self._table = ledger, table
+        self._late_us = late_us  # how late a write may come and still join the audio before it
+        self._due = 0  # when the audio written so far ends
         self._segments = 0
         self._segment: _Segment | None = None
         self._writing = False
@@ -135,13 +137,16 @@ class ClockedOutput(BaseOutputTransport):
                 segment=segment.number,
                 utterance=self._table.words[first]["utterance"] if first else None,
             )
-        # A write plays from its arrival. Gaps between writes are silence.
-        start = self._ledger.now_us()
+        # A write plays from its arrival. Gaps between writes are silence. On the real clock a
+        # sleep ends late, and a write that late continues the audio before it.
+        now = self._ledger.now_us()
+        start = self._due if 0 < now - self._due <= self._late_us else now
         segment.writes.append((segment.pushed, start))
         segment.pushed += len(samples)
+        self._due = start + _duration(len(samples))
         self._writing = True
         try:
-            await asyncio.sleep(to_seconds(_duration(len(samples))))
+            await asyncio.sleep(to_seconds(self._due - now))
         finally:
             self._writing = False
             elapsed = max(0, self._ledger.now_us() - start)
@@ -152,6 +157,7 @@ class ClockedOutput(BaseOutputTransport):
 
     def _finish(self, segment: _Segment, *, interrupted: bool) -> None:
         self._take(segment, self._reader.end())
+        self._altered += words_missing_audio(segment.runs, self._table)
         played, ended, cut, cut_samples = words_heard(segment.runs, segment.heard, self._table)
         heard = [*played, *([] if cut is None else [cut])]
         self._ledger.append(

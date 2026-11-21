@@ -1,11 +1,21 @@
 """The two historical defects: red on affected releases, green on repaired ones."""
 
+import re
+import subprocess
+import sys
+from pathlib import Path
+
+import pytest
+
+pytest.importorskip("livekit.agents")
+
 import livekit.agents as lk
 
 from earful.core.checker import FAIL, PASS, check
 from earful.livekit.cases import BOOKING_INTENT, CASES
 from earful.livekit.harness import run_case
 
+SCRIPTS = Path(__file__).resolve().parents[1] / "scripts"
 VERSION = tuple(int(part) for part in lk.__version__.split(".")[:3])
 FIX_3702 = (1, 6, 6)  # livekit/agents PR #6349
 FIX_5509 = (1, 5, 7)  # livekit/agents PR #5535
@@ -57,3 +67,21 @@ def test_interrupted_reply_is_cut_mid_word():
     assert cut.outcome == PASS
     assert (cut.measures["played"], cut.measures["cut"]) == (9, 1)
     assert report.failures == ()
+
+
+@pytest.mark.slow
+@pytest.mark.parametrize("issue", ["3702", "5509"])
+def test_a_historical_case_script_fails_on_a_verdict_its_release_should_not_give(tmp_path, issue):
+    source = (SCRIPTS / f"spike_{issue}.py").read_text()
+    (fixed_in,) = re.findall(r"^FIXED_IN = \((\d+), (\d+), (\d+)\)", source, re.MULTILINE)
+    # The other side of the installed release, so that the verdict it gives is the wrong one.
+    moved = "(99, 0, 0)" if VERSION >= tuple(map(int, fixed_in)) else "(0, 0, 0)"
+    wrong = tmp_path / "wrong.py"
+    wrong.write_text(source.replace(f"FIXED_IN = ({', '.join(fixed_in)})", f"FIXED_IN = {moved}"))
+    for script, status in ((SCRIPTS / f"spike_{issue}.py", 0), (wrong, 1)):
+        done = subprocess.run(
+            [sys.executable, str(script)], capture_output=True, text=True, check=False
+        )
+        assert done.returncode == status, done.stderr
+        assert '"distinct_hashes": 1' in done.stdout
+    assert done.stderr.startswith(f"#{issue}: ")

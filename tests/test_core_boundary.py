@@ -1,11 +1,16 @@
-"""The core and the shared scripted world must never import a framework or an adapter."""
+"""The core and the shared scripted world must never import a framework or an adapter,
+and a test file says which framework it needs."""
 
 import ast
+import re
 import subprocess
 import sys
 from pathlib import Path
 
-SRC = Path(__file__).resolve().parents[1] / "src"
+import pytest
+
+TESTS = Path(__file__).resolve().parent
+SRC = TESTS.parent / "src"
 PORTABLE = (SRC / "earful" / "core", SRC / "earful" / "scripted")
 FORBIDDEN = ("livekit", "pipecat", "earful.livekit", "earful.pipecat")
 
@@ -19,11 +24,12 @@ def _sources() -> list[Path]:
     return sorted(path for directory in PORTABLE for path in directory.rglob("*.py"))
 
 
-def _imports(path: Path):
+def _imports(path: Path, package: list[str] | None = None):
     """Every module ``path`` imports, as an absolute name."""
-    package = _module(path).split(".")
-    if path.name != "__init__.py":
-        package = package[:-1]
+    if package is None:
+        package = _module(path).split(".")
+        if path.name != "__init__.py":
+            package = package[:-1]
     for node in ast.walk(ast.parse(path.read_text())):
         if isinstance(node, ast.Import):
             for alias in node.names:
@@ -60,3 +66,66 @@ def test_they_import_with_every_framework_unavailable():
     )
     done = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, check=False)
     assert done.returncode == 0, done.stderr
+
+
+def _import_error(adapter: str, setup: str) -> str:
+    """What importing ``adapter`` raises in a fresh process after ``setup``, as its repr."""
+    code = f"import sys\n{setup}\ntry:\n    import {adapter}\nexcept ImportError as exc:\n"
+    code += "    print(repr(exc))\n"
+    done = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, check=True)
+    return done.stdout.strip()
+
+
+@pytest.mark.parametrize(
+    ("adapter", "framework", "package", "extra"),
+    [
+        ("earful.livekit", "livekit.agents", "livekit-agents", "livekit"),
+        ("earful.pipecat", "pipecat", "pipecat-ai", "pipecat"),
+    ],
+)
+def test_an_adapter_names_its_framework_as_missing_only_when_it_is(
+    adapter, framework, package, extra, tmp_path
+):
+    parts = framework.split(".")
+    assert _import_error(adapter, f"sys.modules[{parts[0]!r}] = None") == repr(
+        ImportError(
+            f"{adapter} needs {package}, which is not installed. "
+            f'Install it with: pip install "earful[{extra}]"'
+        )
+    )
+    # A framework that is installed and fails to import one of its own dependencies.
+    for depth in range(1, len(parts) + 1):
+        tmp_path.joinpath(*parts[:depth]).mkdir()
+        tmp_path.joinpath(*parts[:depth], "__init__.py").touch()
+    tmp_path.joinpath(*parts, "__init__.py").write_text("import a_module_nobody_has\n")
+    assert _import_error(adapter, f"sys.path.insert(0, {str(tmp_path)!r})") == repr(
+        ModuleNotFoundError("No module named 'a_module_nobody_has'")
+    )
+
+
+def _frameworks(path: Path, seen: frozenset[Path] = frozenset()) -> set[str]:
+    """The frameworks ``path`` imports, itself or through another file under ``tests/``."""
+    found = set()
+    for _line, name in _imports(path, []):
+        top, _, rest = name.partition(".")
+        if top in ("livekit", "pipecat"):
+            found.add(top)
+        elif top == "earful" and rest.split(".")[0] in ("livekit", "pipecat"):
+            found.add(rest.split(".")[0])
+        elif (helper := TESTS / f"{top}.py").exists() and helper not in seen:
+            found |= _frameworks(helper, seen | {path})
+    return found
+
+
+def test_a_test_file_skips_itself_where_a_framework_it_imports_is_absent():
+    """So every other test runs where one framework is installed (scripts/ran_every_test.sh)."""
+    skips_itself = re.compile(r'^pytest\.importorskip\("(livekit|pipecat)[."]', re.MULTILINE)
+    files = sorted(TESTS.glob("test_*.py"))
+    said = {path.name: set(skips_itself.findall(path.read_text())) for path in files}
+    imported = {path.name: _frameworks(path) for path in files}
+    # This one imports its framework in another process only (the imported_on fixture).
+    imported["test_livekit_releases.py"] |= {"livekit"}
+    assert said == imported
+    for framework in ("livekit", "pipecat"):
+        assert sum(framework in needs for needs in said.values()) > 2, framework
+    assert sum(not needs for needs in said.values()) > 10  # the tests every environment runs

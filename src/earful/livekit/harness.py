@@ -284,6 +284,10 @@ def _scenario(case: Case, witnessed_tools: list[str], intents: list[Intent]) -> 
         ],
         "session": {
             **_declared_session(case),
+            # A turn ends once the VAD's silence and the endpointing delay have both passed.
+            "turn_end_delay_us": max(
+                to_us(case.vad_min_silence), to_us(case.min_endpointing_delay)
+            ),
             "turn_detection": None,
             "extra_options": {
                 name: tools.json_value(case.session_kwargs[name])

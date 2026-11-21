@@ -32,7 +32,7 @@ walks through running a greeting in pytest and inspecting its ledger from the co
 
 This LiveKit example takes ten minutes on Python 3.10 or later, with pytest installed.
 The two files below are in
-[`examples/booking`](https://github.com/smartfox96/earful/tree/main/examples/booking). The output shown is from livekit-agents 1.8.12.
+[`examples/booking`](https://github.com/smartfox96/earful/tree/main/examples/booking). The output shown is from livekit-agents 1.8.13.
 
 ```bash
 pip install "earful[livekit]"
@@ -160,7 +160,7 @@ earful = <earful.pytest_plugin.Earful object at 0x...>
 
     def test_every_timing_and_fault_near_it(earful):
 >       earful.explore(booking).assert_contracts()
-E       earful.core.checker.report.ContractFailure: booking on livekit-agents 1.8.12: 736 cases tried, 736 judged, 1 contract rule(s) broken
+E       earful.core.checker.report.ContractFailure: booking on livekit-agents 1.8.13: 736 cases tried, 736 judged, 1 contract rule(s) broken
 E
 E       A2/rule  in 261 case(s)
 E           2 durable effects for 'book-table'; the scenario authorized 1
@@ -202,7 +202,7 @@ save it:
 
 ```bash
 earful search test_booking:booking --keep A2/rule --out failures
-earful replay failures/lk-1.8.12.booking.A2-rule --expect reproduced
+earful replay failures/lk-1.8.13.booking.A2-rule --expect reproduced
 ```
 
 The kept case is the conversation as written with one fault: the first write times out
@@ -219,7 +219,7 @@ for its caller. It gives the same ledger, byte for byte, on every run.
 
 ```bash
 pytest                                                             # 2 passed
-earful replay failures/lk-1.8.12.booking.A2-rule --expect clean    # the kept failure is gone
+earful replay failures/lk-1.8.13.booking.A2-rule --expect clean    # the kept failure is gone
 ```
 
 The kept failure is now a regression test: `earful replay --expect clean` fails if the
@@ -273,6 +273,7 @@ Earful does not grade conversations, prompts, recognition accuracy or voice qual
 model, the recognizer and the voice are scripted, so it says nothing about how a real
 provider behaves. Playout is what a simulated sink consumed: it does not measure a
 network, a client buffer or what a caller heard. It does not record production calls.
+[`docs/limits.md`](https://github.com/smartfox96/earful/blob/main/docs/limits.md) lists every limit in one place.
 
 ## Two known defects, reproduced
 
@@ -282,8 +283,8 @@ real clock (`earful crosscheck`).
 
 | Issue | What happens | Fails on | Passes on |
 | --- | --- | --- | --- |
-| [livekit/agents#3702](https://github.com/smartfox96/earful/blob/main/docs/cases/3702-tool-result-lost-on-interruption.md) | A tool result is lost when its reply is interrupted, and the booking is made twice | 1.5.6, 1.5.7, 1.6.5 | 1.6.6, 1.8.12 |
-| [livekit/agents#5509](https://github.com/smartfox96/earful/blob/main/docs/cases/5509-reply-starts-over-new-turn.md) | A reply starts playing after the user has begun a new turn | 1.5.6 | 1.5.7, 1.6.5, 1.6.6, 1.8.12 |
+| [livekit/agents#3702](https://github.com/smartfox96/earful/blob/main/docs/cases/3702-tool-result-lost-on-interruption.md) | A tool result is lost when its reply is interrupted, and the booking is made twice | 1.5.6, 1.5.7, 1.6.5 | 1.6.6, 1.8.12, 1.8.13 |
+| [livekit/agents#5509](https://github.com/smartfox96/earful/blob/main/docs/cases/5509-reply-starts-over-new-turn.md) | A reply starts playing after the user has begun a new turn | 1.5.6 | 1.5.7, 1.6.5, 1.6.6, 1.8.12, 1.8.13 |
 
 Both kept cases are in the repository, under `tests/bundles/`, and are not part of the
 installed package. From a checkout:
@@ -295,8 +296,8 @@ earful report tests/bundles/lk-1.5.6.book_then_interrupt.A2-rule -o report.html
 
 ## Supported
 
-livekit-agents 1.5.6, 1.5.7, 1.6.5, 1.6.6 and 1.8.12, on Linux and macOS, Python 3.10
-to 3.14. pipecat-ai 1.16.0, on Linux and macOS, Python 3.11 to 3.13.
+livekit-agents 1.5.6, 1.5.7, 1.6.5, 1.6.6, 1.8.12 and 1.8.13, on Linux and macOS,
+Python 3.10 to 3.14. pipecat-ai 1.16.0, on Linux and macOS, Python 3.11 to 3.13.
 [`docs/compatibility.md`](https://github.com/smartfox96/earful/blob/main/docs/compatibility.md) has the exact dependency sets
 and what CI runs for each.
 
@@ -306,11 +307,15 @@ and what CI runs for each.
 | --- | --- |
 | [`docs/testing.md`](https://github.com/smartfox96/earful/blob/main/docs/testing.md) | Writing a test: the scenario, the scripted model, side effects, pytest, the command line, the real clock |
 | [`docs/pipecat.md`](https://github.com/smartfox96/earful/blob/main/docs/pipecat.md) | Running a Pipecat scenario, registering tools and configuring turn detection |
+| [`docs/api.md`](https://github.com/smartfox96/earful/blob/main/docs/api.md) | Every public name, the `earful` command's options and the pytest plugin |
+| [`docs/troubleshooting.md`](https://github.com/smartfox96/earful/blob/main/docs/troubleshooting.md) | The messages Earful prints, with the cause of each and what to do |
 | [`docs/report.md`](https://github.com/smartfox96/earful/blob/main/docs/report.md) | The HTML report, lane by lane |
 | [`docs/contracts.md`](https://github.com/smartfox96/earful/blob/main/docs/contracts.md) | The seven contracts, their evidence and their policies |
 | [`docs/search.md`](https://github.com/smartfox96/earful/blob/main/docs/search.md) | The search, the reduction of a failing case, and the bundle that is kept |
 | [`docs/ledger.md`](https://github.com/smartfox96/earful/blob/main/docs/ledger.md) | Every event in a ledger, and what makes a run valid |
 | [`docs/compatibility.md`](https://github.com/smartfox96/earful/blob/main/docs/compatibility.md) | Supported releases and what is tested |
+| [`docs/limits.md`](https://github.com/smartfox96/earful/blob/main/docs/limits.md) | What Earful does not do and what it cannot see |
+| [`docs/glossary.md`](https://github.com/smartfox96/earful/blob/main/docs/glossary.md) | The terms the pages, the command and the reports use |
 | [`CHANGELOG.md`](https://github.com/smartfox96/earful/blob/main/CHANGELOG.md) | What changed in each release |
 | [`docs/history/`](https://github.com/smartfox96/earful/tree/main/docs/history) | What was measured at each stage of the first build, kept as written |
 
@@ -324,8 +329,8 @@ and what CI runs for each.
   sink, harness.
 - `src/earful/pipecat/` runs scripted providers and a clocked output transport through a
   Pipecat pipeline.
-- `examples/` holds the quickstart. `tests/golden/` and `tests/bundles/` hold the
-  reference ledgers and the two kept failures.
+- `examples/` holds the quickstart and the same bot for Pipecat. `tests/golden/` and
+  `tests/bundles/` hold the reference ledgers and the two kept failures.
 
 ## Contributing
 

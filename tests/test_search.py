@@ -206,6 +206,24 @@ def test_transitions_are_the_events_of_a_run_and_the_moments_the_ledger_states()
     assert not any("playout.word_end" in t.kinds for t in transitions(events, words=False))
 
 
+def test_a_turn_ends_when_the_header_says_it_does_and_as_livekit_ends_it_where_it_says_nothing():
+    events = copy.deepcopy(ledger("1.8.12", "barge_in_mid_word"))
+    header = events[0]["data"]["scenario"]
+    session, vad = header["session"], header["providers"]["vad"]
+    stop = speech(0, 1_000_000, "Stop.")
+    # A header from before the field: the longer of the VAD's silence and the endpointing delay.
+    session.pop("turn_end_delay_us", None)
+    for silence_us, delay_us in ((500_000, 800_000), (800_000, 300_000)):
+        vad["min_silence_us"], session["min_endpointing_delay_us"] = silence_us, delay_us
+        assert anchors(header, stop)["turn_end"] == 1_800_000
+    # Pipecat's turn ends after both, one after the other, and its header says so.
+    session["turn_end_delay_us"] = 1_100_000
+    assert anchors(header, stop)["turn_end"] == 2_100_000
+    assert anchors(header, stop)["vad_end"] == 1_800_000
+    at = {t.t_us: t.kinds for t in transitions(events)}
+    assert "user.turn_end" in at[2_500_000 + 1_100_000]  # the first speech ends at 2.5 s
+
+
 def test_a_speech_acts_at_its_anchors_and_each_variable_moves_some_of_them():
     events = ledger("1.8.12", "barge_in_mid_word")
     header = events[0]["data"]["scenario"]
@@ -968,6 +986,14 @@ def test_a_hangup_is_a_difference_and_a_reduction_keeps_it_only_if_the_failure_n
     assert reduced.case["hangup_us"] is None and "removed the hangup" in reduced.steps
 
 
+def test_a_hangup_the_failure_does_not_need_keeps_no_speech_in_the_reduced_case():
+    # A user who hangs up must have spoken, so the hangup goes before the speeches are tried.
+    leaving = a_case(BOOK, hangup_us=9_000_000)
+    reduced = shrink(leaving, answers(lambda case: True), A2)
+    assert reduced.case["speeches"] == [] and reduced.case["hangup_us"] is None
+    assert reduced.steps == ["removed the hangup", "removed 1 of 1 speeches"]
+
+
 SLOW_WRITE = {"of": "backend.latency", "nth": 1, "us": 1_500_000}
 
 
@@ -1547,7 +1573,7 @@ def test_a_bundle_holds_the_failure_and_replays(tmp_path):
     )
     assert manifest["formats"] == {
         "ledger": "earful.ledger/1",
-        "contracts": "earful.contracts/1",
+        "contracts": "earful.contracts/2",
         "case": "earful.case/1",
     }
     assert (manifest["original"]["speeches"], manifest["minimal"]["speeches"]) == (4, 2)
@@ -1723,8 +1749,8 @@ TAMPERED = {
         "/manifest.json names the ledger format earful.ledger/99; this Earful reads earful.led",
     ),
     "contracts this Earful does not judge by": (
-        in_manifest(contracts="earful.contracts/2"),
-        "/manifest.json names the contracts format earful.contracts/2; this Earful reads ",
+        in_manifest(contracts="earful.contracts/3"),
+        "/manifest.json names the contracts format earful.contracts/3; this Earful reads ",
     ),
     "a case format this Earful does not read": (
         in_manifest(case="earful.case/2"),
@@ -1756,6 +1782,13 @@ def test_a_bundle_with_a_file_that_is_not_what_its_manifest_records_is_refused(
         bundle.load(directory)
     message = str(refused.value)
     assert f"{directory}{wrong}" in message and len(message.splitlines()) == 1
+
+
+def test_a_bundle_kept_under_the_contracts_before_these_is_read(tmp_path):
+    directory = a_copy(tmp_path)
+    in_manifest(contracts="earful.contracts/1")(directory)
+    assert bundle.load(directory).manifest["formats"]["contracts"] == "earful.contracts/1"
+    assert bundle.FORMATS["contracts"] == "earful.contracts/2"
 
 
 def test_a_replay_is_reproduced_or_clean_only_if_every_run_was_judged(tmp_path):

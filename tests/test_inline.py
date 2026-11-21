@@ -4,13 +4,17 @@ import hashlib
 import sys
 from concurrent.futures.process import BrokenProcessPool
 
-import livekit.agents as lk
 import pytest
+
+pytest.importorskip("livekit.agents")
+
+import livekit.agents as lk
 from breaks import BOOKING, TalksToItsServiceItself, as_written_confirms_a_failed_booking
 
 from earful.core import case as cases
 from earful.core.checker import ContractFailure, check
 from earful.core.predicate import Predicate
+from earful.core.schema import validity
 from earful.core.search import evaluate
 from earful.livekit import scenario
 from earful.livekit.api import WorkersUnavailable, explore, keep, replay, run
@@ -467,3 +471,29 @@ def test_the_same_scenario_as_a_function_in_a_module_is_kept_and_replays(tmp_pat
     assert again.reproduced and again.identical and again.scenario_changed is False
     with pytest.raises(ValueError, match="no case that breaks A2/rule"):
         keep(found, "A2/rule", tmp_path / "other")
+
+
+def test_future_minor_case_metadata_is_ignored_but_unknown_settings_are_refused():
+    data = scenario.default("earful.livekit.cases:barge_in_mid_word")
+    data.update(schema_minor=17, future="metadata")
+    data["speeches"][0]["diagnostic"] = {"future": True}
+    assert cases.validate(data) == []
+    assert scenario.build(data).speeches[0].transcript == data["speeches"][0]["transcript"]
+    data["settings"]["future_execution_setting"] = True
+    with pytest.raises(ValueError, match="unknown setting"):
+        scenario.build(data)
+
+
+@pytest.mark.slow
+def test_a_scenario_is_run_on_both_clocks_and_the_real_run_is_never_evidence():
+    """Agreement depends on the machine, so only what holds on any machine is asserted."""
+    from earful.livekit.api import cross_check as on_both_clocks
+
+    checked = on_both_clocks("earful.livekit.cases:speak_over_new_turn", runs=1)
+    (real,), (comparison,) = checked.real, checked.comparisons
+    assert validity(checked.virtual) == []
+    assert validity(real) == ["the run was on the real clock"]
+    assert not comparison.unusable and comparison.drift_us > 0
+    assert checked.lines()[0].startswith("speak_over_new_turn on livekit-agents ")
+    with pytest.raises(ValueError, match="at least one real-clock run"):
+        on_both_clocks("earful.livekit.cases:speak_over_new_turn", runs=0)

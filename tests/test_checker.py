@@ -86,7 +86,7 @@ def barge():
 
 
 def _release(path):
-    return tuple(int(n) for n in path.name.removeprefix("lk-").split(".")[:3])
+    return tuple(int(n) for n in path.name[3:].split(".")[:3])  # after lk- or pc-
 
 
 @pytest.mark.parametrize(
@@ -108,6 +108,8 @@ def test_reference_ledgers_get_the_documented_outcomes(path):
         expected.update(A2=FAIL if has_3702 else PASS, A3=PASS, M2=FAIL if has_3702 else PASS)
     if case == "speak_over_new_turn" and release < (1, 5, 7):
         expected["L2"] = FAIL
+    if case == "reserve_table":
+        expected.update(A2=PASS, A3=PASS)
     assert check(read_jsonl(path)).outcomes() == expected
 
 
@@ -201,7 +203,7 @@ def test_a_verdict_cites_the_events_and_witnesses_it_rests_on(affected):
     assert failed.witnesses == ("backend",)
     assert all("framework" not in v.witnesses for r in report.results.values() for v in r.verdicts)
     json.dumps(report.to_json())  # the whole report is plain JSON
-    assert report.to_json()["contracts"] == "earful.contracts/1"
+    assert report.to_json()["contracts"] == "earful.contracts/2"
 
 
 @pytest.mark.parametrize(
@@ -1162,6 +1164,55 @@ def shown(events, call, kind):
     return next(i for i in context(events, call) if i["type"] == kind)
 
 
+@pytest.mark.parametrize(
+    "returned, owed",
+    [
+        ({}, ["call 2", "call 3", "final history"]),
+        ({"handoff": True}, ["call 2", "final history"]),  # a value came with the agent
+        ({"handoff": True, "expects_reply": False, "text": ""}, ["final history"]),
+    ],
+)
+def test_m2_a_call_that_handed_over_is_owed_in_its_follow_up_and_in_the_final_history(
+    affected, returned, owed
+):
+    """No context after the first booking returned shows its call or its result (#3702)."""
+    of(affected, "tool.returned")["data"].update(returned)
+    report = check(affected)
+    contexts = ("call 2", "call 3", "final history")
+    assert [label for label in contexts if "rule d" in _broken(report, label)] == owed
+
+
+def test_m2_a_context_that_shows_a_call_that_handed_over_is_held_to_the_rest_of_rule_d(fixed):
+    of(fixed, "tool.returned")["data"].update(handoff=True, expects_reply=False, text="")
+    assert _broken(check(fixed), "call 2") == ["rule d"]  # not the value the tool returned
+    shown(fixed, 2, "function_call_output")["output"] = ""
+    assert _broken(check(fixed), "call 2") == []
+    context(fixed, 2).remove(shown(fixed, 2, "function_call_output"))
+    assert _broken(check(fixed), "call 2") == ["rule d"]  # a call item without its result
+    context(fixed, 2).remove(shown(fixed, 2, "function_call"))
+    assert _broken(check(fixed), "call 2") == []  # the next agent's context need not show it
+
+
+@pytest.mark.parametrize("handoff", [False, True])
+def test_m2_an_error_result_for_a_handoff_is_the_frameworks_account_and_is_not_judged(
+    fixed, handoff
+):
+    if handoff:
+        of(fixed, "tool.returned")["data"]["handoff"] = True
+    shown(fixed, 2, "function_call_output").update(is_error=True, output="it did not happen")
+    judged = _judged(check(fixed), "call 2")
+    assert [f.rule for f in judged.findings] == ([] if handoff else ["rule d", "rule d"])
+    assert judged.measures["stand_in_results"] == int(handoff)
+
+
+def test_l1_a_turn_that_was_spoken_to_is_not_silenced_by_its_tool(fixed):
+    """The reply that calls the booking tool also speaks, and its first word plays at 3.2 s."""
+    of(fixed, "tool.returned")["data"]["expects_reply"] = False
+    (turn,) = [v for v in check(fixed).results["L1"].verdicts if v.instance == {"speech": 0}]
+    assert turn.outcome == PASS and turn.flags == ()
+    assert turn.summary == "the turn of speech 0 got its response in time"
+
+
 def test_m2_fails_when_the_model_is_shown_a_different_result(fixed):
     shown(fixed, 2, "function_call_output")["output"] = "Reservation R9 confirmed for 2 guests."
     report = check(fixed)
@@ -1235,9 +1286,9 @@ def test_m2_a_cancelled_tool_call_needs_no_result(affected):
     assert check(affected).outcome("M2") == PASS
 
 
-def _returns_at(events, call, *, before):
-    """Move the booking's return to just before or after the request of model call ``call``."""
-    returned = of(events, "tool.returned")
+def _returns_at(events, call, *, before, booking=0):
+    """Move a booking's return to just before or after the request of model call ``call``."""
+    returned = of(events, "tool.returned", booking)
     events.remove(returned)
     request = next(e for e in events if e["kind"] == "llm.request" and e["data"]["call"] == call)
     returned["t_us"] = request["t_us"]
@@ -1306,6 +1357,16 @@ def test_speech_that_begins_before_a_turn_can_be_over_extends_it(fixed):
     assert view.turn_over_us(first) == 3_700_000  # transcript at 2.7 s, plus 0.5 s + 0.5 s
     second.start = 3_500_000
     assert view.turn_over_us(first) == view.turn_over_us(second) == 7_200_000
+
+
+@pytest.mark.parametrize("start_us, over_us", [(3_699_999, 7_200_000), (3_700_000, 3_700_000)])
+def test_speech_that_begins_at_the_instant_a_turn_can_be_over_does_not_extend_it(
+    fixed, start_us, over_us
+):
+    view = View(fixed)
+    first, second = view.speeches
+    second.start = start_us
+    assert view.turn_over_us(first) == over_us and view.turn_over_us(second) == 7_200_000
 
 
 def test_m2_fails_when_a_reply_comes_before_the_turn_it_answered(barge):
@@ -1465,9 +1526,13 @@ def test_m2_fails_on_a_call_item_for_a_call_the_model_did_not_make(fixed):
     assert "a call the model had not made" in report.results["M2"].failures[0].findings[0].detail
 
 
-def test_m2_a_call_the_model_makes_later_is_no_call_it_had_made(fixed):
-    """Call 1 asks for the booking; a context requested before it answers cannot hold the call."""
-    context(fixed, 1).append(dict(shown(fixed, 2, "function_call")))
+@pytest.mark.parametrize("before_the_turn", [False, True])
+def test_m2_a_call_the_model_makes_later_is_no_call_it_had_made(fixed, before_the_turn):
+    """Call 1 asks for the booking; a context requested before it answers cannot hold the call.
+    Where the item sits in that context is not judged."""
+    items = context(fixed, 1)
+    turn = next(n for n, i in enumerate(items) if i.get("role") == "user")
+    items.insert(turn if before_the_turn else len(items), dict(shown(fixed, 2, "function_call")))
     (failed,) = check(fixed).results["M2"].failures
     assert failed.instance == {"context": "call 1"}
     assert [f.rule for f in failed.findings] == ["rule f"]
@@ -1502,6 +1567,108 @@ def test_m2_a_tool_call_renamed_given_other_arguments_and_moved_fails_in_every_c
         "call 2",
         "final history",
     ]
+
+
+def _judged(report, label):
+    (verdict,) = [v for v in report.results["M2"].verdicts if v.instance == {"context": label}]
+    return verdict
+
+
+def _broken(report, label):
+    return [f.rule for f in _judged(report, label).findings]
+
+
+@pytest.mark.parametrize(
+    "lag_us, late_us, lost",
+    [(0, 0, False), (0, 1, True), (None, 1_000_000, False), (None, 1_000_001, True)],
+)
+def test_m2_a_transcript_is_lost_if_missing_more_than_user_commit_lag_after_its_turn_is_over(
+    fixed, lag_us, late_us, lost
+):
+    """The turn of speech 1 can be over at 7.2 s. The final history is read ``late_us`` later
+    and does not hold its transcript. The default lag is one second."""
+    if lag_us is not None:
+        declare(fixed, M2={"user_commit_lag_us": lag_us})
+    history = of(fixed, "history.final")
+    _forget(history["data"]["items"], "Is the table by the window?")
+    report = check(_moved(fixed, history, 7_200_000 + late_us))
+    assert rules(report, "M2") == (["rule b"] if lost else [])
+    if lost:
+        (finding,) = _judged(report, "final history").findings
+        assert f"the turn of speech 1 was over {late_us} us before this context" in finding.detail
+
+
+@pytest.mark.parametrize("before, owed", [(True, ["rule d"]), (False, [])])
+def test_m2_the_call_that_follows_up_a_tool_is_held_to_a_return_at_its_instant_if_it_came_first(
+    affected, before, owed
+):
+    """Model call 3 follows up the second booking in the turn that made it, and shows neither
+    the call nor its result. The booking returns at the instant call 3 is requested."""
+    events = _without_the_call(_returns_at(affected, 3, before=before, booking=1), 3)
+    findings = _judged(check(events), "call 3").findings
+    assert [f.rule for f in findings if "create_reservation (call-2-1)" in f.detail] == owed
+
+
+@pytest.mark.parametrize("early_us, owed", [(0, []), (1, ["rule d"])])
+def test_m2_a_call_for_a_later_turn_is_held_to_a_tool_that_returned_a_microsecond_before_it(
+    fixed, early_us, owed
+):
+    """Model call 2 answers speech 1 at 6.5 s and shows nothing of the booking made before."""
+    events = _moved(fixed, of(fixed, "tool.returned"), 6_500_000 - early_us)
+    assert _broken(check(_without_the_call(events, 2)), "call 2") == owed
+
+
+@pytest.mark.parametrize("kind", ["function_call", "function_call_output"])
+@pytest.mark.parametrize("copies", [0, 1, 2])
+def test_m2_a_tool_call_that_returned_is_shown_with_one_call_item_and_one_result_item(
+    fixed, kind, copies
+):
+    items = context(fixed, 2)
+    at = items.index(shown(fixed, 2, kind))
+    items[at : at + 1] = [dict(items[at]) for _ in range(copies)]
+    report = check(fixed)
+    assert _broken(report, "call 2") == ([] if copies == 1 else ["rule d"])
+    if copies != 1:
+        calls, results = (copies, 1) if kind == "function_call" else (1, copies)
+        said = f"which holds {calls} call item(s) and {results} result item(s) for it"
+        assert _judged(report, "call 2").findings[0].detail.endswith(said)
+
+
+@pytest.mark.parametrize("after", [False, True])
+def test_m2_a_result_shown_at_the_instant_its_tool_is_called_is_judged_by_which_came_first(
+    fixed, after
+):
+    """The booking is called and returns at the instant model call 2 is requested."""
+    request = next(e for e in fixed if e["kind"] == "llm.request" and e["data"]["call"] == 2)
+    kinds = ("tool.called", "effect.requested", "effect.committed", "tool.returned")
+    for kind in reversed(kinds) if after else kinds:
+        _beside(fixed, of(fixed, kind), request, after=after)
+    assert [e["kind"] for e in fixed if e["kind"] in kinds] == list(kinds)
+    report = check(fixed)
+    judged = _judged(report, "call 2")
+    assert _broken(report, "call 2") == (["rule d"] if after else [])
+    assert judged.measures["stand_in_results"] == 0
+    if after:
+        assert "a call no witnessed tool had received" in judged.findings[0].detail
+
+
+def test_m2_a_reply_inside_the_turn_it_answered_comes_before_the_end_of_that_turn(fixed):
+    """Reply 1 answers "Book a table for six tonight." and is recorded between its halves."""
+    assert _broken(check(copy.deepcopy(fixed)), "call 2") == []
+    items = context(fixed, 2)
+    turn, reply = items[2], remembered(fixed, 2)
+    assert (turn["text"], items.index(reply)) == ("Book a table for six tonight.", 3)
+    items[2:4] = [{**turn, "text": "Book a table"}, reply, {**turn, "text": "for six tonight."}]
+    (finding,) = _judged(check(fixed), "call 2").findings
+    assert finding.rule == "rule e"
+    assert "the reply of call 1 appears before speech 0, which it" in finding.detail
+
+
+def test_m2_a_reply_is_no_message_of_the_context_it_was_generated_from(barge):
+    """Model call 1 answers at the instant it is requested; its context came first."""
+    context(barge, 1).append(dict(remembered(barge, 2)))
+    report = check(barge)
+    assert _broken(report, "call 1") == ["rule c"] and rules(report, "M2") == ["rule c"]
 
 
 def _by_time(events):
@@ -1697,16 +1864,26 @@ def test_l1_a_later_speech_carries_the_obligation():
     assert "the later speech carries the obligation" in result.notes[0]
 
 
-def _noise_after_the_turn(events, start_us, timeout_us):
-    """Speech 1 ends at 6.0 s and its clock starts at 6.2 s, with nothing to spare: the model
-    call at 6.5 s is late unless the noise at ``start_us`` restarts the clock."""
+def _over_at_once(events):
+    """No end-of-turn delay and no slack: a turn's first deadline is the start of its clock."""
     scenario = events[0]["data"]["scenario"]
-    noise = {**scenario["speeches"][1], "speech": 2, "transcript": "", "expects_reply": False}
-    scenario["speeches"].append({**noise, "start_us": start_us, "end_us": start_us + 50_000})
-    scenario["session"]["false_interruption_timeout_us"] = timeout_us
     scenario["session"]["min_endpointing_delay_us"] = 0
     scenario["providers"]["vad"]["min_silence_us"] = 0
-    (_, turn) = check(declare(events, L1={"slack_us": 0})).results["L1"].verdicts
+    return declare(events, L1={"slack_us": 0})
+
+
+def _spoke_after_the_turn(events, start_us, **said):
+    """Speech 1 ends at 6.0 s and its clock starts at 6.2 s, with nothing to spare: the model
+    call at 6.5 s is late unless the speech at ``start_us`` excuses it."""
+    speeches = events[0]["data"]["scenario"]["speeches"]
+    later = {**speeches[1], "speech": 2, "start_us": start_us, "end_us": start_us + 50_000}
+    speeches.append({**later, **said})
+    return check(_over_at_once(events)).results["L1"]
+
+
+def _noise_after_the_turn(events, start_us, timeout_us):
+    events[0]["data"]["scenario"]["session"]["false_interruption_timeout_us"] = timeout_us
+    (_, turn) = _spoke_after_the_turn(events, start_us, transcript="", expects_reply=False).verdicts
     first = turn.measures["milestones"][0]
     return turn.outcome, first["deadline_us"]
 
@@ -1922,3 +2099,255 @@ def test_l2_a_speech_the_vad_did_not_report_in_a_run_that_went_on_holds_no_floor
     result = check(seal(unreported)).results["L2"]
     assert [v.instance for v in result.verdicts] == [{"speech": 0}]
     assert result.notes == ("speech 1: the VAD never reported it, so it held no floor",)
+
+
+SEEN = "a model call sees the turn"
+MADE = "round 1: every tool call is made"
+FINISHES = "round 1: every tool call finishes"
+FOLLOWS = "round 1: a further model call follows"
+AUDIO = "the first word of a reply starts playing"
+
+
+def _nothing_to_spare(events, **policy):
+    """The second turn of the affected booking, with its deadlines where its milestones are."""
+    scenario = events[0]["data"]["scenario"]
+    scenario["providers"]["vad"]["min_silence_us"] = 0
+    scenario["session"]["min_endpointing_delay_us"] = 300_000
+    of(events, "tts.synthesized", 1)["data"]["ttfb_us"] = 17_647
+    return declare(events, L1={"slack_us": 0, **policy})
+
+
+def _second_turn(events):
+    (turn,) = [v for v in check(events).results["L1"].verdicts if v.instance == {"speech": 1}]
+    return turn
+
+
+def _steps(turn):
+    return [
+        (m["milestone"], m["reached_us"], m["deadline_us"]) for m in turn.measures["milestones"]
+    ]
+
+
+def _missed(turn):
+    assert turn.outcome == FAIL
+    return [(f.rule, f.detail) for f in turn.findings]
+
+
+def _moved_together(events, moved, t_us):
+    for event in moved:
+        event["t_us"] = t_us
+    return _by_time(events)
+
+
+def test_l1_a_deadline_adds_the_delays_declared_on_the_chain_to_the_end_of_the_turn(affected):
+    """The clock starts at 6.2 s and the turn can be over 0.3 s later. Reply 2 takes 0.3 s to
+    generate, 17 647 us to its first audio and 5.16 s to play."""
+    turn = _second_turn(_nothing_to_spare(affected))
+    assert turn.outcome == PASS
+    assert _steps(turn) == [
+        (SEEN, 6_500_000, 6_500_000),
+        (MADE, 6_800_000, 6_800_000),
+        (FINISHES, 6_800_000, 11_977_647),
+        (FOLLOWS, 11_977_647, 11_977_647),
+        (AUDIO, 6_817_647, 6_817_647),
+    ]
+
+
+_REACHED_BY = {
+    SEEN: ("milestone 1", [("llm.request", 1), ("llm.response", 1)]),
+    MADE: (
+        "milestone 2",
+        [
+            ("tool.called", 1),
+            ("effect.requested", 1),
+            ("effect.committed", 1),
+            ("tool.returned", 1),
+        ],
+    ),
+    FINISHES: ("milestone 2", [("tool.returned", 1)]),
+    FOLLOWS: ("milestone 2", [("llm.request", 2), ("llm.response", 2)]),
+    AUDIO: ("milestone 3", [("playout.started", 1)]),
+}
+
+
+@pytest.mark.parametrize("late_us", [0, 1])
+@pytest.mark.parametrize("step", list(_REACHED_BY))
+def test_l1_a_milestone_reached_at_its_deadline_is_met_and_one_microsecond_later_is_missed(
+    affected, step, late_us
+):
+    events = _nothing_to_spare(affected)
+    deadline = {name: due for name, _, due in _steps(_second_turn(events))}[step]
+    rule, reached_by = _REACHED_BY[step]
+    reached = [of(events, kind, n) for kind, n in reached_by]
+    turn = _second_turn(_moved_together(events, reached, deadline + late_us))
+    if late_us:
+        said = f"{step}: happened 1 us after its deadline (deadline {deadline} us)"
+        assert _missed(turn) == [(rule, said)]
+    else:
+        assert turn.outcome == PASS and (step, deadline, deadline) in _steps(turn)
+
+
+def _second_tool(events, called_us):
+    """A second tool call in the round of model call 2, made at ``called_us`` and done at once."""
+    asked = of(events, "llm.response", 1)["data"]["tool_calls"]
+    asked.append({**asked[0], "call_id": "call-2-2"})
+    called, returned = (
+        copy.deepcopy(of(events, kind, 1)) for kind in ("tool.called", "tool.returned")
+    )
+    called["data"].update(tool=3, call_id="call-2-2")
+    returned["data"]["tool"] = 3
+    events = _moved_together([*events, called, returned], [called, returned], called_us)
+    return events, returned
+
+
+@pytest.mark.parametrize(
+    "called_us, returned_us, after_the_call, missed",
+    [
+        (6_800_000, 11_977_647, False, None),
+        (6_800_001, 6_800_001, False, (MADE, "happened 1 us after its deadline", 6_800_000)),
+        (6_800_000, 11_977_648, True, (FINISHES, "happened 1 us after its deadline", 11_977_647)),
+        (6_800_000, 11_977_647, True, (FOLLOWS, "never happened", 11_977_647)),
+    ],
+)
+def test_l1_a_round_of_two_tool_calls_is_held_to_the_later_of_them(
+    affected, called_us, returned_us, after_the_call, missed
+):
+    """Model call 3 is requested at 11 977 647 us, the deadline of the round. The second tool's
+    return comes before that request in the ledger, or after it."""
+    events, returned = _second_tool(_nothing_to_spare(affected), called_us)
+    request = next(e for e in events if e["kind"] == "llm.request" and e["data"]["call"] == 3)
+    if returned_us == request["t_us"]:
+        events = _beside(events, returned, request, after=after_the_call)
+    else:
+        events = _moved(events, returned, returned_us)
+    assert (events.index(returned) > events.index(request)) == after_the_call
+    turn = _second_turn(events)
+    if missed is None:
+        assert turn.outcome == PASS and (FINISHES, returned_us, returned_us) in _steps(turn)
+    else:
+        step, how, deadline = missed
+        assert _missed(turn) == [("milestone 2", f"{step}: {how} (deadline {deadline} us)")]
+
+
+@pytest.mark.parametrize("outcome", [None, "tool.cancelled"])
+def test_l1_a_round_finishes_only_when_every_one_of_its_tool_calls_has(affected, outcome):
+    """Of two tool calls, the second never returns, or is cancelled."""
+    events, returned = _second_tool(_nothing_to_spare(affected), 6_800_000)
+    if outcome is None:
+        events.remove(returned)
+    else:
+        returned.update(kind=outcome, data={"tool": 3, "name": returned["data"]["name"]})
+    said = f"{FINISHES}: never happened (deadline 11977647 us)"
+    assert _missed(_second_turn(seal(events))) == [("milestone 2", said)]
+
+
+@pytest.mark.parametrize("late_us", [0, 1])
+def test_l1_a_call_the_framework_refused_is_made_when_the_model_finished_asking(affected, late_us):
+    """No tool receives the second booking, and model call 3 is shown an error result for it.
+    Call 2 answers at 6.5 s and takes 0.3 s."""
+    events = _nothing_to_spare(affected)
+    for kind in ("tool.called", "effect.requested", "effect.committed", "tool.returned"):
+        events.remove(of(events, kind, 1))
+    shown(events, 3, "function_call_output")["is_error"] = True
+    turn = _second_turn(_moved(events, of(events, "llm.response", 1), 6_500_000 + late_us))
+    if late_us:
+        said = f"{MADE}: happened 1 us after its deadline (deadline 6800000 us)"
+        assert _missed(turn) == [("milestone 2", said)]
+    else:
+        assert turn.outcome == PASS
+        assert _steps(turn)[1:4] == [
+            (MADE, 6_800_000, 6_800_000),
+            (FINISHES, 6_800_000, 11_977_647),
+            (FOLLOWS, 11_977_647, 11_977_647),
+        ]
+
+
+@pytest.mark.parametrize("max_steps, followed", [(0, []), (1, [MADE, FINISHES, FOLLOWS])])
+def test_l1_follows_as_many_rounds_of_tool_calls_as_max_steps_and_no_more(
+    affected, max_steps, followed
+):
+    turn = _second_turn(_nothing_to_spare(affected, max_steps=max_steps))
+    assert turn.outcome == PASS
+    assert [name for name, _, _ in _steps(turn)] == [SEEN, *followed, AUDIO]
+
+
+@pytest.mark.parametrize("slack_us, late_us", [(5_077_647, 0), (5_077_646, 1)])
+def test_l1_a_reply_generated_again_is_budgeted_from_the_chain_as_it_stood_then(
+    affected, slack_us, late_us
+):
+    """With no round followed, model call 3 is a second call for the turn, made after the 0.3 s
+    call 2 took. Reply 2 is never voiced. Reply 3 takes 0.3 s and 0.2 s to its first audio."""
+    events = _nothing_to_spare(affected, max_steps=0, slack_us=slack_us)
+    turn = _second_turn(_never_voiced(events, call=2, segment=2))
+    assert _steps(turn)[-1] == (AUDIO, 12_377_647, 12_377_647 - late_us)
+    assert turn.outcome == (FAIL if late_us else PASS)
+
+
+@pytest.mark.parametrize("after_us, outcome", [(-1, UNOBSERVABLE), (0, UNOBSERVABLE), (1, FAIL)])
+def test_l1_a_milestone_never_reached_is_missed_only_if_the_run_went_on_past_its_deadline(
+    affected, after_us, outcome
+):
+    """Neither reply of the turn is voiced. The first word is due by 12.66 s, the later of the
+    two budgets, and the final history is read a microsecond before then, then, or after."""
+    events = _nothing_to_spare(affected)
+    for call in (2, 3):
+        events = _never_voiced(events, call=call, segment=call)
+    events = _moved(events, of(events, "history.final"), 12_660_000 + after_us)
+    turn = _second_turn(events)
+    assert turn.outcome == outcome and _steps(turn)[-1] == (AUDIO, None, 12_660_000)
+
+
+@pytest.mark.parametrize("off_us, clock_us", [(-1, 6_000_000), (0, 6_000_000), (1, 6_000_001)])
+def test_l1_the_clock_starts_at_the_later_of_the_end_of_the_speech_and_its_transcript(
+    barge, off_us, clock_us
+):
+    """Speech 1 ends at 6.0 s."""
+    events = _moved(barge, of(barge, "user.transcript_final", 1), 6_000_000 + off_us)
+    turn = _second_turn(events)
+    assert turn.measures["clock_start_us"] == clock_us
+    assert _steps(turn)[0] == (SEEN, 6_500_000, clock_us + 2_000_000)
+
+
+@pytest.mark.parametrize("start_us, carried", [(6_199_999, True), (6_200_000, False)])
+def test_l1_a_speech_that_starts_at_the_deadline_does_not_carry_the_obligation(
+    barge, start_us, carried
+):
+    result = _spoke_after_the_turn(barge, start_us)
+    if carried:
+        assert [v.instance for v in result.verdicts] == [{"speech": 0}]
+        (note,) = result.notes
+        assert note.startswith("speech 1: the user spoke again before a response was due;")
+    else:
+        said = f"{SEEN}: happened 300000 us after its deadline (deadline 6200000 us)"
+        assert _missed(result.verdicts[1]) == [("milestone 1", said)] and not result.notes
+
+
+@pytest.mark.parametrize("left_us, excused", [(6_199_999, True), (6_200_000, False)])
+def test_l1_a_user_who_hangs_up_at_the_deadline_was_owed_the_milestone(barge, left_us, excused):
+    """The model call for speech 1 is due at 6.2 s and is made at 6.5 s."""
+    barge[0]["data"]["scenario"]["hangup_us"] = left_us
+    hangup = {**of(barge, "user.origin"), "kind": "user.hangup", "data": {}}
+    result = check(_moved([*_over_at_once(barge), hangup], hangup, left_us)).results["L1"]
+    if excused:
+        assert [v.instance for v in result.verdicts] == [{"speech": 0}]
+        assert result.notes == ("speech 1: the user hung up before a response was due",)
+    else:
+        said = f"{SEEN}: happened 300000 us after its deadline (deadline 6200000 us)"
+        assert _missed(result.verdicts[1]) == [("milestone 1", said)] and not result.notes
+
+
+@pytest.mark.parametrize("after", [False, True])
+def test_a_transcript_delivered_as_a_model_call_is_requested_is_in_its_context_if_it_came_first(
+    barge, after
+):
+    """Speech 0's transcript arrives at the instant model call 1 is requested."""
+    transcript, request = of(barge, "user.transcript_final"), of(barge, "llm.request")
+    report = check(_beside(barge, transcript, request, after=after))
+    first = report.results["L1"].verdicts[0]
+    if after:
+        assert [v.instance for v in report.results["M2"].failures] == [{"context": "call 1"}]
+        assert rules(report, "M2") == ["rule a"]
+        said = f"{SEEN}: never happened (deadline 4700000 us)"
+        assert _missed(first) == [("milestone 1", said)]
+    else:
+        assert report.outcome("M2") == PASS and first.outcome == PASS

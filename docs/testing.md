@@ -7,6 +7,11 @@ clock, and asserts the seven contracts (`docs/contracts.md`). This page covers t
 of a scenario, the calls a test makes, the `earful` command and the pytest fixture.
 `docs/search.md` covers what a search does and what a saved failure holds.
 
+[`api.md`](api.md) lists every name and option with its signature.
+[`troubleshooting.md`](troubleshooting.md) is keyed on the messages a test or the command
+prints. [`limits.md`](limits.md) says what a test cannot show, and
+[`glossary.md`](glossary.md) defines the terms used here.
+
 Everything a test of a LiveKit agent needs is imported from `earful.livekit`. What needs
 no framework (checking a recorded ledger, the `effect` call of a stand-in service) is
 imported from `earful`.
@@ -211,7 +216,7 @@ verdicts, `result.events` the ledger, and `result.assert_contracts()` raises
 `ContractFailure`, an `AssertionError`, if a rule broke:
 
 ```
-inline_booking (seed 0, livekit-agents 1.8.12) breaks A3/rule
+inline_booking (seed 0, livekit-agents 1.8.13) breaks A3/rule
 
 A1  not_exercised
 A2  pass
@@ -249,7 +254,7 @@ result.assert_contracts(require=["A2", "A3"])
 ```
 
 ```
-booking (seed 0, livekit-agents 1.8.12) has no pass or fail for the required A2
+booking (seed 0, livekit-agents 1.8.13) has no pass or fail for the required A2
 
 A2 was not exercised: the run has no write request for a declared intent
 ```
@@ -266,7 +271,7 @@ every moment the system changes state, and adds each backend fault to each write
 broke a rule, and says what was changed to reach the failure and how wide it is:
 
 ```
-inline_booking on livekit-agents 1.8.12: 857 cases tried, 857 judged, 1 contract rule(s) broken
+inline_booking on livekit-agents 1.8.13: 857 cases tried, 857 judged, 1 contract rule(s) broken
 
 A3/rule  in 89 case(s)
     the claim was heard at 9780000 us; the first effect for 'book-table-1' was never committed
@@ -441,8 +446,8 @@ earful init myapp.agent:BookingAgent
 earful run myapp.scenarios:booking --ledger booking.ledger.jsonl
 earful check booking.ledger.jsonl
 earful search myapp.scenarios:booking --keep A3/rule --out failures
-earful replay failures/lk-1.8.12.booking.A3-rule --expect reproduced
-earful report failures/lk-1.8.12.booking.A3-rule -o report.html
+earful replay failures/lk-1.8.13.booking.A3-rule --expect reproduced
+earful report failures/lk-1.8.13.booking.A3-rule -o report.html
 ```
 
 | Command | Does |
@@ -466,7 +471,7 @@ checked before anything runs.
 | --- | --- |
 | 0 | Nothing broke, or the replay did what `--expect` names. For `report`: the report was written |
 | 1 | A contract rule broke, the replay did not do what `--expect` names, or a real-clock run did not agree with the virtual one |
-| 2 | The command could not be carried out: bad arguments, a file that is not what it should be, a bundle with a file that is not what its manifest records, a scenario that does not exist, cannot be built or contradicts itself |
+| 2 | The command could not be carried out: bad arguments, a file that is not what it should be, a bundle with a file that is not what its manifest records, a scenario that does not exist, cannot be imported, built or run, or contradicts itself |
 | 3 | No verdict: a run was not valid evidence, did not repeat, or could not be compared, a required contract got no pass or fail, a case of a search raised, a search could judge none of the cases it tried, or its budget of runs cut it short |
 
 A rule that broke outranks a run without a verdict.
@@ -483,8 +488,14 @@ earful: agent is called once for each run and returns the agent, so it is a clas
 earful: unknown backend mode 'idempotent'; choose from ['plain', 'keyed']
 ```
 
-What is raised once a run has started is shown whole, as a traceback: an agent whose
-constructor raises, or an error in Earful.
+An exception from the scenario's own code once a run has started, such as an agent whose
+constructor raises, is refused the same way:
+
+```
+earful: scenario 'test_booking:booking' could not be run: RuntimeError: no database (agent.py, line 12)
+```
+
+An error in Earful itself is shown whole, as a traceback.
 
 ## 10. On the real clock
 

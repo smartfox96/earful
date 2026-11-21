@@ -47,7 +47,7 @@ from ..scripted.clock import (
 from ..scripted.model import Policy
 from ..scripted.world import UserSpeech, WorldOrigin, sleep_until
 from . import pipeline as pipelines
-from .clock import VirtualClock
+from .clock import VirtualClock, wait_for_of_python_3_12
 from .pipeline import Ends
 from .providers import SAMPLE_RATE, ScriptedLLM, ScriptedSTT, ScriptedUser, StampedTTS, summarize
 from .sink import ClockedOutput
@@ -192,6 +192,7 @@ def _header(case: Case, tools: set[str], options: dict[str, Any]) -> dict[str, A
             # The turn ends user_speech_timeout after the VAD reports the end of speech.
             "min_endpointing_delay_us": to_us(case.user_speech_timeout),
             "max_endpointing_delay_us": to_us(case.user_turn_stop_timeout),
+            "turn_end_delay_us": to_us(case.vad_stop_secs) + to_us(case.user_speech_timeout),
             "turn_detection": None,
             "extra_options": options,
         },
@@ -216,6 +217,8 @@ def _header(case: Case, tools: set[str], options: dict[str, Any]) -> dict[str, A
 
 
 QUIET_FOR_US = 1_000_000
+# On the real clock a sleep ends late. An output with this much audio buffered plays on.
+REAL_CLOCK_LATE_US = 20_000
 # Pipecat names an audio context by a random id and a processor by a count kept per process.
 _UNSTABLE = re.compile(r"[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}|(?<=#)\d+")
 
@@ -290,7 +293,7 @@ async def _run(case: Case, seed: int) -> RunResult:
         ttfb_us=declared_us("tts.ttfb"),
         word_timestamps=case.tts_word_timestamps,
     )
-    output = ClockedOutput(ledger, voice.table)
+    output = ClockedOutput(ledger, voice.table, late_us=0 if virtual else REAL_CLOCK_LATE_US)
 
     token = backends.install(backend)
     reported = 0  # errors the pipeline reported about itself
@@ -447,10 +450,11 @@ def run_case(
     case: Case, seed: int = 0, *, virtual: bool = True, require_valid: bool = True
 ) -> RunResult:
     """Run a fresh pipeline and raise InvalidRun if its ledger cannot be judged."""
-    if virtual:
-        result = run_virtual(lambda: _run(case, seed))
-    else:
-        result = run_real(lambda: _run(case, seed), timeout=120)
+    with wait_for_of_python_3_12():
+        if virtual:
+            result = run_virtual(lambda: _run(case, seed))
+        else:
+            result = run_real(lambda: _run(case, seed), timeout=120)
     if result.invalid and require_valid:
         raise InvalidRun(result.invalid, result)
     return result

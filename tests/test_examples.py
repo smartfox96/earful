@@ -4,17 +4,20 @@ import re
 import shutil
 from pathlib import Path
 
-import livekit.agents as lk
 import pytest
 
-import earful.livekit  # noqa: F401 - before pytest is run on a project; see test_pytest_plugin
+pytest.importorskip("livekit.agents")
+
+import livekit.agents as lk
+
+import earful.livekit  # noqa: F401 - before pytest is run on a project; see test_livekit_pytest_plugin
 
 EXAMPLE = Path(__file__).resolve().parents[1] / "examples" / "booking"
 AS_SHIPPED = "await self._reservations.create(party_size)"
 FIXED = 'await self._reservations.create(party_size, idempotency_key=f"table-for-{party_size}")'
 
 VERSION = tuple(int(part) for part in lk.__version__.split(".")[:3])
-QUICKSTART_RELEASE = (1, 8, 12)  # the release scripts/quickstart_check.sh installs
+QUICKSTART_RELEASE = (1, 8, 13)  # the release scripts/quickstart_check.sh installs
 
 pytestmark = pytest.mark.slow
 

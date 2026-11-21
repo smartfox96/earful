@@ -298,6 +298,23 @@ def test_pipecat_cancellation_counts_only_the_samples_that_played():
     assert data["word_cut"] == 2 and data["word_cut_samples"] == 120
 
 
+@pytest.mark.parametrize("second, errors", [(240, 0), (239, 1)])
+def test_pipecat_a_word_written_with_audio_missing_is_a_stamp_error(second, errors):
+    """Three words of 10 ms. The one in the middle is written whole, or a sample short."""
+
+    async def play():
+        table = StampTable(sample_rate=24000)
+        for index, word in enumerate(("hi", "there", "you")):
+            table.add(1, index, word, 240)
+        output = ClockedOutput(Ledger(now_us, run="test"), table)
+        audio = table.audio(1) + table.audio(2)[:second] + table.audio(3)
+        await output.write_audio_frame(OutputAudioRawFrame(audio.tobytes(), 24000, 1))
+        await output.cancel(CancelFrame())
+        return output.stamp_errors
+
+    assert run_virtual(play) == errors
+
+
 def test_pipecat_playout_preserves_gaps_between_chunks():
     async def play():
         table = StampTable(sample_rate=24000)
@@ -315,6 +332,30 @@ def test_pipecat_playout_preserves_gaps_between_chunks():
     data = run_virtual(play)
     assert data["words_completed_us"] == [10_000, 25_000]
     assert data["position_us"] == 20_000
+
+
+@pytest.mark.parametrize("late_us, second_ends_us", [(5_000, 20_000), (20_001, 40_001)])
+def test_pipecat_on_the_real_clock_a_chunk_that_comes_a_little_late_continues_the_audio(
+    late_us, second_ends_us
+):
+    """The witness is told how late a write may be, as the harness tells it on the real clock."""
+
+    async def play():
+        table = StampTable(sample_rate=24000)
+        ledger = Ledger(now_us, run="test")
+        output = ClockedOutput(ledger, table, late_us=20_000)
+        for index, word in enumerate(("hi", "there")):
+            stamp = table.add(1, index, word, 240)
+            if index:
+                await asyncio.sleep(late_us / 1_000_000)
+            frame = OutputAudioRawFrame(table.audio(stamp).tobytes(), 24000, 1)
+            await output.write_audio_frame(frame)
+        await output.cancel(CancelFrame())
+        return ledger.events[-1]["data"], now_us()
+
+    data, ended_us = run_virtual(play)
+    assert data["words_completed_us"] == [10_000, second_ends_us]
+    assert data["position_us"] == 20_000 and ended_us == second_ends_us
 
 
 def test_pipecat_witness_forwards_intermediate_callbacks_and_records_only_the_final_result():
@@ -630,6 +671,19 @@ def test_pipecat_a_reply_spoken_across_two_audio_contexts_is_one_utterance():
     first, second = events(result, "playout.finished")
     assert first["utterances"] == second["utterances"] == [utterance["utterance"]]
     assert first["words_played"] + second["words_played"] == utterance["stamps"]
+
+
+def test_pipecat_a_reply_waits_for_its_first_audio_once_whatever_audio_contexts_it_takes():
+    """The second sentence is synthesized as the model finishes, in a new audio context."""
+    built = greeting()
+    built.policy = pc.ScriptedModel().otherwise(say="Good morning to you. How are you today?")
+    built.delays = [pc.Delay("llm.duration", 1, 8.0)]
+    result = pc.run(built)
+    (utterance,) = events(result, "tts.synthesized")
+    (answered,) = [e["t_us"] for e in result.events if e["kind"] == "llm.response"]
+    first, second = [e["t_us"] for e in result.events if e["kind"] == "playout.started"]
+    assert first == utterance["started_us"] + utterance["ttfb_us"]
+    assert second == answered + 8_000_000
 
 
 def test_pipecat_a_voice_slower_than_pipecat_waits_is_judged():

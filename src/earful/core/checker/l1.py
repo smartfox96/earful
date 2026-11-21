@@ -56,7 +56,7 @@ class _Budget:
                 continue
             if self._left is not None and self._left < deadline:
                 return LEFT, deadline
-            if reached is None and self._ended < deadline:
+            if reached is None and self._ended <= deadline:
                 return UNOBSERVABLE, deadline
             return MISSED, deadline
 
@@ -258,7 +258,7 @@ def check(view: View, policy: policies.L1) -> ContractResult:
             continue
         chain = [c for c in calls if latest_turn[c.call] == speech.index]
         turn = _milestones(view, policy, speech, chain, calls)
-        budget, steps, used, silenced = turn.budget, turn.steps, turn.used, turn.silenced
+        budget, steps, used = turn.budget, turn.steps, turn.used
         instance = {"speech": speech.index}
         statuses = [status for _name, status, _reached, _deadline in steps]
         audio = next((s for s in steps if s[0] == AUDIO and s[2] is not None), None)
@@ -278,6 +278,7 @@ def check(view: View, policy: policies.L1) -> ContractResult:
                 for name, status, reached, deadline in steps
             ],
         }
+        silenced = turn.silenced and audio is None  # a turn that was spoken to is not silenced
         flags = ["silenced_by_a_tool"] if silenced else []
         if any(c.call in view.read_calls for c in chain):
             flags.append("most_favourable_reading")

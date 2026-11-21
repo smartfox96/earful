@@ -4,6 +4,8 @@ import logging
 
 import pytest
 
+pytest.importorskip("livekit.agents")
+
 from earful.livekit.cases import CASES
 from earful.livekit.harness import run_case
 

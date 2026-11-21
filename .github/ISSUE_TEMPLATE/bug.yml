@@ -29,7 +29,7 @@ body:
     attributes:
       label: Framework version
       description: What `pip show livekit-agents` or `pip show pipecat-ai` prints as Version. docs/compatibility.md lists the releases Earful is tested with.
-      placeholder: 1.8.12
+      placeholder: 1.8.13
   - type: input
     id: system
     attributes:

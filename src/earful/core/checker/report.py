@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from ..predicate import Predicate
 
-CONTRACTS = "earful.contracts/1"
+CONTRACTS = "earful.contracts/2"
 REPORT = "earful.report/1"
 
 PASS, FAIL, UNOBSERVABLE, NOT_EXERCISED = "pass", "fail", "unobservable", "not_exercised"

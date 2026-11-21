@@ -6,8 +6,8 @@ Earful needs [uv](https://docs.astral.sh/uv/) and nothing else installed by hand
 
 ```bash
 git clone https://github.com/smartfox96/earful && cd earful
-scripts/make_env.sh 1.8.12 2026-11-14     # one pinned environment: .venvs/lk-1.8.12
-.venvs/lk-1.8.12/bin/python -m pytest -m "not slow"
+scripts/make_env.sh 1.8.13 2026-11-20     # one pinned environment: .venvs/lk-1.8.13
+.venvs/lk-1.8.13/bin/python -m pytest -m "not slow"
 ```
 
 `make_env.sh` takes a livekit-agents release and the date its dependencies are resolved
@@ -16,9 +16,10 @@ is installed editable, so the `earful` command and the pytest plugin in that env
 run the code in your checkout.
 
 For the Pipecat-only environment, run `scripts/make_pipecat_env.sh` and
-`.venvs/pc-1.16.0/bin/python -m pytest -q tests/test_pipecat*.py`. The script takes a
-pipecat-ai release and a date the same way, and with no arguments builds the supported
-release.
+`.venvs/pc-1.16.0/bin/python -m pytest -q`. The script takes a pipecat-ai release and a
+date the same way, and with no arguments builds the supported release. Each environment
+runs the tests of the core and of its own framework, and pytest reports the test files
+of the other framework as skipped.
 
 The files in `compat/` are generated. A release and a date decide what an environment
 holds, and a lock file records what the two resolve to on Python 3.13. Nothing installs
@@ -34,15 +35,15 @@ on the files it changes (`.pre-commit-config.yaml`).
 
 | Command | What it runs | Time |
 | --- | --- | --- |
-| `.venvs/lk-1.8.12/bin/python -m pytest -m "not slow"` | Every test under a second, on one release | 20 s |
+| `.venvs/lk-1.8.13/bin/python -m pytest -m "not slow"` | Every test under a second, on one release | 20 s |
 | `scripts/lint.sh` | ruff format, ruff, mypy, and that every deliberate break still applies. `--fix` reformats first | 20 s |
 | `scripts/wheel_smoke.sh` | Builds the wheel and the source distribution, installs the wheel alone outside the repository and uses it | 5 s |
 | `scripts/quickstart_check.sh` | Follows the README's quickstart from the wheel, with livekit-agents, outside the repository | 90 s |
 | `scripts/site.sh DIR` | Draws the two example reports the README links to, into `DIR` | 15 s |
-| `scripts/check_all.sh` | All of the above, then on each of the five LiveKit releases: every test, repeatability of the reference ledgers, the two historical cases and the replays | 8 min |
+| `scripts/check_all.sh` | All of the above, then on each of the six LiveKit releases: every test, repeatability of the reference ledgers, the two historical cases and the replays | 8 min |
 | `.venvs/lint/bin/python scripts/mutate.py` | Applies each deliberate break of `tests/mutants.py` and checks that a test it names fails | 5 min |
 
-CI runs `check_all.sh`'s parts on every pull request, on Linux for the five releases and
+CI runs `check_all.sh`'s parts on every pull request, on Linux for the six releases and
 on macOS for the oldest and the newest. The deliberate breaks run each night, and on a
 pull request that changes `src/` or `tests/`.
 
@@ -58,7 +59,7 @@ the report: GitHub mails it to whoever last changed the workflow's schedule.
 after its last push (`.github/CODEOWNERS`). Nobody can push to `main`, and a merged
 branch is deleted from the repository.
 
-`check_all.sh` is heavy: five test runs side by side for six minutes. It shares the
+`check_all.sh` is heavy: six test runs side by side for six minutes. It shares the
 processors between them (`EARFUL_WORKERS`), and it is still not something to run on
 battery or after every change. While working, the first row of the table is the check to
 run. CI runs everything on the pull request, and the deliberate breaks run there in seven
@@ -78,6 +79,15 @@ livekit-agents belongs in `src/earful/livekit/`,
 and a name taken from inside livekit-agents, one that it does not export at its top
 level, goes through `src/earful/livekit/_compat.py`.
 
+**A test file says which framework it needs.** A file under `tests/` that imports
+livekit-agents or the LiveKit adapter starts with `pytest.importorskip("livekit.agents")`,
+before those imports, and a Pipecat file with `pytest.importorskip("pipecat")`. A file
+with neither line imports no framework and runs in every environment, so a test of the
+core goes in one of those. `tests/test_core_boundary.py` fails while a file disagrees
+with its imports. CI runs the Pipecat environment with
+`scripts/ran_every_test.sh --without livekit`, where the LiveKit files are left out and
+any other skip fails the job.
+
 **Time is integer microseconds.** Authors write seconds. Providers, the sink and the
 backend convert once (`earful.core.timebase`) and compute in integers, so that an event on
 a framework threshold is decided by the scenario and never by float rounding.
@@ -86,9 +96,9 @@ a framework threshold is decided by the scenario and never by float rounding.
 `backend` and `harness` events. The framework's own `fw.*` events explain a run and
 decide nothing (`docs/contracts.md`, section 2).
 
-**The reference ledgers change only on purpose.** `tests/golden/` holds 15 ledgers that
-every platform must reproduce byte for byte, and `tests/bundles/` the two reduced
-historical failures. Checks never write there. If a change is meant to alter a ledger,
+**The reference ledgers change only on purpose.** `tests/golden/` holds 21 ledgers that
+every platform must reproduce byte for byte, 18 of LiveKit and 3 of Pipecat, and
+`tests/bundles/` the two reduced historical failures. Checks never write there. If a change is meant to alter a ledger,
 run `scripts/check_all.sh --update`, read the diff, and say in the pull request why each
 change is expected. An unexplained diff in a reference ledger is a bug.
 
@@ -107,6 +117,14 @@ anchored on, or rename a test a break names, `scripts/lint.sh` fails until the b
 brought along. A break that no test can catch is a sign the code it breaks is not needed.
 
 **Tests over a second are marked `slow`.** `pytest -m "not slow"` is the loop to work in.
+
+**Property tests try the same inputs on every run.** `tests/test_properties.py` states
+what the checker, the shrinker and the time conversion keep on inputs that
+[Hypothesis](https://hypothesis.readthedocs.io/) generates. Its profile is derandomized
+and keeps no example database: an environment tries the same inputs each time, and a
+failure repeats. The inputs differ between Hypothesis releases, and so between
+environments. The test tools are the `test` dependency group in `pyproject.toml`, which
+every environment script installs.
 
 **The README's picture and its example reports are made from the code.** The two reports
 are drawn by `scripts/site.sh`: on every pull request, to see that they still build, and
@@ -151,11 +169,13 @@ One pipecat-ai release is supported at a time, so a new one takes the place of t
    README, this page, `tests/test_ci.py` and `SUPPORT` in
    `src/earful/scripted/releases.py`. A release in a new minor series also moves the
    `pipecat` extra, in `SUPPORT` and in `pyproject.toml`. Tests fail while these disagree.
-3. `scripts/ran_every_test.sh .venvs/pc-<version>/bin/python tests/test_pipecat*.py` runs
-   every Pipecat test and fails if one is skipped. `scripts/lint.sh` checks the adapter's
-   types against the new release.
-4. Pipecat has no reference ledgers. A test that had to change is the record of a
-   difference in behaviour: say in the pull request what changed and why.
+3. `scripts/ran_every_test.sh --without livekit .venvs/pc-<version>/bin/python` runs
+   every test that does not need livekit-agents and fails if one is skipped.
+   `scripts/lint.sh` checks the adapter's types against the new release.
+4. `scripts/check_all.sh --update` records the three Pipecat reference ledgers under the
+   new release's name. Delete the old release's, and read the new ones against them
+   (`python scripts/ledger_diff.py`). A difference in behaviour, in a ledger or in a test
+   that had to change, belongs in the pull request.
 
 ## Adding a contract
 
@@ -180,11 +200,12 @@ down before the code.
 5. A contract that needs an event or a field the ledger does not record is a change to
    the format first (`docs/ledger.md`, Versioning).
 6. Run `scripts/check_all.sh` and say in the pull request what the contract finds on the
-   reference ledgers of the five releases.
+   reference ledgers of the six releases.
 
 A kept bundle records the version of the contracts it was judged with,
-`earful.contracts/1`. A new contract changes what that version names. Raise in the pull
-request, before the code, whether it is a new version.
+`earful.contracts/2`. A new contract, or a rule that changes what it fails, changes what
+that version names. Raise in the pull request, before the code, whether it is a new
+version.
 
 ## Releasing
 

@@ -2,34 +2,73 @@
 
 python scripts/repeat.py [case ...] [--in-process N] [--subprocess M]
                          [--check DIR | --update DIR] [--out DIR]
+                         [--framework livekit|pipecat]
 """
 
 from __future__ import annotations
 
 import argparse
 import hashlib
+import importlib.util
 import json
 import os
+import platform
 import subprocess
 import sys
 import time
 from collections import Counter
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
+from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 from earful.core.ledger import first_difference, normalize, write_jsonl
 from earful.core.search import default_workers
-from earful.livekit.cases import CASES
-from earful.livekit.harness import run_case, versions
+from earful.scripted.clock import patch_report
 
 
-def _one(case_name: str) -> dict:
-    result = run_case(CASES[case_name](), seed=0, require_valid=False)
+@dataclass
+class _Framework:
+    name: str  # livekit or pipecat
+    tag: str  # the prefix of its committed ledgers, with its release
+    cases: dict[str, Callable[[], Any]]
+    run_case: Callable[..., Any]
+    versions: dict[str, str]
+    warnings: Callable[[Any], Any]  # what the framework warned of in a run
+
+
+def _framework(name: str) -> _Framework:
+    system = {
+        "python": platform.python_version(),
+        "platform": f"{platform.system()}-{platform.machine()}",
+    }
+    if name == "livekit":
+        from earful.livekit import cases, harness
+
+        versions = harness.versions()
+        tag = f"lk-{versions['livekit-agents']}"
+        logged = lambda result: result.framework_warnings
+        return _Framework(name, tag, cases.CASES, harness.run_case, versions, logged)
+    import pipecat
+    from loguru import logger
+
+    from earful.pipecat.cases import CASES
+    from earful.pipecat.harness import run_case
+
+    logger.disable("pipecat")  # it logs each frame of each run at DEBUG
+    versions = {"pipecat-ai": pipecat.__version__, **system}
+    tag = f"pc-{pipecat.__version__}"
+    counted = lambda result: result.events[-1]["data"]["framework_warnings"]
+    return _Framework(name, tag, CASES, run_case, versions, counted)
+
+
+def _one(framework: _Framework, case_name: str) -> dict:
+    result = framework.run_case(framework.cases[case_name](), seed=0, require_valid=False)
     return {
         "hash": result.hash,
         "events": len(result.ledger.events),
         "invalid": result.invalid,
-        "warnings": result.framework_warnings,
         "normalized": normalize(result.ledger.events),
     }
 
@@ -44,27 +83,36 @@ def main() -> int:
     golden.add_argument("--check", type=Path, default=None, help="directory of committed ledgers")
     golden.add_argument("--update", type=Path, default=None, help="rewrite committed ledgers")
     parser.add_argument("--one", action="store_true", help="internal: one run, JSON on stdout")
+    parser.add_argument(
+        "--framework",
+        choices=["livekit", "pipecat"],
+        default="livekit" if importlib.util.find_spec("livekit") else "pipecat",
+        help="default: livekit where livekit-agents is installed, else pipecat",
+    )
     args = parser.parse_args()
     if args.out and args.check and args.out.resolve() == args.check.resolve():
         parser.error("--out would overwrite the ledgers --check compares against; use --update")
 
-    unknown = [c for c in args.cases if c not in CASES]
+    framework = _framework(args.framework)
+    unknown = [c for c in args.cases if c not in framework.cases]
     if unknown:
-        parser.error(f"unknown case(s) {unknown}; choose from {sorted(CASES)}")
+        parser.error(f"unknown case(s) {unknown}; choose from {sorted(framework.cases)}")
 
     if args.one:
-        print(json.dumps(_one(args.cases[0])))
+        print(json.dumps(_one(framework, args.cases[0])))
         return 0
 
     ok = True
-    for case in args.cases or sorted(CASES):
-        ok = _repeat(case, args) and ok
+    for case in args.cases or sorted(framework.cases):
+        ok = _repeat(framework, case, args) and ok
     return 0 if ok else 1
 
 
-def _repeat(case: str, args: argparse.Namespace) -> bool:
+def _repeat(framework: _Framework, case: str, args: argparse.Namespace) -> bool:
     started = time.perf_counter()
-    reference = run_case(CASES[case](), seed=0, require_valid=False)
+    reference = framework.run_case(framework.cases[case](), seed=0, require_valid=False)
+    clock = patch_report()  # of the reference run: every later run writes its own
+    end = reference.ledger.events[-1]
     ref_lines = normalize(reference.ledger.events)
     hashes: Counter[str] = Counter()
     problems: list[str] = [f"reference run invalid: {r}" for r in reference.invalid[:10]]
@@ -77,14 +125,14 @@ def _repeat(case: str, args: argparse.Namespace) -> bool:
         problems.extend(f"{label}: invalid: {reason}" for reason in run["invalid"][:3])
 
     for i in range(args.in_process):
-        record(f"in-process #{i}", _one(case))
+        record(f"in-process #{i}", _one(framework, case))
     in_process_seconds = time.perf_counter() - started
 
     def spawn(i: int) -> subprocess.CompletedProcess[str]:
         # A hash seed of its own, so that set and dict order vary between subprocesses.
         env = dict(os.environ, PYTHONHASHSEED=str(1000 + i * 7919))
         return subprocess.run(
-            [sys.executable, __file__, case, "--one"],
+            [sys.executable, __file__, case, "--one", "--framework", framework.name],
             capture_output=True,
             text=True,
             env=env,
@@ -100,7 +148,7 @@ def _repeat(case: str, args: argparse.Namespace) -> bool:
                 continue
             record(f"subprocess #{i}", json.loads(proc.stdout.strip().splitlines()[-1]))
 
-    tag = f"lk-{versions()['livekit-agents']}"
+    tag = framework.tag
     committed_matches = None
     if args.check:
         committed = args.check / f"{tag}.{case}.ledger.normalized.jsonl"
@@ -119,7 +167,7 @@ def _repeat(case: str, args: argparse.Namespace) -> bool:
 
     summary = {
         "case": case,
-        "versions": versions(),
+        "versions": framework.versions,
         "reference_hash": reference.hash,
         "events_per_run": len(reference.ledger.events),
         "in_process_runs": args.in_process,
@@ -128,10 +176,10 @@ def _repeat(case: str, args: argparse.Namespace) -> bool:
         "hash_counts": dict(hashes),
         "identical": len(hashes) == 1 and not problems,
         "problems": problems[:20],
-        "framework_warnings": reference.framework_warnings,
-        "clock_model_fields_patched": len(reference.clock.model_fields),
-        "clock_model_fields_unpatched": reference.clock.unpatched,
-        "virtual_seconds_per_run": reference.ledger.events[-1]["t_us"] / 1e6,
+        "framework_warnings": framework.warnings(reference),
+        "clock_model_fields_patched": len(clock.model_fields),
+        "clock_model_fields_unpatched": clock.unpatched,
+        "virtual_seconds_per_run": end["t_us"] / 1e6,
     }
     # Printed only: without these, a rerun rewrites the evidence files byte for byte.
     printed = {

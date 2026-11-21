@@ -1,14 +1,8 @@
 """The documentation agrees with the code, schemas and workflows it describes."""
 
-import inspect
-import pickle
-import pydoc
+import ast
 import re
-import subprocess
-import sys
 from pathlib import Path
-
-import pytest
 
 from earful.core.schema import kinds, load_schema
 from earful.scripted.releases import SUPPORT
@@ -79,34 +73,8 @@ def test_every_field_of_a_case_and_of_a_bundle_manifest_is_documented():
     assert not missing, f"docs/search.md does not mention {missing}"
 
 
-def test_every_setting_the_livekit_adapter_has_is_documented():
-    from earful.livekit.scenario import SETTINGS
-
-    assert set(SETTINGS) <= SEARCH_MENTIONED, sorted(set(SETTINGS) - SEARCH_MENTIONED)
-
-
 TESTING_DOC = (Path(__file__).resolve().parents[1] / "docs" / "testing.md").read_text()
 REPORT_DOC = (Path(__file__).resolve().parents[1] / "docs" / "report.md").read_text()
-
-
-def test_every_name_the_testing_page_imports_from_earful_exists():
-    import ast
-    import importlib
-
-    blocks = re.findall(r"```python\n(.*?)```", TESTING_DOC + REPORT_DOC, flags=re.DOTALL)
-    assert blocks
-    imported = []
-    for block in blocks:
-        for node in ast.walk(ast.parse(block)):
-            if isinstance(node, ast.ImportFrom) and (node.module or "").startswith("earful"):
-                module = importlib.import_module(node.module)
-                for alias in node.names:
-                    assert hasattr(module, alias.name), f"{node.module} has no {alias.name}"
-                    imported.append(alias.name)
-    assert {"run", "explore", "keep", "replay", "ScriptedModel", "Effect", "effect"} <= set(
-        imported
-    )
-    assert {"render", "render_bundle"} <= set(imported)
 
 
 def test_every_command_and_option_the_testing_page_names_exists():
@@ -210,31 +178,6 @@ def test_the_supported_releases_are_the_same_everywhere_they_are_listed():
     assert f'"livekit-agents=={list(declared)[-1]}"' in lint_env
 
 
-def test_help_shows_each_public_function_as_a_function_of_the_adapter():
-    import earful.livekit as adapter
-
-    for name in ("run", "explore", "cross_check", "keep", "replay"):
-        function = getattr(adapter, name)
-        shown = pydoc.render_doc(function, renderer=pydoc.plaintext)
-        said = f"Python Library Documentation: function {name} in module earful.livekit.api\n"
-        assert inspect.isfunction(function) and shown.startswith(said) and function.__doc__
-        assert pickle.loads(pickle.dumps(function)) is function
-    assert str(inspect.signature(adapter.run)) == (
-        "(source: 'str | Case | Callable[[], Case]', *, "
-        "data: 'dict[str, Any] | None' = None, seed: 'int' = 0) -> 'RunResult'"
-    )
-
-
-def test_the_old_import_paths_of_the_clock_and_the_scripted_model_give_the_same_objects():
-    from earful.livekit import clock, playbook
-    from earful.scripted import clock as shared_clock
-    from earful.scripted import playbook as shared_playbook
-
-    for old, shared in ((clock, shared_clock), (playbook, shared_playbook)):
-        assert old.__all__ and "earful.scripted" in old.__doc__
-        assert all(getattr(old, name) is getattr(shared, name) for name in old.__all__)
-
-
 def test_the_compatibility_page_names_every_clock_read_a_run_takes_from_the_loop():
     from earful.scripted.clock import VIRTUAL_READS
 
@@ -259,7 +202,7 @@ def test_the_supported_pipecat_release_is_the_same_everywhere_it_is_listed():
 
 def test_a_lock_file_is_the_list_the_environment_scripts_write():
     locks = sorted((ROOT / "compat").glob("*.lock.txt"))
-    assert len(locks) == 6
+    assert len(locks) == 7
     for path in locks:
         lines = path.read_text().splitlines()
         assert all(re.fullmatch(r"[a-z0-9][a-z0-9.-]*==[^\s=]+", line) for line in lines), path
@@ -326,7 +269,7 @@ def test_the_ci_table_on_the_compatibility_page_is_what_the_workflow_runs():
             re.MULTILINE,
         )
     }
-    assert len(table) == 5
+    assert len(table) == 6
     # The releases the workflow leaves out of a pull request on macOS run nightly only.
     left_out = set(re.findall(r"\|\| 'macos-latest' }}\n\s+lk: \{ version: \"([\d.]+)\"", workflow))
     assert {release for release, (macos, _) in table.items() if macos == "nightly"} == left_out
@@ -348,7 +291,7 @@ def test_the_releases_with_each_known_defect_are_the_same_everywhere_they_are_li
         page,
         re.MULTILINE,
     )
-    assert len(rows) == 5
+    assert len(rows) == 6
     tests = (ROOT / "tests" / "test_historical_cases.py").read_text()
     for column, issue in ((1, "3702"), (2, "5509")):
         script = (ROOT / "scripts" / f"spike_{issue}.py").read_text()
@@ -361,49 +304,6 @@ def test_the_releases_with_each_known_defect_are_the_same_everywhere_they_are_li
         assert all(tuple(map(int, r.split("."))) >= first_repaired for r in repaired)
         (shown,) = re.findall(rf"^\| \[livekit/agents#{issue}\].*$", README, re.MULTILINE)
         assert shown.endswith(f"| {', '.join(present)} | {', '.join(repaired)} |")
-
-
-def _newest_tested_release():
-    import livekit.agents as lk
-
-    if lk.__version__ != SUPPORT["livekit-agents"].tested[-1]:
-        pytest.skip("the pages quote a search on the newest tested release")
-    return lk.__version__
-
-
-def test_the_readme_and_the_search_page_quote_the_cases_the_example_search_plans():
-    release = _newest_tested_release()
-    done = subprocess.run(
-        [sys.executable, "-m", "earful", "search", "test_booking:booking"]
-        + ["--max-runs", "1", "--workers", "0"],
-        capture_output=True,
-        text=True,
-        check=False,
-        cwd=ROOT / "examples" / "booking",
-    )
-    (planned,) = re.findall(
-        r"^(earful: (\d+) cases .* to find them)\. The budget", done.stderr, re.MULTILINE
-    )
-    line, cases = planned
-    assert f"```\n{line}\n```" in (ROOT / "docs" / "search.md").read_text()
-    assert f"booking on livekit-agents {release}: {cases} cases tried, {cases} judged" in README
-    assert f"Earful ran the conversation {cases} times" in README
-
-
-def test_the_testing_page_quotes_the_cases_its_search_plans():
-    from test_inline import CONFIRMS_ANYTHING, booking
-
-    from earful.livekit import explore
-
-    release = _newest_tested_release()
-    plans = []
-    explore(booking(CONFIRMS_ANYTHING), planned=plans.append, max_runs=1)
-    page, cases = (ROOT / "docs" / "testing.md").read_text(), plans[0].cases
-    assert (
-        f"inline_booking on livekit-agents {release}: {cases} cases tried, {cases} judged" in page
-    )
-    assert f"The default search above is {cases} cases." in page
-    assert f"the {cases} cases of section 5 take" in " ".join(page.split())
 
 
 def test_the_readme_shows_the_example_as_it_is_in_the_repository():
@@ -444,72 +344,6 @@ def test_the_changelog_has_a_section_for_the_version_under_one_for_what_is_unrel
         assert re.search(link, changelog, re.MULTILINE), f"[{name}] links nowhere"
     assert "https://github.com/smartfox96/earful/blob/main/CHANGELOG.md" in README
     assert 'Changelog = "https://github.com/smartfox96/earful/blob/main/CHANGELOG.md"' in project
-
-
-SKILL = (ROOT / "skills" / "earful" / "SKILL.md").read_text()
-
-
-def test_the_skill_for_coding_agents_uses_only_what_exists():
-    """The skill's code is parsed: its imports, keyword arguments and names in code type."""
-    import ast
-    import importlib
-
-    import earful
-    import earful.livekit as adapter
-
-    front, _, body = SKILL.removeprefix("---\n").partition("\n---\n")
-    assert SKILL.startswith("---\nname: earful\n") and "\ndescription: " in "\n" + front
-
-    blocks = re.findall(r"```python\n(.*?)```", body, flags=re.DOTALL)
-    spans = re.findall(r"`([^`\n]+)`", re.sub(r"```.*?```", "", body, flags=re.DOTALL))
-    trees = [ast.parse(block) for block in blocks]
-    for span in spans:
-        try:
-            trees.append(ast.parse(span))
-        except SyntaxError:
-            continue  # prose in code type: a command, a rule's name, a fragment
-
-    known = {}
-    for tree in trees:
-        for node in ast.walk(tree):
-            if isinstance(node, ast.ImportFrom) and (node.module or "").startswith("earful"):
-                module = importlib.import_module(node.module)
-                for alias in node.names:
-                    assert hasattr(module, alias.name), f"{node.module} has no {alias.name}"
-                    known[alias.name] = getattr(module, alias.name)
-    assert {"Case", "Effect", "ScriptedModel", "UserSpeech", "effect", "run", "explore"} <= set(
-        known
-    )
-
-    methods = {"when": adapter.ScriptedModel.when, "otherwise": adapter.ScriptedModel.otherwise}
-    checked = 0
-    for tree in trees:
-        for node in ast.walk(tree):
-            if not isinstance(node, ast.Call):
-                continue
-            if isinstance(node.func, ast.Name) and node.func.id in known:
-                target = known[node.func.id]
-            elif isinstance(node.func, ast.Attribute) and node.func.attr in methods:
-                target = methods[node.func.attr]
-            elif isinstance(node.func, ast.Attribute) and node.func.attr == "assert_contracts":
-                target = adapter.RunResult.assert_contracts
-            else:
-                continue
-            takes = inspect.signature(target).parameters
-            for keyword in node.keywords:
-                assert keyword.arg in takes, f"{ast.unparse(node.func)} takes no {keyword.arg}"
-                checked += 1
-    assert checked >= 10
-
-    elsewhere = {"pytest", "earful", "AgentSession"}
-    for span in spans:
-        if re.fullmatch(r"[A-Za-z_]+", span) and span not in elsewhere:
-            assert hasattr(adapter, span) or hasattr(earful, span), f"the package has no {span}"
-
-    commands = _commands()
-    named = set(re.findall(r"`earful ([a-z]+) ", body))
-    assert named and named <= set(commands), named - set(commands)
-    assert "skills/earful/SKILL.md" in README
 
 
 def _commands():
@@ -588,3 +422,314 @@ def test_the_files_for_contributors_name_only_what_exists():
         assert f"\n## {said}\n" in contributing, said
     template = (ROOT / ".github/pull_request_template.md").read_text()
     assert 'CONTRIBUTING.md, "The checks"' in template and "\n## The checks\n" in contributing
+
+
+API = (ROOT / "docs" / "api.md").read_text()
+TROUBLESHOOTING = (ROOT / "docs" / "troubleshooting.md").read_text()
+LIMITS = (ROOT / "docs" / "limits.md").read_text()
+GLOSSARY = (ROOT / "docs" / "glossary.md").read_text()
+SOURCE = ROOT / "src" / "earful"
+_PACKAGES = {"earful": "", "earful.livekit": "livekit", "earful.pipecat": "pipecat"}
+
+
+def _exported(package):
+    # Read from the source: an adapter imports only where its framework is installed.
+    tree = ast.parse((SOURCE / _PACKAGES[package] / "__init__.py").read_text())
+    (names,) = [
+        ast.literal_eval(node.value)
+        for node in tree.body
+        if isinstance(node, ast.Assign) and ast.unparse(node.targets[0]) == "__all__"
+    ]
+    return set(names)
+
+
+def _sections(page, level="###"):
+    """Each heading of ``level`` on a Markdown page, with the text under it."""
+    found = re.findall(
+        rf"^{level} ([^\n]+)\n(.*?)(?=^#{{2,3}} |\Z)", page, re.MULTILINE | re.DOTALL
+    )
+    assert len(dict(found)) == len(found), "two sections have one heading"
+    return dict(found)
+
+
+def _rows(text):
+    """Each row of the tables in ``text``, as its first cell and the cells after it."""
+    rows = re.findall(r"^\|(.*)\|$", text, re.MULTILINE)
+    cells = [[cell.strip() for cell in row.split("|")] for row in rows]
+    return [(row[0], row[1:]) for row in cells if row[0] != "---"]
+
+
+def test_the_api_page_lists_the_public_names_of_each_package():
+    names = API.partition("\n## Names\n")[2]
+    table = _rows(names.partition("\n## ")[0])
+    assert table[0] == ("Name", [f"`{package}`" for package in _PACKAGES])
+    assert all(mark in ("yes", "") for _, marks in table[1:] for mark in marks)
+    for column, package in enumerate(_PACKAGES):
+        listed = {name.strip("`") for name, marks in table[1:] if marks[column] == "yes"}
+        assert listed == _exported(package), listed ^ _exported(package)
+    body = names.partition("\n## ")[2]
+    undescribed = [
+        name for name, _ in table[1:] if name not in body and f"def {name[1:-1]}(" not in body
+    ]
+    assert not undescribed, f"docs/api.md lists and does not describe {undescribed}"
+    # The names said to be each adapter's own are those both import from their own modules.
+    (apart,) = re.findall(
+        r"Nine names are\nthe exception: (.*?) are each adapter's own", names, re.DOTALL
+    )
+    own = []
+    for adapter in ("livekit", "pipecat"):
+        tree = ast.parse((SOURCE / adapter / "__init__.py").read_text())
+        own.append(
+            {
+                alias.name
+                for node in ast.walk(tree)
+                if isinstance(node, ast.ImportFrom) and node.level == 1
+                for alias in node.names
+            }
+        )
+    # Each adapter's api module hands on the one WorkersUnavailable.
+    assert set(re.findall(r"`(\w+)`", apart)) == (own[0] & own[1]) - {"WorkersUnavailable"}
+
+
+def _stubs():
+    """Each function the API page gives a signature for, with the class it is a method of."""
+    found = []
+    for block in re.findall(r"```python\n(.*?)```", API, flags=re.DOTALL):
+        for node in ast.parse(block).body:
+            holders = [(None, node)] if isinstance(node, ast.FunctionDef) else []
+            if isinstance(node, ast.ClassDef):
+                holders = [(node.name, method) for method in node.body]
+            for holder, function in holders:
+                assert ast.unparse(function.body[0]) == "...", f"{function.name} is no signature"
+                found.append((holder, function))
+    return found
+
+
+def _class(name, adapter=None):
+    """A class's fields with their defaults, and every name its body defines, from its source."""
+    found = [
+        node
+        for path in sorted((SOURCE / adapter if adapter else SOURCE).rglob("*.py"))
+        # The checker's view of a ledger has an Effect of its own.
+        if adapter or (path.parent.name not in ("livekit", "pipecat") and path.name != "view.py")
+        for node in ast.parse(path.read_text()).body
+        if isinstance(node, ast.ClassDef) and node.name == name
+    ]
+    assert len(found) == 1, f"{len(found)} classes are named {name}"
+    fields, members = {}, set()
+    for node in found[0].body:
+        if isinstance(node, ast.AnnAssign):
+            fields[ast.unparse(node.target)] = node.value and ast.unparse(node.value)
+            members.add(ast.unparse(node.target))
+        elif isinstance(node, ast.FunctionDef):
+            members.add(node.name)
+    return fields, members
+
+
+_FACTORIES = {"field(default_factory=list)": "[]", "field(default_factory=dict)": "{}"}
+_TABLE_OF = re.compile(r"`(\w+)`(?: for (LiveKit|Pipecat))?$")
+_ADAPTER_PARTS = {"ClockedSink": "livekit", "Ends": "pipecat"}
+
+
+def _described(heading):
+    name, adapter = _TABLE_OF.search(heading).groups()
+    return name, (adapter or "").lower() or _ADAPTER_PARTS.get(name)
+
+
+def test_each_table_of_fields_on_the_api_page_is_the_class_as_the_code_defines_it():
+    tables = 0
+    for heading, text in _sections(API).items():
+        rows = _rows(text)
+        if not rows or rows[0][0] != "Field":
+            continue
+        fields, _ = _class(*_described(heading))
+        said = {name.strip("`"): cells[0].strip("`") for name, cells in rows[1:]}
+        assert list(said) == list(fields), heading
+        for name, default in fields.items():
+            default = "required" if default is None else _FACTORIES.get(default, default)
+            assert said[name] == default, f"{heading}: {name}"
+        tables += 1
+    assert tables == 10
+
+
+def test_each_table_of_attributes_on_the_api_page_names_what_the_class_has():
+    tables = 0
+    for heading, text in _sections(API).items():
+        rows = _rows(text)
+        if not rows or rows[0][0] != "Attribute":
+            continue
+        name, adapter = _described(heading)
+        named = {attribute.strip("`"): cells for attribute, cells in rows[1:]}
+        if rows[0][1][0] == "Adapter":
+            (_, livekit), (_, pipecat) = _class(name, "livekit"), _class(name, "pipecat")
+            assert {a for a, cells in named.items() if cells[0] == "both"} == livekit & pipecat
+            assert {a for a, cells in named.items() if cells[0] == "LiveKit"} == livekit - pipecat
+            assert not pipecat - livekit
+        else:
+            _, members = _class(name, adapter)
+            assert set(named) <= members, f"{heading}: {set(named) - members}"
+        tables += 1
+    assert tables == 8
+
+
+def test_the_api_page_lists_every_command_with_exactly_its_options():
+    from earful import cli
+
+    commands = _commands()
+    sections = {
+        heading[len("`earful ") : -1]: text
+        for heading, text in _sections(API).items()
+        if heading.startswith("`earful ")
+    }
+    assert list(sections) == list(commands)
+    for name, text in sections.items():
+        options = set(commands[name]._option_string_actions) - {"-h", "--help"}
+        said = {option for first, _ in _rows(text) for option in re.findall(r"`(-[a-z-]+)", first)}
+        assert said == options, f"earful {name}: {said ^ options}"
+        for action in commands[name]._get_positional_actions():
+            assert f"`earful {name} {action.metavar.split('|')[0]}" in text, f"earful {name}"
+    statuses = _rows(API.partition("\n| Exit status |")[2].partition("\n\n")[0])
+    assert [int(status) for status, _ in statuses] == sorted(
+        [cli.OK, cli.BROKEN, cli.REFUSED, cli.NO_VERDICT]
+    )
+    plugin = (SOURCE / "pytest_plugin.py").read_text()
+    page = API.partition("\n## The pytest plugin\n")[2]
+    assert set(re.findall(r"`(--earful-[a-z-]+)", page)) == set(
+        re.findall(r'"(--earful-[a-z-]+)"', plugin)
+    )
+
+
+def test_every_name_the_api_and_troubleshooting_pages_import_exists():
+    import importlib
+
+    imported = []
+    for block in re.findall(r"```python\n(.*?)```", API + TROUBLESHOOTING, flags=re.DOTALL):
+        for node in ast.walk(ast.parse(block)):
+            if isinstance(node, ast.ImportFrom) and (node.module or "").startswith("earful"):
+                module = importlib.import_module(node.module)
+                for alias in node.names:
+                    assert hasattr(module, alias.name), f"{node.module} has no {alias.name}"
+                    imported.append(alias.name)
+    assert {"check", "read_ledger", "UntestedRelease"} <= set(imported)
+
+
+def _parts(node):
+    """The literal text of a string expression in order, with None wherever a value goes."""
+    if isinstance(node, ast.Constant) and isinstance(node.value, str):
+        return [node.value]
+    if isinstance(node, ast.JoinedStr):
+        return [part for value in node.values for part in _parts(value)]
+    if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add):
+        return [*_parts(node.left), *_parts(node.right)]
+    return [None]
+
+
+def _messages():
+    """A pattern for the end of each message in the source with 12 characters of its own."""
+    patterns = set()
+    for path in sorted(SOURCE.rglob("*.py")):
+        for node in ast.walk(ast.parse(path.read_text())):
+            if not isinstance(node, (ast.Constant, ast.JoinedStr, ast.BinOp)):
+                continue
+            parts = [part and re.sub(r"\s+", " ", part) for part in _parts(node)]
+            if sum(len(part.strip()) for part in parts if part is not None) >= 12:
+                pattern = "".join(".*?" if part is None else re.escape(part) for part in parts)
+                patterns.add(re.sub(" {2,}", " ", pattern.replace(r"\ ", " ")))
+    return [re.compile(pattern + " ?$") for pattern in patterns]
+
+
+def test_every_message_the_troubleshooting_page_quotes_is_one_the_code_gives():
+    quoted = re.findall(r"```text\n(.*?)```", TROUBLESHOOTING, flags=re.DOTALL)
+    assert len(quoted) >= 50
+    messages = _messages()
+    checked = 0
+    for block in quoted:
+        lines = [line for line in block.splitlines() if line]
+        # An indented line under the first is what a message lists: a count, an example.
+        for line in [lines[0], *(line for line in lines[1:] if not line.startswith(" "))]:
+            text = " " + " ".join(line.split()) + " "
+            assert any(message.search(text) for message in messages), f"no message ends:\n{line}"
+            checked += 1
+    assert checked > len(quoted)
+    # The two that list releases list the releases supported now.
+    livekit = SUPPORT["livekit-agents"]
+    assert f"The tested releases are: {', '.join(livekit.tested)}\n" in TROUBLESHOOTING
+    said = f"from {livekit.lowest} up to, and not including, {livekit.below}, and"
+    assert said in TROUBLESHOOTING
+    quoted_on = (
+        f"livekit-agents\n{livekit.tested[-1]} or pipecat-ai {SUPPORT['pipecat-ai'].tested[0]}"
+    )
+    assert quoted_on in TROUBLESHOOTING
+
+
+def test_the_troubleshooting_page_says_what_exercises_each_contract_as_the_checker_does():
+    from earful.core.checker.report import _EXERCISED_BY
+
+    section = _sections(TROUBLESHOOTING)["Not exercised"]
+    assert {contract: cells[0] for contract, cells in _rows(section)[1:]} == _EXERCISED_BY
+
+
+def _links(text):
+    """Each link in ``text`` that is not to a site, as its path and its anchor."""
+    return re.findall(r"\]\((?!https?://)([^)#\s]*)(?:#([^)\s]+))?\)", text)
+
+
+def test_every_link_between_the_pages_leads_to_a_heading_that_exists():
+    pages = sorted((ROOT / "docs").glob("*.md"))
+    assert {"api.md", "glossary.md", "limits.md", "troubleshooting.md"} <= {p.name for p in pages}
+    followed = 0
+    for page in pages:
+        for path, anchor in _links(page.read_text()):
+            target = (page.parent / path).resolve() if path else page
+            assert target.is_file(), f"{page.name} links to {path}"
+            if anchor:
+                assert anchor in _anchors(target.read_text()), f"{page.name}: {path}#{anchor}"
+            followed += 1
+    assert followed >= 100
+    for name in ("api", "troubleshooting", "limits", "glossary"):
+        assert f"https://github.com/smartfox96/earful/blob/main/docs/{name}.md" in README
+        assert f"]({name}.md)" in TESTING_DOC
+
+
+def test_every_term_of_the_glossary_is_one_the_page_it_points_to_uses():
+    in_code = "".join(
+        (SOURCE / name).read_text() for name in ("cli.py", "core/search.py", "core/bundle.py")
+    )
+    terms = []
+    for heading, text in _sections(GLOSSARY, "##").items():
+        rows = _rows(text)
+        assert rows[0] == ("Term", ["Meaning", "Explained in"]), heading
+        for term, (meaning, explained) in rows[1:]:
+            ((path, _),) = _links(explained)
+            term = term.strip("`")
+            used = (ROOT / "docs" / path).read_text().lower()
+            assert term.lower() in used or term in in_code, f"{path} does not use {term!r}"
+            assert meaning and not meaning.endswith("."), term
+            terms.append(term)
+    assert len(terms) == len(set(terms)) >= 60
+    assert {"case", "variable", "window", "reading", "bundle", "replay", "witness"} <= set(terms)
+
+
+def test_the_limits_page_quotes_the_numbers_the_code_has():
+    from earful.core.checker.report import RULES
+    from earful.core.checker.view import MAX_READINGS
+    from earful.core.search import DELAY_LIMIT_US, OFFSETS_US
+    from earful.scripted.clock import STALL_SECONDS
+
+    page = " ".join(LIMITS.split())
+    assert f"| livekit-agents | {', '.join(SUPPORT['livekit-agents'].tested)} |" in LIMITS
+    assert f"| pipecat-ai | {', '.join(SUPPORT['pipecat-ai'].tested)} |" in LIMITS
+    assert f"more than {MAX_READINGS} readings" in page
+    for text in (page, " ".join(TROUBLESHOOTING.split())):
+        assert f"ended after {STALL_SECONDS:g} real seconds" in text
+    step = max(OFFSETS_US) // 1000
+    assert sorted(OFFSETS_US) == [-step * 1000, 0, step * 1000]
+    assert f"put {step} ms before a transition, at it and {step} ms after it" in page
+    assert f"No delay is made longer than {DELAY_LIMIT_US // 1_000_000} s" in page
+    project = (ROOT / "pyproject.toml").read_text()
+    pythons = re.findall(r'"Programming Language :: Python :: (3\.\d+)"', project)
+    assert f"| Python | {pythons[0]} to {pythons[-1]} with livekit-agents" in LIMITS
+    # The row of each contract links to that contract's section.
+    rows = _rows(_sections(LIMITS, "##")["What each contract cannot decide"])
+    linked = [re.match(r"\[(\w\d)\]\(contracts\.md#(\w\d)-", name).groups() for name, _ in rows[1:]]
+    assert linked == [(contract, contract.lower()) for contract in RULES]

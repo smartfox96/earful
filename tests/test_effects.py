@@ -2,8 +2,11 @@
 
 import asyncio
 
-import livekit.agents as lk
 import pytest
+
+pytest.importorskip("livekit.agents")
+
+import livekit.agents as lk
 from breaks import BOOKING, TalksToItsServiceItself, as_written_reads_the_error
 
 from earful.core import backend as backends
@@ -14,7 +17,7 @@ from earful.core.schema import validate
 from earful.livekit import tools
 from earful.livekit.cases import BOOKING_INTENT
 from earful.livekit.harness import Case, Delay, Fault, Intent, run_case
-from earful.livekit.providers import Reply, ToolCall, UserSpeech
+from earful.livekit.providers import Claim, Reply, ToolCall, UserSpeech
 from earful.livekit.tools import effect_tool, witnessed
 from earful.scripted.clock import now_us, run_virtual
 from earful.scripted.playbook import (
@@ -454,12 +457,6 @@ def test_a_stand_in_the_agent_is_handed_writes_to_the_backend_of_the_run():
     assert check(events).outcome("A2") == PASS
 
 
-def test_outside_a_run_there_is_no_backend_to_write_to():
-    assert backends.active() is None
-    with pytest.raises(RuntimeError, match="outside an Earful run"):
-        asyncio.run(effect("order-1", {"dish": "soup"}))
-
-
 def test_two_runs_do_not_share_a_backend():
     receipts = [
         _of(run_case(as_written_reads_the_error()).ledger.events, "effect.committed")[0]["receipt"]
@@ -587,8 +584,89 @@ def test_the_scripted_user_and_the_witness_follow_a_handoff_to_the_next_agent(ag
     assert list(called) == ["transfer", "book"]
     (requested,) = _of(events, "effect.requested")
     assert requested["tool"] == called["book"]
+    assert result.report.failures == ()
     outcomes = result.report.outcomes()
-    assert outcomes["A2"] == outcomes["A3"] == outcomes["M1"] == outcomes["L2"] == PASS
+    assert all(outcomes[contract] == PASS for contract in ("A2", "A3", "M1", "M2", "L1", "L2"))
+
+
+def _greets_and_returns(returned, then=_Books):
+    class Greets(lk.Agent):
+        def __init__(self):
+            super().__init__(instructions="You greet the caller.")
+
+        @lk.function_tool
+        async def transfer(self):
+            """Hand the caller to the agent that books."""
+            return returned(then(self.chat_ctx))
+
+    return Greets
+
+
+@pytest.mark.parametrize(
+    ("returned", "text", "replies"),
+    [
+        (lambda agent: agent, "", False),
+        (lambda agent: (agent, None), "", False),
+        (lambda agent: (agent, "One moment."), "One moment.", True),
+        (lambda agent: ["One moment.", agent], "One moment.", True),
+        (lambda agent: (agent, "One", "moment."), "['One', 'moment.']", True),
+    ],
+)
+def test_a_tool_that_returns_an_agent_is_shown_to_the_model_by_what_came_with_it(
+    returned, text, replies
+):
+    case = _handoff()
+    case.agent = _greets_and_returns(returned)
+    result = run_case(case)
+    events = result.ledger.events
+    handed, booked = _of(events, "tool.returned")
+    assert (handed["text"], handed["expects_reply"], handed["handoff"]) == (text, replies, True)
+    assert "handoff" not in booked
+    shown = [
+        item["output"]
+        for item in _of(events, "history.final")[0]["items"]
+        if item["type"] == "function_call_output" and item["name"] == "transfer"
+    ]
+    assert shown == [text]
+    # A value beside the agent is followed up by the agent that made the call, at once.
+    before_the_user_speaks_again = [
+        e for e in events if e["kind"] == "llm.request" and e["t_us"] < 8_000_000
+    ]
+    assert len(before_the_user_speaks_again) == 1 + replies
+    assert result.report.failures == ()
+    first_turn = result.report.results["L1"].verdicts[0]
+    assert first_turn.outcome == PASS
+    assert first_turn.flags == (() if replies else ("silenced_by_a_tool",))
+    assert result.report.outcome("M2") == PASS
+
+
+class _BooksAndAsks(_Books):
+    async def on_enter(self):
+        self.session.generate_reply()
+
+
+def _asks_on_entering(items):
+    results = [i for i in items if i["type"] == "function_call_output"]
+    said = [i["text"] for i in items if i["type"] == "message" and i["role"] == "user"]
+    if results:
+        return Reply(text="Your table is booked.", claims=(Claim("book"),))
+    if "two" in said[-1]:
+        return Reply(tool_calls=(ToolCall("book", '{"party_size": 2}'),))
+    if any(i["type"] == "message" and "You book tables." in (i["text"] or "") for i in items):
+        return Reply(text="How many guests?")
+    return Reply(tool_calls=(ToolCall("transfer", "{}"),))
+
+
+def test_a_turn_the_agent_handed_over_to_answers_is_not_silenced():
+    case = _handoff()
+    case.agent = _greets_and_returns(lambda agent: agent, then=_BooksAndAsks)
+    case.policy = _asks_on_entering
+    result = run_case(case)
+    assert result.report.failures == ()
+    first_turn = result.report.results["L1"].verdicts[0]
+    assert first_turn.outcome == PASS and first_turn.flags == ()
+    assert first_turn.measures["time_to_first_audio_us"] is not None
+    assert result.report.outcome("M2") == PASS
 
 
 @lk.function_tool

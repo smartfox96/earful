@@ -31,8 +31,10 @@ FILES = {
     "original": ("original.case.json", "original.ledger.jsonl"),
     "minimal": ("minimal.case.json", "minimal.ledger.jsonl"),
 }
-# The formats this Earful reads, as a manifest names them.
+# The formats this Earful writes, as a manifest names them.
 FORMATS = {"ledger": LEDGER, "contracts": CONTRACTS, "case": cases.SCHEMA}
+# Earlier ones it still reads. A bundle kept under earlier contracts is judged by these.
+EARLIER = {"contracts": ("earful.contracts/1",)}
 
 Event = dict[str, Any]
 
@@ -220,7 +222,7 @@ def load(directory: Path) -> Bundle:
     if errors:
         raise ValueError(f"{path} is not an {SCHEMA} manifest: " + "; ".join(errors))
     for name, reads in FORMATS.items():
-        if manifest["formats"][name] != reads:
+        if manifest["formats"][name] not in (reads, *EARLIER.get(name, ())):
             raise ValueError(
                 f"{path} names the {name} format {manifest['formats'][name]}; "
                 f"this Earful reads {reads}"
@@ -297,6 +299,7 @@ def replay(
 
 
 __all__ = [
+    "EARLIER",
     "FILES",
     "FORMATS",
     "MANIFEST",

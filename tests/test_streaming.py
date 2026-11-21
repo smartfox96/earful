@@ -2,8 +2,11 @@
 
 import asyncio
 
-import livekit.agents as lk
 import pytest
+
+pytest.importorskip("livekit.agents")
+
+import livekit.agents as lk
 from livekit.agents import llm
 
 from earful.core.ledger import Ledger
@@ -15,9 +18,11 @@ from earful.livekit.providers import (
     Reply,
     ReplyRegister,
     ScriptedLLM,
+    ScriptedSTT,
     StampedTTS,
     ToolCall,
     UserSpeech,
+    WorldOrigin,
 )
 from earful.scripted import clock
 from earful.scripted.clock import now_us, run_virtual
@@ -240,3 +245,14 @@ def test_a_policy_that_raises_is_recorded_once_and_as_the_policy():
     case.policy = _a_bug
     result = run_case(case, require_valid=False)
     assert result.invalid == ["harness error: policy raised on call 1: KeyError: 'a bug in Earful'"]
+
+
+def test_the_scripted_recognizer_says_that_it_sends_interim_transcripts():
+    async def declared():
+        ledger = Ledger(now_us, run="test")
+        return ScriptedSTT(ledger, [], WorldOrigin(ledger, [])).capabilities
+
+    assert run_virtual(declared).interim_results is True
+    events = run_case(CASES["barge_in_mid_word"]()).events
+    heard = [e["data"] for e in events if e["kind"] == "fw.user_input_transcribed"]
+    assert ("Tell me", False) in [(said["text"], said["final"]) for said in heard]

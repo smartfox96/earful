@@ -12,7 +12,7 @@ from livekit import rtc
 
 from ..core.ledger import Ledger
 from ..core.timebase import US_PER_SECOND, to_seconds
-from ..scripted.voice import StampReader, StampTable, words_heard
+from ..scripted.voice import StampReader, StampTable, words_heard, words_missing_audio
 from ._compat import io
 from .providers import scripted, scripted_call
 
@@ -80,11 +80,12 @@ class ClockedSink(io.AudioOutput):
         self._finish_handle: asyncio.TimerHandle | None = None
         self._reader = StampReader(table)
         self._resampled = 0
+        self._short = 0  # words that reached the sink with part of their audio missing
         self.underruns = 0
 
     @property
     def stamp_errors(self) -> int:
-        return self._reader.errors + self._resampled
+        return self._reader.errors + self._resampled + self._short
 
     def _take(self, segment: _Segment, runs: list[tuple[int, int]]) -> None:
         for stamp, count in runs:
@@ -188,6 +189,7 @@ class ClockedSink(io.AudioOutput):
         else:
             position_us, position_samples = pushed_us, segment.pushed_samples
         self._take(segment, self._reader.end())
+        self._short += words_missing_audio(segment.runs, self._table)
         played, done, cut, cut_samples = self._words_at(segment, position_samples)
         self._ledger.append(
             "sink",
@@ -232,6 +234,8 @@ class ClockedSink(io.AudioOutput):
         if segment is None:
             self._segments += 1
             segment = self._segment = _Segment(self._segments, frame.sample_rate)
+            if frame.sample_rate != self._table.sample_rate:
+                self._resampled += 1  # a word's sample count is at the voice's rate
         elif frame.sample_rate != segment.sample_rate:
             self._resampled += 1  # resampled mid-segment: stamps can no longer be trusted
         if (

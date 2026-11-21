@@ -5,7 +5,7 @@ is not claimed to.
 
 ## livekit-agents
 
-Five releases are supported. Each is installed with its dependencies resolved as of a
+Six releases are supported. Each is installed with its dependencies resolved as of a
 date a few days after it came out, which gives the set the release was tested with at the
 time (`scripts/make_env.sh`). The date runs to the end of that day in UTC. The set each
 release resolves to on Python 3.13 is recorded in `compat/`, and CI fails if an
@@ -18,6 +18,7 @@ environment it builds on Python 3.13 holds anything else.
 | 1.6.5 | 2026-07-20 | `compat/lk-1.6.5.lock.txt` | present | repaired |
 | 1.6.6 | 2026-07-20 | `compat/lk-1.6.6.lock.txt` | repaired | repaired |
 | 1.8.12 | 2026-11-14 | `compat/lk-1.8.12.lock.txt` | repaired | repaired |
+| 1.8.13 | 2026-11-20 | `compat/lk-1.8.13.lock.txt` | repaired | repaired |
 
 The last two columns say whether the release has the two known defects Earful reproduces
 (`docs/cases/`). A search of your own agent on an affected release can meet them.
@@ -34,6 +35,10 @@ invalid and yields no verdict: every tool the model is offered is one whose call
 recorded, and every pydantic field whose default is a clock read was given the virtual
 clock. A release that reads time some other way is not caught by these checks. The reads
 that are virtual are listed under The virtual clock.
+
+A tool that returns an agent hands the session over on every release above. The scripted
+user and the tool witness follow the session to that agent, and the contracts are judged
+across the handoff ([`contracts.md`](contracts.md#m2-turn-integrity), rule d).
 
 ## pipecat-ai
 
@@ -64,7 +69,8 @@ and 20 in fresh processes, runs the two historical cases, and replays both kept 
 | 1.5.7 | every change | nightly | |
 | 1.6.5 | every change | nightly | |
 | 1.6.6 | every change | nightly | 3.10 |
-| 1.8.12 | every change | every change | 3.12, 3.14 |
+| 1.8.12 | every change | nightly | |
+| 1.8.13 | every change | every change | 3.12, 3.14 |
 
 Python 3.10 to 3.14 are each tested with one release. Windows is not tested.
 
@@ -78,7 +84,11 @@ imports and checks a ledger with nothing but its own dependencies.
 ## What CI runs for Pipecat
 
 On every pull request, each row below builds the pinned environment without
-livekit-agents and runs `tests/test_pipecat*.py`. A row fails if a test there is skipped.
+livekit-agents and runs every test that does not need it: the Pipecat tests and the
+tests of the core. A row fails if any of those is skipped
+(`scripts/ran_every_test.sh --without livekit`). Each row also runs the three Pipecat
+reference cases 120 times and compares them with the committed ledgers
+(`scripts/repeat.py`).
 
 | pipecat-ai | Python | System | Earful installed from |
 | --- | --- | --- | --- |
@@ -87,13 +97,19 @@ livekit-agents and runs `tests/test_pipecat*.py`. A row fails if a test there is
 | 1.16.0 | 3.13 | Linux | the checkout |
 | 1.16.0 | 3.13 | macOS | the checkout |
 
+The reference ledgers are the same on every row. On Python 3.11 pipecat-ai replaces
+`asyncio.wait_for` with the one from the `wait_for2` package, which takes more steps of
+the event loop: tasks due at one instant would run in another order than on Python 3.12,
+and the ledger would differ. During a run `asyncio.wait_for` is the standard library's,
+as Python 3.12 and later have it.
+
 ## What runs on the newest releases
 
 Each night the `canary` workflow installs the newest livekit-agents and the newest
 pipecat-ai the extras accept, with their dependencies as of that night, on Linux and
 Python 3.13 (`scripts/canary.sh`). It runs the tests that take under a second. A
-livekit-agents release with no row above has no reference ledgers, and there the tests
-that compare a run with one are skipped. The workflow also fails when PyPI has a release
+release with no row above has no reference ledgers, and there the tests that compare a
+run with one do not run. The workflow also fails when PyPI has a release
 an extra does not accept (`scripts/newer_release.sh`). No pull request runs it.
 
 
@@ -161,9 +177,5 @@ ledgers, and reads bundles. It runs nothing. Python 3.10 or later.
 - A turn detector that is a model. Turns end on the scripted VAD's silence.
 - Interruption detection that is a model. The session is set to detect interruptions
   from the VAD, whatever the environment configures.
-- Contracts across a handoff. The scripted user and the tool witness follow the session to
-  the agent it hands over to, and A1 to A3 are judged there. M2 and L1 do not model a
-  handoff yet: M2 expects the tool that returned the agent in the next agent's context,
-  and L1 expects a model call to follow it.
 - A tool whose calls cannot be recorded, such as one inside a toolset. The run is invalid
   and names the tool.

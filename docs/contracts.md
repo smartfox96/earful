@@ -1,6 +1,6 @@
 # Contracts
 
-This document defines what Earful checks, as contracts version `earful.contracts/1`. The
+This document defines what Earful checks, as contracts version `earful.contracts/2`. The
 checker (`src/earful/core/checker/`), the ledger schema and the deliberate breaks that
 prove the checker works are all built against it. Section 10 records what the
 checker measured on the reference ledgers. The default policy values rest on those
@@ -15,6 +15,20 @@ report.failures                 # every failed verdict, with the events it rests
 
 `earful check LEDGER.jsonl` prints the same from a file. The checker reads only
 the ledger: it imports neither the scenario nor the framework under test.
+
+`earful.contracts/1` was the version of Earful 0.1.1. Version 2 differs in these rules:
+
+- M2 has rule f, and rule e also holds tool items and replies to their place among the
+  user turns. Rule d owes a call that handed the session to another agent in the final
+  history and in the model call that follows it up.
+- L2 rule b does not count a gap in a streaming buffer as a reply stopping or starting.
+- A1, A2 and A3 are unobservable for a tool call that leaves nothing in the backend
+  (section 2.6).
+- L1 is unobservable for a milestone that came due at the instant the scenario ended,
+  and gives `silenced_by_a_tool` only to a turn that got no spoken reply.
+
+A bundle kept under version 1 is still replayed. It is judged by version 2, and the
+replay says so.
 
 ## 1. What a contract is
 
@@ -307,18 +321,18 @@ reply at every 50 ms, for four sentences, and reports the drift:
 
 | livekit-agents | Seconds per letter | Sentence | Interruption points | Exact | Most behind | Most ahead |
 | --- | --- | --- | --- | --- | --- | --- |
-| 1.5.6 | 0.06 | menu | 145 | 117 | 0.42 s | 0.36 s |
-| 1.5.6 | 0.06 | booking | 100 | 88 | 0.24 s | 0 |
-| 1.5.6 | 0.06 | long words | 130 | 72 | 0.48 s | 0 |
-| 1.5.6 | 0.06 | short words | 68 | 42 | 0.18 s | 0 |
-| 1.8.12 | 0.06 | menu | 145 | 120 | 0.42 s | 0.36 s |
-| 1.8.12 | 0.06 | booking | 100 | 88 | 0.24 s | 0 |
-| 1.8.12 | 0.06 | long words | 130 | 72 | 0.48 s | 0 |
-| 1.8.12 | 0.06 | short words | 68 | 43 | 0.18 s | 0 |
-| 1.8.12 | 0.045 | menu | 108 | 88 | 0.315 s | 0.225 s |
-| 1.8.12 | 0.045 | long words | 96 | 17 | 0.675 s | 0 |
-| 1.8.12 | 0.09 | menu | 220 | 160 | 0 | 0.63 s |
-| 1.8.12 | 0.09 | long words | 196 | 191 | 0.27 s | 0.27 s |
+| 1.5.6 | 0.06 | menu | 143 | 113 | 0.42 s | 0.36 s |
+| 1.5.6 | 0.06 | booking | 98 | 87 | 0.24 s | 0 |
+| 1.5.6 | 0.06 | long words | 128 | 71 | 0.48 s | 0 |
+| 1.5.6 | 0.06 | short words | 66 | 43 | 0.18 s | 0 |
+| 1.8.12 | 0.06 | menu | 143 | 116 | 0.42 s | 0.36 s |
+| 1.8.12 | 0.06 | booking | 98 | 87 | 0.24 s | 0 |
+| 1.8.12 | 0.06 | long words | 128 | 71 | 0.48 s | 0 |
+| 1.8.12 | 0.06 | short words | 66 | 43 | 0.18 s | 0 |
+| 1.8.12 | 0.045 | menu | 106 | 89 | 0.315 s | 0.225 s |
+| 1.8.12 | 0.045 | long words | 94 | 15 | 0.675 s | 0 |
+| 1.8.12 | 0.09 | menu | 218 | 158 | 0 | 0.63 s |
+| 1.8.12 | 0.09 | long words | 194 | 189 | 0.27 s | 0.27 s |
 
 1.6.5 gives the same figures as 1.8.12. The framework's memory of an interrupted reply
 is exact at most interruption points and otherwise within about 0.7 s of what was played,
@@ -355,12 +369,13 @@ expect of it and it leaves alone.
 | Rule c, replies | The assistant messages, read in order, match what the agent was scripted to say (the model's replies, and text the application spoke itself) one to one in the order it came to be, each message a prefix of its text. Nothing is matched twice. Fails if no such matching exists. Order decides the match, so two replies with the same text stay distinct when both are remembered; when only one is, either could be the one kept. Rule c needs only that some matching exists; M1 takes the one that agrees best with what was played (section 2.5) |
 | Rule d, tool calls | For each tool call that returned before the context was requested, the context holds exactly one call item and exactly one result item, the result after the call, not marked as an error, and carrying the returned value: its text equals the `text` the tool witness recorded. A call that has not returned is owed nothing, whether it raised, was cancelled or is still running: whether and what the model is told is the framework's choice (livekit-agents 1.8 shows a call in progress with the result "The tool call is still in progress."), but it may not be shown twice or out of order. A result marked as an error for a call no tool received is the framework's own account of a call it did not run, and is not judged. A result not marked as an error for such a call fails |
 | Rule d, same instant | A context requested at the very instant a tool returned, for a later user turn than the one the tool was called in, is not held to that return (section 2.3). The call that follows up the tool's own turn is |
+| Rule d, handoff | A tool that returns an agent hands the session to it (`handoff`). That call is owed its call item and its result item in the final history and, if the tool returned a value beside the agent, in the first model call requested after it returned, which follows it up. The contexts of the agent handed over to are built by the application and need not show the call. One that shows it is held to the rest of rule d. A result marked as an error for such a call is the framework's own account of a handoff it did not make, and is not judged (livekit-agents 1.8 gives one when the reply that called the tool was interrupted). Every other rule holds in those contexts as in any other: an agent that starts from an empty context has lost the user's turns (rule b) |
 | Rule e, order | Each reply, each call item and each result item comes after the user turns that were in the context the model answered from. A reply, or a text the application spoke, also comes before every user turn that began after its playout had finished. Its playout finished when the sink finished the last segment holding its audio. A turn began when the VAD segment holding its speech started (L2), so speech that resumes inside a segment begun earlier is not held to this. Equal instants are not judged. Where a backchannel with words was read as absent, a later turn could be that backchannel, and this second half is not applied to the turns after it |
 | Rule f, tool items | A call item or a result item belongs to a call the model had made, found by its call id, and shows that call as the model made it. A call item carries the model's tool name and arguments. A result item carries the model's tool name; one whose name the ledger does not give (null) is not compared. Arguments are equal as text, or as JSON where both parse, so a framework that writes the same arguments out again is not penalized. A call item whose id the model had not given when the context was requested fails. A result item with such an id is rule d |
 | Discard policies | `noise`: speech with no transcript leaves no turn. `backchannel`: its transcript may be present or absent; where its words could equally be the start of the next turn, the reading that explains the most user text is taken. `cancelled_tool`: a call cancelled before it returned needs no result |
 | Policy | `user_commit_lag_us` (default 1 000 000): how long after the turn can be over a transcript may still be missing. In every reference ledger a transcript is in the first context requested after its delivery |
 | Unobservable | Rule d for a tool that was not witnessed, or that ran without a call id to link it by. The value comparison in rule d, for a result with no stable text form (`text` is null); presence and order are still checked |
-| Always reported | `stand_in_results`: results shown for calls that had not returned. `refused_calls`: error results for calls no tool received |
+| Always reported | `stand_in_results`: results shown for calls that had not returned, and error results shown for a handoff. `refused_calls`: error results for calls no tool received |
 | Not judged | Whether a reply is in the context at all, and how much of an interrupted reply is kept. That is M1. The order of tool calls among themselves, and of a tool call against a reply. Where a reply sits among the user turns, beyond rule e. How often a call item appears for a call no tool received |
 | Deliberate break | A public agent hook that removes tool results from the context before the model call. Further variants repeat a user turn, show a tool call with other arguments, and show the tool calls before the turn that led to them |
 | Clean control | The unmodified agent |
@@ -375,15 +390,15 @@ after it.
 | Instance | Each delivered speech with `expects_reply`, unless the user speaks again first. Then the later speech carries the obligation |
 | Start of the clock | The later of the speech's end and the delivery of its final transcript, both `world` |
 | Milestone 1 | A model call whose context contains the turn |
-| Milestone 2 | If the model answered with tool calls: every call is made, every call finishes, and a further model call follows. Repeats up to `max_steps`. A tool cut off when the scenario ended did not finish. If every tool of a round asked for silence (`expects_reply` false), no further call is owed. A call the framework answered itself without running the tool (arguments the tool cannot take, a tool that does not exist) counts as made and finished when the model finished asking: the context that first shows its error result is the further call. A call to a witnessed tool that neither ran nor was answered was never made |
+| Milestone 2 | If the model answered with tool calls: every call is made, every call finishes, and a further model call follows. Repeats up to `max_steps`. A tool cut off when the scenario ended did not finish. If every tool of a round asked for silence (`expects_reply` false), no further call is owed. A tool that returns only an agent hands the session over and asks for none; with a value beside the agent a further call is owed as for any tool. A call the framework answered itself without running the tool (arguments the tool cannot take, a tool that does not exist) counts as made and finished when the model finished asking: the context that first shows its error result is the further call. A call to a witnessed tool that neither ran nor was answered was never made |
 | Milestone 3 | The first word of a reply to the turn starts playing. Any reply will do, including one the framework generated again for the same turn (after a backchannel, or because what it had generated ahead of time was out of date); the one heard first counts. However the chain ends (the rounds run out, a call is never answered, the model says nothing), the turn is still owed this, unless its tools asked for silence |
 | Rule | Fail if a milestone has not occurred by its deadline. The deadline is the start of the clock, plus the declared end-of-turn delay, plus the scripted provider delays on the chain so far, plus `slack_us`. A finding names the milestone that was missed (`milestone 1`, `milestone 2`, `milestone 3`), so that a failure to call the model and a reply that never plays are different failures |
 | End-of-turn delay | The scripted VAD's `min_silence_us` plus the session's `min_endpointing_delay_us`: the latest the framework can decide the turn is over |
 | Delays on the chain | For each step already taken: the model's `duration_us`; if it spoke, the `ttfb_us` of its own utterance plus the length of its audio, since the framework finishes speaking before the next step; and, for each write its tools made, the backend `latency_us`, or the wait before the caller was told the write timed out. A tool's own running time is not on the chain: the scenario's code decides it and nothing declares it. A turn whose tool takes long by design needs a larger `slack_us` |
 | Excused | The user began speaking again before the milestone was due. If that speech expects a reply it carries the obligation, and this turn has no verdict. If it is noise or a backchannel, the turn keeps the obligation and its clock restarts when that speech ends plus the false-interruption timeout. A header whose `false_interruption_timeout_us` is null adds nothing: Pipecat declares none, because it does not resume a reply. The user hung up before the milestone was due: the turn has no verdict. A milestone that was already overdue when the user left still fails |
 | Policy | `slack_us` (default 1 000 000). `max_steps` (default 4) |
-| Unobservable | The scenario ended (the final history was read) before the deadline passed; a tool the model called was not witnessed; or the reply's audio cannot be attributed |
-| Flags | `silenced_by_a_tool`: the turn got no spoken reply because its tools asked for none. `most_favourable_reading`: which of the turn's replies was voiced is a reading (section 2.5) |
+| Unobservable | The scenario ended (the final history was read) at or before the deadline, where the milestone could still have been met (section 2.3); a tool the model called was not witnessed; or the reply's audio cannot be attributed |
+| Flags | `silenced_by_a_tool`: the turn got no spoken reply because its tools asked for none. A turn that was spoken to all the same, by the reply that called the tool or by the agent handed over to, does not carry it. `most_favourable_reading`: which of the turn's replies was voiced is a reading (section 2.5) |
 | Reported separately | Time to the first model call and time to first audio |
 | Deliberate break | A tool that never returns and has no timeout; a second variant where the model returns nothing at all |
 | Clean control | The same turn declared `expects_reply = false`; the same tool returning |
@@ -523,7 +538,7 @@ Taken while building the checker, 16 November 2026:
    allowance of slack. The alternative, measuring each step from when the previous one
    happened, forgives a turn that falls behind a little at every step.
 10. **Policy values are versioned with the contracts.** The ledger carries them as
-    declared, and `earful.contracts/1` defines which exist. A scenario that
+    declared, and `earful.contracts/2` defines which exist. A scenario that
     declares one that does not exist is refused, by the harness before the run and by the
     checker.
 
@@ -670,8 +685,9 @@ Taken while reading each rule against the code, 19 November 2026:
 
 ## 10. What the reference ledgers measure
 
-`earful check tests/golden/*.jsonl --measures` prints these. The 15 reference
-ledgers are three cases on five releases.
+`earful check tests/golden/lk-*.jsonl --measures` prints these. The 18 LiveKit reference
+ledgers are three cases on six releases. The three Pipecat reference ledgers
+(`tests/golden/pc-*`) pass every contract they exercise.
 
 | Measure | Observed | Default it supports |
 | --- | --- | --- |
@@ -706,16 +722,30 @@ each release.
 
 What fails:
 
-- **The first known defect**, on the three releases before 1.6.6: A2 in 98 runs, and M2
-  rule d in 469 runs on 1.6.5 and 491 on 1.5.6 and 1.5.7. M2 shows it in six to eight
-  shapes: wherever a reply that called a tool is interrupted.
-- **The second known defect**, on 1.5.6: L2 rule b in 242 runs, across 21 of the 23
+- **The first known defect**, on the three releases before 1.6.6: A2 in 107 runs, and M2
+  rule d in 612 runs on 1.5.6 and 1.5.7 and 590 on 1.6.5. M2 shows it in nine shapes:
+  wherever a reply that called a tool is interrupted.
+- **The second known defect**, on 1.5.6: L2 rule b in 219 runs, across 21 of the 23
   shapes.
+- **A reply that starts over the user in a narrow window**, on 1.6.5 and 1.6.6: L2 rule b
+  in 27 runs across 12 shapes, two or three neighbouring steps in each. A reply starts
+  270 to 400 ms after the user took the floor. 1.5.7, 1.8.12 and 1.8.13 do not show it.
+  One of the 27, `book_then_interrupt` with the second speech at 8.40 s, breaks the rule
+  on the real clock too, in two runs of two. It is read as a defect of those two
+  releases that a later release repaired, of the same kind as the second known defect.
+  It has no page under `docs/cases/` yet.
+- **An output that cannot pause**, on every release: L2 rule b in the 3 runs of that
+  shape in which the second speech starts at 3.00 to 3.10 s. A reply to the turn before
+  starts 150 ms after the user took the floor, and is cleared once the interruption is
+  recognized. The repaired releases keep such a reply from starting by pausing the
+  output first, which this output cannot do. The real clock agrees on 1.8.12. It is read
+  as a consequence of the setting, and as a question for the framework's maintainers
+  more than a defect.
 
-No rule other than those three fails on any release, and no verdict on any release is
-unobservable: where a framework generates a reply again and the scripted model gives the
-same words, the run is read as section 2.5 describes.
+No other rule fails on any release, and no verdict on any release is unobservable: where
+a framework generates a reply again and the scripted model gives the same words, the run
+is read as section 2.5 describes.
 
-A failure of one of those rules that has not been classified (section 7) is not reported
-here. The sweep is how such results are found; they are published once someone has
-reproduced them deliberately and compared them with what the framework documents.
+A failure that has not been classified (section 7) is not reported here. The sweep is
+how such results are found; they are published once someone has reproduced them
+deliberately and compared them with what the framework documents.

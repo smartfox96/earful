@@ -153,9 +153,7 @@ class Transition:
 def transitions(events: list[Event], *, words: bool = True) -> list[Transition]:
     """Every instant of a run that something else could race with, in time order."""
     header = events[0]["data"]["scenario"]
-    end_of_turn = max(
-        header["providers"]["vad"]["min_silence_us"], header["session"]["min_endpointing_delay_us"]
-    )
+    end_of_turn = turn_end_delay(header)
     origin = next((e["t_us"] for e in events if e["kind"] == "user.origin"), 0)
     at: dict[int, list[str]] = {}
 
@@ -193,6 +191,16 @@ def transitions(events: list[Event], *, words: bool = True) -> list[Transition]:
     return [Transition(t, tuple(kinds)) for t, kinds in sorted(at.items())]
 
 
+def turn_end_delay(header: dict[str, Any]) -> int:
+    """How long after a speech ends the framework ends the turn, as the adapter declares it.
+    A ledger from before the field has LiveKit's: the longer of the two waits."""
+    vad, session = header["providers"]["vad"], header["session"]
+    declared: int | None = session.get("turn_end_delay_us")
+    if declared is not None:
+        return declared
+    return int(max(vad["min_silence_us"], session["min_endpointing_delay_us"]))
+
+
 def anchors(header: dict[str, Any], speech: dict[str, Any]) -> dict[str, int]:
     """The moments at which a speech acts on the system, as microseconds after its start.
     ``header`` is the ``scenario`` of a ledger's ``run.start``."""
@@ -204,7 +212,7 @@ def anchors(header: dict[str, Any], speech: dict[str, Any]) -> dict[str, int]:
     if speech["transcript"]:
         out["transcript"] = length + speech["stt_delay_us"]
     out["vad_end"] = length + vad["min_silence_us"]
-    out["turn_end"] = length + max(vad["min_silence_us"], session["min_endpointing_delay_us"])
+    out["turn_end"] = length + turn_end_delay(header)
     return out
 
 

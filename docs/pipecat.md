@@ -188,6 +188,172 @@ or a `FunctionSchema` that carries its handler. A handler delivers its result wi
 declared write in place of that function and gives its receipt to the callback. A handler
 can also call `earful.effect` itself.
 
+## A booking bot, searched
+
+[`examples/pipecat_booking`](https://github.com/smartfox96/earful/tree/main/examples/pipecat_booking)
+is the README's booking example as a Pipecat bot. `bot.py` is the application. It
+registers one function and is handed the service it books with:
+
+```python
+"""A restaurant booking bot for Pipecat, as an application would write it. Nothing here
+knows of Earful: the bot is handed the service it books with."""
+
+from typing import Protocol
+
+from pipecat.processors.aggregators.llm_context import LLMContext
+from pipecat.services.llm_service import FunctionCallParams, LLMService
+
+
+class Reservations(Protocol):
+    """The reservation service, as the bot uses it."""
+
+    async def create(self, party_size: int, *, idempotency_key: str | None = None) -> str:
+        """Book a table and return the confirmation number."""
+        ...
+
+
+def booking_bot(llm: LLMService, reservations: Reservations) -> LLMContext:
+    """Registers the booking function on the model service and returns the bot's context."""
+
+    async def create_reservation(params: FunctionCallParams) -> None:
+        party_size = params.arguments["party_size"]
+        confirmation = await reservations.create(party_size)
+        await params.result_callback(f"Booked. Confirmation {confirmation}.")
+
+    llm.register_function("create_reservation", create_reservation)
+    return LLMContext()
+```
+
+`test_booking.py` scripts the model, stands in for the service, and holds two tests: the
+conversation as written, and a search of every timing and fault near it.
+
+```python
+"""One conversation with the booking bot, run as written and then searched."""
+
+from bot import booking_bot
+
+from earful import effect
+from earful.pipecat import (
+    Case,
+    Intent,
+    ScriptedModel,
+    UserSpeech,
+    tool_failed,
+    tool_succeeded,
+    user_ever_said,
+)
+
+
+class FakeReservations:
+    """Stands in for the reservation service. A booking is one write to Earful's backend,
+    which a search makes slow, failing or lossy."""
+
+    async def create(self, party_size: int, *, idempotency_key: str | None = None) -> str:
+        return await effect("book-table", {"party_size": party_size}, key=idempotency_key)
+
+
+# The scripted model. It books when asked, tries once more if the function fails, and
+# tells the user the table is booked only after a call that succeeded.
+BOOK = ("create_reservation", {"party_size": 4})
+model = (
+    ScriptedModel()
+    .when(tool_succeeded(), say="Your table for four is booked.", claims=["book-table"])
+    .when(
+        tool_failed() & (lambda context: len(context.tool_results) >= 2),
+        say="Sorry, I could not book that. Please call the restaurant.",
+    )
+    .when(tool_failed(), say="One moment, let me try that again.", call=BOOK)
+    .when(user_ever_said("table"), say="Let me book that for you.", call=BOOK)
+    .otherwise(say="How can I help?")
+)
+
+
+def booking() -> Case:
+    return Case(
+        name="booking",
+        bot=lambda llm: booking_bot(llm, FakeReservations()),
+        speeches=[UserSpeech(start=0.5, end=2.5, transcript="A table for four tonight, please.")],
+        policy=model,
+        intents=[Intent("book-table")],  # what the user wants done, once
+        backend_mode="keyed",  # the service honours an idempotency key, if it is sent one
+    )
+
+
+def test_the_conversation_as_written(earful):
+    earful.run(booking).assert_contracts()
+
+
+def test_every_timing_and_fault_near_it(earful):
+    earful.explore(booking).assert_contracts()
+```
+
+```bash
+cd examples/pipecat_booking
+pytest -q
+```
+
+The conversation as written passes. The search fails with three rules:
+
+```text
+ContractFailure: booking on pipecat-ai 1.16.0: 753 cases tried, 753 judged, 3 contract rule(s) broken
+
+A2/rule  in 278 case(s)
+    2 durable effects for 'book-table'; the scenario authorized 1
+    changed: backend.timeout 1, commit first
+
+M1/rule 2  in 3 case(s)
+    final history: 5 word(s) were played but only 0 are remembered: 1080000 us of played audio is forgotten
+    changed: user.hangup 0 at 6.540 s (not declared as written)
+
+M2/rule d  in 26 case(s)
+    create_reservation (call-1-1) finished before this context, which holds 0 call item(s) and 0 result item(s) for it
+    changed: user.hangup 0 at 3.600 s (not declared as written)
+```
+
+**A2 is the application's.** The service committed a booking and told the bot it had
+timed out. The model tried again, and the bot sent no idempotency key, so the service
+booked a second table. Send the key in `bot.py`:
+
+```python
+        confirmation = await reservations.create(party_size, idempotency_key=f"table-for-{party_size}")
+```
+
+A2 is gone, and the two other rules remain. Both need the user to hang up, which the
+scenario does not declare: the search tried it.
+
+**M2 rule d: a booking with no trace in the context.** Pipecat adds a function call and
+its result to the context once the speech before them has played. The user hangs up
+while "Let me book that for you." plays, between 3.6 and 4.96 s. The hangup cancels the
+pipeline, as an application does when its client disconnects, and the context it leaves
+has neither the call nor its result. The booking was made.
+
+**M1 rule 2: a reply that was heard and is not remembered.** The scripted voice sends no
+word times unless the case sets `tts_word_timestamps=True`. Without them Pipecat cannot
+tell how much of a reply that was cut short had played, and keeps none of it. The user
+hangs up five words into "Your table for four is booked.", and the context does not say
+the bot told them so.
+
+Whether either matters depends on what your application does with the context after a
+call ends. If it stores the context as the record of the call, both are real: the record
+leaves out a booking, or a confirmation the user heard. Write the record from the
+function handler in that case. If the context is discarded at a hangup, say so in the
+test, by rule:
+
+```python
+    earful.explore(booking).assert_contracts(allow=["M2/rule d", "M1/rule 2"])
+```
+
+With the key sent and the two rules allowed, both tests pass. A rule that is allowed
+still appears in the report, and any other rule still fails the test.
+
+Two more results of this kind are worth knowing before you search your own bot. With
+`tts_word_timestamps=True`, Pipecat marks a reply complete once its last word starts, so
+a cut inside that word leaves it marked complete (M1 rule 5). A function call that is
+still running when the user speaks is cancelled, which is Pipecat's default
+(`cancel_on_interruption`). A write it had started still commits, the model is shown no
+result, and a model that books again makes a second booking unless the write carries an
+idempotency key (A2).
+
 ## Logs, settings and hangups
 
 A search is quiet: Pipecat's logging is off while it runs. A single run logs as Pipecat
@@ -197,6 +363,8 @@ an `fw.error` event and counted in `run.end`. The run is still judged.
 
 All case times are in seconds. `vad_start_secs` and `vad_stop_secs` set the scripted
 VAD timing. `user_speech_timeout` and `user_turn_stop_timeout` configure Pipecat's
-turn-stop strategy and aggregator. Set `tts_word_timestamps=True` to send word times
-alongside the stamped audio. A hangup cancels the pipeline. For a real-clock control
-run, use `cross_check` with the same scenario.
+turn-stop strategy and aggregator. `tts_ttfb` is the voice's time to first audio, and a
+reply waits it once: a reply is one utterance, also where Pipecat ends an audio context
+between two of its sentences because the model was slow. Set `tts_word_timestamps=True`
+to send word times alongside the stamped audio. A hangup cancels the pipeline. For a
+real-clock control run, use `cross_check` with the same scenario.

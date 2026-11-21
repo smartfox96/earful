@@ -20,14 +20,16 @@ env_dir=".venvs/canary-$1"
 
 rm -rf "$env_dir"
 uv venv -q --python "${EARFUL_PYTHON:-3.13}" "$env_dir"
-VIRTUAL_ENV="$env_dir" uv pip install -q -e ".[$1]" pytest pytest-asyncio
+VIRTUAL_ENV="$env_dir" uv pip install -q -e ".[$1]" --group test
 holds="$(VIRTUAL_ENV="$env_dir" uv pip freeze -q --exclude-editable)"
 echo "=== what an install holds today: $(grep "^$package==" <<<"$holds")"
 echo "$holds"
 
 echo "=== the tests under a second"
 if [ "$1" = pipecat ]; then
-  scripts/ran_every_test.sh "$env_dir/bin/python" tests/test_pipecat*.py -m "not slow"
+  # A release with no reference ledgers has nothing to compare a run with.
+  scripts/ran_every_test.sh --without livekit "$env_dir/bin/python" -m "not slow" \
+    --deselect tests/test_pipecat_golden.py::test_pipecat_run_reproduces_the_committed_ledger
 else
   # A release with no reference ledgers skips the tests that compare with them.
   "$env_dir/bin/python" -m pytest -q -m "not slow" -rs

@@ -660,6 +660,381 @@ MUTANTS = [
         "                best[i][j] = options[0]\n",
         first="kindest",
     ),
+    # The edges of L1.
+    Mutant(
+        "L1: a milestone reached at its deadline is missed",
+        "src/earful/core/checker/l1.py",
+        "            if reached is not None and reached <= deadline:\n",
+        "            if reached is not None and reached < deadline:\n",
+        first="reached_at_its_deadline",
+    ),
+    Mutant(
+        "L1: the end-of-turn delay is not in a deadline",
+        "src/earful/core/checker/l1.py",
+        "            deadline = self._base + self._end_of_turn + chain_us + self._slack\n",
+        "            deadline = self._base + chain_us + self._slack\n",
+        first="deadline_adds_the_delays",
+    ),
+    Mutant(
+        "L1: slack_us is not in a deadline",
+        "src/earful/core/checker/l1.py",
+        "            deadline = self._base + self._end_of_turn + chain_us + self._slack\n",
+        "            deadline = self._base + self._end_of_turn + chain_us\n",
+        first="generated_again_is_budgeted",
+    ),
+    Mutant(
+        "L1: the time the model takes to ask is not in the budget of its tool calls",
+        "src/earful/core/checker/l1.py",
+        '        f"round {number}: every tool call is made", made, turn.elapsed + data["duration_us"]\n',
+        '        f"round {number}: every tool call is made", made, turn.elapsed\n',
+        first="deadline_adds_the_delays",
+    ),
+    Mutant(
+        "L1: the audio of a reply that asks for tools is not in the budget of what follows",
+        "src/earful/core/checker/l1.py",
+        '    turn.elapsed += data["duration_us"] + audio + latency\n',
+        '    turn.elapsed += data["duration_us"] + latency\n',
+        first="deadline_adds_the_delays",
+    ),
+    Mutant(
+        "L1: the time the model takes is not in the budget of a reply's first word",
+        "src/earful/core/checker/l1.py",
+        '        return before + call.answer["data"]["duration_us"] + turn.ttfb_of(call)\n',
+        "        return before + turn.ttfb_of(call)\n",
+        first="deadline_adds_the_delays",
+    ),
+    Mutant(
+        "L1: the clock starts when the speech ends, though its transcript came later",
+        "src/earful/core/checker/l1.py",
+        '        self.clock = max(speech.end, speech.delivery["t_us"])\n',
+        "        self.clock = speech.end\n",
+        first="clock_starts_at_the_later",
+    ),
+    Mutant(
+        "L1: the clock starts at the transcript, though the speech ended later",
+        "src/earful/core/checker/l1.py",
+        '        self.clock = max(speech.end, speech.delivery["t_us"])\n',
+        '        self.clock = speech.delivery["t_us"]\n',
+        first="clock_starts_at_the_later",
+    ),
+    Mutant(
+        "L1: a turn's own speech carries its obligation away",
+        "src/earful/core/checker/l1.py",
+        "(s for s in view.speeches if s.start > speech.start), key=lambda s: s.start\n",
+        "(s for s in view.speeches if s.start >= speech.start), key=lambda s: s.start\n",
+        first="reached_at_its_deadline",
+    ),
+    Mutant(
+        "L1: a later speech is looked for past the last one",
+        "src/earful/core/checker/l1.py",
+        "            nxt = self._later[self._used] if self._used < len(self._later) else None\n",
+        "            nxt = self._later[self._used] if self._used <= len(self._later) else None\n",
+        first="reached_at_its_deadline",
+    ),
+    Mutant(
+        "L1: a speech that starts at the deadline excuses the turn",
+        "src/earful/core/checker/l1.py",
+        "            if nxt is not None and nxt.start < deadline:\n",
+        "            if nxt is not None and nxt.start <= deadline:\n",
+        first="starts_at_the_deadline or clock_restarts_after_noise",
+    ),
+    Mutant(
+        "L1: noise that ended before the clock started moves the deadline back",
+        "src/earful/core/checker/l1.py",
+        "                self._base = max(self._base, nxt.end + self._resume)\n",
+        "                self._base = nxt.end + self._resume\n",
+        first="clock_restarts_after_noise",
+    ),
+    Mutant(
+        "L1: a user who hangs up at the deadline is owed nothing",
+        "src/earful/core/checker/l1.py",
+        "            if self._left is not None and self._left < deadline:\n",
+        "            if self._left is not None and self._left <= deadline:\n",
+        first="hangs_up_at_the_deadline",
+    ),
+    Mutant(
+        "L1: a milestone never reached is missed though the run ended before it was due",
+        "src/earful/core/checker/l1.py",
+        "            if reached is None and self._ended <= deadline:\n",
+        "            if False:\n",
+        first="never_reached_is_missed_only_if",
+    ),
+    Mutant(
+        "L1: a milestone never reached is missed in a run that ended as it came due",
+        "src/earful/core/checker/l1.py",
+        "            if reached is None and self._ended <= deadline:\n",
+        "            if reached is None and self._ended < deadline:\n",
+        first="never_reached_is_missed_only_if",
+    ),
+    Mutant(
+        "L1: a turn is waited on until the last event of the run",
+        "src/earful/core/checker/l1.py",
+        '        self._ended = (view.history or view.end)["t_us"]\n',
+        '        self._ended = view.end["t_us"]\n',
+        first="never_reached_is_missed_only_if",
+    ),
+    Mutant(
+        "L1: a round's tool calls are made when the first of them is",
+        "src/earful/core/checker/l1.py",
+        '    made = max([t.called["t_us"] for t in ran] + [asked for _ in refused]) if not never else None\n',
+        '    made = min([t.called["t_us"] for t in ran] + [asked for _ in refused]) if not never else None\n',
+        first="round_of_two_tool_calls",
+    ),
+    Mutant(
+        "L1: a round's tool calls finish when the first of them does",
+        "src/earful/core/checker/l1.py",
+        '    finished = max([o["t_us"] for o in outcomes] + [asked for _ in refused]) if done else None\n',
+        '    finished = min([o["t_us"] for o in outcomes] + [asked for _ in refused]) if done else None\n',
+        first="round_of_two_tool_calls",
+    ),
+    Mutant(
+        "L1: the further model call may come before the round's last tool finished",
+        "src/earful/core/checker/l1.py",
+        '    last = max([o["seq"] for o in outcomes] + [r["seq"] - 1 for r in refused])\n',
+        '    last = min([o["seq"] for o in outcomes] + [r["seq"] - 1 for r in refused])\n',
+        first="round_of_two_tool_calls",
+    ),
+    Mutant(
+        "L1: a model call made while the tools ran is the call that follows them",
+        "src/earful/core/checker/l1.py",
+        '    follow = next((c for c in calls if c.request["seq"] > last), None)\n',
+        '    follow = next((c for c in calls if c.request["seq"] > asking.request["seq"]), None)\n',
+        first="round_of_two_tool_calls",
+    ),
+    Mutant(
+        "L1: a round is finished though one of its tool calls has no outcome",
+        "src/earful/core/checker/l1.py",
+        '    done = len(outcomes) == len(ran) and all(o["kind"] != "tool.cancelled" for o in outcomes)\n',
+        '    done = all(o["kind"] != "tool.cancelled" for o in outcomes)\n',
+        first="finishes_only_when_every_one",
+    ),
+    Mutant(
+        "L1: a cancelled tool call finished",
+        "src/earful/core/checker/l1.py",
+        '    done = len(outcomes) == len(ran) and all(o["kind"] != "tool.cancelled" for o in outcomes)\n',
+        "    done = len(outcomes) == len(ran)\n",
+        first="finishes_only_when_every_one",
+    ),
+    Mutant(
+        "L1: a refused call is made when the model starts to answer",
+        "src/earful/core/checker/l1.py",
+        '    asked = asking.answer["t_us"] + data["duration_us"]\n',
+        '    asked = asking.answer["t_us"]\n',
+        first="refused_is_made_when",
+    ),
+    Mutant(
+        "L1: the context that shows a refusal is not the further model call",
+        "src/earful/core/checker/l1.py",
+        '    last = max([o["seq"] for o in outcomes] + [r["seq"] - 1 for r in refused])\n',
+        '    last = max([o["seq"] for o in outcomes] + [r["seq"] for r in refused])\n',
+        first="refused_is_made_when",
+    ),
+    Mutant(
+        "L1: one more round of tool calls is followed than max_steps",
+        "src/earful/core/checker/l1.py",
+        '        if not data["tool_calls"] or rounds >= turn.policy.max_steps:\n',
+        '        if not data["tool_calls"] or rounds > turn.policy.max_steps:\n',
+        first="as_many_rounds_of_tool_calls_as_max_steps",
+    ),
+    Mutant(
+        "L1: a reply generated again is budgeted from the chain as it stood later",
+        "src/earful/core/checker/l1.py",
+        '(spent for seq, spent in turn.progress if seq < call.request["seq"]), default=0\n',
+        '(spent for seq, spent in turn.progress if seq > call.request["seq"]), default=0\n',
+        first="generated_again_is_budgeted",
+    ),
+    Mutant(
+        "L1: a reply generated again is budgeted from the start of the chain",
+        "src/earful/core/checker/l1.py",
+        "            before = max(\n                (spent for seq, spent in turn.progress",
+        "            before = min(\n                (spent for seq, spent in turn.progress",
+        first="generated_again_is_budgeted",
+    ),
+    Mutant(
+        "L1: of a turn's replies the one heard last counts",
+        "src/earful/core/checker/l1.py",
+        "        at, call, before = min(heard, key=lambda h: (h[0], h[1].call))\n",
+        "        at, call, before = max(heard, key=lambda h: (h[0], h[1].call))\n",
+        first="reached_at_its_deadline",
+    ),
+    Mutant(
+        "L1: a turn nobody heard answered is due by the earliest of its replies",
+        "src/earful/core/checker/l1.py",
+        "        turn.record(AUDIO, None, max(budget_of(call, before) for call, before in turn.spoke))\n",
+        "        turn.record(AUDIO, None, min(budget_of(call, before) for call, before in turn.spoke))\n",
+        first="never_reached_is_missed_only_if",
+    ),
+    Mutant(
+        "L1: a model call requested as a transcript arrives, before it, sees the turn",
+        "src/earful/core/checker/l1.py",
+        'call.items, [s for s in view.delivered if s.delivery["seq"] < call.request["seq"]]\n',
+        'call.items, [s for s in view.delivered if s.delivery["t_us"] <= call.request["t_us"]]\n',
+        first="transcript_delivered_as_a_model_call",
+    ),
+    # The edges of M2, rules a to e.
+    Mutant(
+        "M2: user text nobody said is not looked for",
+        "src/earful/core/checker/m2.py",
+        "        _user_text(context)\n",
+        "",
+        first="user_text_nobody_said",
+    ),
+    Mutant(
+        "M2: a transcript delivered as a context is requested, after it, is in it",
+        "src/earful/core/checker/m2.py",
+        '        delivered = [s for s in view.delivered if s.delivery["seq"] < event["seq"]]\n',
+        '        delivered = [s for s in view.delivered if s.delivery["t_us"] <= event["t_us"]]\n',
+        first="transcript_delivered_as_a_model_call",
+    ),
+    Mutant(
+        "M2: a lost transcript is not looked for",
+        "src/earful/core/checker/m2.py",
+        "        _no_loss(view, policy, context)\n",
+        "",
+        first="transcript_disappears_from_memory",
+    ),
+    Mutant(
+        "M2: a transcript missing user_commit_lag after its turn is over is lost",
+        "src/earful/core/checker/m2.py",
+        "        if late > policy.user_commit_lag_us:\n",
+        "        if late >= policy.user_commit_lag_us:\n",
+        first="missing_more_than_user_commit_lag",
+    ),
+    Mutant(
+        "M2: speech that begins at the instant a turn can be over extends it",
+        "src/earful/core/checker/view.py",
+        "            if later.start >= over:\n",
+        "            if later.start > over:\n",
+        first="begins_at_the_instant_a_turn_can_be_over",
+    ),
+    Mutant(
+        "M2: an assistant message that is no reply is not looked for",
+        "src/earful/core/checker/m2.py",
+        "        _replies(context, alignment)\n",
+        "",
+        first="assistant_message_that_is_no_reply",
+    ),
+    Mutant(
+        "M2: a reply counts as said in the context it was generated from",
+        "src/earful/core/checker/m2.py",
+        '        spoken = [s for s in view.spoken if s.born["seq"] < context.event["seq"]]\n',
+        '        spoken = [s for s in view.spoken if s.born["t_us"] <= context.event["t_us"]]\n',
+        first="no_message_of_the_context_it_was_generated_from",
+    ),
+    Mutant(
+        "M2: a tool that returns as a context is requested, after it, is owed its result there",
+        "src/earful/core/checker/m2.py",
+        '    done = tool.outcome if tool.outcome is not None and tool.outcome["seq"] < event["seq"] else None\n',
+        '    done = tool.outcome if tool.outcome is not None and tool.outcome["t_us"] <= event["t_us"] else None\n',
+        first="follows_up_a_tool_is_held",
+    ),
+    Mutant(
+        "M2: the call that follows up a tool is not held to a return at its instant",
+        "src/earful/core/checker/m2.py",
+        '    if returned and returned["t_us"] == event["t_us"] and later_turn:\n',
+        '    if returned and returned["t_us"] == event["t_us"]:\n',
+        first="follows_up_a_tool_is_held",
+    ),
+    Mutant(
+        "M2: a call for a later turn is held to no tool that returned before it",
+        "src/earful/core/checker/m2.py",
+        '    if returned and returned["t_us"] == event["t_us"] and later_turn:\n',
+        "    if returned and later_turn:\n",
+        first="returned_a_microsecond_before",
+    ),
+    Mutant(
+        "M2: a call item may be shown twice",
+        "src/earful/core/checker/m2.py",
+        "    if len(calls) > 1 or len(outputs) > 1 or (returned and (not calls or not outputs)):\n",
+        "    if len(calls) > 2 or len(outputs) > 1 or (returned and (not calls or not outputs)):\n",
+        first="one_call_item_and_one_result_item",
+    ),
+    Mutant(
+        "M2: a result item may be shown twice",
+        "src/earful/core/checker/m2.py",
+        "    if len(calls) > 1 or len(outputs) > 1 or (returned and (not calls or not outputs)):\n",
+        "    if len(calls) > 1 or len(outputs) > 2 or (returned and (not calls or not outputs)):\n",
+        first="one_call_item_and_one_result_item",
+    ),
+    Mutant(
+        "M2: a call that returned is shown by its call item or its result item alone",
+        "src/earful/core/checker/m2.py",
+        "    if len(calls) > 1 or len(outputs) > 1 or (returned and (not calls or not outputs)):\n",
+        "    if len(calls) > 1 or len(outputs) > 1 or (returned and (not calls and not outputs)):\n",
+        first="one_call_item_and_one_result_item",
+    ),
+    Mutant(
+        "M2: a result may come before its call",
+        "src/earful/core/checker/m2.py",
+        "    if calls and outputs and outputs[0] < calls[0]:\n",
+        "    if False:\n",
+        first="result_comes_before_its_call",
+    ),
+    Mutant(
+        "M2: a result marked as an error for a tool that returned passes",
+        "src/earful/core/checker/m2.py",
+        '    if shown["is_error"]:\n',
+        "    if False:\n",
+        first="marked_as_an_error_for_a_tool_that_returned",
+    ),
+    Mutant(
+        "M2: a result is not compared with what the tool returned",
+        "src/earful/core/checker/m2.py",
+        '    elif shown["output"] != returned["data"]["text"]:\n',
+        "    elif False:\n",
+        first="shown_a_different_result",
+    ),
+    Mutant(
+        "M2: a tool called as a context is requested, after it, is judged in it",
+        "src/earful/core/checker/m2.py",
+        '        if tool.call_id is None or tool.called["seq"] > context.event["seq"]:\n',
+        '        if tool.call_id is None or tool.called["t_us"] > context.event["t_us"]:\n',
+        first="instant_its_tool_is_called",
+    ),
+    Mutant(
+        "M2: a result shown as its tool is called, before it, is that tool's",
+        "src/earful/core/checker/m2.py",
+        '        if invocation is not None and invocation.called["seq"] < event["seq"]:\n',
+        '        if invocation is not None and invocation.called["t_us"] <= event["t_us"]:\n',
+        first="instant_its_tool_is_called",
+    ),
+    Mutant(
+        "M2: a reply may come before the turn it answered",
+        "src/earful/core/checker/m2.py",
+        (
+            "        _after_its_turns(\n"
+            "            context,\n"
+            "            index,\n"
+            '            f"the reply of call {call}",\n'
+            "            source,\n"
+            "            shown,\n"
+            '            "which it was generated from",\n'
+            "        )\n"
+        ),
+        "        pass\n",
+        first="reply_comes_before_the_turn_it_answered",
+    ),
+    Mutant(
+        "M2: a reply inside the turn it answered is in its place",
+        "src/earful/core/checker/m2.py",
+        "        ended = context.turns.ended_at.get(speech.index)\n",
+        "        ended = context.turns.began_at.get(speech.index)\n",
+        first="inside_the_turn_it_answered",
+    ),
+    Mutant(
+        "M2: a tool item in the context the model asked from is held to a place",
+        "src/earful/core/checker/m2.py",
+        '        if asked is None or asked.request["seq"] >= context.event["seq"]:\n',
+        '        if asked is None or asked.request["seq"] > context.event["seq"]:\n',
+        first="model_makes_later",
+    ),
+    Mutant(
+        "M2: a reply comes before every turn that began once it had played, wherever it is",
+        "src/earful/core/checker/m2.py",
+        "            if context.turns.began_at[speech.index] < index:\n",
+        "            if True:\n",
+        first="began_once_it_had_played",
+    ),
     # The search, the shrinker, the bundle and what they rest on.
     Mutant(
         "search: a moved speech is placed by the wrong anchor",
@@ -804,7 +1179,7 @@ MUTANTS = [
     Mutant(
         "bundle: a format this Earful does not read is loaded",
         "src/earful/core/bundle.py",
-        '        if manifest["formats"][name] != reads:\n',
+        '        if manifest["formats"][name] not in (reads, *EARLIER.get(name, ())):\n',
         "        if False:\n",
         first="not_what_its_manifest_records",
     ),
@@ -1090,11 +1465,100 @@ MUTANTS = [
         "adapter: unknown scenario not a ValueError",
         "src/earful/scripted/scenario.py",
         (
-            "    except (ImportError, AttributeError) as exc:\n"
+            "    except AttributeError as exc:\n"
             '        raise CaseRefused(f"no scenario {scenario!r}: {exc}") from exc\n'
         ),
-        ("    except (ImportError, AttributeError):\n        raise\n"),
+        ("    except AttributeError:\n        raise\n"),
         first="test_a_scenario_or_a_case_that_does_not_exist_is_refused",
+    ),
+    Mutant(
+        "scenario: a module that is not there is said to have failed to import",
+        "src/earful/scripted/scenario.py",
+        '        if absent and f"{module}.".startswith(f"{absent}."):\n',
+        "        if False:\n",
+        first="cannot_be_imported_is_told_apart",
+    ),
+    Mutant(
+        "scenario: a module whose import fails is said not to exist",
+        "src/earful/scripted/scenario.py",
+        '        if absent and f"{module}.".startswith(f"{absent}."):\n',
+        "        if absent:\n",
+        first="cannot_be_imported_is_told_apart",
+    ),
+    Mutant(
+        "scenario: a module whose package is not there is said to have failed to import",
+        "src/earful/scripted/scenario.py",
+        '        if absent and f"{module}.".startswith(f"{absent}."):\n',
+        "        if absent == module:\n",
+        first="cannot_be_imported_is_told_apart",
+    ),
+    Mutant(
+        "scenario: a framework that is not installed is not named with its extra",
+        "src/earful/scripted/scenario.py",
+        "        if package is not None:\n",
+        "        if False:\n",
+        first="cannot_be_imported_is_told_apart",
+    ),
+    Mutant(
+        "cli: a crash of the scenario's code during a run is a traceback",
+        "src/earful/cli.py",
+        (
+            "        where = _in_the_scenario(exc)\n"
+            "        if where is None:\n"
+            "            raise\n"
+            "        raise Refused(\n"
+            '            f"scenario {reference!r} could not be run: '
+        ),
+        (
+            "        where = _in_the_scenario(exc)\n"
+            "        if True:\n"
+            "            raise\n"
+            "        raise Refused(\n"
+            '            f"scenario {reference!r} could not be run: '
+        ),
+        first="own_code_raises_during_a_run or scenario_raises_when_it_is_run",
+    ),
+    Mutant(
+        "cli: a crash under the scenario's code is placed in the library that raised",
+        "src/earful/cli.py",
+        "        if not ours and not any(path.is_relative_to(home) for home in _INSTALLED):\n",
+        "        if not ours:\n",
+        first="own_code_raises_during_a_run",
+    ),
+    Mutant(
+        "cli: what Earful raises under the scenario's code is put down to the scenario",
+        "src/earful/cli.py",
+        (
+            "    if not frames or Path(frames[-1].filename).resolve().is_relative_to(_PACKAGE):\n"
+            "        return None\n"
+            "    for frame in reversed(frames):\n"
+        ),
+        "    for frame in reversed(frames):\n",
+        first="earful_itself_raises_during_a_run",
+    ),
+    Mutant(
+        "cli: a crash of the scenario's code in a run is not caught",
+        "src/earful/cli.py",
+        (
+            "        with _running(args.scenario):\n"
+            "            result = adapter.run(source, data=case, seed=args.seed)\n"
+        ),
+        ("        if True:\n            result = adapter.run(source, data=case, seed=args.seed)\n"),
+        first="own_code_raises_during_a_run",
+    ),
+    Mutant(
+        "cli: a crash of the scenario's code in a replay is not caught",
+        "src/earful/cli.py",
+        '    with _running(kept.minimal["scenario"]):\n',
+        "    if True:\n",
+        first="scenario_raises_when_it_is_run",
+    ),
+    Mutant(
+        "cli: a crash of the scenario's code in a cross-check is not caught",
+        "src/earful/cli.py",
+        "        with _running(reference):\n",
+        "        if True:\n",
+        first="own_code_raises_during_a_run or scenario_raises_when_it_is_run",
     ),
     Mutant(
         "adapter: fingerprint constant",
@@ -1326,6 +1790,118 @@ MUTANTS = [
         ),
         "    out += []\n",
         first="test_a_fault_is_a_difference_and_a_reduction_keeps_it_only_if_the_failure_needs_it",
+    ),
+    Mutant(
+        "pipecat: on the real clock each chunk plays from when its write came",
+        "src/earful/pipecat/sink.py",
+        "        start = self._due if 0 < now - self._due <= self._late_us else now\n",
+        "        start = now\n",
+        first="chunk_that_comes_a_little_late_continues_the_audio",
+    ),
+    Mutant(
+        "pipecat: a chunk continues the audio before it however late it comes",
+        "src/earful/pipecat/sink.py",
+        "        start = self._due if 0 < now - self._due <= self._late_us else now\n",
+        "        start = self._due if 0 < now - self._due else now\n",
+        first="chunk_that_comes_a_little_late_continues_the_audio or preserves_gaps_between_chunks",
+    ),
+    Mutant(
+        "search: a turn ends as LiveKit ends it whatever the header declares",
+        "src/earful/core/search.py",
+        "    if declared is not None:\n        return declared\n",
+        "",
+        first="turn_ends_when_the_header_says or pipecat_the_turn_ends_where_the_header_says",
+    ),
+    Mutant(
+        "search: where the header says nothing a turn ends after both waits in a row",
+        "src/earful/core/search.py",
+        '    return int(max(vad["min_silence_us"], session["min_endpointing_delay_us"]))\n',
+        '    return int(vad["min_silence_us"] + session["min_endpointing_delay_us"])\n',
+        first="turn_ends_when_the_header_says",
+    ),
+    Mutant(
+        "search: the end of a turn is a transition where LiveKit would put it",
+        "src/earful/core/search.py",
+        "    end_of_turn = turn_end_delay(header)\n",
+        '    end_of_turn = max(header["providers"]["vad"]["min_silence_us"], header["session"]["min_endpointing_delay_us"])\n',
+        first="turn_ends_when_the_header_says",
+    ),
+    Mutant(
+        "pipecat: the header says a turn ends after the longer of its two waits",
+        "src/earful/pipecat/harness.py",
+        '            "turn_end_delay_us": to_us(case.vad_stop_secs) + to_us(case.user_speech_timeout),\n',
+        '            "turn_end_delay_us": max(to_us(case.vad_stop_secs), to_us(case.user_speech_timeout)),\n',
+        first="pipecat_the_turn_ends_where_the_header_says",
+    ),
+    Mutant(
+        "livekit: the header says a turn ends after both of its waits in a row",
+        "src/earful/livekit/harness.py",
+        '            "turn_end_delay_us": max(\n                to_us(case.vad_min_silence), to_us(case.min_endpointing_delay)\n            ),\n',
+        '            "turn_end_delay_us": to_us(case.vad_min_silence) + to_us(case.min_endpointing_delay),\n',
+        first="test_the_turn_ends_where_the_header_says",
+    ),
+    Mutant(
+        "bundle: one kept under the contracts before these is refused",
+        "src/earful/core/bundle.py",
+        'EARLIER = {"contracts": ("earful.contracts/1",)}\n',
+        "EARLIER: dict[str, tuple[str, ...]] = {}\n",
+        first="kept_under_the_contracts_before_these_is_read",
+    ),
+    Mutant(
+        "cli: a replay does not say that the bundle was kept under earlier contracts",
+        "src/earful/cli.py",
+        '        if outcome["kept_under_contracts"] != CONTRACTS:\n',
+        "        if False:\n",
+        first="replay_says_what_it_could_not_verify",
+    ),
+    Mutant(
+        "stt: the recognizer sends an interim transcript it says it does not send",
+        "src/earful/livekit/providers.py",
+        "lk_stt.STTCapabilities(streaming=True, interim_results=True)",
+        "lk_stt.STTCapabilities(streaming=True, interim_results=False)",
+        first="recognizer_says_that_it_sends_interim_transcripts",
+    ),
+    Mutant(
+        "sink: a segment at another sample rate than the voice's is taken as it is",
+        "src/earful/livekit/sink.py",
+        "            if frame.sample_rate != self._table.sample_rate:\n",
+        "            if False:\n",
+        first="segment_at_another_sample_rate_than_the_voices",
+    ),
+    Mutant(
+        "sink: a word with audio missing is no error",
+        "src/earful/livekit/sink.py",
+        "        self._short += words_missing_audio(segment.runs, self._table)\n",
+        "",
+        first="word_that_reaches_the_sink_with_audio_missing",
+    ),
+    Mutant(
+        "pipecat: a word written with audio missing is no error",
+        "src/earful/pipecat/sink.py",
+        "        self._altered += words_missing_audio(segment.runs, self._table)\n",
+        "",
+        first="pipecat_a_word_written_with_audio_missing",
+    ),
+    Mutant(
+        "voice: the last word written counts as missing audio",
+        "src/earful/scripted/voice.py",
+        "    return len(short) - (1 if short and short[-1] == list(written)[-1] else 0)\n",
+        "    return len(short)\n",
+        first="only_the_last_word_written_may_have_less",
+    ),
+    Mutant(
+        "validator: speeches may overlap",
+        "src/earful/core/schema.py",
+        '        if n and speech["start_us"] < speeches[n - 1]["end_us"]:\n',
+        "        if False:\n",
+        first="speech_may_start_as_the_one_before_it_ends",
+    ),
+    Mutant(
+        "validator: a speech may not start as the one before it ends",
+        "src/earful/core/schema.py",
+        '        if n and speech["start_us"] < speeches[n - 1]["end_us"]:\n',
+        '        if n and speech["start_us"] <= speeches[n - 1]["end_us"]:\n',
+        first="speech_may_start_as_the_one_before_it_ends",
     ),
     Mutant(
         "validator: a caller may give up twice",
@@ -2725,8 +3301,8 @@ MUTANTS = [
     Mutant(
         "cli: what Earful raises while a scenario is built is refused in one line",
         "src/earful/cli.py",
-        "    if not frames or Path(frames[-1].filename).resolve().is_relative_to(_PACKAGE):\n",
-        "    if not frames:\n",
+        "    if not frames or Path(frames[-1].filename).resolve().is_relative_to(_PACKAGE):\n        return None\n    return f",
+        "    if not frames:\n        return None\n    return f",
         first="earful_itself_raises_while_a_scenario_is_built",
     ),
     Mutant(
@@ -2739,8 +3315,8 @@ MUTANTS = [
     Mutant(
         "cli: a cross-check of a kept failure builds its scenario unguarded",
         "src/earful/cli.py",
-        '        source = case["scenario"]\n    adapter, source = _scenario(source)\n',
-        '        source = case["scenario"]\n    adapter, source = _adapters.select(source)\n',
+        "    reference = source\n    adapter, source = _scenario(source)\n",
+        "    reference = source\n    adapter, source = _adapters.select(source)\n",
         first="kept_failure_whose_scenario_no_longer_builds",
     ),
     Mutant(
@@ -3139,8 +3715,8 @@ MUTANTS = [
     Mutant(
         "cli: what a run may break is checked once it has run",
         "src/earful/cli.py",
-        "    allow, require = _asked(args)\n    case = _case(args.case)\n    adapter, source = _scenario(args.scenario)\n    try:\n        result = adapter.run(source, data=case, seed=args.seed)\n",
-        "    case = _case(args.case)\n    adapter, source = _scenario(args.scenario)\n    allow, require = _asked(args)\n    try:\n        result = adapter.run(source, data=case, seed=args.seed)\n",
+        "    allow, require = _asked(args)\n    case = _case(args.case)\n    adapter, source = _scenario(args.scenario)\n    try:\n        with _running(args.scenario):\n",
+        "    case = _case(args.case)\n    adapter, source = _scenario(args.scenario)\n    allow, require = _asked(args)\n    try:\n        with _running(args.scenario):\n",
         first="does_not_exist_is_refused_before_anything_runs",
     ),
     Mutant(
@@ -3249,11 +3825,53 @@ MUTANTS = [
         first="does_not_exist_is_refused",
     ),
     Mutant(
-        "adapter: any failed import is reported as the framework missing",
+        "adapter: livekit-agents missing is not named, nor how to install it",
         "src/earful/livekit/__init__.py",
         '    if (exc.name or "").split(".")[0] != "livekit":\n',
         "    if True:\n",
-        first="refused_with_what_to_install",
+        first="names_its_framework_as_missing",
+    ),
+    Mutant(
+        "adapter: any failed import is reported as livekit-agents missing",
+        "src/earful/livekit/__init__.py",
+        '    if (exc.name or "").split(".")[0] != "livekit":\n',
+        "    if False:\n",
+        first="names_its_framework_as_missing",
+    ),
+    Mutant(
+        "adapter: pipecat-ai missing is not named, nor how to install it",
+        "src/earful/pipecat/__init__.py",
+        '    if (exc.name or "").split(".")[0] != "pipecat":\n',
+        "    if True:\n",
+        first="names_its_framework_as_missing",
+    ),
+    Mutant(
+        "adapter: any failed import is reported as pipecat-ai missing",
+        "src/earful/pipecat/__init__.py",
+        '    if (exc.name or "").split(".")[0] != "pipecat":\n',
+        "    if False:\n",
+        first="names_its_framework_as_missing",
+    ),
+    Mutant(
+        "pipecat: a run waits with the wait_for pipecat-ai installed",
+        "src/earful/pipecat/harness.py",
+        "    with wait_for_of_python_3_12():\n",
+        "    if True:\n",
+        first="standard_wait_for_whatever",
+    ),
+    Mutant(
+        "pipecat: wait_for runs what it waits for in a task of its own",
+        "src/earful/pipecat/clock.py",
+        "        return await awaitable\n",
+        "        return await asyncio.ensure_future(awaitable)\n",
+        first="in_the_calling_task",
+    ),
+    Mutant(
+        "pipecat: a wait_for with no time left runs what it waits for",
+        "src/earful/pipecat/clock.py",
+        "            task.cancel()\n",
+        "            pass\n",
+        first="in_the_calling_task",
     ),
     Mutant(
         "ledger: a ledger file is read only from a Path",
@@ -3827,6 +4445,13 @@ MUTANTS = [
         first="spoken_across_two_audio_contexts",
     ),
     Mutant(
+        "pipecat: a reply waits for its first audio again in each audio context",
+        "src/earful/pipecat/providers.py",
+        "        first = one is None  # the utterance waits for its first audio once\n",
+        "        first = one is None or context_id not in one.contexts\n",
+        first="waits_for_its_first_audio_once",
+    ),
+    Mutant(
         "pipecat: a tool the context advertises is not witnessed",
         "src/earful/pipecat/providers.py",
         "            self._sync_registered_tool_handlers(advertised)\n",
@@ -4378,5 +5003,193 @@ MUTANTS = [
         '    if made.tools:\n        print("           its search fails (A2)',
         '    if False:\n        print("           its search fails (A2)',
         first="says_what_to_do_next",
+    ),
+    # What the properties of tests/test_properties.py hold on generated inputs.
+    Mutant(
+        "timebase: a time in seconds is cut off at the microsecond below",
+        "src/earful/core/timebase.py",
+        "    return round(seconds * US_PER_SECOND)\n",
+        "    return int(seconds * US_PER_SECOND)\n",
+        first="test_a_time_an_author_writes_in_seconds_is_that_many_microseconds",
+    ),
+    Mutant(
+        "checker: a speech's start is counted from the clock's zero",
+        "src/earful/core/checker/view.py",
+        '                    start=(t0 or 0) + s["start_us"],\n',
+        '                    start=s["start_us"],\n',
+        first="test_where_the_clock_began_decides_nothing",
+    ),
+    Mutant(
+        "checker: a speech's end is counted from the clock's zero",
+        "src/earful/core/checker/view.py",
+        '                    end=(t0 or 0) + s["end_us"],\n',
+        '                    end=s["end_us"],\n',
+        first="test_where_the_clock_began_decides_nothing",
+    ),
+    Mutant(
+        "shrink: the hangup is tried after the speeches",
+        "src/earful/core/shrink.py",
+        (
+            '    if current["hangup_us"] is not None and not spent() and breaks(cases.without_hangup(current)):\n'
+            "        current = cases.without_hangup(current)\n"
+            '        steps.append("removed the hangup")\n'
+            "\n"
+            "    for name, plural in (\n"
+            '        ("speeches", "speeches"),\n'
+            '        ("delays", "declared delays"),\n'
+            '        ("faults", "faults"),\n'
+            "    ):\n"
+            "        items = current[name]\n"
+            "        if items and not spent():\n"
+            "\n"
+            "            def fails(keep: list[int], whole: dict[str, Any] = current, name: str = name) -> bool:\n"
+            "                return breaks(_keeping(whole, name, keep))\n"
+            "\n"
+            "            kept = ddmin(range(len(items)), fails)\n"
+            "            if len(kept) < len(items):\n"
+            "                current = _keeping(current, name, kept)\n"
+            '                steps.append(f"removed {len(items) - len(kept)} of {len(items)} {plural}")\n'
+            "\n"
+        ),
+        (
+            "    for name, plural in (\n"
+            '        ("speeches", "speeches"),\n'
+            '        ("delays", "declared delays"),\n'
+            '        ("faults", "faults"),\n'
+            "    ):\n"
+            "        items = current[name]\n"
+            "        if items and not spent():\n"
+            "\n"
+            "            def fails(keep: list[int], whole: dict[str, Any] = current, name: str = name) -> bool:\n"
+            "                return breaks(_keeping(whole, name, keep))\n"
+            "\n"
+            "            kept = ddmin(range(len(items)), fails)\n"
+            "            if len(kept) < len(items):\n"
+            "                current = _keeping(current, name, kept)\n"
+            '                steps.append(f"removed {len(items) - len(kept)} of {len(items)} {plural}")\n'
+            "\n"
+            '    if current["hangup_us"] is not None and not spent() and breaks(cases.without_hangup(current)):\n'
+            "        current = cases.without_hangup(current)\n"
+            '        steps.append("removed the hangup")\n'
+            "\n"
+        ),
+        first="test_a_reduced_case_still_fails_and_holds_nothing_the_failure_does_not_need or hangup_the_failure_does_not_need_keeps_no_speech",
+    ),
+    Mutant(
+        "shrink: a time is settled on the one edge its window has",
+        "src/earful/core/shrink.py",
+        "        lo = aim = min(found.lo_us + MARGIN_US, found.hi_us)\n",
+        "        lo = aim = found.lo_us\n",
+        first="test_a_settled_time_is_inside_its_window_and_as_round_as_the_window_allows",
+    ),
+    Mutant(
+        "shrink: what a speech retires is no difference",
+        "src/earful/core/shrink.py",
+        '        for name in ("stt_delay_us", "expects_reply", "backchannel", "retires"):\n',
+        '        for name in ("stt_delay_us", "expects_reply", "backchannel"):\n',
+        first="test_the_differences_between_two_cases_turn_one_into_the_other",
+    ),
+    Mutant(
+        "shrink: a setting the found case does not have is left in as null",
+        "src/earful/core/shrink.py",
+        '            out["settings"].pop(target[1], None) if to is None else out["settings"].__setitem__(\n',
+        '            out["settings"].__setitem__(\n',
+        first="test_the_differences_between_two_cases_turn_one_into_the_other",
+    ),
+    # A tool that returns an agent.
+    Mutant(
+        "witness: an agent a tool returns is its result",
+        "src/earful/livekit/tools.py",
+        "    if isinstance(output, lk.Agent):\n        return None, True\n",
+        "",
+        first="returns_an_agent_is_shown or taken_out_of_what_a_tool_returns",
+    ),
+    Mutant(
+        "witness: a tuple is shown to the model as a tuple",
+        "src/earful/livekit/tools.py",
+        "    if not agents:\n        return others, False\n",
+        "    if not agents:\n        return output, False\n",
+        first="tuple_a_tool_returns_is_recorded_as_the_list",
+    ),
+    Mutant(
+        "witness: a tool that returns several agents hands over",
+        "src/earful/livekit/tools.py",
+        "    if len(agents) > 1:\n        return None\n",
+        "",
+        first="taken_out_of_what_a_tool_returns",
+    ),
+    Mutant(
+        "witness: a set beside an agent is shown in the order it happens to have",
+        "src/earful/livekit/tools.py",
+        "    if isinstance(output, (set, frozenset)) and len(others) > 1:\n",
+        "    if False:\n",
+        first="taken_out_of_what_a_tool_returns",
+    ),
+    Mutant(
+        "witness: a handoff is not recorded",
+        "src/earful/livekit/tools.py",
+        '            **({"handoff": True} if hands_over(output) else {}),\n',
+        "",
+        first="returns_an_agent_is_shown",
+    ),
+    Mutant(
+        "M2: a call that handed over is owed in every later context",
+        "src/earful/core/checker/m2.py",
+        "    if handed_over and not owed and not calls and not outputs:\n",
+        "    if False:\n",
+        first="handed_over_is_owed_in_its_follow_up",
+    ),
+    Mutant(
+        "M2: a call that handed over is not owed in the final history",
+        "src/earful/core/checker/m2.py",
+        '    if context.event["kind"] == "history.final" or done is None or not done["data"].get("handoff"):\n',
+        '    if done is None or not done["data"].get("handoff"):\n',
+        first="handed_over_is_owed_in_its_follow_up",
+    ),
+    Mutant(
+        "M2: a handoff that asked for no reply is owed in the next model call",
+        "src/earful/core/checker/m2.py",
+        '    return bool(done["data"]["expects_reply"]) and context.event["seq"] == min(later, default=None)\n',
+        '    return context.event["seq"] == min(later, default=None)\n',
+        first="handed_over_is_owed_in_its_follow_up",
+    ),
+    Mutant(
+        "M2: every model call after a handoff follows it up",
+        "src/earful/core/checker/m2.py",
+        '    return bool(done["data"]["expects_reply"]) and context.event["seq"] == min(later, default=None)\n',
+        '    return bool(done["data"]["expects_reply"]) and context.event["seq"] in later\n',
+        first="handed_over_is_owed_in_its_follow_up",
+    ),
+    Mutant(
+        "M2: an error result for a handoff is judged",
+        "src/earful/core/checker/m2.py",
+        '    if shown["is_error"] and handed_over:\n',
+        "    if False:\n",
+        first="error_result_for_a_handoff",
+    ),
+    Mutant(
+        "M2: an error result for any call is the framework's account",
+        "src/earful/core/checker/m2.py",
+        '    if shown["is_error"] and handed_over:\n',
+        '    if shown["is_error"]:\n',
+        first="error_result_for_a_handoff",
+    ),
+    Mutant(
+        "M2: a context that shows a call that handed over is not held to its value",
+        "src/earful/core/checker/m2.py",
+        '    handed_over = bool(returned and returned["data"].get("handoff"))\n',
+        (
+            '    handed_over = bool(returned and returned["data"].get("handoff"))\n'
+            "    if handed_over and not owed:\n"
+            "        return False\n"
+        ),
+        first="shows_a_call_that_handed_over_is_held",
+    ),
+    Mutant(
+        "L1: a turn that was spoken to is flagged as silenced by its tool",
+        "src/earful/core/checker/l1.py",
+        "        silenced = turn.silenced and audio is None  # a turn that was spoken to is not silenced\n",
+        "        silenced = turn.silenced\n",
+        first="spoken_to_is_not_silenced or handed_over_to_answers_is_not_silenced",
     ),
 ]
