@@ -273,6 +273,7 @@ Earful does not grade conversations, prompts, recognition accuracy or voice qual
 model, the recognizer and the voice are scripted, so it says nothing about how a real
 provider behaves. Playout is what a simulated sink consumed: it does not measure a
 network, a client buffer or what a caller heard. It does not record production calls.
+[`docs/limits.md`](https://github.com/smartfox96/earful/blob/main/docs/limits.md) lists every limit in one place.
 
 ## Two known defects, reproduced
 
@@ -306,11 +307,15 @@ and what CI runs for each.
 | --- | --- |
 | [`docs/testing.md`](https://github.com/smartfox96/earful/blob/main/docs/testing.md) | Writing a test: the scenario, the scripted model, side effects, pytest, the command line, the real clock |
 | [`docs/pipecat.md`](https://github.com/smartfox96/earful/blob/main/docs/pipecat.md) | Running a Pipecat scenario, registering tools and configuring turn detection |
+| [`docs/api.md`](https://github.com/smartfox96/earful/blob/main/docs/api.md) | Every public name, the `earful` command's options and the pytest plugin |
+| [`docs/troubleshooting.md`](https://github.com/smartfox96/earful/blob/main/docs/troubleshooting.md) | The messages Earful prints, with the cause of each and what to do |
 | [`docs/report.md`](https://github.com/smartfox96/earful/blob/main/docs/report.md) | The HTML report, lane by lane |
 | [`docs/contracts.md`](https://github.com/smartfox96/earful/blob/main/docs/contracts.md) | The seven contracts, their evidence and their policies |
 | [`docs/search.md`](https://github.com/smartfox96/earful/blob/main/docs/search.md) | The search, the reduction of a failing case, and the bundle that is kept |
 | [`docs/ledger.md`](https://github.com/smartfox96/earful/blob/main/docs/ledger.md) | Every event in a ledger, and what makes a run valid |
 | [`docs/compatibility.md`](https://github.com/smartfox96/earful/blob/main/docs/compatibility.md) | Supported releases and what is tested |
+| [`docs/limits.md`](https://github.com/smartfox96/earful/blob/main/docs/limits.md) | What Earful does not do and what it cannot see |
+| [`docs/glossary.md`](https://github.com/smartfox96/earful/blob/main/docs/glossary.md) | The terms the pages, the command and the reports use |
 | [`CHANGELOG.md`](https://github.com/smartfox96/earful/blob/main/CHANGELOG.md) | What changed in each release |
 | [`docs/history/`](https://github.com/smartfox96/earful/tree/main/docs/history) | What was measured at each stage of the first build, kept as written |
 

@@ -1,5 +1,6 @@
 """The pages agree with the LiveKit adapter: its settings, its names and the searches they quote."""
 
+import ast
 import inspect
 import pickle
 import pydoc
@@ -11,7 +12,15 @@ import pytest
 
 pytest.importorskip("livekit.agents")
 
-from test_docs import README, REPORT_DOC, ROOT, SEARCH_MENTIONED, TESTING_DOC, _commands
+from test_docs import (
+    README,
+    REPORT_DOC,
+    ROOT,
+    SEARCH_MENTIONED,
+    TESTING_DOC,
+    _commands,
+    _stubs,
+)
 
 from earful.scripted.releases import SUPPORT
 
@@ -174,3 +183,40 @@ def test_the_skill_for_coding_agents_uses_only_what_exists():
     named = set(re.findall(r"`earful ([a-z]+) ", body))
     assert named and named <= set(commands), named - set(commands)
     assert "skills/earful/SKILL.md" in README
+
+
+def test_the_signatures_on_the_api_page_are_those_of_the_code():
+    import earful
+    import earful.livekit as adapter
+    from earful.pytest_plugin import Earful
+
+    kinds = inspect.Parameter
+    checked = set()
+    for holder, stub in _stubs():
+        if holder is None:
+            target = getattr(adapter, stub.name, None) or getattr(earful, stub.name)
+        else:
+            target = getattr(Earful if holder == "Earful" else getattr(adapter, holder), stub.name)
+        named = [*stub.args.posonlyargs, *stub.args.args]
+        defaults = [None] * (len(named) - len(stub.args.defaults)) + stub.args.defaults
+        said = [(a.arg, kinds.POSITIONAL_OR_KEYWORD, d) for a, d in zip(named, defaults)]
+        if stub.args.vararg:
+            said.append((stub.args.vararg.arg, kinds.VAR_POSITIONAL, None))
+        said += [
+            (a.arg, kinds.KEYWORD_ONLY, d)
+            for a, d in zip(stub.args.kwonlyargs, stub.args.kw_defaults)
+        ]
+        if stub.args.kwarg:
+            said.append((stub.args.kwarg.arg, kinds.VAR_KEYWORD, None))
+        real = list(inspect.signature(target).parameters.values())
+        where = f"{holder + '.' if holder else ''}{stub.name}"
+        assert [(name, kind) for name, kind, _ in said] == [(p.name, p.kind) for p in real], where
+        for (name, _, default), parameter in zip(said, real):
+            if default is None:
+                assert parameter.default is kinds.empty, f"{where}: {name} has a default"
+            else:
+                assert ast.literal_eval(default) == parameter.default, f"{where}: {name}"
+        checked.add(where)
+    functions = {"run", "run_case", "explore", "cross_check", "keep", "replay", "reply", "effect"}
+    assert functions | {"check", "ScriptedModel.when", "RunResult.assert_contracts"} <= checked
+    assert {f"Earful.{name}" for name in ("run", "explore", "keep", "replay")} <= checked

@@ -27,6 +27,9 @@ formats have versions of their own
 - A bundle's manifest records the digest of each case file (`schema_minor` 1).
 - `earful search` prints how many cases it is about to run, and `--max-runs` (`max_runs=`)
   stops it there. A search stopped by its budget is incomplete and fails.
+- Four pages: an API reference (`docs/api.md`), the messages Earful prints and what to do
+  about each (`docs/troubleshooting.md`), every limit in one place (`docs/limits.md`), and
+  a glossary (`docs/glossary.md`).
 
 ### Changed
 

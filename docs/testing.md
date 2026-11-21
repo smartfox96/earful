@@ -7,6 +7,11 @@ clock, and asserts the seven contracts (`docs/contracts.md`). This page covers t
 of a scenario, the calls a test makes, the `earful` command and the pytest fixture.
 `docs/search.md` covers what a search does and what a saved failure holds.
 
+[`api.md`](api.md) lists every name and option with its signature.
+[`troubleshooting.md`](troubleshooting.md) is keyed on the messages a test or the command
+prints. [`limits.md`](limits.md) says what a test cannot show, and
+[`glossary.md`](glossary.md) defines the terms used here.
+
 Everything a test of a LiveKit agent needs is imported from `earful.livekit`. What needs
 no framework (checking a recorded ledger, the `effect` call of a stand-in service) is
 imported from `earful`.
