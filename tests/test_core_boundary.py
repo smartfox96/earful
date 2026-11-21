@@ -7,6 +7,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
+
 TESTS = Path(__file__).resolve().parent
 SRC = TESTS.parent / "src"
 PORTABLE = (SRC / "earful" / "core", SRC / "earful" / "scripted")
@@ -64,6 +66,41 @@ def test_they_import_with_every_framework_unavailable():
     )
     done = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, check=False)
     assert done.returncode == 0, done.stderr
+
+
+def _import_error(adapter: str, setup: str) -> str:
+    """What importing ``adapter`` raises in a fresh process after ``setup``, as its repr."""
+    code = f"import sys\n{setup}\ntry:\n    import {adapter}\nexcept ImportError as exc:\n"
+    code += "    print(repr(exc))\n"
+    done = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, check=True)
+    return done.stdout.strip()
+
+
+@pytest.mark.parametrize(
+    ("adapter", "framework", "package", "extra"),
+    [
+        ("earful.livekit", "livekit.agents", "livekit-agents", "livekit"),
+        ("earful.pipecat", "pipecat", "pipecat-ai", "pipecat"),
+    ],
+)
+def test_an_adapter_names_its_framework_as_missing_only_when_it_is(
+    adapter, framework, package, extra, tmp_path
+):
+    parts = framework.split(".")
+    assert _import_error(adapter, f"sys.modules[{parts[0]!r}] = None") == repr(
+        ImportError(
+            f"{adapter} needs {package}, which is not installed. "
+            f'Install it with: pip install "earful[{extra}]"'
+        )
+    )
+    # A framework that is installed and fails to import one of its own dependencies.
+    for depth in range(1, len(parts) + 1):
+        tmp_path.joinpath(*parts[:depth]).mkdir()
+        tmp_path.joinpath(*parts[:depth], "__init__.py").touch()
+    tmp_path.joinpath(*parts, "__init__.py").write_text("import a_module_nobody_has\n")
+    assert _import_error(adapter, f"sys.path.insert(0, {str(tmp_path)!r})") == repr(
+        ModuleNotFoundError("No module named 'a_module_nobody_has'")
+    )
 
 
 def _frameworks(path: Path, seen: frozenset[Path] = frozenset()) -> set[str]:
