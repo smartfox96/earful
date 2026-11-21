@@ -20,7 +20,7 @@ env_dir=".venvs/canary-$1"
 
 rm -rf "$env_dir"
 uv venv -q --python "${EARFUL_PYTHON:-3.13}" "$env_dir"
-VIRTUAL_ENV="$env_dir" uv pip install -q -e ".[$1]" pytest pytest-asyncio
+VIRTUAL_ENV="$env_dir" uv pip install -q -e ".[$1]" --group test
 holds="$(VIRTUAL_ENV="$env_dir" uv pip freeze -q --exclude-editable)"
 echo "=== what an install holds today: $(grep "^$package==" <<<"$holds")"
 echo "$holds"

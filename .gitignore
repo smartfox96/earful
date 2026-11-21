@@ -2,6 +2,7 @@
 __pycache__/
 *.pyc
 .pytest_cache/
+.hypothesis/
 .ruff_cache/
 out/
 .DS_Store

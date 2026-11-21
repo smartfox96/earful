@@ -915,7 +915,7 @@ def test_the_canary_installs_what_an_extra_admits_today_and_runs_the_fast_tests(
     assert not yesterday.exists()
     assert calls == [
         "uv venv -q --python 3.13 .venvs/canary-livekit",
-        "uv pip install -q -e .[livekit] pytest pytest-asyncio",  # no release and no date
+        "uv pip install -q -e .[livekit] --group test",  # no release and no date
         "uv pip freeze -q --exclude-editable",
         "python -m pytest -q -m not slow -rs",
     ]
@@ -923,7 +923,7 @@ def test_the_canary_installs_what_an_extra_admits_today_and_runs_the_fast_tests(
 
     done, calls = canary("pipecat")
     assert done.returncode == 0, done.stderr
-    assert calls[1] == "uv pip install -q -e .[pipecat] pytest pytest-asyncio"
+    assert calls[1] == "uv pip install -q -e .[pipecat] --group test"
     # A test that is skipped fails the run, as it does in ci.
     ran = "ran_every_test.sh --without livekit .venvs/canary-pipecat/bin/python -m not slow"
     assert len(calls) == 4 and calls[3] == ran
