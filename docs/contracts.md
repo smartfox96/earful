@@ -321,18 +321,18 @@ reply at every 50 ms, for four sentences, and reports the drift:
 
 | livekit-agents | Seconds per letter | Sentence | Interruption points | Exact | Most behind | Most ahead |
 | --- | --- | --- | --- | --- | --- | --- |
-| 1.5.6 | 0.06 | menu | 145 | 117 | 0.42 s | 0.36 s |
-| 1.5.6 | 0.06 | booking | 100 | 88 | 0.24 s | 0 |
-| 1.5.6 | 0.06 | long words | 130 | 72 | 0.48 s | 0 |
-| 1.5.6 | 0.06 | short words | 68 | 42 | 0.18 s | 0 |
-| 1.8.12 | 0.06 | menu | 145 | 120 | 0.42 s | 0.36 s |
-| 1.8.12 | 0.06 | booking | 100 | 88 | 0.24 s | 0 |
-| 1.8.12 | 0.06 | long words | 130 | 72 | 0.48 s | 0 |
-| 1.8.12 | 0.06 | short words | 68 | 43 | 0.18 s | 0 |
-| 1.8.12 | 0.045 | menu | 108 | 88 | 0.315 s | 0.225 s |
-| 1.8.12 | 0.045 | long words | 96 | 17 | 0.675 s | 0 |
-| 1.8.12 | 0.09 | menu | 220 | 160 | 0 | 0.63 s |
-| 1.8.12 | 0.09 | long words | 196 | 191 | 0.27 s | 0.27 s |
+| 1.5.6 | 0.06 | menu | 143 | 113 | 0.42 s | 0.36 s |
+| 1.5.6 | 0.06 | booking | 98 | 87 | 0.24 s | 0 |
+| 1.5.6 | 0.06 | long words | 128 | 71 | 0.48 s | 0 |
+| 1.5.6 | 0.06 | short words | 66 | 43 | 0.18 s | 0 |
+| 1.8.12 | 0.06 | menu | 143 | 116 | 0.42 s | 0.36 s |
+| 1.8.12 | 0.06 | booking | 98 | 87 | 0.24 s | 0 |
+| 1.8.12 | 0.06 | long words | 128 | 71 | 0.48 s | 0 |
+| 1.8.12 | 0.06 | short words | 66 | 43 | 0.18 s | 0 |
+| 1.8.12 | 0.045 | menu | 106 | 89 | 0.315 s | 0.225 s |
+| 1.8.12 | 0.045 | long words | 94 | 15 | 0.675 s | 0 |
+| 1.8.12 | 0.09 | menu | 218 | 158 | 0 | 0.63 s |
+| 1.8.12 | 0.09 | long words | 194 | 189 | 0.27 s | 0.27 s |
 
 1.6.5 gives the same figures as 1.8.12. The framework's memory of an interrupted reply
 is exact at most interruption points and otherwise within about 0.7 s of what was played,
@@ -722,16 +722,30 @@ each release.
 
 What fails:
 
-- **The first known defect**, on the three releases before 1.6.6: A2 in 98 runs, and M2
-  rule d in 469 runs on 1.6.5 and 491 on 1.5.6 and 1.5.7. M2 shows it in six to eight
-  shapes: wherever a reply that called a tool is interrupted.
-- **The second known defect**, on 1.5.6: L2 rule b in 242 runs, across 21 of the 23
+- **The first known defect**, on the three releases before 1.6.6: A2 in 107 runs, and M2
+  rule d in 612 runs on 1.5.6 and 1.5.7 and 590 on 1.6.5. M2 shows it in nine shapes:
+  wherever a reply that called a tool is interrupted.
+- **The second known defect**, on 1.5.6: L2 rule b in 219 runs, across 21 of the 23
   shapes.
+- **A reply that starts over the user in a narrow window**, on 1.6.5 and 1.6.6: L2 rule b
+  in 27 runs across 12 shapes, two or three neighbouring steps in each. A reply starts
+  270 to 400 ms after the user took the floor. 1.5.7, 1.8.12 and 1.8.13 do not show it.
+  One of the 27, `book_then_interrupt` with the second speech at 8.40 s, breaks the rule
+  on the real clock too, in two runs of two. It is read as a defect of those two
+  releases that a later release repaired, of the same kind as the second known defect.
+  It has no page under `docs/cases/` yet.
+- **An output that cannot pause**, on every release: L2 rule b in the 3 runs of that
+  shape in which the second speech starts at 3.00 to 3.10 s. A reply to the turn before
+  starts 150 ms after the user took the floor, and is cleared once the interruption is
+  recognized. The repaired releases keep such a reply from starting by pausing the
+  output first, which this output cannot do. The real clock agrees on 1.8.12. It is read
+  as a consequence of the setting, and as a question for the framework's maintainers
+  more than a defect.
 
-No rule other than those three fails on any release, and no verdict on any release is
-unobservable: where a framework generates a reply again and the scripted model gives the
-same words, the run is read as section 2.5 describes.
+No other rule fails on any release, and no verdict on any release is unobservable: where
+a framework generates a reply again and the scripted model gives the same words, the run
+is read as section 2.5 describes.
 
-A failure of one of those rules that has not been classified (section 7) is not reported
-here. The sweep is how such results are found; they are published once someone has
-reproduced them deliberately and compared them with what the framework documents.
+A failure that has not been classified (section 7) is not reported here. The sweep is
+how such results are found; they are published once someone has reproduced them
+deliberately and compared them with what the framework documents.
