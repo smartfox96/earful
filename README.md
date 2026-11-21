@@ -329,8 +329,8 @@ and what CI runs for each.
   sink, harness.
 - `src/earful/pipecat/` runs scripted providers and a clocked output transport through a
   Pipecat pipeline.
-- `examples/` holds the quickstart. `tests/golden/` and `tests/bundles/` hold the
-  reference ledgers and the two kept failures.
+- `examples/` holds the quickstart and the same bot for Pipecat. `tests/golden/` and
+  `tests/bundles/` hold the reference ledgers and the two kept failures.
 
 ## Contributing
 

@@ -81,6 +81,7 @@ jobs:
           .venvs/lk-1.8.13/bin/python -m pytest -q tests/test_docs.py
           .venvs/lk-1.8.13/bin/python -m pytest -q tests/test_livekit_docs.py
           scripts/ran_every_test.sh .venvs/pc-1.16.0/bin/python tests/test_pipecat.py
+          scripts/ran_every_test.sh .venvs/pc-1.16.0/bin/python tests/test_pipecat_examples.py
 
   lint:
     name: format, lint, types
