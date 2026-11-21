@@ -51,10 +51,12 @@ def _framework(name: str) -> _Framework:
         logged = lambda result: result.framework_warnings
         return _Framework(name, tag, cases.CASES, harness.run_case, versions, logged)
     import pipecat
+    from loguru import logger
 
     from earful.pipecat.cases import CASES
     from earful.pipecat.harness import run_case
 
+    logger.disable("pipecat")  # it logs each frame of each run at DEBUG
     versions = {"pipecat-ai": pipecat.__version__, **system}
     tag = f"pc-{pipecat.__version__}"
     counted = lambda result: result.events[-1]["data"]["framework_warnings"]
