@@ -72,7 +72,7 @@ def test_minor_version_must_be_a_nonnegative_integer(ledger, minor):
 
 def test_a_ledger_cannot_mix_minor_versions(ledger):
     events = copy.deepcopy(ledger)
-    events[1]["schema_minor"] = 1
+    events[1]["schema_minor"] = events[0]["schema_minor"] + 1
     assert any("schema_minor differs" in error for error in validate(events))
 
 

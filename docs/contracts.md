@@ -1,6 +1,6 @@
 # Contracts
 
-This document defines what Earful checks, as contracts version `earful.contracts/1`. The
+This document defines what Earful checks, as contracts version `earful.contracts/2`. The
 checker (`src/earful/core/checker/`), the ledger schema and the deliberate breaks that
 prove the checker works are all built against it. Section 10 records what the
 checker measured on the reference ledgers. The default policy values rest on those
@@ -15,6 +15,20 @@ report.failures                 # every failed verdict, with the events it rests
 
 `earful check LEDGER.jsonl` prints the same from a file. The checker reads only
 the ledger: it imports neither the scenario nor the framework under test.
+
+`earful.contracts/1` was the version of Earful 0.1.1. Version 2 differs in these rules:
+
+- M2 has rule f, and rule e also holds tool items and replies to their place among the
+  user turns. Rule d owes a call that handed the session to another agent in the final
+  history and in the model call that follows it up.
+- L2 rule b does not count a gap in a streaming buffer as a reply stopping or starting.
+- A1, A2 and A3 are unobservable for a tool call that leaves nothing in the backend
+  (section 2.6).
+- L1 is unobservable for a milestone that came due at the instant the scenario ended,
+  and gives `silenced_by_a_tool` only to a turn that got no spoken reply.
+
+A bundle kept under version 1 is still replayed. It is judged by version 2, and the
+replay says so.
 
 ## 1. What a contract is
 
@@ -524,7 +538,7 @@ Taken while building the checker, 16 November 2026:
    allowance of slack. The alternative, measuring each step from when the previous one
    happened, forgives a turn that falls behind a little at every step.
 10. **Policy values are versioned with the contracts.** The ledger carries them as
-    declared, and `earful.contracts/1` defines which exist. A scenario that
+    declared, and `earful.contracts/2` defines which exist. A scenario that
     declares one that does not exist is refused, by the harness before the run and by the
     checker.
 

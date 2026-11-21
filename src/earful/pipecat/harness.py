@@ -192,6 +192,7 @@ def _header(case: Case, tools: set[str], options: dict[str, Any]) -> dict[str, A
             # The turn ends user_speech_timeout after the VAD reports the end of speech.
             "min_endpointing_delay_us": to_us(case.user_speech_timeout),
             "max_endpointing_delay_us": to_us(case.user_turn_stop_timeout),
+            "turn_end_delay_us": to_us(case.vad_stop_secs) + to_us(case.user_speech_timeout),
             "turn_detection": None,
             "extra_options": options,
         },

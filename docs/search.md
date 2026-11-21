@@ -181,7 +181,7 @@ used.
 | `interrupt` | The speech has lasted long enough to interrupt: its start plus `min_interruption_duration_us`. Absent for a shorter speech. Moved by `speech.position` |
 | `transcript` | The final transcript arrives: its end plus `stt_delay_us`. Absent for noise. Moved by `speech.position`, `speech.end` and `speech.stt_delay` |
 | `vad_end` | The VAD tells the framework the user stopped: its end plus `min_silence_us`. Moved by `speech.position` and `speech.end` |
-| `turn_end` | The turn can be committed: its end plus the longer of `min_silence_us` and `min_endpointing_delay_us`. Moved by `speech.position` and `speech.end` |
+| `turn_end` | The framework ends the turn: the speech's end plus the header's `turn_end_delay_us`. On livekit-agents that is the longer of `min_silence_us` and `min_endpointing_delay_us`, and on Pipecat their sum. Moved by `speech.position` and `speech.end` |
 | `done` | A provider delay runs out: the model's first token or last, the first audio, the commit. Moved by that delay |
 | `hangup` | The user leaves and the session is closed. Moved by `user.hangup` |
 
@@ -456,7 +456,8 @@ expected. A replay makes at least one run: `repeats` below 1 is a `ValueError`.
 
 `earful replay` also prints the Earful version that kept the bundle, which the manifest
 records in `environment`, when it is not the version replaying it. It names any case file
-it could not verify.
+it could not verify. A bundle kept under an earlier version of the contracts is replayed
+and judged by the current one, and the replay says which it was kept under.
 
 **What the scenario's digest covers.** A case names its code as `module:function`.
 `scenario_digest` is SHA-256 of the source text of one file: the module in which that

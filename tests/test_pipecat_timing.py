@@ -9,6 +9,7 @@ pytest.importorskip("pipecat")
 from pipecat.processors.aggregators.llm_context import LLMContext
 
 from earful import pipecat as pc
+from earful.core.search import anchors
 from earful.core.timebase import to_us
 from earful.pipecat.cases import MENU
 
@@ -90,3 +91,21 @@ def test_pipecat_a_turn_ends_exactly_user_speech_timeout_after_the_vad_reports_s
     else:
         assert _shown(result) == [["Tell me"], ["Tell me", "about the menu."]]
         assert _at(result, "llm.request")[0] == over_us
+
+
+@pytest.mark.parametrize("stop_secs, timeout", [(0.2, 0.6), (0.3, 0.35), (0.5, 0.2)])
+def test_pipecat_the_turn_ends_where_the_header_says_a_search_should_aim(stop_secs, timeout):
+    """Pipecat waits for the VAD's silence and then for the timeout, one after the other."""
+    case = pc.Case(
+        "turn end",
+        lambda llm: LLMContext(),
+        [pc.UserSpeech(0.5, 1.5, "Hello there.")],
+        pc.ScriptedModel().otherwise(say="Good morning."),
+        vad_stop_secs=stop_secs,
+        user_speech_timeout=timeout,
+    )
+    result = pc.run(case)
+    header = result.events[0]["data"]["scenario"]
+    assert header["session"]["turn_end_delay_us"] == to_us(stop_secs) + to_us(timeout)
+    aimed = 500_000 + anchors(header, header["speeches"][0])["turn_end"]
+    assert _at(result, "llm.request") == [aimed]

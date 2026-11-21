@@ -10,6 +10,7 @@ from livekit.agents import vad as lk_vad
 
 from earful.core.backend import Effect
 from earful.core.ledger import Ledger
+from earful.core.search import anchors
 from earful.core.timebase import to_us
 from earful.livekit.cases import LONG_REPLY, BookingAgent, Reservations, _barge_in_policy
 from earful.livekit.harness import Case, run_case
@@ -125,3 +126,30 @@ def test_a_speech_shorter_than_the_threshold_interrupts_once_the_vad_has_counted
     result = run_case(case)
     result.assert_contracts()
     assert _at(result.ledger.events, "sink.pause") == [4_500_000]
+
+
+@pytest.mark.parametrize(
+    "silence, delay", [(0.5, 0.5), (0.5, 0.8), (0.5, 0.2), (0.3, 1.0), (0.8, 0.3)]
+)
+def test_the_turn_ends_where_the_header_says_a_search_should_aim(silence, delay):
+    """The session commits the user's turn once the VAD's silence and the endpointing delay
+    have both passed. It counts the delay as a float, so it can be microseconds early."""
+    case = Case(
+        name="turn end",
+        agent=lambda: lk.Agent(instructions="You are a host."),
+        speeches=[UserSpeech(start=0.5, end=1.5, transcript="Hello there.")],
+        policy=lambda items: Reply(text="Good morning."),
+        vad_min_silence=silence,
+        min_endpointing_delay=delay,
+    )
+    events = run_case(case).events
+    header = events[0]["data"]["scenario"]
+    assert header["session"]["turn_end_delay_us"] == to_us(max(silence, delay))
+    origin = next(e["t_us"] for e in events if e["kind"] == "user.origin")
+    aimed = origin + 500_000 + anchors(header, header["speeches"][0])["turn_end"]
+    (committed,) = [
+        e["t_us"]
+        for e in events
+        if e["kind"] == "fw.conversation_item_added" and e["data"]["item"].get("role") == "user"
+    ]
+    assert 0 <= aimed - committed <= 10

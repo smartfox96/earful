@@ -203,8 +203,9 @@ down before the code.
    reference ledgers of the six releases.
 
 A kept bundle records the version of the contracts it was judged with,
-`earful.contracts/1`. A new contract changes what that version names. Raise in the pull
-request, before the code, whether it is a new version.
+`earful.contracts/2`. A new contract, or a rule that changes what it fails, changes what
+that version names. Raise in the pull request, before the code, whether it is a new
+version.
 
 ## Releasing
 

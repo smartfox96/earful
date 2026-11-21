@@ -203,7 +203,7 @@ def test_a_verdict_cites_the_events_and_witnesses_it_rests_on(affected):
     assert failed.witnesses == ("backend",)
     assert all("framework" not in v.witnesses for r in report.results.values() for v in r.verdicts)
     json.dumps(report.to_json())  # the whole report is plain JSON
-    assert report.to_json()["contracts"] == "earful.contracts/1"
+    assert report.to_json()["contracts"] == "earful.contracts/2"
 
 
 @pytest.mark.parametrize(

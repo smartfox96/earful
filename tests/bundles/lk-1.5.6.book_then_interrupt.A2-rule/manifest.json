@@ -4,13 +4,13 @@
     "earful": "0.1.1",
     "livekit": "1.1.5",
     "livekit-agents": "1.5.6",
-    "packages": "dd52b90f09d2b461c6e619aa96de41a899badac63a5b2e5383f3fe88289948dd",
+    "packages": "dadd01f71d8d440e91fc0772a63719d5a88e564d75477e8fc70135a8e89fb260",
     "platform": "Darwin-arm64",
     "python": "3.13.12"
   },
   "formats": {
     "case": "earful.case/1",
-    "contracts": "earful.contracts/1",
+    "contracts": "earful.contracts/2",
     "ledger": "earful.ledger/1"
   },
   "framework": {
@@ -24,7 +24,7 @@
     "findings": [
       "2 durable effects for 'book-table-1'; the scenario authorized 1"
     ],
-    "hash": "17cb49659910a6674810baa7ec8e43de59ee156ec414690fe07defcd2949d614",
+    "hash": "9ddae591a2ed480b6e039c27965249eb35b53e1b8e267742d5a0b94f5ca3a6e3",
     "speeches": 2
   },
   "original": {
@@ -34,7 +34,7 @@
     "findings": [
       "2 durable effects for 'book-table-1'; the scenario authorized 1"
     ],
-    "hash": "dfbc4bd687472459cee084ff15cd8117cb1943a937100dd3df7add04eea21e31",
+    "hash": "3fc1084cb3d197b7d244b28e7a1a6c29c1ddae1af99eb1facf24147f4946d50e",
     "speeches": 2
   },
   "predicate": {
@@ -44,7 +44,7 @@
   "reduction": {
     "complete": true,
     "differences": [],
-    "runs": 74,
+    "runs": 76,
     "steps": [
       "kept 0 of 1 differences from the author's scenario"
     ]
@@ -69,13 +69,13 @@
     },
     {
       "hi_end": "passes",
-      "hi_us": 7859000,
+      "hi_us": 8310000,
       "instant": false,
       "lo_end": "passes",
       "lo_us": 3000000,
       "resolution_us": 1000,
       "variable": "speech.position 1",
-      "width_us": 4859000
+      "width_us": 5310000
     }
   ]
 }

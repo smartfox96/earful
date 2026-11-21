@@ -1006,6 +1006,10 @@
             "max_endpointing_delay_us": {
               "$ref": "#/$defs/microseconds"
             },
+            "turn_end_delay_us": {
+              "$ref": "#/$defs/microseconds",
+              "description": "How long after a speech ends the framework ends the user's turn, when no speech follows. Since schema_minor 1. Absent: the longer of min_silence_us and min_endpointing_delay_us."
+            },
             "turn_detection": {
               "type": [
                 "string",
@@ -1062,6 +1066,10 @@
                 },
                 "ttfb_us": {
                   "$ref": "#/$defs/microseconds"
+                },
+                "word_timestamps": {
+                  "type": "boolean",
+                  "description": "Whether the voice tells the framework when each word starts. Since schema_minor 1. Absent: the adapter has no such setting."
                 }
               }
             },

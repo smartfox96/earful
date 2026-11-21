@@ -536,6 +536,13 @@ def test_replay_says_what_it_could_not_verify_and_which_earful_kept_the_bundle(
     assert f"  kept with Earful 0.0.1, replayed with Earful {__version__}\n" in out
     assert outcome["unverified"] == ["original.case.json", "minimal.case.json"]
     assert (outcome["kept_with_earful"], outcome["replayed_with_earful"]) == ("0.0.1", __version__)
+    # A bundle kept under the contracts of 0.1.1 is replayed, and judged by today's.
+    assert "kept under" not in out
+    assert outcome["kept_under_contracts"] == outcome["judged_by_contracts"] == "earful.contracts/2"
+    manifest["formats"]["contracts"] = "earful.contracts/1"
+    out, outcome = replayed("0.1.1", digests=True)
+    assert "  kept under earful.contracts/1, judged here by earful.contracts/2\n" in out
+    assert outcome["kept_under_contracts"] == "earful.contracts/1"
 
 
 @pytest.mark.slow

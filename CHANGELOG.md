@@ -59,6 +59,11 @@ formats have versions of their own
 - A mistake in a scenario (a reference that is not a scenario, a speech that ends before
   it starts, an unknown backend mode or fault) is refused in one line with exit status 2.
 - Under pytest, a test's `.earful/<test>/` directory is cleared when the test starts.
+- The contracts are `earful.contracts/2`: the rules listed here under Added, Changed and
+  Fixed changed what the version names
+  ([`docs/contracts.md`](https://github.com/smartfox96/earful/blob/main/docs/contracts.md)
+  lists them). A bundle kept under `earful.contracts/1` is still replayed, is judged by
+  version 2, and the replay says so.
 - A1, A2 and A3 are all unobservable for a tool call that leaves nothing in the backend.
   M2 rule e also holds tool items and replies to their place among the user turns. L2
   no longer counts a gap in a streaming buffer as a reply stopping or starting.
@@ -80,6 +85,10 @@ formats have versions of their own
   their adapter, with the adapter's `Case` and `RunResult` in the signature.
 - The scripted LiveKit VAD sets `speaking` as the Silero plugin does, and a word's audio
   has the same level whatever its stamp.
+- A ledger's header states when the framework ends a turn (`turn_end_delay_us`), and a
+  search aims there. On Pipecat a search aimed 200 ms early with the default settings.
+  `earful.ledger/1` is at `schema_minor` 1 for this field, for `handoff` and for
+  `word_timestamps`. Ledgers of minor 0 are read as before.
 - M2 and L1 judge a conversation that is handed to another agent. A tool that returns an
   agent is recorded with `handoff`, with the text the model is shown for what came with
   the agent, and as asking for no reply when nothing did. M2 rule d owes that call in the

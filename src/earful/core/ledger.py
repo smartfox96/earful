@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any
 
 SCHEMA = "earful.ledger/1"
-SCHEMA_MINOR = 0
+SCHEMA_MINOR = 1  # 1 added tool.returned.handoff and two fields of the header
 
 # Who observed the event. The checker treats these as independent witnesses.
 SOURCES = ("world", "llm", "sink", "backend", "framework", "harness")

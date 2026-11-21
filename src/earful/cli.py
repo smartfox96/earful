@@ -17,7 +17,7 @@ from typing import Any
 from . import __version__, _adapters
 from .core import bundle, crosscheck, html, timeline
 from .core import case as cases
-from .core.checker import Report, check
+from .core.checker import CONTRACTS, Report, check
 from .core.checker.report import RULES, allowed, required
 from .core.ledger import read_jsonl, write_jsonl
 from .core.predicate import Predicate
@@ -287,6 +287,8 @@ def _replay(args: argparse.Namespace) -> int:
         "replayed_on": result.framework,
         "kept_with_earful": kept_with,
         "replayed_with_earful": __version__,
+        "kept_under_contracts": kept.manifest["formats"]["contracts"],
+        "judged_by_contracts": CONTRACTS,
         "judged": result.judged,
         "reproduced": result.reproduced,
         "clean": result.clean,
@@ -318,6 +320,8 @@ def _replay(args: argparse.Namespace) -> int:
             print(f"  not verified: {files} (the manifest records no digest of them)")
         if kept_with not in (None, __version__):
             print(f"  kept with Earful {kept_with}, replayed with Earful {__version__}")
+        if outcome["kept_under_contracts"] != CONTRACTS:
+            print(f"  kept under {outcome['kept_under_contracts']}, judged here by {CONTRACTS}")
         for reason in result.invalid:
             print(f"  invalid: {reason}")
     if not result.judged or not result.repeatable:
