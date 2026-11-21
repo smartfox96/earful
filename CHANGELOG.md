@@ -108,6 +108,10 @@ formats have versions of their own
   declares them already was.
 - A tuple a LiveKit tool returns is recorded with the text the model is shown, which is
   that of a list. M2 rule d failed on such a tool.
+- The scripted LiveKit recognizer declares the interim transcript it sends
+  (`interim_results`). A run is invalid if a whole segment reaches the output at another
+  sample rate than the voice's, or if a word other than the last arrives with part of
+  its audio missing.
 - The logging level no longer changes a ledger's hash.
 - A ledger's hash replaces only the framework's own identifiers, so application ids that
   look like them are kept.

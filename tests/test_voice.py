@@ -5,7 +5,15 @@ from array import array
 
 import pytest
 
-from earful.scripted.voice import LOUDEST, SHORTEST, StampReader, StampTable, encode, words_heard
+from earful.scripted.voice import (
+    LOUDEST,
+    SHORTEST,
+    StampReader,
+    StampTable,
+    encode,
+    words_heard,
+    words_missing_audio,
+)
 
 
 def _table(*lengths):
@@ -99,3 +107,13 @@ def test_a_word_is_played_once_its_last_sample_is_heard():
     assert words_heard(runs, 209, table) == ([1], [100], 2, 99)
     assert words_heard(runs, 210, table) == ([1, 2], [100, 210], None, 0)
     assert words_heard(runs, 0, table) == ([], [], None, 0)
+
+
+def test_only_the_last_word_written_may_have_less_than_its_audio():
+    table = _table(100, 100, 100)
+    assert words_missing_audio([[1, 100], [0, 10], [2, 100], [3, 100]], table) == 0
+    assert words_missing_audio([[1, 100], [2, 100], [3, 99]], table) == 0  # synthesis was cut
+    assert words_missing_audio([[1, 100], [2, 99], [3, 100]], table) == 1
+    assert words_missing_audio([[1, 99], [2, 99], [3, 99]], table) == 2
+    assert words_missing_audio([[1, 60], [0, 10], [1, 40], [2, 100]], table) == 0  # in two parts
+    assert words_missing_audio([], table) == 0

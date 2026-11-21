@@ -298,6 +298,23 @@ def test_pipecat_cancellation_counts_only_the_samples_that_played():
     assert data["word_cut"] == 2 and data["word_cut_samples"] == 120
 
 
+@pytest.mark.parametrize("second, errors", [(240, 0), (239, 1)])
+def test_pipecat_a_word_written_with_audio_missing_is_a_stamp_error(second, errors):
+    """Three words of 10 ms. The one in the middle is written whole, or a sample short."""
+
+    async def play():
+        table = StampTable(sample_rate=24000)
+        for index, word in enumerate(("hi", "there", "you")):
+            table.add(1, index, word, 240)
+        output = ClockedOutput(Ledger(now_us, run="test"), table)
+        audio = table.audio(1) + table.audio(2)[:second] + table.audio(3)
+        await output.write_audio_frame(OutputAudioRawFrame(audio.tobytes(), 24000, 1))
+        await output.cancel(CancelFrame())
+        return output.stamp_errors
+
+    assert run_virtual(play) == errors
+
+
 def test_pipecat_playout_preserves_gaps_between_chunks():
     async def play():
         table = StampTable(sample_rate=24000)

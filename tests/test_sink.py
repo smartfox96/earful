@@ -212,3 +212,29 @@ def test_an_exception_as_a_segment_runs_out_is_recorded(monkeypatch):
         return errors
 
     assert run_virtual(main) == _RECORDED
+
+
+def test_a_segment_at_another_sample_rate_than_the_voices_is_a_stamp_error():
+    """A word's sample count is at the voice's rate, so a whole segment resampled is altered."""
+
+    async def main(rate):
+        sink, _ = _sink([2400])
+        await sink.capture_frame(_frame((1, 2400), rate=rate))
+        return sink.stamp_errors
+
+    assert run_virtual(lambda: main(RATE)) == 0
+    assert run_virtual(lambda: main(16000)) == 1
+
+
+@pytest.mark.parametrize("second, errors", [(2400, 0), (2399, 1)])
+def test_a_word_that_reaches_the_sink_with_audio_missing_is_a_stamp_error(second, errors):
+    """Three words of 0.1 s. The one in the middle arrives whole, or a sample short."""
+
+    async def main():
+        sink, ledger = _sink([2400, 2400, 2400])
+        await sink.capture_frame(_frame((1, 2400), (2, second), (3, 2400)))
+        sink.flush()
+        await asyncio.sleep(0.4)
+        return sink.stamp_errors, ledger.events[-1]["data"]["words_played"]
+
+    assert run_virtual(main) == (errors, [1, 2, 3] if not errors else [1, 3])

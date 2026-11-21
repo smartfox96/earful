@@ -204,7 +204,8 @@ def _speech_data(text: str) -> lk_stt.SpeechData:
 # The type argument names a provider's extra events: none here (NoReturn is 3.10's Never).
 class ScriptedSTT(lk_stt.STT[NoReturn]):
     def __init__(self, ledger: Ledger, speeches: list[UserSpeech], origin: WorldOrigin) -> None:
-        super().__init__(capabilities=lk_stt.STTCapabilities(streaming=True, interim_results=False))
+        # It sends one interim transcript per speech, half way through the recognizer's delay.
+        super().__init__(capabilities=lk_stt.STTCapabilities(streaming=True, interim_results=True))
         self._ledger = ledger
         self._origin = origin
         self._speeches = _check_speeches(speeches)
