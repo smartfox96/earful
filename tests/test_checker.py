@@ -2232,12 +2232,12 @@ def test_l1_a_reply_generated_again_is_budgeted_from_the_chain_as_it_stood_then(
     assert turn.outcome == (FAIL if late_us else PASS)
 
 
-@pytest.mark.parametrize("after_us, outcome", [(-1, UNOBSERVABLE), (1, FAIL)])
+@pytest.mark.parametrize("after_us, outcome", [(-1, UNOBSERVABLE), (0, UNOBSERVABLE), (1, FAIL)])
 def test_l1_a_milestone_never_reached_is_missed_only_if_the_run_went_on_past_its_deadline(
     affected, after_us, outcome
 ):
     """Neither reply of the turn is voiced. The first word is due by 12.66 s, the later of the
-    two budgets, and the final history is read a microsecond before then or after."""
+    two budgets, and the final history is read a microsecond before then, then, or after."""
     events = _nothing_to_spare(affected)
     for call in (2, 3):
         events = _never_voiced(events, call=call, segment=call)

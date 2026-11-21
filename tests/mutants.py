@@ -755,8 +755,15 @@ MUTANTS = [
     Mutant(
         "L1: a milestone never reached is missed though the run ended before it was due",
         "src/earful/core/checker/l1.py",
-        "            if reached is None and self._ended < deadline:\n",
+        "            if reached is None and self._ended <= deadline:\n",
         "            if False:\n",
+        first="never_reached_is_missed_only_if",
+    ),
+    Mutant(
+        "L1: a milestone never reached is missed in a run that ended as it came due",
+        "src/earful/core/checker/l1.py",
+        "            if reached is None and self._ended <= deadline:\n",
+        "            if reached is None and self._ended < deadline:\n",
         first="never_reached_is_missed_only_if",
     ),
     Mutant(

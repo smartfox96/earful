@@ -56,7 +56,7 @@ class _Budget:
                 continue
             if self._left is not None and self._left < deadline:
                 return LEFT, deadline
-            if reached is None and self._ended < deadline:
+            if reached is None and self._ended <= deadline:
                 return UNOBSERVABLE, deadline
             return MISSED, deadline
 
