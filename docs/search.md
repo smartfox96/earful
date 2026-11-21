@@ -343,9 +343,10 @@ keeps the step only if the run still breaks the same predicate.
    window that runs past the limit is cut off there, and the time is put just inside the
    edge the window has below it. The window is still reported whole.
 
-The result is 1-minimal: undoing any one remaining difference, or removing any one
-remaining speech, declared delay or fault, makes it pass. It is not necessarily the smallest
-failing case there is. A reduction can only undo differences, so of several failing
+The result is 1-minimal: undoing any one remaining change of a value, or removing any one
+remaining speech, declared delay or fault, makes it pass. What step 2 removed is a
+difference too, and putting it back leaves the case failing. It is not necessarily the
+smallest failing case there is. A reduction can only undo differences, so of several failing
 candidates the one to reduce is the one nearest the author's scenario
 (`earful.core.shrink.nearest`).
 
