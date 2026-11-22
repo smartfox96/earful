@@ -129,14 +129,25 @@ name the model calls the tool by. The message lists the names the agent or the b
 Pipecat an empty list means `bot` registered no function on the model service it was
 handed.
 
-### A session option the case already sets
+### A session or agent option Earful does not model
 
 ```text
-earful: session_kwargs may not set ['min_endpointing_delay']: use the Case fields
+earful: session_kwargs may not set 'min_endpointing_delay': use Case.min_endpointing_delay
 ```
 
-LiveKit. The VAD, the STT, the model, the voice and the turn options come from the
-`Case` fields, and the run's header states them.
+```text
+earful: session_kwargs 'mcp_servers' reaches an MCP server over the network
+```
+
+```text
+earful: BookingAgent sets endpointing min_delay=0.8 and the case gives the session 0.5: set Case.min_endpointing_delay to the agent's value
+```
+
+LiveKit. A run takes only the options it models, and the run's header states them. Set
+the option through the `Case` field the message names. An option that is refused with a
+reason cannot be run: run the agent without it.
+[`compatibility.md`](compatibility.md#the-options-earful-models-on-livekit) lists every
+option and what Earful does with it.
 
 ### A rule or a contract that does not exist
 
@@ -201,6 +212,15 @@ invalid: harness error: call 1: the scripted model called 'create_reservation' w
 ```
 
 The script is wrong. Correct the name or the arguments in the rule that makes the call.
+
+### The scripted model called a tool where the request allowed none
+
+```text
+invalid: harness error: call 4: the request allowed no tool call (tool_choice='none'), and the scripted model called ['look_up_hours']. livekit-agents asks so once max_tool_steps rounds of tool calls have run: script a reply without a call for that request
+```
+
+A real model answers such a request in words. Give the model a rule that answers without
+a call once the tool has run, or raise `max_tool_steps` in `session_kwargs`.
 
 ### The scripted model has no rule for a context
 

@@ -41,6 +41,11 @@ a defect of the framework, of the application or of the test is decided by a per
 - Realtime speech-to-speech models, and any pipeline other than STT, LLM and TTS.
 - A room or a network transport.
 - A hangup in the middle of a speech. The user can leave once their last speech is over.
+- On LiveKit: an `AgentSession` or `Agent` option outside the table in
+  [`compatibility.md`](compatibility.md#the-options-earful-models-on-livekit), such as an
+  agent with its own STT, VAD, model or voice, or a turn detector other than the
+  framework's default on the VAD. A run refuses each in one line before it starts, and a
+  run whose agent hands over to an agent that breaks the table is invalid.
 - On Pipecat: a real service or transport, a `vad_analyzer`, a `VADProcessor`, a turn
   model, turn strategies other than the three the page below names, context
   summarization, and frames queued from outside the pipeline. The pipeline worker is

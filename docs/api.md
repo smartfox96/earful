@@ -93,12 +93,14 @@ and every run calls it first.
 | `sink_can_pause` | `True` | Whether the audio output says it can pause |
 | `min_interruption_duration` | `0.5` | The session's interruption option of that name |
 | `false_interruption_timeout` | `2.0` | The session's interruption option of that name |
+| `allow_interruptions` | `True` | Whether the user can interrupt the agent: the session's interruption option `enabled` |
+| `preemptive_generation` | `True` | Whether the session starts a reply before the user's turn ends: its preemptive generation option `enabled` |
 | `min_endpointing_delay` | `0.5` | The session's endpointing `min_delay` |
 | `max_endpointing_delay` | `6.0` | The session's endpointing `max_delay` |
 | `drain_delay` | `5.0` | How long the run goes on after the last transcript, or after a hangup, before it is wound up |
 | `drain_timeout` | `30.0` | How long the session then has to finish before it is cut off |
 | `sink` | `ClockedSink` | The class of the audio output. A subclass models a faulty output |
-| `session_kwargs` | `{}` | Further `AgentSession` options. The options the fields above set are refused here |
+| `session_kwargs` | `{}` | Further `AgentSession` options, of those [`compatibility.md`](compatibility.md#the-options-earful-models-on-livekit) lists. Any other is refused |
 
 ### `Case` for Pipecat
 

@@ -20,6 +20,8 @@ formats have versions of their own
   walks through what a search of it finds and how each result is dealt with.
 - `earful.pipecat.cases` holds three reference scenarios, `greeting`, `reserve_table` and
   `barge_in`, as `earful.livekit.cases` holds LiveKit's.
+- `Case.allow_interruptions` and `Case.preemptive_generation` on LiveKit, for what the
+  deprecated session options of those names used to set.
 - `earful.scripted`, the package both adapters share: the virtual clock, the scripted
   user, model and voice, and a scenario's intents, delays and faults. `earful.livekit`
   exports the names it did before, and `earful.livekit.clock` and
@@ -58,6 +60,19 @@ formats have versions of their own
   lists the reads that are virtual and those that are not.
 - A scripted model call to a tool the agent does not offer, or with an argument the tool
   does not take, makes the run invalid.
+- A LiveKit run takes only the session and agent options it models, and refuses any
+  other in one line before it starts
+  ([`docs/compatibility.md`](https://github.com/smartfox96/earful/blob/main/docs/compatibility.md#the-options-earful-models-on-livekit)).
+  `session_kwargs` was passed through as it was: a deprecated option such as
+  `allow_interruptions` was recorded in the header and ignored by livekit-agents. An
+  agent with its own STT, model, voice or VAD is refused, and so is an agent whose
+  endpointing or interruption options differ from the case's, which the header states.
+  An agent that becomes active during the run is held to the same, and makes the run
+  invalid if it breaks it. Set the option through the `Case` field the message names.
+- On LiveKit a scripted reply that breaks what the request allowed makes the run
+  invalid: a tool call under `tool_choice="none"`, which livekit-agents sends once
+  `max_tool_steps` rounds of tool calls have run, no call under `"required"`, another
+  tool than the one named, or two calls under `parallel_tool_calls=False`.
 - A search in which a case raised an exception fails.
 - A mistake in a scenario (a reference that is not a scenario, a speech that ends before
   it starts, an unknown backend mode or fault) is refused in one line with exit status 2.

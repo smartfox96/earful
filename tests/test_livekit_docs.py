@@ -220,3 +220,37 @@ def test_the_signatures_on_the_api_page_are_those_of_the_code():
     functions = {"run", "run_case", "explore", "cross_check", "keep", "replay", "reply", "effect"}
     assert functions | {"check", "ScriptedModel.when", "RunResult.assert_contracts"} <= checked
     assert {f"Earful.{name}" for name in ("run", "explore", "keep", "replay")} <= checked
+
+
+def _documented():
+    text = (ROOT / "docs" / "compatibility.md").read_text()
+    text = text.split("## The options Earful models on LiveKit")[1].split("\n## ")[0]
+    session, agent = text.split("`Agent` options.")
+
+    def rows(table):
+        return {
+            line.split(" | ")[0]: line.split(" | ")[1]
+            for line in table.splitlines()
+            if line.startswith(("| `", "| Any"))
+        }
+
+    return rows(session), rows(agent)
+
+
+def _names(cells):
+    return {name for cell in cells for name in re.findall(r"`([a-z_]+)`", cell)}
+
+
+def test_the_compatibility_page_lists_the_options_the_code_does():
+    from earful.livekit import options
+
+    session, agent = _documented()
+    modelled = options.PASSED.keys() | options.FROM_CASE.keys() | options.REFUSED.keys()
+    assert _names(session) == modelled
+    passed = [cell for cell, does in session.items() if does == "Passed as they are"]
+    assert _names(passed) == options.PASSED.keys()
+    refused = [cell for cell, does in session.items() if does.startswith("Refused")]
+    assert _names(refused) <= options.REFUSED.keys()
+    named = options.AGENT_RUN | options.AGENT_TURNS | options.AGENT_REFUSED.keys()
+    keys_of_turn_handling = {"enabled", "min_duration", "false_interruption_timeout"}
+    assert named <= _names(agent) <= named | keys_of_turn_handling
