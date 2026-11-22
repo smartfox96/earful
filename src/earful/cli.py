@@ -219,13 +219,18 @@ def _search(args: argparse.Namespace) -> int:
     # A rule that is kept is measured whatever else is: its reduction starts from there.
     broken = found.breaks(windows=keep if args.no_windows else True)
     kept: dict[str, Any] = {}
+    not_kept: dict[str, str] = {}  # rule -> why its bundle could not be written
     function = args.scenario.rpartition(":")[2]
     release = (found.runner.ledger(found.case) or [{}])[0].get("data", {}).get("framework", {})
     for predicate in keep:
         if not any(one.predicate == predicate for one in broken):
             continue
         directory = args.out / _bundle_name(release, function, predicate)
-        manifest = adapter.keep(found, predicate, directory).manifest
+        try:
+            manifest = adapter.keep(found, predicate, directory).manifest
+        except ValueError as exc:  # what was found is still printed
+            not_kept[str(predicate)] = str(exc)
+            continue
         kept[str(predicate)] = {
             "directory": str(directory),
             "speeches": [manifest["original"]["speeches"], manifest["minimal"]["speeches"]],
@@ -247,6 +252,7 @@ def _search(args: argparse.Namespace) -> int:
                 entry["unmeasured"] = one.unmeasured
                 entry["instants_only"] = one.instants_only
         summary["bundles"] = kept
+        summary["not_kept"] = not_kept
         print(json.dumps(summary, indent=2))
     else:
         print(found.describe(broken, unjudged))
@@ -259,7 +265,9 @@ def _search(args: argparse.Namespace) -> int:
         for rule, entry in kept.items():
             runs = entry["reduction"]["runs"]
             print(f"\nkept {rule} in {entry['directory']}, reduced in {runs} more run(s)")
-        missing = [str(p) for p in keep if str(p) not in kept]
+        for rule, why in not_kept.items():
+            print(f"\nnot kept {rule}: {why}")
+        missing = [str(p) for p in keep if str(p) not in kept and str(p) not in not_kept]
         if missing:
             print(f"\nnot kept, since no case broke them: {', '.join(missing)}")
     if any(not one.instants_only and str(one.predicate) not in allow for one in broken):

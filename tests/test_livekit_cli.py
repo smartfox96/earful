@@ -389,6 +389,26 @@ def test_search_finds_the_break_keeps_it_and_the_kept_bundle_replays(capsys, tmp
     )
 
 
+def test_a_failure_that_cannot_be_kept_is_said_after_what_the_search_found(
+    capsys, monkeypatch, tmp_path
+):
+    def cannot(found, rule, directory, **options):
+        raise ValueError("a case that does not repeat is not kept as a bundle")
+
+    import earful.livekit as adapter
+
+    monkeypatch.setattr(adapter, "keep", cannot)
+    reference = "breaks:as_written_confirms_a_failed_booking"
+    narrow = ("--variables", "none", "--no-words", "--workers", "0")
+    kept = ("--keep", "A3/rule", "--out", tmp_path)
+    status, out, err = earful(capsys, "search", reference, *narrow, *kept)
+    assert status == BROKEN and "does not repeat" not in err and "A3/rule  in " in out
+    assert out.endswith("\nnot kept A3/rule: a case that does not repeat is not kept as a bundle\n")
+    status, out, _ = earful(capsys, "search", reference, *narrow, *kept, "--json")
+    summary = json.loads(out)
+    assert summary["bundles"] == {} and list(summary["not_kept"]) == ["A3/rule"]
+
+
 def test_a_search_asked_for_what_there_is_not_starts_no_worker(capsys, monkeypatch):
     started = []
     monkeypatch.setattr(scenario, "pool", lambda workers=None: started.append(workers))

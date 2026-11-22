@@ -5868,4 +5868,11 @@ MUTANTS = [
         "                spans = _now_ns\n",
         first="span_reads_the_clock_without_moving_it",
     ),
+    Mutant(
+        "cli: a failure that cannot be kept hides what the search found",
+        "src/earful/cli.py",
+        "        except ValueError as exc:  # what was found is still printed\n",
+        "        except KeyError as exc:  # what was found is still printed\n",
+        first="cannot_be_kept",
+    ),
 ]

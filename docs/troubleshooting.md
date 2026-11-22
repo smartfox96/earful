@@ -470,6 +470,15 @@ ValueError: the search found no case that breaks L2/rule b
 A bundle is written for a rule the search found broken. The second line is the command's
 and the third is what `keep` raises.
 
+```text
+not kept A2/rule: the reduced case gave the ledger that broke A2/rule in 1 of the 3 runs made after the reduction; a case that does not repeat is not kept as a bundle
+```
+
+The search found the rule broken, and the reduced case did not break it in every run made
+after the reduction. `earful search` prints what it found first, and its exit status is
+the search's. Look for a time read off the virtual clock in the scenario's code
+([`limits.md`](limits.md#the-virtual-clock)).
+
 ### The test `earful init` wrote fails on A2
 
 `earful init` ends its output with:
