@@ -686,10 +686,11 @@ def test_every_message_the_troubleshooting_page_quotes_is_one_the_code_gives():
 
 
 def test_the_troubleshooting_page_says_what_exercises_each_contract_as_the_checker_does():
-    from earful.core.checker.report import _EXERCISED_BY
+    from earful.core.checker.contracts import DECLARED
 
     section = _sections(TROUBLESHOOTING)["Not exercised"]
-    assert {contract: cells[0] for contract, cells in _rows(section)[1:]} == _EXERCISED_BY
+    exercised_by = {name: contract.exercised_by for name, contract in DECLARED.items()}
+    assert {contract: cells[0] for contract, cells in _rows(section)[1:]} == exercised_by
 
 
 def _links(text):

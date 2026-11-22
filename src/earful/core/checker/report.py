@@ -7,6 +7,8 @@ from collections.abc import Iterable
 from dataclasses import asdict, dataclass, field, replace
 from typing import TYPE_CHECKING, Any
 
+from .contracts import DECLARED
+
 if TYPE_CHECKING:
     from ..predicate import Predicate
 
@@ -20,16 +22,7 @@ SPLIT = "reading_split"  # the flag on a verdict that another reading makes wors
 Event = dict[str, Any]
 
 
-# Contract -> the rules a failed verdict of it can name (docs/contracts.md, section 6).
-RULES: dict[str, tuple[str, ...]] = {
-    "A1": ("rule", "in-flight"),
-    "A2": ("rule",),
-    "A3": ("rule",),
-    "M1": ("rule 2", "rule 3", "rule 4", "rule 5"),
-    "M2": ("rule a", "rule b", "rule c", "rule d", "rule e", "rule f"),
-    "L1": ("milestone 1", "milestone 2", "milestone 3"),
-    "L2": ("rule a", "rule b"),
-}
+RULES: dict[str, tuple[str, ...]] = {name: c.rules for name, c in DECLARED.items()}
 NOTHING, LOST = "nothing to judge", "evidence lost"
 # Why a verdict is missing -> its kind. With nothing to judge the verdict is not exercised;
 # with evidence lost it is unobservable, and the run fails unless the code is allowed.
@@ -48,39 +41,7 @@ CODES: dict[str, str] = {
     "no-stable-text": LOST,
     "tool-unwitnessed": LOST,
 }
-# Contract -> the codes a missing verdict of it can carry (docs/contracts.md, section 5).
-MISSING: dict[str, tuple[str, ...]] = {
-    "A1": ("outside-backend",),
-    "A2": ("outside-backend",),
-    "A3": (
-        "run-ended",
-        "outside-backend",
-        "audio-unattributed",
-        "readings-over-cap",
-        "word-start-unknown",
-    ),
-    "M1": (
-        "run-ended",
-        "no-memory-after",
-        "audio-unattributed",
-        "readings-over-cap",
-        "memory-unaligned",
-        "history-before-playout",
-    ),
-    "M2": ("no-stable-text", "tool-unwitnessed"),
-    "L1": ("run-ended", "audio-unattributed", "readings-over-cap", "tool-unwitnessed"),
-    "L2": ("no-origin", "no-interruption-point", "no-reply-under-way"),
-}
-# Contract -> what a run holds when the contract has an instance to judge.
-_EXERCISED_BY = {
-    "A1": "speech that retires an intent and whose transcript was delivered",
-    "A2": "write request for a declared intent",
-    "A3": "claim whose last word was played",
-    "M1": "reply or spoken text whose playout finished or was abandoned",
-    "M2": "model call",
-    "L1": "delivered speech that expects a reply",
-    "L2": "speech the VAD reported that is neither noise nor a backchannel",
-}
+MISSING: dict[str, tuple[str, ...]] = {name: c.codes for name, c in DECLARED.items()}
 
 
 class ContractFailure(AssertionError):
@@ -263,7 +224,9 @@ class Report:
             elif why:
                 out[contract] = f"had nothing to judge: {'; '.join(dict.fromkeys(why))}"
             else:
-                out[contract] = f"was not exercised: the run has no {_EXERCISED_BY[contract]}"
+                out[contract] = (
+                    f"was not exercised: the run has no {DECLARED[contract].exercised_by}"
+                )
         return out
 
     def assert_contracts(

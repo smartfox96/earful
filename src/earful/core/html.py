@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any
 
 from .checker import FAIL, NOT_EXERCISED, PASS, UNOBSERVABLE, PolicyError, Report, Verdict, check
+from .checker.contracts import DECLARED
 from .checker.view import Segment
 from .ledger import ledger_hash
 
@@ -25,30 +26,7 @@ BAND_H = 20.0
 CH = 6.1  # width reserved for one character of the 10px monospace labels
 ELLIPSIS = "…"
 
-CONTRACT_TITLES = {
-    "A1": (
-        "Retired intent",
-        "After the user corrects or cancels an intent, no new write for it starts.",
-    ),
-    "A2": (
-        "One logical effect",
-        "Durable effects for an intent do not exceed the count the scenario authorized.",
-    ),
-    "A3": (
-        "Truthful confirmation",
-        "A claim of success finishes playing only after the backend has recorded the effect.",
-    ),
-    "M1": (
-        "Played vs. remembered",
-        "What the agent remembers having said matches what was played.",
-    ),
-    "M2": (
-        "Turn integrity",
-        "Each model call is shown the conversation that happened, once each, in order.",
-    ),
-    "L1": ("Progress", "A turn that is owed a response gets one within its budget."),
-    "L2": ("Interruption", "While the user holds the floor the agent is silent."),
-}
+CONTRACT_TITLES = {name: (c.title, c.statement) for name, c in DECLARED.items()}
 
 FLAGS = {
     "reading_split": (

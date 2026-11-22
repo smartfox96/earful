@@ -187,10 +187,9 @@ down before the code.
    deliberate break and a clean control. Section 2.2 says which events may decide a
    verdict.
 2. Add `src/earful/core/checker/<name>.py` with a `check(view, policy)` that reads the
-   run through `View`. Register it in `_CHECKS` (`src/earful/core/checker/__init__.py`),
-   its policy in `POLICIES` (`src/earful/core/checker/policy.py`), its rules in `RULES`
-   and what exercises it in `_EXERCISED_BY` (`src/earful/core/checker/report.py`), and
-   its title in `CONTRACT_TITLES` (`src/earful/core/html.py`).
+   run through `View`, and declare the contract in `DECLARED`
+   (`src/earful/core/checker/contracts.py`): its title and statement, its policy class,
+   its rules, the codes a missing verdict can carry, and what exercises it.
 3. Test it three ways. The break and the control are scenarios in
    `tests/test_contract_breaks.py`. Hand-edited ledgers in `tests/test_checker.py` put a
    run on each side of every tolerance. `tests/mutants.py` gets a deliberate break for

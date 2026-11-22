@@ -148,6 +148,16 @@ def test_an_invalid_run_yields_no_verdicts(fixed):
     assert "reached the sink altered" in report.invalid[0]
 
 
+def test_each_declared_contract_is_checked_by_the_module_named_after_it():
+    from importlib import import_module
+
+    from earful.core.checker.contracts import DECLARED
+
+    for name in DECLARED:
+        module = import_module(f"earful.core.checker.{name.lower()}")
+        assert callable(module.check) and name in (module.__doc__ or ""), name
+
+
 CHECKER = Path(__file__).resolve().parents[1] / "src" / "earful" / "core" / "checker"
 
 

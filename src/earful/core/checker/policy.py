@@ -2,57 +2,18 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, fields
+from dataclasses import fields
 from typing import Any
+
+from .contracts import A1, A2, A3, DECLARED, L1, L2, M1, M2
 
 
 class PolicyError(ValueError):
     """A scenario declared a policy value the contract does not define, or of the wrong kind."""
 
 
-@dataclass(frozen=True)
-class A1:
-    in_flight: str = "may_finish"  # or "must_not_commit"
-    reissue_allowed: tuple[str, ...] = ()  # retired intents a correction may start again
+POLICIES: dict[str, type] = {name: contract.policy for name, contract in DECLARED.items()}
 
-
-@dataclass(frozen=True)
-class A2:
-    pass  # the authorized count is declared on the intent; the backend mode on the scenario
-
-
-@dataclass(frozen=True)
-class A3:
-    claim_point: str = "span_end"  # or "span_start"
-
-
-@dataclass(frozen=True)
-class M1:
-    # How much audio memory may run ahead of, or fall behind, what was played.
-    ahead_us: int = 1_000_000
-    behind_us: int = 1_000_000
-    check_interrupted_flag: bool = True
-
-
-@dataclass(frozen=True)
-class M2:
-    user_commit_lag_us: int = 1_000_000
-
-
-@dataclass(frozen=True)
-class L1:
-    slack_us: int = 1_000_000
-    max_steps: int = 4
-
-
-@dataclass(frozen=True)
-class L2:
-    stop_bound_us: int = 100_000
-    start_grace_us: int = 0
-    interruptions_allowed: bool = True
-
-
-POLICIES: dict[str, type] = {"A1": A1, "A2": A2, "A3": A3, "M1": M1, "M2": M2, "L1": L1, "L2": L2}
 
 _CHOICES = {
     ("A1", "in_flight"): ("may_finish", "must_not_commit"),
@@ -97,3 +58,18 @@ def parse_all(declared: dict[str, Any] | None) -> dict[str, Any]:
     if unknown:
         raise PolicyError(f"unknown contracts {unknown}; choose from {sorted(POLICIES)}")
     return {name: parse(name, declared.get(name)) for name in POLICIES}
+
+
+__all__ = [
+    "A1",
+    "A2",
+    "A3",
+    "L1",
+    "L2",
+    "M1",
+    "M2",
+    "POLICIES",
+    "PolicyError",
+    "parse",
+    "parse_all",
+]
