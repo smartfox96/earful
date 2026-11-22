@@ -2096,3 +2096,28 @@ def test_every_reference_bundle_is_what_its_manifest_says(directory):
         assert events[0]["data"]["framework"] == kept.manifest["framework"]
     assert kept.manifest["reduction"]["complete"] and kept.manifest["windows"]
     assert not any(w["instant"] for w in kept.manifest["windows"])
+
+
+def test_a_failure_measured_again_past_the_end_of_its_window_is_one_window():
+    """A window is located to 1 ms: the second case, 0.4 ms past the first window's end, finds
+    the same failure. Counted once, it leaves room within ``most`` for the other failure."""
+    fails = lambda at: 3_000_500 <= at <= 3_004_500 or 5_000_000 <= at <= 5_002_000
+    found = moved_to(fails, 3_001_000, 3_004_400, 5_001_000)
+    windows, unmeasured = found._measured(A2, most=2)
+    assert [(w.lo_us, w.hi_us) for w in windows] == [(3_001_000, 3_004_400), (5_000_000, 5_002_000)]
+    assert unmeasured == 0 and all(w.lo_end == w.hi_end == "passes" for w in windows)
+
+
+def test_the_shrinker_repeats_its_passes_until_none_removes_anything():
+    """The rule breaks while the question is asked, and either the booking is too or no delay
+    is declared. Only once the delay is gone can the booking go."""
+
+    def fails(case):
+        said = [s["transcript"] for s in case["speeches"]]
+        return WINDOW["transcript"] in said and (BOOK["transcript"] in said or not case["delays"])
+
+    case = a_case(BOOK, WINDOW, delays=[{"of": "llm.ttft", "nth": 1, "us": 500_000}])
+    reduced = shrink(case, answers(fails), A2)
+    assert [s["transcript"] for s in reduced.case["speeches"]] == [WINDOW["transcript"]]
+    assert reduced.case["delays"] == []
+    assert reduced.steps == ["removed 1 of 1 declared delays", "removed 1 of 2 speeches"]

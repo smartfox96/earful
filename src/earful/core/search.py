@@ -481,6 +481,22 @@ def window(
     return Window(variable, lo, hi, lo_end, hi_end, resolution_us, lo_why, hi_why)
 
 
+def _joined(one: Window, other: Window) -> Window:
+    """Two measurements of one window, as one: each end where it reaches further."""
+    lo = one if one.lo_us <= other.lo_us else other
+    hi = one if one.hi_us >= other.hi_us else other
+    return Window(
+        one.variable,
+        lo.lo_us,
+        hi.hi_us,
+        lo.lo_end,
+        hi.hi_end,
+        max(one.resolution_us, other.resolution_us),
+        lo.lo_unjudged,
+        hi.hi_unjudged,
+    )
+
+
 @dataclass
 class Tried:
     candidate: Candidate
@@ -654,6 +670,22 @@ class Exploration:
                 )
             except Spent:
                 cut += 1
+                continue
+            # A window is located to its resolution, so a breaking value just past the end of one
+            # already measured finds the same failure again: one window, counted once.
+            same = next(
+                (
+                    n
+                    for n, (b, w) in enumerate(measured)
+                    if b == tried.candidate.base
+                    and w.variable == variable
+                    and found.lo_us <= w.hi_us
+                    and w.lo_us <= found.hi_us
+                ),
+                None,
+            )
+            if same is not None:
+                measured[same] = (tried.candidate.base, _joined(measured[same][1], found))
                 continue
             measured.append((tried.candidate.base, found))
             if not found.instant:

@@ -1760,8 +1760,8 @@ MUTANTS = [
     Mutant(
         "shrink: faults are never removed",
         "src/earful/core/shrink.py",
-        ('        ("delays", "declared delays"),\n        ("faults", "faults"),\n    ):\n'),
-        ('        ("delays", "declared delays"),\n    ):\n'),
+        ('            ("delays", "declared delays"),\n            ("faults", "faults"),\n        ):\n'),
+        ('            ("delays", "declared delays"),\n        ):\n'),
         first="test_a_fault_is_a_difference_and_a_reduction_keeps_it_only_if_the_failure_needs_it",
     ),
     Mutant(
@@ -2194,8 +2194,8 @@ MUTANTS = [
     Mutant(
         "shrink: the hangup is never removed",
         "src/earful/core/shrink.py",
-        '    if current["hangup_us"] is not None and not spent() and breaks(cases.without_hangup(current)):\n',
-        "    if False:\n",
+        '        if current["hangup_us"] is not None and breaks(cases.without_hangup(current)):\n',
+        "        if False:\n",
         first="test_a_hangup_is_a_difference_and_a_reduction_keeps_it_only_if_the_failure_needs_it",
     ),
     Mutant(
@@ -4999,55 +4999,6 @@ MUTANTS = [
         first="test_where_the_clock_began_decides_nothing",
     ),
     Mutant(
-        "shrink: the hangup is tried after the speeches",
-        "src/earful/core/shrink.py",
-        (
-            '    if current["hangup_us"] is not None and not spent() and breaks(cases.without_hangup(current)):\n'
-            "        current = cases.without_hangup(current)\n"
-            '        steps.append("removed the hangup")\n'
-            "\n"
-            "    for name, plural in (\n"
-            '        ("speeches", "speeches"),\n'
-            '        ("delays", "declared delays"),\n'
-            '        ("faults", "faults"),\n'
-            "    ):\n"
-            "        items = current[name]\n"
-            "        if items and not spent():\n"
-            "\n"
-            "            def fails(keep: list[int], whole: dict[str, Any] = current, name: str = name) -> bool:\n"
-            "                return breaks(_keeping(whole, name, keep))\n"
-            "\n"
-            "            kept = ddmin(range(len(items)), fails)\n"
-            "            if len(kept) < len(items):\n"
-            "                current = _keeping(current, name, kept)\n"
-            '                steps.append(f"removed {len(items) - len(kept)} of {len(items)} {plural}")\n'
-            "\n"
-        ),
-        (
-            "    for name, plural in (\n"
-            '        ("speeches", "speeches"),\n'
-            '        ("delays", "declared delays"),\n'
-            '        ("faults", "faults"),\n'
-            "    ):\n"
-            "        items = current[name]\n"
-            "        if items and not spent():\n"
-            "\n"
-            "            def fails(keep: list[int], whole: dict[str, Any] = current, name: str = name) -> bool:\n"
-            "                return breaks(_keeping(whole, name, keep))\n"
-            "\n"
-            "            kept = ddmin(range(len(items)), fails)\n"
-            "            if len(kept) < len(items):\n"
-            "                current = _keeping(current, name, kept)\n"
-            '                steps.append(f"removed {len(items) - len(kept)} of {len(items)} {plural}")\n'
-            "\n"
-            '    if current["hangup_us"] is not None and not spent() and breaks(cases.without_hangup(current)):\n'
-            "        current = cases.without_hangup(current)\n"
-            '        steps.append("removed the hangup")\n'
-            "\n"
-        ),
-        first="test_a_reduced_case_still_fails_and_holds_nothing_the_failure_does_not_need or hangup_the_failure_does_not_need_keeps_no_speech",
-    ),
-    Mutant(
         "shrink: a time is settled on the one edge its window has",
         "src/earful/core/shrink.py",
         "        lo = aim = min(found.lo_us + MARGIN_US, found.hi_us)\n",
@@ -5794,5 +5745,26 @@ MUTANTS = [
         "                if context.unknown\n",
         "                if False\n",
         first="without_a_call_id_is_lost",
+    ),
+    Mutant(
+        "shrink: the passes run once",
+        "src/earful/core/shrink.py",
+        '                    steps.append(f"removed {len(items) - len(kept)} of {len(items)} {plural}")\n                    removed = True\n',
+        '                    steps.append(f"removed {len(items) - len(kept)} of {len(items)} {plural}")\n',
+        first="repeats_its_passes",
+    ),
+    Mutant(
+        "window: a failure measured again past a window's end is a window of its own",
+        "src/earful/core/search.py",
+        "            if same is not None:\n",
+        "            if False:\n",
+        first="past_the_end_of_its_window",
+    ),
+    Mutant(
+        "window: two measurements of one window keep the first one's upper end",
+        "src/earful/core/search.py",
+        "    hi = one if one.hi_us >= other.hi_us else other\n",
+        "    hi = one\n",
+        first="past_the_end_of_its_window",
     ),
 ]

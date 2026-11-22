@@ -354,7 +354,8 @@ keeps the step only if the run still breaks the same predicate.
 2. **Remove.** The hangup first, if the case still fails with a user who stays: a user
    who hangs up must have spoken, so a hangup keeps one speech in the case. Then ddmin
    again, over the speeches, then the declared delays, then the faults that remain, the
-   author's own included.
+   author's own included. Removing one of these can make another removable, so the round
+   repeats until it removes nothing.
 3. **Settle.** For each time that still differs from the author's, measure its window. If
    the failure has an edge along that time, put the time on the roundest value in the
    middle half of the window: a whole second if one is there, else half a second, a

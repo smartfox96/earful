@@ -363,25 +363,33 @@ def shrink(
                     "from the author's scenario"
                 )
 
-    if current["hangup_us"] is not None and not spent() and breaks(cases.without_hangup(current)):
-        current = cases.without_hangup(current)
-        steps.append("removed the hangup")
+    # Removing one kind of thing can make another removable, so the passes repeat until a
+    # whole round removes nothing.
+    removed = True
+    while removed and not spent():
+        removed = False
+        if current["hangup_us"] is not None and breaks(cases.without_hangup(current)):
+            current = cases.without_hangup(current)
+            steps.append("removed the hangup")
+            removed = True
+        for name, plural in (
+            ("speeches", "speeches"),
+            ("delays", "declared delays"),
+            ("faults", "faults"),
+        ):
+            items = current[name]
+            if items and not spent():
 
-    for name, plural in (
-        ("speeches", "speeches"),
-        ("delays", "declared delays"),
-        ("faults", "faults"),
-    ):
-        items = current[name]
-        if items and not spent():
+                def fails(
+                    keep: list[int], whole: dict[str, Any] = current, name: str = name
+                ) -> bool:
+                    return breaks(_keeping(whole, name, keep))
 
-            def fails(keep: list[int], whole: dict[str, Any] = current, name: str = name) -> bool:
-                return breaks(_keeping(whole, name, keep))
-
-            kept = ddmin(range(len(items)), fails)
-            if len(kept) < len(items):
-                current = _keeping(current, name, kept)
-                steps.append(f"removed {len(items) - len(kept)} of {len(items)} {plural}")
+                kept = ddmin(range(len(items)), fails)
+                if len(kept) < len(items):
+                    current = _keeping(current, name, kept)
+                    steps.append(f"removed {len(items) - len(kept)} of {len(items)} {plural}")
+                    removed = True
 
     def measured(variable: Variable) -> Window | None:
         """None if the budget ran out first: a window half measured is no measurement."""

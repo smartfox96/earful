@@ -95,6 +95,10 @@ formats have versions of their own
   interruption, or a reply held back, was judged. A search prints each contract's counts
   of pass, fail, nothing to judge and evidence lost, and a replay prints the code. The
   report format is `earful.report/2`: a finding carries `code`.
+- The shrinker repeats its passes until a whole round removes nothing, so a reduced case
+  holds nothing the failure does not need even where removing one thing frees another.
+  A failure a search measures again just past the end of a window it already measured
+  is that window, counted once.
 - M2 rule d loses its evidence for a tool that ran without a call id when the model asked
   for a call of that tool that nothing else answered: such a tool was passed over, and a
   context that dropped its result passed. A tool the application ran itself is not a
