@@ -7,7 +7,7 @@ description: Write and debug Earful tests for a voice agent built on LiveKit Age
 
 Earful runs the real framework on a virtual clock against a scripted user, model, voice
 and backend, checks seven contracts on what happened, and searches nearby timings and
-backend faults for a run that breaks one. No network, no API keys, no audio devices.
+backend faults for a run that breaks one. A run uses no network, API key or audio device.
 On LiveKit it runs the real `AgentSession`; on Pipecat, the bot's pipeline. A Pipecat bot
 is written as the LiveKit agent is, with the differences in "A Pipecat bot" below.
 

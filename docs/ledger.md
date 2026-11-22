@@ -1,6 +1,6 @@
 # Ledger
 
-Schema: **`earful.ledger/1`**, 17 November 2026.
+Schema: **`earful.ledger/1`**.
 
 A ledger is the complete record of one run. It is the only input to the checker
 (`docs/contracts.md`), so anything a contract needs must be in it. One JSON object per
@@ -194,7 +194,7 @@ and releases PCM after `ttfb_us` from the first complete word (`started_us`, an 
 time). An unfinished trailing word waits for more text or an input flush. Cancellation
 drops that fragment and finalizes the words already synthesized.
 
-There is one utterance per nonempty TTS input segment, not per sentence or word, and at
+There is one utterance per nonempty TTS input segment, and at
 most one attributed utterance per model call. On Pipecat a model reply is one utterance,
 whatever the number of audio contexts it is spoken in, and `ttfb_us` is waited once,
 before its first audio. Its metadata can follow `playout.started`:
@@ -437,10 +437,6 @@ run seeds Python's `random` module with the case's seed, so an identifier the ap
 draws from it repeats. One drawn from `uuid.uuid4` differs on every run, and the hash with
 it.
 
-Earful 0.1.1 and earlier replaced such a value wherever it appeared. A ledger that holds
-one in application data therefore hashes differently now. None of the reference ledgers
-does.
-
 ## Reference ledgers
 
 `tests/golden/` holds one normalized ledger per case and supported release. Every
@@ -461,7 +457,7 @@ differ only in when the session closes.
 
 ## Versioning
 
-`earful.ledger/1` is the format of the first release. An optional field can be added to
+`earful.ledger/1` is the ledger format. An optional field can be added to
 it without a new major version: readers ignore fields they do not know, and a field that
 is absent means what it meant before the field existed. Such an addition raises
 `schema_minor` once a release has shipped without it. A new kind, a new required field, a

@@ -6,9 +6,9 @@ Install with Python 3.11 or later and pytest available.
 pip install "earful[pipecat]"
 ```
 
-The quotes keep the shell from reading the brackets, and `[pipecat]` installs pipecat-ai
-alongside in the release Earful is tested with. Pipecat support is new in the first
-release after 0.1.1; from a checkout, `pip install -e ".[pipecat]"` does the same.
+`[pipecat]` installs pipecat-ai alongside, in the release Earful is tested with. From a
+checkout,
+`pip install -e ".[pipecat]"` does the same.
 
 ## What runs, and what does not
 
@@ -17,7 +17,7 @@ the input, which scripts the VAD, the speech-to-text, the model, the voice and t
 output. The context aggregators, the turn strategies, function dispatch and every
 processor of yours between them are Pipecat's and yours, and run as they are.
 
-What a scenario cannot do today:
+What a scenario cannot do:
 
 - Run a real service or transport. A pipeline that holds one is refused, with the
   processor's name.
@@ -471,7 +471,7 @@ test, by rule:
 With the key sent and the two rules allowed, both tests pass. A rule that is allowed
 still appears in the report, and any other rule still fails the test.
 
-Two more results of this kind are worth knowing before you search your own bot. With
+Two more results of this kind can appear in a search of your own bot. With
 `tts_word_timestamps=True`, Pipecat marks a reply complete once its last word starts, so
 a cut inside that word leaves it marked complete (M1 rule 5). A function call that is
 still running when the user speaks is cancelled, which is Pipecat's default

@@ -74,8 +74,8 @@ The `Case` class lists them with their defaults.
 
 The model is scripted. A reply depends only on the context the framework shows the
 model, so the same context gets the same reply in every run, and a reply changes only
-when the framework presents something different. That is what the memory contracts
-measure.
+when the framework presents something different. The memory contracts measure what
+the framework presents.
 
 `ScriptedModel` writes the model as ordered rules. The first rule whose condition holds
 gives the reply. `otherwise` gives the reply when none does. A context that no rule
@@ -135,7 +135,7 @@ def policy(items: list[dict]) -> Reply:
 
 ## 3. Side effects
 
-Contracts A1 to A3 are about durable effects: a booking, an order, a refund. Earful
+Contracts A1 to A3 are about durable effects, such as a booking. Earful
 records them in its own backend, separately from what any tool returns, and a search
 makes that backend slow, failing or lossy. The agent's writes have to reach it. There are
 two ways, and neither changes how the agent is constructed.
@@ -426,9 +426,8 @@ processes cannot be started. A number, on the command line or in the call, is al
 as given.
 
 `EARFUL_WORKERS=N` in the environment gives `auto`, and `earful search`, a number to use
-in place of one per processor. Set it where several test runs share a machine: each would
-otherwise start a worker for every processor, which makes the machine hot and nothing
-faster. `EARFUL_WORKERS=0` keeps every search in its own process.
+in place of one per processor. Set it where several test runs share a machine, since each
+otherwise starts a worker for every processor. `EARFUL_WORKERS=0` keeps every search in its own process.
 
 `earful.keep(found, "A3/rule")` without a directory writes the bundle under the test's
 evidence directory.

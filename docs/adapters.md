@@ -4,25 +4,23 @@ An adapter runs one voice framework on Earful's virtual clock, in place of its p
 and writes what happened as a ledger. Everything else is shared: the contracts, the
 search, the shrinker, the bundle, the report and the command line read the ledger and the
 case data, and never import a framework. Two adapters exist, `earful.livekit` and
-`earful.pipecat`. Read them side by side before starting a third: where they differ is
-where the framework does.
+`earful.pipecat`. Read both before starting a third.
 
-## What an adapter is held to
+## The ledger it writes
 
-The ledger. [`ledger.md`](ledger.md) defines every event, and section 8 of
+[`ledger.md`](ledger.md) defines every event, and section 8 of
 [`contracts.md`](contracts.md#8-what-the-ledger-must-record) lists what the contracts
-need from it. A run that leaves something out is not judged more kindly: the event's
-absence is read as the thing not having happened, or the run is invalid. So an adapter
-is done when its ledgers validate (`earful.core.schema`), the checker gives the verdicts
-its reference cases are known to have, and the same case gives the same ledger in every
-run and on every platform.
+need from it. An event left out reads as the thing not having happened, or makes the run
+invalid. An adapter is done when its ledgers validate (`earful.core.schema`), the checker
+gives its reference cases the verdicts they are known to have, and the same case gives
+the same ledger in every run and on every platform.
 
 Two rules decide most of the design:
 
-- **The reference record does not come from the framework.** When the user started
-  speaking, what played and when, what the model was asked: each is written by the
-  scripted user, the output or the scripted model, from what they did. The framework's
-  own account goes in `fw.*` events, which explain a run and decide no verdict.
+- **The reference record comes from Earful's side.** The scripted user, model and voice,
+  and the output, each write what they did. The framework's own account goes in `fw.*`
+  events, which explain a run and decide no verdict. An adapter replaces providers and
+  the clock, and leaves the framework's behaviour alone.
 - **The run stays on the virtual clock.** Every time the framework reads, every sleep and
   every timeout runs on `earful.scripted.clock`. Work that leaves the clock, a thread or
   a socket, makes the run invalid and says so, because its timing is real and unrepeatable.
@@ -103,12 +101,3 @@ line imports no framework: `tests/test_core_boundary.py` holds every test file t
 Each new rule of the adapter gets a test on its edge and a deliberate break in
 `tests/mutants.py` that the test catches. The contracts' own tests read ledgers and need
 no framework.
-
-## What not to do
-
-- Do not read the framework's account to decide a verdict. Write it as `fw.*`, and get
-  the reference from the scripted user, model, voice and output.
-- Do not pass through an option the contracts do not model. Refuse it with what to use
-  instead.
-- Do not patch the framework's behaviour to make a contract pass. An adapter replaces
-  providers and the clock; what the framework does with them is what is tested.

@@ -355,11 +355,10 @@ audio time. With one second each way an ordinary interruption passes. A reply re
 in full after two seconds of playout fails, and so does one that is not remembered at
 all. A scenario that needs exact agreement sets both tolerances to 0.
 
-The scripted voice gives each word audio in proportion to its letters. A voice that gave
-every word the same length, as an earlier version of the harness did, is unlike any real
-one, and made the framework's estimate look two words too eager on sentences with short
-words. With real voices the drift will differ again; the tolerance is a declared bound,
-and the measured drift is on every verdict.
+The scripted voice gives each word audio in proportion to its letters. A voice that gives
+every word the same length is unlike any real one, and makes the framework's estimate look
+two words too eager on sentences with short words. With real voices the drift differs;
+the tolerance is a declared bound, and the measured drift is on every verdict.
 
 ### M2. Turn integrity
 
@@ -470,8 +469,8 @@ command. How fast an output device obeys it is outside the rule.
 
 ## 7. Attributing a failure
 
-The checker reports violations. It does not assign blame. Before a failure is published
-or reported upstream, a person classifies it as one of:
+The checker reports violations. Before a failure is published or reported upstream, a
+person classifies it as one of:
 
 - **framework defect**: the framework broke a guarantee it documents;
 - **hazardous documented default**: the framework behaved as documented and the default is
@@ -577,9 +576,9 @@ Each is a choice with a reasonable alternative, recorded with its reason.
 18. **An order nothing in the scenario decides is not held against the framework**
     (section 2.3). Two such instants occur: a stop arriving as the audio ends, and a tool
     returning as a call for a later turn is made. Deciding by `seq` is repeatable on a
-    virtual clock and tells a user nothing about their agent. The exception is narrow. In
-    rule d it covers only a call for a later turn, so a follow-up call that drops its
-    tool's result is caught.
+    virtual clock and tells a user nothing about their agent. In rule d the exception covers
+    only a call for a later turn, so a follow-up call that drops its tool's result is
+    caught.
 19. **Identical words are read the kindest way** (section 2.5). A framework can generate a
     reply again for the same turn, and a scripted model gives the same words. Which copy
     was voiced or kept cannot be observed, in the ledger or in production, and nothing a
@@ -691,14 +690,14 @@ What fails:
   One of the 27, `book_then_interrupt` with the second speech at 8.40 s, breaks the rule
   on the real clock too, in two runs of two. It is read as a defect of those two
   releases that a later release repaired, of the same kind as the second known defect.
-  It has no page under `docs/cases/` yet.
+  It has no page under `docs/cases/`.
 - **An output that cannot pause**, on every release: L2 rule b in the 3 runs of that
   shape in which the second speech starts at 3.00 to 3.10 s. A reply to the turn before
   starts 150 ms after the user took the floor, and is cleared once the interruption is
   recognized. The repaired releases keep such a reply from starting by pausing the
   output first, which this output cannot do. The real clock agrees on 1.8.12. It is read
-  as a consequence of the setting, and as a question for the framework's maintainers
-  more than a defect.
+  as a consequence of the setting, and left as a question for the framework's
+  maintainers.
 
 No other rule fails on any release, and no verdict on any release lost its evidence:
 where a framework generates a reply again and the scripted model gives the same words,

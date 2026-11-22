@@ -1,18 +1,15 @@
 # Scripting the model
 
-A scripted model gives the same reply to the same context, every time. The contracts
-judge the framework against what the model asked for, so a test shows a defect only in
-behaviour its script models: the quickstart finds a double booking because its scripted
-model tries a failed call again. This page shows the habits of real models worth
-scripting, and how. [`testing.md`](testing.md#2-the-model) defines `ScriptedModel` and
-its conditions.
+A scripted model gives the same reply to the same context in every run. A test shows a
+defect only in behaviour its script models: the quickstart finds a double booking because
+its scripted model tries a failed call again. [`testing.md`](testing.md#2-the-model)
+defines `ScriptedModel` and its conditions.
 
-## Read the context, not the clock
+## Rules read the context
 
-A rule tests the context the framework shows the model: the user's turns, the tool
-results, the assistant's earlier turns. It never counts model calls. A search moves the
-user's speeches and adds faults, so call 3 of one run is call 2 or call 4 of another,
-and a rule keyed on the call's number replies to the wrong question.
+A rule tests the context the framework shows the model, and never counts model calls. A
+search moves the user's speeches and adds faults, so call 3 of one run is call 2 or call 4
+of another, and a rule keyed on the call's number replies to the wrong question.
 
 ```python
 from earful.livekit import ScriptedModel, tool_succeeded, user_ever_said
@@ -65,10 +62,10 @@ model = (
 )
 ```
 
-This is the habit that lets a search find a write made twice. A write that commits while
-its caller is told it timed out is an error to the model, the model tries again, and the
-second call writes again unless it carries an idempotency key the backend honours (A2).
-A model scripted never to retry hides that.
+A search finds a write made twice only with a model that retries. A write that commits
+while its caller is told it timed out is an error to the model, the model tries again,
+and the second call writes again unless it carries an idempotency key the backend
+honours (A2).
 
 `tool_failed()` holds when every result of the tool is an error, as the framework marked
 it. `context.tool_results` gives each result with its `name`, its `output` and whether it
@@ -130,7 +127,6 @@ values you give are where it starts.
 
 ## What a script cannot stand for
 
-A scripted model does not improvise, misunderstand or hallucinate, and it never hears
-audio. A test shows what the framework does with the model you scripted. What a real
-model would have done in that context is outside it
-([`limits.md`](limits.md#what-is-tested)).
+A scripted model never departs from its rules and never hears audio. A test shows what
+the framework does with the model you scripted. What a real model would have done in
+that context is outside it ([`limits.md`](limits.md#what-is-tested)).

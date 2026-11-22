@@ -145,4 +145,4 @@ its own.
   and the backend are the same scripted ones.
 - The case produces the behaviour the issue describes. It does not use the reporter's
   agent.
-- Six releases were tested. 1.6.6 is the first of them that passes.
+- The case runs on the six supported releases. 1.6.6 is the first of them that passes.

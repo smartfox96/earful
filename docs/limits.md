@@ -199,6 +199,6 @@ it. [`compatibility.md`](compatibility.md#livekit-agents) says which releases ha
 
 ## The report
 
-The report draws one run. Its framework lane is explanation and decides no verdict, and
-the page was checked in Chromium
+The report draws one run. Its framework lane explains the run and decides no verdict.
+The page is tested in Chromium only
 ([`report.md`](report.md#what-the-report-does-not-claim)).

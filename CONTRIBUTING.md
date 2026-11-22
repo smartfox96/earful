@@ -114,7 +114,7 @@ behaviour, add the break that removes it and name the test that should catch it.
 the named tests are run against a break, which is what keeps the whole run short; a break
 that some other test catches fails the run as misnamed. When you move code a break is
 anchored on, or rename a test a break names, `scripts/lint.sh` fails until the break is
-brought along. A break that no test can catch is a sign the code it breaks is not needed.
+brought along. Code whose break no test can catch is not needed.
 
 **Tests over a second are marked `slow`.** `pytest -m "not slow"` is the loop to work in.
 

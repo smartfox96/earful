@@ -480,7 +480,7 @@ and the third is what `keep` raises.
 ```
 
 The generated model calls the tool again after a failure, and no tool body runs, so the
-second call writes twice. This is the test doing its work. If the tool sends an
+second call writes twice, which is the failure the test exists to find. If the tool sends an
 idempotency key its service honours, declare both in the file: `Effect(..., key=...)`
 for the tool and `backend_mode="keyed"` on the case.
 

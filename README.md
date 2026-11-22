@@ -23,8 +23,7 @@ The user, the model and the voice are scripted, so a test shows a failure only i
 behaviour its script models. The quickstart finds a double booking because its scripted
 model tries a failed tool call again.
 
-For Pipecat, use Python 3.11 or later and `pip install "earful[pipecat]"`. Pipecat
-support is new in the first release after 0.1.1. The
+For Pipecat, use Python 3.11 or later and `pip install "earful[pipecat]"`. The
 [Pipecat quickstart](https://github.com/smartfox96/earful/blob/main/docs/pipecat.md)
 walks through running a greeting in pytest and inspecting its ledger from the command line.
 
@@ -38,8 +37,7 @@ The two files below are in
 pip install "earful[livekit]"
 ```
 
-The quotes keep the shell from reading the brackets, and `[livekit]` installs
-livekit-agents alongside in a release Earful is tested with.
+`[livekit]` installs livekit-agents alongside, in a release Earful is tested with.
 
 **1. An agent.** This one takes restaurant bookings. It is handed the service it books
 with and knows nothing of Earful. Save it as `agent.py`.
@@ -273,9 +271,8 @@ Each contract is decided from the ledger alone ([`docs/contracts.md`](https://gi
 
 A verdict is pass or fail, or, when it cannot be judged, not exercised (nothing to judge)
 or unobservable (evidence lost), with a code that says why. A failed contract is evidence about one run
-against what the test declared. Whether it is a defect of the framework, of the
-application or of the test is a separate question, and `docs/contracts.md` says how to
-answer it.
+against what the test declared. `docs/contracts.md` says how to decide whether it is
+a defect of the framework, of the application or of the test.
 
 ## What it is not
 
@@ -287,8 +284,8 @@ network, a client buffer or what a caller heard. It does not record production c
 
 ## Two known defects, reproduced
 
-Both were found by the same search and are checked by the same contracts on every
-supported LiveKit release. Both also break the same rules when the reduced case is run on the
+The same search finds both, and the same contracts check them on every supported
+LiveKit release. Both also break the same rules when the reduced case is run on the
 real clock (`earful crosscheck`).
 
 | Issue | What happens | Fails on | Passes on |

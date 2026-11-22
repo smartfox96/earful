@@ -448,7 +448,7 @@ A bundle that fails a check is refused with one line that names the file. `earfu
 earful: failures/lk-1.8.13.booking.A2-rule/minimal.case.json is not the case the manifest records: its digest is 5d0c…, and the manifest has e41a…
 ```
 
-`case_digest` was added in `schema_minor` 1. A bundle written before it is still read. Its
+`case_digest` is at `schema_minor` 1, and a manifest without it is read. Its
 case files cannot be checked, and a replay says so.
 
 The files are checked against the manifest. The manifest's predicate must be a rule some
@@ -474,7 +474,7 @@ damaged or left out. They do not make a bundle from an unknown source safe to re
 - **scenario code changed**: the digest of the scenario's module differs from the one
   recorded. The bundle then tests something other than what was found.
 - **unverified**: the case files the manifest records no digest of. Empty unless the
-  bundle was written before `case_digest`.
+  manifest has no `case_digest`.
 
 On the release it was found on, a bundle is reproduced, repeatable and identical, on any
 platform. On a release that repaired the defect it is clean and repeatable. That pair is
