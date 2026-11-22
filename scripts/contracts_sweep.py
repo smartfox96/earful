@@ -357,6 +357,7 @@ def run_one(job):
             "outcome": v.outcome,
             "instance": v.instance,
             "rules": sorted({f.rule for f in v.findings}),
+            "codes": sorted({f.code for f in v.findings if f.code}),
             "detail": v.findings[0].detail if v.findings else "",
         }
         for name, res in report.results.items()
@@ -411,21 +412,22 @@ if __name__ == "__main__":
             results[family].append((at, res))
 
     runs = sum(len(r) for r in results.values())
+    judged = ("fail", "unobservable")  # a verdict with nothing to judge is no finding
     clean = sum(
         1
         for r in results.values()
         for _at, res in r
-        if not res.get("rows") and "invalid" not in res
+        if "invalid" not in res and not any(row["outcome"] in judged for row in res["rows"])
     )
     print(
         f"livekit-agents {lk.__version__}: {runs} runs in {len(families)} families, step {step} s; "
-        f"{clean} with every verdict a pass"
+        f"{clean} with no verdict failed or lost"
     )
     kinds = defaultdict(set)
     for family, family_runs in results.items():
         for at, res in family_runs:
             for row in res.get("rows", []):
-                what = "/".join(row["rules"]) if row["outcome"] == "fail" else ""
+                what = "/".join(row["rules"] if row["outcome"] == "fail" else row["codes"])
                 kinds[(row["outcome"], row["contract"], what)].add((family, at))
     for (outcome, contract, what), where in sorted(kinds.items()):
         families_hit = len({f for f, _at in where})
@@ -443,6 +445,8 @@ if __name__ == "__main__":
                 continue
             drift = max(drift, res["drift_us"])
             for row in res["rows"]:
+                if row["outcome"] not in judged:
+                    continue  # counted above, and listed only where it is a finding
                 key = (
                     row["contract"],
                     row["outcome"],

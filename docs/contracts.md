@@ -24,8 +24,19 @@ the ledger: it imports neither the scenario nor the framework under test.
 - L2 rule b does not count a gap in a streaming buffer as a reply stopping or starting.
 - A1, A2 and A3 are unobservable for a tool call that leaves nothing in the backend
   (section 2.6).
-- L1 is unobservable for a milestone that came due at the instant the scenario ended,
-  and gives `silenced_by_a_tool` only to a turn that got no spoken reply.
+- L1 has nothing to judge for a milestone that came due at the instant the scenario
+  ended, and gives `silenced_by_a_tool` only to a turn that got no spoken reply.
+- A verdict that cannot be judged carries a code (section 5). With nothing to judge it is
+  not exercised; with evidence lost it is unobservable, and a run fails on it unless the
+  code is allowed.
+- L2 has nothing to judge for a speech with no reply under way or waiting to play, and
+  rule a holds a reply that starts at the interruption point itself to the bound.
+- M1 rule 2 fails a text that played to its end and is absent from memory, whatever
+  `behind_us` is.
+- The history the agent starts with is left out of every context (section 4), and a
+  text could be a reply altered on its way to the voice only if the two share a word.
+- M2 rule d loses its evidence for a tool that ran without a call id, where the model
+  asked for a call of that tool that nothing else answered.
 
 A bundle kept under version 1 is still replayed. It is judged by version 2, and the
 replay says so.
@@ -746,7 +757,9 @@ interruption threshold, an output that cannot pause, a slow recognizer, a long
 endpointing delay, a greeting, a user who pauses mid-sentence and a user who goes on
 speaking. The moving speech starts as close to the one before it as it can, so the
 sweeps cover speech that resumes inside the VAD's silence window. That is 3 441 runs on
-each release.
+each release. L2 has nothing to judge for at least one speech in 3 371 of them: the first
+speech of a shape, with no reply under way, and the moving speech where it lands while
+nothing plays.
 
 What fails:
 
@@ -770,9 +783,10 @@ What fails:
   as a consequence of the setting, and as a question for the framework's maintainers
   more than a defect.
 
-No other rule fails on any release, and no verdict on any release is unobservable: where
-a framework generates a reply again and the scripted model gives the same words, the run
-is read as section 2.5 describes.
+No other rule fails on any release, and no verdict on any release lost its evidence:
+where a framework generates a reply again and the scripted model gives the same words,
+the run is read as section 2.5 describes. These figures were measured again on 22
+November 2026, after the changes listed at the top of this page, and none moved.
 
 A failure that has not been classified (section 7) is not reported here. The sweep is
 how such results are found; they are published once someone has reproduced them
