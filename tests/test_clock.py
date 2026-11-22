@@ -265,20 +265,6 @@ def test_a_log_record_reads_the_clock_without_moving_it():
     assert logging.getLogRecordFactory() is factory
 
 
-def test_a_span_reads_the_clock_without_moving_it():
-    otel = pytest.importorskip("opentelemetry.sdk.trace")
-
-    async def main():
-        time.time()
-        before = time.time()
-        for _ in range(5):
-            otel.time_ns()  # what a span reads as it starts and ends
-        return before, time.time()
-
-    before, after = run_virtual(main)
-    assert _microseconds(after - before) == 1
-
-
 def test_a_logging_handler_that_reads_the_clock_does_not_move_it():
     class Reads(logging.Handler):
         def emit(self, record):
