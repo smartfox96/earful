@@ -118,3 +118,17 @@ def test_a_framework_warning_is_counted_whatever_its_logger_lets_through(levels,
     assert seen.records == ["the framework warns"] * shown
     expected = {name: (levels.get(name, level), h, p) for name, (level, h, p) in before.items()}
     assert after == expected  # every level, handler and propagate flag is as it was
+
+
+@pytest.mark.parametrize("fault", ["backend.error", "backend.timeout"])
+def test_a_declared_fault_is_logged_in_one_line(fault, caplog):
+    from test_inline import READS_THE_ERROR, booking
+
+    from earful.livekit import Fault
+
+    with caplog.at_level(logging.WARNING):
+        declared = Fault(fault, 1) if fault == "backend.error" else Fault(fault, 1, 2.0)
+        run_case(booking(READS_THE_ERROR, faults=[declared]))
+    (record,) = [r for r in caplog.records if r.name.startswith("livekit.agents")]
+    assert record.levelno == logging.ERROR and record.exc_info is None
+    assert record.getMessage().startswith("exception occurred while executing tool: write 1 ")

@@ -16,7 +16,7 @@ from livekit import rtc
 from livekit.agents import utils
 
 from ..core import backend as backends
-from ..core.backend import BackendMode, Effect, EffectBackend
+from ..core.backend import BackendError, BackendMode, BackendTimeout, Effect, EffectBackend
 from ..core.checker import Report, check
 from ..core.ledger import Ledger, ledger_hash
 from ..core.predicate import Predicate
@@ -441,6 +441,12 @@ class _WarningCollector(logging.Handler):
             self.messages.append(f"{record.name}: {record.getMessage()}")
         if record.levelno < self._shown(record.name):
             return
+        raised = record.exc_info[1] if record.exc_info else None
+        if isinstance(raised, (BackendError, BackendTimeout)):  # a fault the scenario declared
+            record = logging.makeLogRecord(
+                {**record.__dict__, "msg": f"{record.getMessage()}: {raised}", "args": None}
+            )
+            record.exc_info = record.exc_text = None
         # As propagation would, with this handler found, so Python's last resort is not used.
         handlers, above = self._handlers, self._logger.parent if self._propagate else None
         while True:

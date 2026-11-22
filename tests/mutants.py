@@ -1525,11 +1525,8 @@ MUTANTS = [
     Mutant(
         "cli: a crash of the scenario's code in a run is not caught",
         "src/earful/cli.py",
-        (
-            "        with _running(args.scenario):\n"
-            "            result = adapter.run(source, data=case, seed=args.seed)\n"
-        ),
-        ("        if True:\n            result = adapter.run(source, data=case, seed=args.seed)\n"),
+        ("        with _running(args.scenario), warnings.catch_warnings():\n"),
+        ("        with warnings.catch_warnings():\n"),
         first="own_code_raises_during_a_run",
     ),
     Mutant(
@@ -3690,8 +3687,8 @@ MUTANTS = [
     Mutant(
         "cli: what a run may break is checked once it has run",
         "src/earful/cli.py",
-        "    allow, require = _asked(args)\n    case = _case(args.case)\n    adapter, source = _scenario(args.scenario)\n    try:\n        with _running(args.scenario):\n",
-        "    case = _case(args.case)\n    adapter, source = _scenario(args.scenario)\n    allow, require = _asked(args)\n    try:\n        with _running(args.scenario):\n",
+        "    allow, require = _asked(args)\n    case = _case(args.case)\n    adapter, source = _scenario(args.scenario)\n    try:\n        with _running(args.scenario), warnings",
+        "    case = _case(args.case)\n    adapter, source = _scenario(args.scenario)\n    allow, require = _asked(args)\n    try:\n        with _running(args.scenario), warnings",
         first="does_not_exist_is_refused_before_anything_runs",
     ),
     Mutant(
@@ -5888,5 +5885,12 @@ MUTANTS = [
         '    "llm.ttft": ("llm.request", "model call"),\n',
         "",
         first="unapplied",
+    ),
+    Mutant(
+        "livekit: a declared fault is logged with its traceback",
+        "src/earful/livekit/harness.py",
+        "        if isinstance(raised, (BackendError, BackendTimeout)):  # a fault the scenario declared\n",
+        "        if False:\n",
+        first="declared_fault_is_logged_in_one_line",
     ),
 ]
