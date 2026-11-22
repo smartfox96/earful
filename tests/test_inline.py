@@ -1,6 +1,7 @@
 """A scenario built in a test: run and searched in process, refused where it needs a name."""
 
 import hashlib
+import os
 import sys
 from concurrent.futures.process import BrokenProcessPool
 
@@ -72,6 +73,30 @@ def pools(monkeypatch):
 
     monkeypatch.setattr(scenario, "pool", counted)
     return started
+
+
+def test_a_search_nobody_gave_a_number_for_gets_a_worker_per_processor_where_it_can(monkeypatch):
+    """Where workers cannot be started, it runs in this process; a number given is held to."""
+    monkeypatch.delenv("EARFUL_WORKERS", raising=False)
+    monkeypatch.setattr(os, "cpu_count", lambda: 6)
+    started = []
+
+    def refused(workers=None):
+        started.append(workers)
+        raise PermissionError(13, "Permission denied")
+
+    monkeypatch.setattr(scenario, "pool", refused)
+    narrow = {"variables": (), "faults": ["backend.error"], "words": False}
+    importable = "breaks:as_written_confirms_a_failed_booking"
+    assert explore(importable, **narrow).tried  # judged here, after the pool was refused
+    explore(booking(READS_THE_ERROR), **narrow)  # built inline: this process
+    monkeypatch.setattr(os, "cpu_count", lambda: 1)  # one worker is no faster than this process
+    explore(importable, **narrow)
+    monkeypatch.setenv("EARFUL_WORKERS", "3")
+    explore(importable, **narrow)
+    assert started == [6, 3]
+    with pytest.raises(WorkersUnavailable):
+        explore(importable, workers=2, **narrow)
 
 
 def test_a_case_built_in_a_test_runs_and_its_contracts_are_asserted():
@@ -352,9 +377,13 @@ def test_a_search_does_not_fill_the_log_with_the_frameworks_own_records(caplog):
     assert logging.getLogger("livekit").propagate  # and left logging as it found it
 
 
-def test_a_scenario_with_a_name_runs_in_this_process_unless_workers_are_asked_for(pools):
+def test_a_scenario_with_a_name_runs_in_this_process_when_workers_0_is_asked_for(pools):
     found = explore(
-        as_written_confirms_a_failed_booking, variables=(), faults=["backend.error"], words=False
+        as_written_confirms_a_failed_booking,
+        workers=0,
+        variables=(),
+        faults=["backend.error"],
+        words=False,
     )
     assert found.predicates() == [CONFIRMED_BUT_NOT_DONE] and pools == []
     with pytest.raises(ValueError, match="number of processes"):

@@ -119,7 +119,7 @@ class AdapterAPI(Generic[Case, RunResult]):
         *,
         data: dict[str, Any] | None = None,
         seed: int | None = None,
-        workers: int = 0,
+        workers: int | None = None,
         variables: Iterable[str] = search.DEFAULT_VARIABLES,
         faults: Iterable[str] = cases.FAULT_KINDS,
         pairs: bool = False,
@@ -131,11 +131,32 @@ class AdapterAPI(Generic[Case, RunResult]):
         planned: Callable[[search.Plan], None] | None = None,
     ) -> search.Exploration:
         """Search a scenario for the timings and faults at which it breaks a contract.
-        ``workers`` above 0 runs cases in that many processes and needs an importable scenario.
+        ``workers`` above 0 runs cases in that many processes and needs an importable scenario;
+        0 runs them in this process. Left out, an importable scenario gets one per processor,
+        or this process where workers cannot start.
         ``max_runs`` stops the search at that many runs, with a result that is not ``complete``.
         ``planned`` is told how many cases are about to run.
         Raises ``ValueError`` for a bad argument, ``WorkersUnavailable`` if workers cannot run."""
         found = self.scenario.Scenario.of(source)
+        if workers is None:
+            passed: dict[str, Any] = {
+                "data": data,
+                "seed": seed,
+                "variables": variables,
+                "faults": faults,
+                "pairs": pairs,
+                "profiles": profiles,
+                "speeches": speeches,
+                "moments": moments,
+                "words": words,
+                "max_runs": max_runs,
+                "planned": planned,
+            }
+            auto = self._suited(found.reference)
+            if auto:
+                with contextlib.suppress(WorkersUnavailable):
+                    return self.explore(source, workers=auto, **passed)
+            return self.explore(source, workers=0, **passed)
         if workers < 0:
             raise ValueError(f"workers is a number of processes, 0 for this one; got {workers}")
         if workers:
@@ -198,6 +219,18 @@ class AdapterAPI(Generic[Case, RunResult]):
                 "from standard input or an interactive session. workers=0 runs the search "
                 "in this process"
             ) from exc
+
+    def _suited(self, reference: str | None) -> int:
+        """Workers for a search that names no number: one per processor for a scenario that
+        can be imported, and none where one worker would be no faster than this process."""
+        if reference is None:
+            return 0
+        try:
+            self.scenario.importable(reference, "search in worker processes")
+        except ValueError:
+            return 0
+        workers = search.default_workers()
+        return workers if workers > 1 else 0
 
     def cross_check(
         self,

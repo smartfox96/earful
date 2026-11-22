@@ -326,20 +326,23 @@ A scenario is given in one of three forms.
 | A function that returns a `Case`, defined in a test or as a lambda | No | No |
 | A function at the top level of a module, passed as the function or as `"module:function"` | Yes | Yes |
 
-`explore` runs every form in the process that calls it unless workers are asked for. A
-worker process and a saved bundle both build the scenario again from its name, so both
-need a scenario that can be imported. `explore(case, workers=4)` and `keep(...)` refuse one that cannot,
-before anything runs, and say what to change. A search also checks what it is asked for
+`explore` without `workers` gives a scenario that can be imported one worker process per
+processor, and runs the other forms in the process that calls it. A worker process and a
+saved bundle both build the scenario again from its name, so both need a scenario that
+can be imported. `explore(case, workers=4)` and `keep(...)` refuse one that cannot, before
+anything runs, and say what to change. A search also checks what it is asked for
 (the case, the variables, the faults) before it starts a worker, and raises
 `WorkersUnavailable` where worker processes cannot be started at all.
 
-`explore(scenario, workers=N)` runs the cases in N worker processes. On a 15-core machine
+`explore(scenario, workers=N)` runs the cases in N worker processes, and `workers=0` in the
+process that calls it. On a 15-core machine
 the 857 cases of section 5 take 18 s in the process of the test and 5 s in 15 workers. The
 workers are started for the search and stopped when it ends, so each search runs the
 scenario's code as it is at that moment. Each worker is a fresh interpreter that imports
 the main module of the process that started it, so a script that searches with workers
-needs the `if __name__ == "__main__":` guard. Under pytest nothing is needed, and the
-`earful` fixture starts the workers by itself (section 8).
+needs the `if __name__ == "__main__":` guard. Where workers cannot be started, a search that
+names no number runs in the process that calls it. Under pytest nothing is needed
+(section 8).
 
 Passed as a function, a scenario is built anew for each run. Passed as a `Case`, it is
 copied for each run: its agent is built by its own factory each time, and its policy is

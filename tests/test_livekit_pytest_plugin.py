@@ -156,13 +156,21 @@ def test_the_evidence_goes_where_the_command_line_says(project, tmp_path):
     assert not (project.path / ".earful").exists()
 
 
-def test_a_search_uses_the_workers_the_command_line_gave_unless_it_names_its_own(
-    monkeypatch, tmp_path
-):
-    asked = []
+IMPORTABLE = "breaks:as_written_confirms_a_failed_booking"
+
+
+@pytest.fixture
+def asked(monkeypatch):
+    """The options each search the fixture starts is given."""
+    monkeypatch.setattr(os, "cpu_count", lambda: 6)  # so no number given is the default by chance
+    given = []
     monkeypatch.setattr(
-        adapter, "explore", lambda scenario, **options: asked.append(options) or "found"
+        adapter, "explore", lambda scenario, **options: given.append(options) or "found"
     )
+    return given
+
+
+def test_a_search_uses_the_workers_the_command_line_gave_unless_it_names_its_own(asked, tmp_path):
     helper = Earful(tmp_path, workers=4)
     assert helper.explore(IMPORTABLE, words=False) == "found"
     helper.explore(IMPORTABLE, workers=0, variables=["llm.ttft"])
@@ -172,93 +180,19 @@ def test_a_search_uses_the_workers_the_command_line_gave_unless_it_names_its_own
     assert helper.searches == ["found", "found"]
 
 
-IMPORTABLE = "breaks:as_written_confirms_a_failed_booking"
-
-
-@pytest.fixture
-def processors(monkeypatch):
-    monkeypatch.delenv("EARFUL_WORKERS", raising=False)
-    monkeypatch.setattr(os, "cpu_count", lambda: 6)
-    return monkeypatch
-
-
-def test_a_search_nobody_gave_a_number_for_gets_a_worker_per_processor_if_it_can_be_imported(
-    processors, tmp_path
-):
-    monkeypatch = processors
-    asked = []
-    monkeypatch.setattr(
-        adapter, "explore", lambda scenario, **options: asked.append(options) or "found"
-    )
+def test_a_search_nobody_gave_a_number_for_leaves_it_to_the_adapter(asked, tmp_path):
     helper = Earful(tmp_path, workers=None)
-    function = adapter.Scenario.of(IMPORTABLE).make
-    helper.explore(IMPORTABLE, words=False)
-    helper.explore(function)
-    # A Case, and a function with no name of its own, can be built only where they are.
-    helper.explore(function())
-    helper.explore(lambda: function())
-    helper.explore(IMPORTABLE, workers=2)
-    assert [options["workers"] for options in asked] == [6, 6, 0, 0, 2]
-    # One processor is this process.
-    monkeypatch.setattr(os, "cpu_count", lambda: 1)
     helper.explore(IMPORTABLE)
-    assert asked[-1]["workers"] == 0
-
-
-def test_the_environment_says_how_many_workers_a_search_nobody_gave_a_number_for_gets(
-    processors, tmp_path
-):
-    """Test runs side by side would each take every processor; EARFUL_WORKERS shares them out."""
-    monkeypatch = processors
-    asked = []
-    monkeypatch.setattr(
-        adapter, "explore", lambda scenario, **options: asked.append(options["workers"]) or "found"
-    )
-    helper = Earful(tmp_path, workers=None)
-    for given in ("3", "1", "0"):
-        monkeypatch.setenv("EARFUL_WORKERS", given)
-        helper.explore(IMPORTABLE)
-    helper.explore(IMPORTABLE, workers=5)
-    assert asked == [3, 0, 0, 5]
-    monkeypatch.setenv("EARFUL_WORKERS", "plenty")
-    with pytest.raises(ValueError, match="EARFUL_WORKERS is a number of processes"):
-        helper.explore(IMPORTABLE)
+    helper.explore(IMPORTABLE, workers=2)
+    assert [options["workers"] for options in asked] == [None, 2]
 
 
 def test_a_test_run_that_xdist_has_spread_over_the_processors_searches_in_its_own_process(
-    processors, tmp_path
+    asked, tmp_path
 ):
-    monkeypatch = processors
-    asked = []
-    monkeypatch.setattr(
-        adapter, "explore", lambda scenario, **options: asked.append(options) or "found"
-    )
     Earful(tmp_path, workers=None, spread=True).explore(IMPORTABLE)
     Earful(tmp_path, workers=3, spread=True).explore(IMPORTABLE)  # the command line said
     assert [options["workers"] for options in asked] == [0, 3]
-
-
-def test_where_workers_cannot_be_started_a_search_nobody_gave_a_number_for_runs_in_the_test(
-    processors, tmp_path
-):
-    monkeypatch = processors
-    asked = []
-
-    def explore(scenario, **options):
-        asked.append(options["workers"])
-        if options["workers"]:
-            raise adapter.WorkersUnavailable("no semaphores here")
-        return "found"
-
-    monkeypatch.setattr(adapter, "explore", explore)
-    helper = Earful(tmp_path, workers=None)
-    assert helper.explore(IMPORTABLE) == "found"
-    assert asked == [6, 0] and helper.searches == ["found"]
-    with pytest.raises(adapter.WorkersUnavailable):
-        helper.explore(IMPORTABLE, workers=2)
-    with pytest.raises(adapter.WorkersUnavailable):
-        Earful(tmp_path, workers=2).explore(IMPORTABLE)
-    assert asked == [6, 0, 2, 2]
 
 
 @pytest.mark.slow

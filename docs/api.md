@@ -450,7 +450,7 @@ def explore(
     *,
     data=None,
     seed=None,
-    workers=0,
+    workers=None,
     variables=(
         "speech.position",
         "llm.ttft",
@@ -477,7 +477,7 @@ Searches a scenario for the timings and faults at which it breaks a contract
 | --- | --- |
 | `data` | A case as data to search from, in place of the scenario as written. A case made for another scenario than `source` is refused |
 | `seed` | The seed of the scenario as written, 0 when left out. A case given as `data` holds its own, and a different `seed` with it is refused |
-| `workers` | Worker processes to run the cases in. 0 runs them in this process. More needs a scenario that can be imported ([`testing.md`](testing.md#6-where-a-scenario-lives)) |
+| `workers` | Worker processes to run the cases in. 0 runs them in this process, and more needs a scenario that can be imported ([`testing.md`](testing.md#6-where-a-scenario-lives)). Left out, a scenario that can be imported gets one per processor, or what `EARFUL_WORKERS` says, and this process where workers cannot start |
 | `variables` | The kinds of time to move. `'speech.end'` and `'speech.stt_delay'` can be added |
 | `faults` | The faults to add to each backend write |
 | `pairs` | Also try two changes at once |
@@ -835,7 +835,8 @@ class Earful:
 ```
 
 Each takes what the adapter's function of that name takes and returns what it returns.
-`explore` without `variables` or `faults` uses the adapter's defaults, and without
-`workers` uses one worker for each processor where the scenario can be imported. `keep`
+`explore` without `variables` or `faults` uses the adapter's defaults. Without `workers`
+it uses the number `--earful-workers` gives, or the adapter's default, and searches in the
+test's process when pytest-xdist has spread the test run over the processors. `keep`
 without a directory writes the bundle under the test's evidence directory. When the test fails, the fixture writes the ledger and the report of each run
 and of each broken rule's example there.

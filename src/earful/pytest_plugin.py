@@ -105,8 +105,8 @@ class Earful:
         planned: Callable[[Plan], None] | None = None,
     ) -> Exploration:
         """Search a scenario with the adapter's ``explore``; ``variables`` and ``faults`` left
-        out are its defaults. Where neither ``workers`` nor the command line says how many,
-        an importable scenario gets one per processor."""
+        out are its defaults. Where neither ``workers`` nor the command line says how many, the
+        adapter chooses, unless pytest-xdist spread the test run, which searches in-process."""
         adapter, source = _adapters.select(scenario)
         options: dict[str, Any] = {
             "data": data,
@@ -124,24 +124,12 @@ class Earful:
         if faults is not None:
             options["faults"] = faults
         if workers is None:
-            workers = self.workers
-        if workers is not None:
-            found = adapter.explore(source, workers=workers, **options)
-        else:
-            try:
-                found = adapter.explore(source, workers=self._suited(source.reference), **options)
-            except adapter.WorkersUnavailable:
-                found = adapter.explore(source, workers=0, **options)
+            workers = self.workers  # what the command line says
+        if workers is None and self.spread:
+            workers = 0  # pytest-xdist already runs a test on each processor
+        found = adapter.explore(source, workers=workers, **options)
         self.searches.append(found)
         return found
-
-    def _suited(self, reference: str | None) -> int:
-        from .core.search import default_workers
-
-        if self.spread or reference is None:
-            return 0
-        workers = default_workers()
-        return workers if workers > 1 else 0  # one worker is no faster than this process
 
     def keep(
         self,
