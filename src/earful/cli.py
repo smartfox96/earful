@@ -12,6 +12,7 @@ import os
 import sys
 import sysconfig
 import traceback
+import warnings
 from collections.abc import Callable, Iterator, Sequence
 from pathlib import Path
 from typing import Any
@@ -165,7 +166,8 @@ def _run(args: argparse.Namespace) -> int:
     case = _case(args.case)
     adapter, source = _scenario(args.scenario)
     try:
-        with _running(args.scenario):
+        with _running(args.scenario), warnings.catch_warnings():
+            warnings.filterwarnings("ignore", "declared but never applied")  # printed below
             result = adapter.run(source, data=case, seed=args.seed)
     except adapter.InvalidRun as exc:
         result = exc.result

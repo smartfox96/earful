@@ -5,6 +5,7 @@ import re
 import shutil
 import subprocess
 import sys
+import warnings
 from pathlib import Path
 
 import pytest
@@ -109,7 +110,9 @@ def test_a_fault_on_a_write_the_run_never_makes_is_named(capsys, tmp_path):
     reference = "breaks:as_written_confirms_a_failed_booking"
     saved = tmp_path / "late.case.json"
     saved.write_text(json.dumps(cases.with_fault(scenario.default(reference), "backend.error", 9)))
-    status, out, _ = earful(capsys, "run", reference, "--case", saved)
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")  # the command says it once, on its own line
+        status, out, _ = earful(capsys, "run", reference, "--case", saved)
     assert status == OK and "\nunapplied  backend.error 9: the run made 1 write(s)\n" in out
     status, out, _ = earful(capsys, "run", reference, "--case", saved, "--json")
     assert json.loads(out)["unapplied"] == ["backend.error 9: the run made 1 write(s)"]
