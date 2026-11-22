@@ -228,7 +228,13 @@ def test_init_does_not_write_over_a_file_and_writes_where_it_is_told(here, capsy
         ("scaffolded:SupportAgent.look_up", "is named as module:Class"),
         ("no_such_module:Agent", "no agent 'no_such_module:Agent'"),
         ("scaffolded:Missing", "no agent 'scaffolded:Missing'"),
-        ("scaffolded:not_an_agent", "is not a class of agent"),
+        # A function is read as a Pipecat bot where pipecat-ai is installed.
+        (
+            "scaffolded:not_an_agent",
+            "takes no model service"
+            if importlib.util.find_spec("pipecat")
+            else "is not a class of agent",
+        ),
         ("json:JSONDecoder", "for a livekit-agents agent class or a Pipecat bot function"),
     ],
 )
