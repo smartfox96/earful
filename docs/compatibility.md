@@ -135,7 +135,7 @@ imports and checks a ledger with nothing but its own dependencies.
 On every pull request, each row below builds the pinned environment without
 livekit-agents and runs every test that does not need it: the Pipecat tests and the
 tests of the core. A row fails if any of those is skipped
-(`scripts/ran_every_test.sh --without livekit`). Each row also runs the three Pipecat
+(`scripts/ran_every_test.sh --without livekit`). Each row also runs the five Pipecat
 reference cases 120 times and compares them with the committed ledgers
 (`scripts/repeat.py`).
 

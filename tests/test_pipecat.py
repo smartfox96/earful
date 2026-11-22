@@ -25,12 +25,15 @@ from pipecat.adapters.llm.schemas.function_schema import FunctionSchema
 from pipecat.adapters.llm.schemas.tools_schema import ToolsSchema
 from pipecat.frames.frames import (
     CancelFrame,
+    EndWorkerFrame,
     FunctionCallResultProperties,
+    LLMContextFrame,
     OutputAudioRawFrame,
     StartFrame,
+    TTSSpeakFrame,
 )
 from pipecat.processors.aggregators.llm_context import LLMContext
-from pipecat.processors.frame_processor import FrameProcessor
+from pipecat.processors.frame_processor import FrameDirection, FrameProcessor
 
 from earful import pipecat as pc
 from earful.cli import main
@@ -636,6 +639,76 @@ def test_pipecat_a_processor_that_plays_its_own_audio_makes_the_run_invalid():
     case = replace(case, pipeline=pipeline)
     with pytest.raises(pc.InvalidRun, match="audio samples reached the sink altered"):
         pc.run(case)
+
+
+def _around(case, processor, before):
+    """``case`` with ``processor`` in Earful's pipeline, just before the one named ``before``."""
+
+    def pipeline(ends):
+        built = pc_pipeline.standard(case.user_speech_timeout, case.user_turn_stop_timeout)(ends)
+        at = built.index(getattr(ends, before))
+        return [*built[:at], processor(), *built[at:]]
+
+    return replace(case, pipeline=pipeline)
+
+
+class _Welcomes(FrameProcessor):
+    """Speaks a welcome of the application's own as the pipeline starts."""
+
+    async def process_frame(self, frame, direction):
+        await super().process_frame(frame, direction)
+        await self.push_frame(frame, direction)
+        if isinstance(frame, StartFrame):
+            await self.push_frame(TTSSpeakFrame("Welcome to the restaurant."))
+
+
+def test_pipecat_text_a_processor_speaks_is_judged_as_text_the_application_spoke():
+    result = pc.run(_around(greeting(), _Welcomes, "tts"))
+    result.assert_contracts()
+    welcome = events(result, "tts.synthesized")[0]
+    assert (welcome["attribution"], welcome["text"]) == ("none", "Welcome to the restaurant.")
+    judged = [v for v in result.report.results["M1"].verdicts if v.instance == {"utterance": 1}]
+    assert [v.outcome for v in judged] == ["pass"]  # played, and remembered
+
+
+class _Breaks(FrameProcessor):
+    """Raises on the context it should hand the model."""
+
+    async def process_frame(self, frame, direction):
+        await super().process_frame(frame, direction)
+        if isinstance(frame, LLMContextFrame):
+            raise RuntimeError("the processor broke")  # noqa: TRY004 - a fault, not a type
+        await self.push_frame(frame, direction)
+
+
+def test_pipecat_a_processor_that_raises_makes_the_run_invalid_with_its_error():
+    with pytest.raises(pc.InvalidRun, match="Error processing frame: the processor broke"):
+        pc.run(_around(greeting(), _Breaks, "llm"))
+
+
+def _ends_the_call(llm):
+    async def end_call(params):
+        await params.result_callback("Goodbye.")
+        await params.llm.push_frame(EndWorkerFrame(), FrameDirection.UPSTREAM)
+
+    llm.register_function("end_call", end_call)
+    return LLMContext()
+
+
+def test_pipecat_a_bot_that_ends_the_call_is_judged_on_what_happened_before():
+    case = pc.Case(
+        "ends",
+        _ends_the_call,
+        [pc.UserSpeech(0.5, 1.5, "That is all, goodbye.")],
+        pc.ScriptedModel()
+        .when(pc.tool_returned("end_call"), say="Bye.")
+        .otherwise(call=("end_call", {})),
+    )
+    result = pc.run(case)
+    result.assert_contracts()
+    assert [e["name"] for e in events(result, "tool.called")] == ["end_call"]
+    assert [s["text"] for s in events(result, "tts.synthesized")] == ["Bye."]
+    assert result.events[-1]["kind"] == "run.end"
 
 
 def test_pipecat_reads_async_tool_results_from_the_context():

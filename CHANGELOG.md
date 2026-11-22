@@ -25,8 +25,9 @@ formats have versions of their own
 - `earful init mybot.bot:booking_bot` writes a first test for a Pipecat bot, from the
   functions it registers and the tools its context advertises, as it does for a LiveKit
   agent's tools.
-- `earful.pipecat.cases` holds three reference scenarios, `greeting`, `reserve_table` and
-  `barge_in`, as `earful.livekit.cases` holds LiveKit's.
+- `earful.pipecat.cases` holds five reference scenarios, `greeting`, `reserve_table`,
+  `barge_in`, `own_pipeline` (a pipeline of the application's own) and `hangs_up`, as
+  `earful.livekit.cases` holds LiveKit's.
 - `Case.allow_interruptions` and `Case.preemptive_generation` on LiveKit, for what the
   deprecated session options of those names used to set.
 - `earful.scripted`, the package both adapters share: the virtual clock, the scripted

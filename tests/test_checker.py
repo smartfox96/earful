@@ -124,8 +124,10 @@ def test_reference_ledgers_get_the_documented_outcomes(path):
         expected["L2"] = FAIL
     if case == "reserve_table":
         expected.update(A2=PASS, A3=PASS)
-    if case in ("greeting", "reserve_table"):
+    if case in ("greeting", "reserve_table", "own_pipeline", "hangs_up"):
         expected["L2"] = NOT_EXERCISED  # the user never speaks while a reply is in flight
+    if case == "hangs_up":  # the user leaves before the confirmation's last word is heard
+        expected.update(A2=PASS)
     assert check(read_jsonl(path)).outcomes() == expected
 
 

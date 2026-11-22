@@ -5818,4 +5818,11 @@ MUTANTS = [
         "        print(f\"{'tools':<11}{', '.join(made.tools)}\")\n",
         first="writes_a_test_from_the_functions",
     ),
+    Mutant(
+        "pipecat: a processor that raises is an error the framework reports of itself",
+        "src/earful/pipecat/harness.py",
+        "            if frame.exception is not None or frame.fatal:\n",
+        "            if frame.fatal:\n",
+        first="processor_that_raises",
+    ),
 ]

@@ -470,7 +470,9 @@ idempotency key (A2).
 A search is quiet: Pipecat's logging is off while it runs. A single run logs as Pipecat
 does, and `LOGURU_LEVEL=WARNING` in the environment turns that down. An error Pipecat
 reports about itself, such as an audio context that got no audio in time, is recorded as
-an `fw.error` event and counted in `run.end`. The run is still judged.
+an `fw.error` event and counted in `run.end`. The run is still judged. A processor of
+yours that raises makes the run invalid, with its error: the pipeline broke, so nothing
+after it can be judged.
 
 All case times are in seconds. `vad_start_secs` and `vad_stop_secs` set the scripted
 VAD timing. `user_speech_timeout` and `user_turn_stop_timeout` configure Pipecat's
