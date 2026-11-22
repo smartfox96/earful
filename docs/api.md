@@ -494,8 +494,8 @@ Searches a scenario for the timings and faults at which it breaks a contract
 | `wait_us` | How long the caller of a write with a timeout or a drop waits |
 | `stretch_us` | How long `pairs` makes a slow write or generation, up to `delay_limit_us`. 0 makes none slow |
 
-It raises `ValueError` for an unknown variable or fault, for a wait or a delay limit below
-1 or a negative stretch, for a negative `workers`, for
+It raises `ValueError` for an unknown variable or fault, for a negative wait or stretch,
+for a delay limit below 1, for a negative `workers`, for
 `workers` with a scenario that cannot be imported, and for a case that cannot be run as
 given. It raises `WorkersUnavailable` where worker processes cannot be used.
 

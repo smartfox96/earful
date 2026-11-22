@@ -104,7 +104,7 @@ def test_a_search_takes_the_wait_the_stretch_and_the_delay_limit_it_is_given():
     found = explore(booking(READS_THE_ERROR), wait_us=2_500_000, **narrow)
     added = [t for t in found.tried if t.candidate.variable is None]  # a fault, nothing moved
     assert added and {f["us"] for t in added for f in t.candidate.case["faults"]} == {2_500_000}
-    for name, least in (("wait_us", 1), ("stretch_us", 0), ("delay_limit_us", 1)):
+    for name, least in (("wait_us", 0), ("stretch_us", 0), ("delay_limit_us", 1)):
         with pytest.raises(
             ValueError, match=f"{name} is a number of microseconds, at least {least}"
         ):

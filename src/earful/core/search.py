@@ -1123,7 +1123,7 @@ def explore(
     wanted_speeches, wanted_moments = _wanted(case, speeches, moments, profiles, max_runs)
     for name, value, least in (
         ("delay_limit_us", delay_limit_us, 1),
-        ("wait_us", wait_us, 1),
+        ("wait_us", wait_us, 0),  # 0 gives up at once
         ("stretch_us", stretch_us, 0),  # 0 makes nothing slow
     ):
         if type(value) is not int or value < least:

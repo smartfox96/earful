@@ -454,8 +454,8 @@ def test_a_search_takes_its_wait_stretch_and_delay_limit_in_milliseconds(capsys,
     timing = ("--wait-ms", "2500", "--stretch-ms", "2000", "--delay-limit-ms", "8000")
     assert earful(capsys, "search", reference, *narrow, *timing)[0] == OK
     assert given == [{"wait_us": 2_500_000, "stretch_us": 2_000_000, "delay_limit_us": 8_000_000}]
-    status, _, err = earful(capsys, "search", reference, *narrow, "--wait-ms", "0")
-    assert status == REFUSED and "wait_us is a number of microseconds, at least 1" in err
+    status, _, err = earful(capsys, "search", reference, *narrow, "--wait-ms", "-1")
+    assert status == REFUSED and "wait_us is a number of microseconds, at least 0" in err
 
 
 def test_a_search_asked_for_what_there_is_not_starts_no_worker(capsys, monkeypatch):
