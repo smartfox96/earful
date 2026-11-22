@@ -1760,7 +1760,9 @@ MUTANTS = [
     Mutant(
         "shrink: faults are never removed",
         "src/earful/core/shrink.py",
-        ('            ("delays", "declared delays"),\n            ("faults", "faults"),\n        ):\n'),
+        (
+            '            ("delays", "declared delays"),\n            ("faults", "faults"),\n        ):\n'
+        ),
         ('            ("delays", "declared delays"),\n        ):\n'),
         first="test_a_fault_is_a_difference_and_a_reduction_keeps_it_only_if_the_failure_needs_it",
     ),
