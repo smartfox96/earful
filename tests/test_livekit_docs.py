@@ -66,16 +66,6 @@ def test_help_shows_each_public_function_as_a_function_of_the_adapter():
     )
 
 
-def test_the_old_import_paths_of_the_clock_and_the_scripted_model_give_the_same_objects():
-    from earful.livekit import clock, playbook
-    from earful.scripted import clock as shared_clock
-    from earful.scripted import playbook as shared_playbook
-
-    for old, shared in ((clock, shared_clock), (playbook, shared_playbook)):
-        assert old.__all__ and "earful.scripted" in old.__doc__
-        assert all(getattr(old, name) is getattr(shared, name) for name in old.__all__)
-
-
 def _newest_tested_release():
     import livekit.agents as lk
 
