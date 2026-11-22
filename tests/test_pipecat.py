@@ -930,6 +930,26 @@ def test_pipecat_a_reply_cut_inside_a_word_while_it_is_generated_keeps_its_attri
     result.assert_contracts()
 
 
+def test_pipecat_a_user_who_speaks_before_the_first_token_cancels_the_reply_unheard():
+    case = pc.Case(
+        "barge_in_generating",
+        lambda llm: LLMContext(),
+        [
+            pc.UserSpeech(0.5, 2.5, "Tell me about the menu."),
+            pc.UserSpeech(4.0, 5.0, "Actually, just the specials."),
+        ],
+        pc.ScriptedModel()
+        .when(pc.user_said("specials"), say="The special is sea bass.")
+        .otherwise(say="Tonight we have soup and fish.", ttft=2.0, duration=3.0),
+    )
+    result = pc.run(case)
+    result.assert_contracts()
+    spoken = [(s["call"], s["text"]) for s in events(result, "tts.synthesized")]
+    assert spoken == [(2, "The special is sea bass.")]  # nothing of the first reply
+    (over,) = [v for v in result.report.results["L2"].verdicts if v.instance == {"speech": 1}]
+    assert (over.outcome, over.findings[0].code) == ("not_exercised", "no-reply-under-way")
+
+
 def test_pipecat_a_bot_that_starts_with_history_records_it_and_is_judged_without_it():
     earlier = [
         {"role": "system", "content": "Be brief."},
