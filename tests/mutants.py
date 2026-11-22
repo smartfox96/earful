@@ -1693,11 +1693,11 @@ MUTANTS = [
         "src/earful/core/search.py",
         (
             "            if one.label in under:\n"
-            "                move_speeches(one.case, under[one.label], one.label)\n"
+            "                self.move_speeches(one.case, under[one.label], one.label)\n"
         ),
         (
             "            if False:\n"
-            "                move_speeches(one.case, under[one.label], one.label)\n"
+            "                self.move_speeches(one.case, under[one.label], one.label)\n"
         ),
         first="test_pairs_put_faults_on_two_writes_and_move_speeches_under_each_fault",
     ),
@@ -1718,8 +1718,8 @@ MUTANTS = [
     Mutant(
         "search: speeches are not moved under a profile",
         "src/earful/core/search.py",
-        '            move_speeches(profile, produced, f"profile {number}")\n',
-        "            pass\n",
+        '                self.move_speeches(profile, produced, f"profile {number}")\n',
+        "                pass\n",
         first="test_profiles_redraw_every_delay_from_the_seed_and_move_speeches_under_each",
     ),
     Mutant(
@@ -2152,7 +2152,7 @@ MUTANTS = [
     Mutant(
         "search: the hangup is not moved",
         "src/earful/core/search.py",
-        ("        if cases.HANGUP not in kinds:\n            return\n"),
+        ("        if cases.HANGUP not in self.kinds:\n            return\n"),
         ("        if True:\n            return\n"),
         first="test_a_search_moves_the_hangup_to_every_transition_after_the_last_speech",
     ),
@@ -2167,16 +2167,16 @@ MUTANTS = [
         "search: the hangup is not moved under a fault",
         "src/earful/core/search.py",
         (
-            "                move_speeches(one.case, under[one.label], one.label)\n"
-            "                move_hangup(one.case, under[one.label], one.label)\n"
+            "                self.move_speeches(one.case, under[one.label], one.label)\n"
+            "                self.move_hangup(one.case, under[one.label], one.label)\n"
         ),
-        "                move_speeches(one.case, under[one.label], one.label)\n",
+        "                self.move_speeches(one.case, under[one.label], one.label)\n",
         first="test_pairs_move_the_hangup_with_each_fault_in_place",
     ),
     Mutant(
         "search: the hangup is always moved",
         "src/earful/core/search.py",
-        ("        if cases.HANGUP not in kinds:\n            return\n"),
+        ("        if cases.HANGUP not in self.kinds:\n            return\n"),
         ("        if False:\n            return\n"),
         first="test_exploring_runs_every_candidate_and_reports_what_broke_and_what_was_reached",
     ),
@@ -2811,14 +2811,14 @@ MUTANTS = [
     Mutant(
         "search: speeches are not moved under a stretched delay",
         "src/earful/core/search.py",
-        "                move_speeches(longer, produced, label, coarse=True)\n",
+        "                self.move_speeches(longer, produced, label, coarse=True)\n",
         "                pass\n",
         first="slow_write_and_a_speech",
     ),
     Mutant(
         "search: the hangup is not moved under a stretched delay",
         "src/earful/core/search.py",
-        "                move_hangup(longer, produced, label, coarse=True)\n",
+        "                self.move_hangup(longer, produced, label, coarse=True)\n",
         "                pass\n",
         first="slow_write_and_a_hangup",
     ),
@@ -3472,8 +3472,8 @@ MUTANTS = [
     Mutant(
         "search: what a search is about to run is said once it has run",
         "src/earful/core/search.py",
-        '    if planned is not None:\n        planned(plan)\n    # The runs that read the boundaries are made whatever the budget: there is no search without.\n    dropped = {id(c) for c in fresh[plan.covered :]}\n    todo = [c for c in todo if id(c) not in dropped]\n    with runner.counting("cases"):\n        outcomes = runner.many([c.case for c in todo], each)\n',
-        '    dropped = {id(c) for c in fresh[plan.covered :]}\n    todo = [c for c in todo if id(c) not in dropped]\n    with runner.counting("cases"):\n        outcomes = runner.many([c.case for c in todo], each)\n    if planned is not None:\n        planned(plan)\n',
+        '    if planned is not None:\n        planned(plan)\n    # The runs that read the boundaries are made whatever the budget: there is no search without.\n    dropped = {id(c) for c in fresh[plan.covered :]}\n    todo = [c for c in todo if id(c) not in dropped]\n    with runner.counting("cases"):\n        outcomes = runner.many([c.case for c in todo], placer.each)\n',
+        '    dropped = {id(c) for c in fresh[plan.covered :]}\n    todo = [c for c in todo if id(c) not in dropped]\n    with runner.counting("cases"):\n        outcomes = runner.many([c.case for c in todo], placer.each)\n    if planned is not None:\n        planned(plan)\n',
         first="says_what_it_is_about_to_run",
     ),
     Mutant(
@@ -3577,15 +3577,15 @@ MUTANTS = [
     Mutant(
         "search: a speech is taken to be part of the run it is put against",
         "src/earful/core/search.py",
-        "                place(on, handles, alone, base, coarse, apart=True)\n",
-        "                place(on, handles, alone, base, coarse)\n",
+        "                self.place(on, handles, alone, base, coarse, apart=True)\n",
+        "                self.place(on, handles, alone, base, coarse)\n",
         first="written_on_a_transition_is_moved",
     ),
     Mutant(
         "search: a hangup is taken to be part of the run it is put against",
         "src/earful/core/search.py",
-        "            place(on, [hangup_handle(on, stays)], stays, base, coarse, apart=True)\n",
-        "            place(on, [hangup_handle(on, stays)], stays, base, coarse)\n",
+        "            self.place(on, [hangup_handle(on, stays)], stays, base, coarse, apart=True)\n",
+        "            self.place(on, [hangup_handle(on, stays)], stays, base, coarse)\n",
         first="written_on_a_transition_is_moved",
     ),
     Mutant(
@@ -5241,8 +5241,8 @@ MUTANTS = [
     Mutant(
         "search: a run made to find where to put things that cannot be judged is not noted",
         "src/earful/core/search.py",
-        "            if ledger is None:\n                unread.setdefault(",
-        "            if False:\n                unread.setdefault(",
+        "            if ledger is None:\n                self.unread.setdefault(",
+        "            if False:\n                self.unread.setdefault(",
         first="find_where_to_put",
     ),
     Mutant(
@@ -5269,8 +5269,8 @@ MUTANTS = [
     Mutant(
         "search: a run made to find where to put things under a fault is not named by it",
         "src/earful/core/search.py",
-        "    with_faults = read([(one.label, one.case) for one in faulted])\n",
-        '    with_faults = read([("", one.case) for one in faulted])\n',
+        "        with_faults = self.read([(one.label, one.case) for one in faulted])\n",
+        '        with_faults = self.read([("", one.case) for one in faulted])\n',
         first="named_by_the_fault",
     ),
     Mutant(
