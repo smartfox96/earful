@@ -84,11 +84,6 @@ formats have versions of their own
   the header, written before the run, could not list it. A pipecat-ai release that keeps
   one of the private names the scripted model reads elsewhere is refused in one line
   before the run, where it raised `AttributeError`.
-- A Pipecat reply cut while the model is still generating it keeps its attribution. On
-  the interruption Pipecat gives the voice the sentence written so far, which can end
-  inside a word, and the text was matched to the reply word by word: the utterance was
-  attributed to no reply, and M1 and L1 had no verdict while the assertion passed. A
-  synthesized text is now matched to the reply it starts as text.
 - A replay is clean only when the bundle's contract passed in every run. A run in which
   that contract had nothing to judge or could not judge leaves the replay not judged, and
   `earful replay` exits 3: before, a replay of an A2 bundle on a run where A2 was not
@@ -142,6 +137,15 @@ formats have versions of their own
 
 ### Fixed
 
+- An agent that starts with history, such as earlier turns in its `chat_ctx` on LiveKit or
+  in the context `bot` returns on Pipecat, no longer fails M2 rules a, b and c and L1
+  milestone 1 in a valid run. Both adapters record those items as the header's optional
+  `history`, and the checker leaves them out of every context it reads.
+- A Pipecat reply cut while the model is still generating it keeps its attribution. On
+  the interruption Pipecat gives the voice the sentence written so far, which can end
+  inside a word, and the text was matched to the reply word by word: the utterance was
+  attributed to no reply, and M1 and L1 had no verdict while the assertion passed. A
+  synthesized text is now matched to the reply it starts as text.
 - A reply played in several segments was first audible when the first one began.
 - L1 failed a turn whose milestone came due at the very instant the scenario ended. The
   milestone could still have been met then, so the turn is unobservable.

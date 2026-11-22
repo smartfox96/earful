@@ -30,6 +30,7 @@ from earful.livekit.providers import (
 )
 from earful.livekit.tools import witnessed
 from earful.scripted.clock import now_us, run_virtual
+from earful.scripted.playbook import ScriptedModel
 
 
 def _of(events, kind):
@@ -547,3 +548,31 @@ def test_claims_are_recorded():
     events = run_case(CASES["book_then_interrupt"]()).ledger.events
     claims = [c for e in _of(events, "llm.response") for c in e["data"]["claims"]]
     assert claims == [{"intent": "book-table-1", "first_word": 0, "last_word": 3}]
+
+
+def test_an_agent_that_starts_with_history_records_it_and_is_judged_without_it():
+    from livekit.agents import llm
+
+    def agent():
+        ctx = llm.ChatContext()
+        ctx.add_message(role="user", content="Hi, I called earlier.")
+        ctx.add_message(role="assistant", content="Welcome back.")
+        return lk.Agent(instructions="You take bookings.", chat_ctx=ctx)
+
+    case = Case(
+        name="seeded",
+        agent=agent,
+        speeches=[UserSpeech(0.5, 1.5, "A table for two, please.")],
+        policy=ScriptedModel().otherwise(say="Of course."),
+    )
+    result = run_case(case)
+    history = result.ledger.events[0]["data"]["scenario"]["history"]
+    assert [(i["role"], i["text"], i["id"]) for i in history] == [
+        ("user", "Hi, I called earlier.", None),
+        ("assistant", "Welcome back.", None),
+    ]
+    outcomes = result.report.outcomes()
+    assert outcomes["M2"] == outcomes["L1"] == "pass"
+    assert result.hash == run_case(case).hash
+    plain = run_case(CASES["book_then_interrupt"]())
+    assert "history" not in plain.ledger.events[0]["data"]["scenario"]

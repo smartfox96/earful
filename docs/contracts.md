@@ -195,6 +195,7 @@ The checker reads these from the ledger header; it never imports the scenario.
 | Effect on a tool | A call of the named tool is one durable write for an intent, made in place of the tool's body. The tool then counts among the tools that carry out the intent | A1, A2, A3 |
 | Claim on a scripted reply | The reply, or a span of its words, tells the user an intent succeeded | A3 |
 | Hangup | When the user leaves. The session is closed at that time | A3, M1, L1 |
+| Starting history | What the agent's context holds before the run, such as an earlier call's turns. The adapter reads it from the agent and records it as the header's `history`; the checker leaves those items out of every context and of the final history, so an earlier turn is neither a stray user text nor an unscripted reply. Each of its items takes out the first item that is the same, in order | M1, M2, L1 |
 | Provider delay | How long a model call, a first audio or a backend write takes, declared as data in place of what the scenario's code would ask for | L1; and it moves what every contract judges |
 | Policy values | The tolerances, bounds and budgets named in section 6, in `run.start`'s `contracts`. Times are integer microseconds, as everywhere in Earful. A value a contract does not define is an error | all |
 
@@ -351,7 +352,7 @@ and the measured drift is on every verdict.
 ### M2. Turn integrity
 
 Each model call is shown the conversation that happened. Every user turn is there, whole,
-once and in order. Every assistant message is something the agent was scripted to say, in
+once and in order. The history the agent started with is left out (section 4). Every assistant message is something the agent was scripted to say, in
 the order it was said. Every tool call that returned is there once, as the model made it,
 with the result the tool gave. A reply and a tool call come after the turns that led to
 them.

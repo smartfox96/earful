@@ -132,11 +132,37 @@ class Speech:
         return self.transcript.split()
 
 
+# The fields that tell one context item from another, by type; others compare by type.
+_ITEM_KEYS = {
+    "message": ("role", "text"),
+    "function_call": ("name", "call_id", "arguments"),
+    "function_call_output": ("call_id", "output"),
+}
+
+
+def unseeded(items: list[dict[str, Any]], seeded: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """``items`` without the history the agent started with: each item of ``seeded`` in turn
+    takes out the first item after the last one taken that is the same. One that is no longer
+    there takes nothing out."""
+
+    def key(item: dict[str, Any]) -> tuple[Any, ...]:
+        return (item["type"], *(item.get(k) for k in _ITEM_KEYS.get(item["type"], ())))
+
+    out, at = list(items), 0
+    for item in seeded:
+        found = next((i for i in range(at, len(out)) if key(out[i]) == key(item)), None)
+        if found is not None:
+            del out[found]
+            at = found
+    return out
+
+
 @dataclass
 class ModelCall:
     call: int
     request: Event
     response: Event | None = None
+    seeded: list[dict[str, Any]] = field(default_factory=list)  # the history it started with
 
     @property
     def answer(self) -> Event:
@@ -146,7 +172,8 @@ class ModelCall:
 
     @property
     def items(self) -> list[dict[str, Any]]:
-        return self.request["data"]["items"]
+        """The context, without the history the agent started with."""
+        return unseeded(self.request["data"]["items"], self.seeded)
 
     @property
     def words(self) -> list[str]:
@@ -276,6 +303,7 @@ class View:
         self.effects: dict[int, Effect] = {}
         self.commands: list[Event] = []
         self.history: Event | None = None
+        self.seeded: list[dict[str, Any]] = self.scenario.get("history", [])
         self.intents: dict[str, dict[str, Any]] = {
             it["intent"]: it for it in self.scenario["intents"]
         }
@@ -292,7 +320,7 @@ class View:
             elif kind in ("user.vad_start", "user.vad_end", "user.transcript_final"):
                 speech_events.setdefault(d["speech"], {})[kind] = e
             elif kind == "llm.request":
-                self.calls[d["call"]] = ModelCall(d["call"], e)
+                self.calls[d["call"]] = ModelCall(d["call"], e, seeded=self.seeded)
             elif kind == "llm.response":
                 self.calls[d["call"]].response = e
                 for tool_call in d["tool_calls"]:
@@ -473,10 +501,12 @@ class View:
 
     @cached_property
     def contexts(self) -> list[tuple[str, Event, list[dict[str, Any]]]]:
-        """Each model context, then the final chat history, as ``(label, event, items)``."""
+        """Each model context, then the final chat history, as ``(label, event, items)``, each
+        without the history the agent started with."""
         out = [(f"call {c.call}", c.request, c.items) for c in self.calls.values()]
         if self.history is not None:
-            out.append(("final history", self.history, self.history["data"]["items"]))
+            items = unseeded(self.history["data"]["items"], self.seeded)
+            out.append(("final history", self.history, items))
         return out
 
     @cached_property

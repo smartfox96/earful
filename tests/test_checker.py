@@ -31,7 +31,7 @@ from earful.core.checker.report import (
     split,
     verdict,
 )
-from earful.core.checker.view import MAX_READINGS, Speech, Spoken, View, readings
+from earful.core.checker.view import MAX_READINGS, Speech, Spoken, View, readings, unseeded
 from earful.core.ledger import read_jsonl, run_id
 
 GOLDEN = Path(__file__).parent / "golden"
@@ -2351,3 +2351,47 @@ def test_a_transcript_delivered_as_a_model_call_is_requested_is_in_its_context_i
         assert _missed(first) == [("milestone 1", said)]
     else:
         assert report.outcome("M2") == PASS and first.outcome == PASS
+
+
+def _message(role, text):
+    return {"type": "message", "id": None, "role": role, "text": text, "interrupted": False}
+
+
+EARLIER = [_message("user", "Hi, I called earlier."), _message("assistant", "Welcome back.")]
+
+
+def _seeded(events, *, recorded):
+    """The run, as if the agent had started with an earlier call's two turns."""
+    out = copy.deepcopy(events)
+    for e in out:
+        if e["kind"] in ("llm.request", "history.final"):
+            items = e["data"]["items"]
+            at = next((i for i, item in enumerate(items) if item.get("role") != "system"), 0)
+            items[at:at] = [{**item, "id": f"item_{n}"} for n, item in enumerate(EARLIER)]
+    if recorded:
+        out[0]["data"]["scenario"]["history"] = copy.deepcopy(EARLIER)
+    return seal(out)
+
+
+def test_the_history_an_agent_started_with_is_left_out_of_every_context():
+    events = load("1.8.13", "book_then_interrupt")
+    assert check(events).outcomes()["M2"] == PASS
+    unrecorded = check(_seeded(events, recorded=False))
+    assert {v.contract for v in unrecorded.failures} == {"M2", "L1"}
+    recorded = check(_seeded(events, recorded=True))
+    assert recorded.valid and recorded.outcomes() == check(events).outcomes()
+
+
+def test_each_item_of_the_starting_history_takes_out_the_first_like_it_in_order():
+    hi, back, hi_again = (
+        _message("user", "Hi."),
+        _message("assistant", "Back."),
+        _message("user", "Hi."),
+    )
+    call = {"type": "function_call", "id": "x", "name": "f", "call_id": "c1", "arguments": "{}"}
+    assert unseeded([hi, back, hi_again], [hi]) == [back, hi_again]
+    assert unseeded([back, hi], [hi, back]) == [back]  # in order: the second finds nothing after
+    assert unseeded([hi, back], [_message("user", "Gone.")]) == [hi, back]
+    assert unseeded([hi, {**call, "id": "y"}], [{**call, "id": None}]) == [hi]
+    assert unseeded([hi], [{**hi, "role": "assistant"}]) == [hi]
+    assert unseeded([hi, back], []) == [hi, back]
