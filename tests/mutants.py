@@ -1596,11 +1596,11 @@ MUTANTS = [
         "validator: vad report for any speech",
         "src/earful/core/schema.py",
         (
-            '            elif (k == "user.vad_start" and d["speech"] not in opens) or (\n'
-            '                k == "user.vad_end" and d["speech"] not in closes\n'
-            "            ):\n"
+            '    elif (k == "user.vad_start" and d["speech"] not in walk.opens) or (\n'
+            '        k == "user.vad_end" and d["speech"] not in walk.closes\n'
+            "    ):\n"
         ),
-        "            elif False:\n",
+        "    elif False:\n",
         first="test_validator_rejects",
     ),
     Mutant(
@@ -1894,21 +1894,15 @@ MUTANTS = [
     Mutant(
         "validator: a caller may give up twice",
         "src/earful/core/schema.py",
-        '            if d["request"] not in effect_requests or d["request"] in gave_up:\n',
-        '            if d["request"] not in effect_requests:\n',
+        '    if d["request"] not in effect_requests or d["request"] in gave_up:\n',
+        '    if d["request"] not in effect_requests:\n',
         first="test_validator_rejects_a_faulted_write_that_cannot_have_happened",
     ),
     Mutant(
         "validator: a rejection is not an outcome",
         "src/earful/core/schema.py",
-        (
-            '        elif k in ("effect.committed", "effect.deduplicated", "effect.failed"):\n'
-            '            if d["request"] not in effect_requests or d["request"] in effect_outcomes:\n'
-        ),
-        (
-            '        elif k in ("effect.committed", "effect.deduplicated", "effect.failed"):\n'
-            '            if d["request"] not in effect_requests or (k != "effect.failed" and d["request"] in effect_outcomes):\n'
-        ),
+        '    if d["request"] not in effect_requests or d["request"] in effect_outcomes:\n',
+        '    if d["request"] not in effect_requests or (k != "effect.failed" and d["request"] in effect_outcomes):\n',
         first="test_validator_rejects_a_faulted_write_that_cannot_have_happened",
     ),
     Mutant(
