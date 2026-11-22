@@ -470,15 +470,15 @@ MUTANTS = [
     Mutant(
         "M1: memory behind by exactly the tolerance fails",
         "src/earful/core/checker/m1.py",
-        "    if -drift > policy.behind_us:\n",
-        "    if -drift >= policy.behind_us:\n",
+        "    elif -drift > policy.behind_us:\n",
+        "    elif -drift >= policy.behind_us:\n",
         first="drift_equal_to_the_tolerance",
     ),
     Mutant(
         "M1: memory behind by a microsecond more than the tolerance passes",
         "src/earful/core/checker/m1.py",
-        "    if -drift > policy.behind_us:\n",
-        "    if -drift > policy.behind_us + 1:\n",
+        "    elif -drift > policy.behind_us:\n",
+        "    elif -drift > policy.behind_us + 1:\n",
         first="drift_equal_to_the_tolerance",
     ),
     Mutant(
@@ -5731,5 +5731,19 @@ MUTANTS = [
         "            run = next((r for r in runs if r[0][0][0] <= point <= r[0][-1][1]), None)\n",
         "            run = next((r for r in runs if r[0][0][0] < point <= r[0][-1][1]), None)\n",
         first="held_to_the_bound",
+    ),
+    Mutant(
+        "M1: a reply that played to its end and is absent from memory is within the tolerance",
+        "src/earful/core/checker/m1.py",
+        "    if not cut_short and not remembered:\n",
+        "    if False:\n",
+        first="absent_from_memory_fails_whatever",
+    ),
+    Mutant(
+        "M1: a cut-off reply absent from memory fails whatever the tolerance",
+        "src/earful/core/checker/m1.py",
+        "    if not cut_short and not remembered:\n",
+        "    if played and not remembered:\n",
+        first="cut_off_reply",
     ),
 ]

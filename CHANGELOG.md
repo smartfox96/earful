@@ -95,6 +95,10 @@ formats have versions of their own
   interruption, or a reply held back, was judged. A search prints each contract's counts
   of pass, fail, nothing to judge and evidence lost, and a replay prints the code. The
   report format is `earful.report/2`: a finding carries `code`.
+- M1 rule 2 fails a reply that played to its end without being cut short and is absent
+  from memory, whatever `behind_us` is. A short reply that played in full and was
+  forgotten passed under the default tolerance of one second. A cut-off reply is judged
+  by its drift as before: the framework only estimates how much of it was heard.
 - L2 rule a holds a reply that starts at the interruption point itself to the stop bound.
   Where the floor window opens at that instant, as it does for every speech on Pipecat,
   such a reply was judged by neither rule and could play on over the user.

@@ -634,7 +634,15 @@ def test_a_tool_that_returns_an_agent_is_shown_to_the_model_by_what_came_with_it
         e for e in events if e["kind"] == "llm.request" and e["t_us"] < 8_000_000
     ]
     assert len(before_the_user_speaks_again) == 1 + replies
-    assert result.report.failures == ()
+    # The agent handed over to is built from the context as the tool ran, before the first
+    # agent's follow-up was said, so it never learns of a reply the user heard in full.
+    assert result.report.broken() == (["M1/rule 2"] if replies else [])
+    if replies:
+        (forgotten,) = result.report.failures
+        assert forgotten.instance == {"reply": 2}
+        assert [f.detail for f in forgotten.findings] == [
+            f"call {n}: all 3 word(s) were played to the end and none is remembered" for n in (3, 4)
+        ]
     first_turn = result.report.results["L1"].verdicts[0]
     assert first_turn.outcome == PASS
     assert first_turn.flags == (() if replies else ("silenced_by_a_tool",))

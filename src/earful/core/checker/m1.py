@@ -73,7 +73,19 @@ def _compare(
                 )
             )
         return row, findings
-    if -drift > policy.behind_us:
+    # A stop landing as the last word ended leaves the audio whole, so either mark is right.
+    cut_short = played < len(words) or playout.interrupted
+    if not cut_short and not remembered:
+        # It played to its end, so the framework knew all of it was said: the tolerance, which
+        # covers its estimate of how much of a cut-off reply was heard, does not apply.
+        findings.append(
+            Finding(
+                "rule 2",
+                f"{label}: all {played} word(s) were played to the end and none is remembered",
+                seqs,
+            )
+        )
+    elif -drift > policy.behind_us:
         findings.append(
             Finding(
                 "rule 2",
@@ -92,8 +104,6 @@ def _compare(
                 seqs,
             )
         )
-    # A stop landing as the last word ended leaves the audio whole, so either mark is right.
-    cut_short = played < len(words) or playout.interrupted
     either_mark = view.stopped_as_it_ended(playout, len(words))
     if (
         message is not None

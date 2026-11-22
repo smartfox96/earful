@@ -664,6 +664,34 @@ def test_m1_a_reply_cleared_in_the_silence_after_its_last_word_is_interrupted(ba
     assert check(barge).outcome("M1") == PASS
 
 
+@pytest.mark.parametrize("behind_us", [1_000_000, 10_000_000])
+def test_m1_a_reply_that_played_and_is_absent_from_memory_fails_whatever_the_tolerance(
+    barge, behind_us
+):
+    """Both words of "Okay, stopping." played, 0.72 s of audio, and the history drops it."""
+    history = of(barge, "history.final")["data"]["items"]
+    history[:] = [i for i in history if i.get("text") != "Okay, stopping."]
+    last = check(declare(barge, M1={"behind_us": behind_us})).results["M1"].verdicts[-1]
+    assert last.measures["played"] == 2 and last.measures["contexts"][0]["drift_us"] == -720_000
+    assert [(f.rule, f.detail) for f in last.findings] == [
+        ("rule 2", "final history: all 2 word(s) were played to the end and none is remembered")
+    ]
+
+
+def test_m1_a_cut_off_reply_absent_from_memory_is_judged_by_its_drift(barge):
+    """Reply 1 was cut after 9 of its 29 words. Call 2 remembering none of it is a drift like
+    any other: the tolerance decides, since the framework only estimates what was heard."""
+    first = check(copy.deepcopy(barge)).results["M1"].verdicts[0]
+    assert (first.measures["played"], first.measures["cut"]) == (9, 1)
+    turns = context(barge, 2)
+    turns.remove(next(i for i in turns if i["type"] == "message" and i["role"] == "assistant"))
+    absent = check(seal(copy.deepcopy(barge))).results["M1"].verdicts[0]
+    behind = -absent.measures["contexts"][0]["drift_us"]
+    assert [f.rule for f in absent.findings] == ["rule 2"] and behind > 1_000_000
+    roomy = check(declare(barge, M1={"behind_us": behind})).results["M1"].verdicts[0]
+    assert roomy.outcome == PASS
+
+
 def test_m1_the_final_history_counts_only_if_read_after_the_playout_finished(barge):
     finished = of(barge, "playout.finished", 1)
     history = of(barge, "history.final")
