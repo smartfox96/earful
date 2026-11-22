@@ -52,8 +52,8 @@ formats have versions of their own
   contracts leave out of every context, when the framework ends a turn
   (`turn_end_delay_us`), and a tool call that hands over to another agent (`handoff`).
   `earful.ledger/1` is at `schema_minor` 1.
-- A ledger's hash does not depend on the logging level. `framework_warnings` counts every
-  warning livekit-agents logs.
+- A ledger's hash does not depend on the logging level or on an OpenTelemetry tracer
+  provider. `framework_warnings` counts every warning livekit-agents logs.
 - `run`, `explore` and `cross_check` take a case as data in `data=`, run with the seed it
   holds. A different `seed` with it is refused.
 

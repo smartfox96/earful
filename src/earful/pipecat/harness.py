@@ -86,7 +86,7 @@ class Tap(FrameProcessor):
         if name is not None and direction is FrameDirection.DOWNSTREAM:
             if isinstance(frame, (UserStartedSpeakingFrame, UserStoppedSpeakingFrame)):
                 self.user_speaking = isinstance(frame, UserStartedSpeakingFrame)
-            self._ledger.append("framework", f"fw.{name}", created_us=self._ledger.now_us())
+            self._ledger.append("framework", f"fw.{name}")
         await self.push_frame(frame, direction)
 
 
@@ -345,7 +345,6 @@ async def _run(case: Case, seed: int) -> RunResult:
             ledger.append(
                 "framework",
                 "fw.error",
-                created_us=ledger.now_us(),
                 error=_UNSTABLE.sub("#", frame.error),
             )
 

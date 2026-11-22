@@ -1,6 +1,7 @@
 """The documentation agrees with the code, schemas and workflows it describes."""
 
 import ast
+import json
 import re
 from pathlib import Path
 
@@ -317,6 +318,15 @@ def test_the_releases_with_each_known_defect_are_the_same_everywhere_they_are_li
         assert all(tuple(map(int, r.split("."))) >= first_repaired for r in repaired)
         (shown,) = re.findall(rf"^\| \[livekit/agents#{issue}\].*$", README, re.MULTILINE)
         assert shown.endswith(f"| {', '.join(present)} | {', '.join(repaired)} |")
+
+
+def test_each_case_page_quotes_the_hash_its_bundle_records():
+    for page in sorted((ROOT / "docs" / "cases").glob("*.md")):
+        text = page.read_text()
+        (bundle,) = re.findall(r"Bundle: `(tests/bundles/[^`]+)/`", text)
+        manifest = json.loads((ROOT / bundle / "manifest.json").read_text())
+        (quoted,) = re.findall(r"Recorded ledger hash on [\d.]+:\s+`([0-9a-f]{64})`", text)
+        assert quoted == manifest["minimal"]["hash"], page.name
 
 
 def test_the_readme_shows_the_example_as_it_is_in_the_repository():

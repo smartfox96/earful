@@ -24,7 +24,6 @@ from ..core.schema import validity
 from ..core.timebase import to_seconds, to_us
 from ..scripted.case import DELAYS, Delay, Fault, Intent, InvalidRun, check_case, declared_intents
 from ..scripted.clock import (
-    WALL_CLOCK_EPOCH,
     ClockPatchReport,
     VirtualTimeLoop,
     left_the_clock,
@@ -322,11 +321,6 @@ def _scenario(case: Case, witnessed_tools: list[str], intents: list[Intent]) -> 
     }
 
 
-def _created_us(ev: Any) -> int | None:
-    created = getattr(ev, "created_at", None)
-    return round((created - WALL_CLOCK_EPOCH) * 1_000_000) if created is not None else None
-
-
 def _check_handover(
     session: lk.AgentSession[Any], checked: list[lk.Agent], errors: list[str]
 ) -> None:
@@ -351,7 +345,7 @@ def _tap(
         def handler(ev: Any) -> None:
             try:
                 _check_handover(session, checked, errors)
-                ledger.append("framework", f"fw.{name}", created_us=_created_us(ev), **fields(ev))
+                ledger.append("framework", f"fw.{name}", **fields(ev))
             except Exception as exc:  # noqa: BLE001
                 errors.append(f"tap {name}: {type(exc).__name__}: {exc}")
 

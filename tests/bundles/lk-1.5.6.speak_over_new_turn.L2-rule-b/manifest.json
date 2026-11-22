@@ -24,7 +24,7 @@
     "findings": [
       "segment 1 started 268000 us after the user took the floor"
     ],
-    "hash": "453f3afaab469c6f520e1d15f865c1c9bb7e5423cff9016e4fc1b911a67a2c28",
+    "hash": "d6513a9d30cf8e6233db8321c9d742ab4501cf8ad1ab7460bde844506cc57c60",
     "speeches": 2
   },
   "original": {
@@ -34,7 +34,7 @@
     "findings": [
       "segment 1 started 250000 us after the user took the floor"
     ],
-    "hash": "a6ff1f906e64de66b6ebd6c51022d71a0e65a24943d3230da07a740e176c9e93",
+    "hash": "d39ed9a924fb55147a525dc501b4744df64981cd96ce0274b4cabae8169b3807",
     "speeches": 2
   },
   "predicate": {

@@ -1,6 +1,5 @@
 """Every case must produce the same normalized ledger on every run."""
 
-import json
 import logging
 
 import pytest
@@ -9,7 +8,6 @@ pytest.importorskip("livekit.agents")
 
 import livekit.agents as lk
 
-from earful.core.ledger import compare_view, normalize
 from earful.livekit import Case, ScriptedModel, UserSpeech
 from earful.livekit.cases import CASES
 from earful.livekit.harness import run_case
@@ -45,24 +43,18 @@ def test_the_logging_level_does_not_change_the_ledger(name, caplog):
 
 
 @pytest.mark.parametrize("name", sorted(CASES))
-def test_a_tracer_provider_changes_nothing_earful_records(name):
-    """A span reads the clock when it starts and ends, and only a provider makes spans.
-    livekit-agents 1.8 reads the clock in its own turn spans, which moves its created_us."""
+def test_a_tracer_provider_does_not_change_the_ledger(name):
+    """A span reads the clock when it starts and ends, and only a provider makes spans."""
     sdk = pytest.importorskip("opentelemetry.sdk.trace")
     traces = pytest.importorskip("livekit.agents.telemetry.traces")
-    plain = run_case(CASES[name]()).ledger.events
+    plain = run_case(CASES[name]()).hash
     before, provider = traces.tracer._tracer_provider, sdk.TracerProvider()
     traces.tracer.set_provider(provider)
     try:
-        traced = run_case(CASES[name]()).ledger.events
+        assert run_case(CASES[name]()).hash == plain
     finally:
         traces.tracer.set_provider(before)
         provider.shutdown()
-
-    def seen(events):
-        return compare_view(json.loads(line) for line in normalize(events))
-
-    assert seen(traced) == seen(plain)
 
 
 class _Warns(lk.Agent):

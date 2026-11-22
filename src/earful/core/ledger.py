@@ -156,14 +156,12 @@ def read_jsonl(path: str | os.PathLike[str]) -> list[dict[str, Any]]:
 
 def compare_view(events: Iterable[dict[str, Any]]) -> list[dict[str, Any]]:
     """The ledger without the fields that differ between framework releases whatever the
-    behaviour: the release, the run id derived from it and the framework's ``created_us``."""
+    behaviour: the release and the run id derived from it."""
     view = []
     for event in events:
         event = {k: v for k, v in event.items() if k != "run"}
         if event["kind"] == "run.start":
             event["data"] = {k: v for k, v in event["data"].items() if k != "framework"}
-        elif event["source"] == "framework" and "created_us" in event["data"]:
-            event["data"] = {k: v for k, v in event["data"].items() if k != "created_us"}
         view.append(event)
     return view
 

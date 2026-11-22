@@ -339,8 +339,6 @@ def later(events, by_us, since=0):
             data["started_us"] = moved(data["started_us"])
         elif event["kind"] == "playout.finished":
             data["words_completed_us"] = [moved(t) for t in data["words_completed_us"]]
-        elif event["source"] == "framework" and "created_us" in data:
-            data["created_us"] = moved(data["created_us"])
     return out
 
 

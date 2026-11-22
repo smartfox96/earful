@@ -346,8 +346,7 @@ timeout and no outcome was lost, or had not committed when the scenario ended.
 ### framework
 
 `fw.*` events are the framework's public events, recorded as explanation. Their fields are
-adapter-defined. Each carries `created_us`, the framework's own timestamp for the event.
-They never decide a verdict.
+adapter-defined, and they never decide a verdict.
 
 ## Rules that span events
 
@@ -449,10 +448,8 @@ ledgers change; the diff it produces is reviewed like any other change.
 ## Comparing releases
 
 `compare_view` in `src/earful/core/ledger.py` drops what differs between releases for
-reasons unrelated to behaviour: the release itself (`framework` in `run.start`, and the
-run id derived from it) and the framework's `created_us`, which drifts by microseconds
-because each release reads the wall clock a different number of times per step.
-Everything else is kept. On `barge_in_mid_word`, the comparison views of 1.6.6 and 1.8.12
+reasons unrelated to behaviour: the release itself (`framework` in `run.start`) and the
+run id derived from it. Everything else is kept. On `barge_in_mid_word`, the comparison views of 1.6.6 and 1.8.12
 differ only in when the session closes.
 
 ## Versioning

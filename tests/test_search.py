@@ -1833,7 +1833,7 @@ def test_a_case_that_does_not_repeat_is_not_kept(tmp_path):
         unsteady.runs += 1
         events = copy.deepcopy(ledger("1.5.6", "book_then_interrupt"))
         said = next(e for e in events if e["source"] == "framework")
-        said["data"]["created_us"] += unsteady.runs  # a different ledger every run
+        said["data"]["unsteady"] = unsteady.runs  # a different ledger every run
         return events
 
     unsteady.runs = 0

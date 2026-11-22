@@ -24,7 +24,7 @@
     "findings": [
       "2 durable effects for 'book-table-1'; the scenario authorized 1"
     ],
-    "hash": "9ddae591a2ed480b6e039c27965249eb35b53e1b8e267742d5a0b94f5ca3a6e3",
+    "hash": "e89907df18e831b27983d7270ae0c14f0827645ee4e8fb89f5afd3e9a2d72968",
     "speeches": 2
   },
   "original": {
@@ -34,7 +34,7 @@
     "findings": [
       "2 durable effects for 'book-table-1'; the scenario authorized 1"
     ],
-    "hash": "3fc1084cb3d197b7d244b28e7a1a6c29c1ddae1af99eb1facf24147f4946d50e",
+    "hash": "2fe2348aef6be06a5dad850aa9a94158880c7dd4054f9a20b8213b9af8259016",
     "speeches": 2
   },
   "predicate": {
