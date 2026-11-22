@@ -4436,15 +4436,15 @@ MUTANTS = [
     Mutant(
         "pipecat: an error the framework reports makes the run invalid",
         "src/earful/pipecat/harness.py",
-        "            if frame.exception is not None or frame.fatal:\n",
-        "            if True:\n",
+        "        if frame.exception is not None or frame.fatal:\n",
+        "        if True:\n",
         first="slower_than_pipecat_waits_is_judged",
     ),
     Mutant(
         "pipecat: a random id reaches the ledger",
         "src/earful/pipecat/harness.py",
-        '                error=_UNSTABLE.sub("#", frame.error),\n',
-        "                error=frame.error,\n",
+        '            error=_UNSTABLE.sub("#", frame.error),\n',
+        "            error=frame.error,\n",
         first="slower_than_pipecat_waits_is_judged",
     ),
     Mutant(
@@ -4471,8 +4471,8 @@ MUTANTS = [
     Mutant(
         "pipecat: a case's own pipeline is not run",
         "src/earful/pipecat/harness.py",
-        "        build = case.pipeline or pipelines.standard(*timeouts)\n",
-        "        build = pipelines.standard(*timeouts)\n",
+        "    build = case.pipeline or pipelines.standard(*timeouts)\n",
+        "    build = pipelines.standard(*timeouts)\n",
         first="runs_its_own_processors",
     ),
     Mutant(
@@ -4590,8 +4590,8 @@ MUTANTS = [
     Mutant(
         "pipecat: turn strategies changed during a run go unnoticed",
         "src/earful/pipecat/harness.py",
-        "        if changed:\n",
-        "        if False:\n",
+        "    if changed:\n",
+        "    if False:\n",
         first="strategies_changed_during_the_run",
     ),
     Mutant(
@@ -4793,7 +4793,7 @@ MUTANTS = [
     Mutant(
         "pipecat: a pending turn is mistaken for an idle pipeline",
         "src/earful/pipecat/harness.py",
-        "                    or tap.user_speaking\n",
+        "                or tap.user_speaking\n",
         "",
         first="waits_for_the_final_turn_and_slow_tool",
     ),
@@ -5472,8 +5472,8 @@ MUTANTS = [
     Mutant(
         "pipecat: a private name is read only when it is used",
         "src/earful/pipecat/harness.py",
-        "            model.private(name)\n",
-        "            pass\n",
+        "        model.private(name)\n",
+        "        pass\n",
         first="private_name_elsewhere",
     ),
     Mutant(
@@ -5521,8 +5521,8 @@ MUTANTS = [
     Mutant(
         "pipecat: the header leaves out the starting history",
         "src/earful/pipecat/harness.py",
-        '        if history:\n            header["history"] = history\n',
-        '        if False:\n            header["history"] = history\n',
+        '    if history:\n        header["history"] = history\n',
+        '    if False:\n        header["history"] = history\n',
         first="starts_with_history",
     ),
     Mutant(
@@ -5815,8 +5815,8 @@ MUTANTS = [
     Mutant(
         "pipecat: a processor that raises is an error the framework reports of itself",
         "src/earful/pipecat/harness.py",
-        "            if frame.exception is not None or frame.fatal:\n",
-        "            if frame.fatal:\n",
+        "        if frame.exception is not None or frame.fatal:\n",
+        "        if frame.fatal:\n",
         first="processor_that_raises",
     ),
     Mutant(
