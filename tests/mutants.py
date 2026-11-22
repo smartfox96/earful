@@ -5867,4 +5867,11 @@ MUTANTS = [
         "        if False:\n",
         first="still_running_when_the_scenario_is_over",
     ),
+    Mutant(
+        "clock: a span's reads move the wall clock",
+        "src/earful/scripted/clock.py",
+        "                spans = _reading_without_a_step(_now_ns)\n",
+        "                spans = _now_ns\n",
+        first="span_reads_the_clock_without_moving_it",
+    ),
 ]

@@ -467,7 +467,9 @@ def virtual_wall_clock() -> Iterator[ClockPatchReport]:
             from opentelemetry.sdk import trace as otel_sdk_trace
 
             if hasattr(otel_sdk_trace, "time_ns"):
-                stack.enter_context(mock.patch.object(otel_sdk_trace, "time_ns", _now_ns))
+                # A span reads the clock as it starts and ends, and tracing may be off.
+                spans = _reading_without_a_step(_now_ns)
+                stack.enter_context(mock.patch.object(otel_sdk_trace, "time_ns", spans))
                 _REPORT.otel_patched = True
         except ImportError:
             pass
