@@ -40,7 +40,8 @@ What a scenario cannot do today:
 - Use a thread. A run in which a thread starts is invalid, and says so.
 - Queue frames from outside the pipeline. The pipeline worker is Earful's: your
   transport event handlers, observers and RTVI do not run, so a bot that speaks first
-  from `on_client_connected` does not speak first here.
+  from `on_client_connected` does not speak first here. A processor can do it instead
+  (A bot that speaks first, below).
 
 Each refusal is a `ValueError` of one line, raised before the run starts.
 
@@ -200,6 +201,93 @@ A setting changes what the contracts find. With a mute strategy or with
 `VADUserTurnStartStrategy(enable_interruptions=False)` the bot talks on while the user
 speaks, and L2 reports it. Declare `contracts={"L2": {"interruptions_allowed": False}}`
 on the case if that is what the application intends.
+
+## A bot that speaks first
+
+A bot that greets the caller usually queues `LLMRunFrame` from its transport's
+`on_client_connected` handler, which does not run here. Ask from inside the pipeline
+instead: a processor that pushes `LLMRunFrame` as the pipeline starts. Put it before the
+user context aggregator, which turns the frame into a model call.
+
+```python
+from pipecat.frames.frames import LLMRunFrame, StartFrame
+from pipecat.processors.aggregators.llm_context import LLMContext
+from pipecat.processors.aggregators.llm_response_universal import (
+    LLMContextAggregatorPair,
+    LLMUserAggregatorParams,
+)
+from pipecat.processors.frame_processor import FrameProcessor
+from pipecat.turns.user_start.vad_user_turn_start_strategy import VADUserTurnStartStrategy
+from pipecat.turns.user_stop.speech_timeout_user_turn_stop_strategy import (
+    SpeechTimeoutUserTurnStopStrategy,
+)
+from pipecat.turns.user_turn_strategies import UserTurnStrategies
+
+from earful.pipecat import Case, Ends, ScriptedModel, UserSpeech, user_said
+
+
+class SpeaksFirst(FrameProcessor):
+    """Asks the model for a reply as the pipeline starts."""
+
+    async def process_frame(self, frame, direction):
+        await super().process_frame(frame, direction)
+        await self.push_frame(frame, direction)
+        if isinstance(frame, StartFrame):
+            await self.push_frame(LLMRunFrame())
+
+
+def pipeline(ends: Ends):
+    turns = UserTurnStrategies(
+        start=[VADUserTurnStartStrategy()],
+        stop=[SpeechTimeoutUserTurnStopStrategy(user_speech_timeout=0.6)],
+    )
+    pair = LLMContextAggregatorPair(
+        ends.context, user_params=LLMUserAggregatorParams(user_turn_strategies=turns)
+    )
+    return [
+        ends.input,
+        ends.stt,
+        SpeaksFirst(),
+        pair.user(),
+        ends.llm,
+        ends.tts,
+        ends.output,
+        pair.assistant(),
+    ]
+
+
+def greets():
+    return Case(
+        name="greets",
+        bot=lambda llm: LLMContext(),
+        speeches=[UserSpeech(4.0, 5.5, "A table for two, please.")],
+        policy=ScriptedModel()
+        .when(user_said("table"), say="Of course, for two.")
+        .otherwise(say="Welcome to the restaurant. How can I help?"),
+        pipeline=pipeline,
+        user_speech_timeout=0.6,
+    )
+
+
+def test_the_bot_greets_the_caller(earful):
+    earful.run(greets).assert_contracts()
+```
+
+The greeting is a reply like any other. It is model call 1, made before the user has
+said anything, so the scripted model's `otherwise` gives it. M1 holds it to what played,
+and a user who speaks over it is an interruption L2 judges.
+
+Three things a bot can do that do not fit a scenario:
+
+- **Pipecat Flows.** A flow manager is built around the pipeline's task, which is
+  Earful's, and moves the conversation between nodes outside the model service. Test
+  the functions and the prompts of one node as a bot of its own.
+- **A handler that holds the worker or the transport**, such as one that queues frames
+  on the task or reads the client's state. Neither is the application's in a run, so a
+  scenario cannot hand it to such code.
+- **A processor that plays its own audio**, such as a chime or hold music pushed as
+  audio frames. Earful's output reads every sample as a word the voice spoke, so audio
+  that comes from elsewhere is a stamp error and makes the run invalid.
 
 ## Tools and effects
 

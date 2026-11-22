@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import importlib.util
 import inspect
 import json
 import os
@@ -22,14 +23,21 @@ pytest.importorskip("pipecat")
 from loguru import logger
 from pipecat.adapters.llm.schemas.function_schema import FunctionSchema
 from pipecat.adapters.llm.schemas.tools_schema import ToolsSchema
-from pipecat.frames.frames import CancelFrame, FunctionCallResultProperties, OutputAudioRawFrame
+from pipecat.frames.frames import (
+    CancelFrame,
+    FunctionCallResultProperties,
+    OutputAudioRawFrame,
+    StartFrame,
+)
 from pipecat.processors.aggregators.llm_context import LLMContext
+from pipecat.processors.frame_processor import FrameProcessor
 
 from earful import pipecat as pc
 from earful.cli import main
 from earful.core import bundle, case, schema
 from earful.core.ledger import Ledger
 from earful.core.search import evaluate
+from earful.pipecat import pipeline as pc_pipeline
 from earful.pipecat import scenario
 from earful.pipecat.cases import MENU
 from earful.pipecat.sink import ClockedOutput
@@ -584,6 +592,50 @@ def test_pipecat_documented_pipeline_runs_as_written(pytester):
     result.assert_outcomes(passed=1)
     for refused in ("VADProcessor", "TurnAnalyzerUserTurnStopStrategy", "vad_analyzer"):
         assert f"`{refused}`" in page  # the limits name what the tests above refuse
+
+
+def test_pipecat_a_bot_that_speaks_first_greets_before_the_user_says_anything(tmp_path):
+    """The page's recipe, run as it is shown."""
+    page = (Path(__file__).resolve().parents[1] / "docs" / "pipecat.md").read_text()
+    (shown,) = [
+        b for b in re.findall(r"```python\n(.*?)```", page, flags=re.DOTALL) if "SpeaksFirst" in b
+    ]
+    path = tmp_path / "speaks_first.py"
+    path.write_text(shown)
+    spec = importlib.util.spec_from_file_location("speaks_first", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    result = pc.run(module.greets)
+    result.assert_contracts()
+    kinds = [e["kind"] for e in result.events]
+    first = events(result, "llm.response")[0]
+    assert first["text"] == "Welcome to the restaurant. How can I help?"
+    assert kinds.index("llm.response") < kinds.index("user.vad_start")
+    assert kinds.index("playout.started") < kinds.index("user.vad_start")
+
+
+class _Chimes(FrameProcessor):
+    """Plays a chime of its own as the pipeline starts, as hold music would."""
+
+    async def process_frame(self, frame, direction):
+        await super().process_frame(frame, direction)
+        await self.push_frame(frame, direction)
+        if isinstance(frame, StartFrame):
+            chime = bytes([0x10, 0x27]) * 2400  # 0.1 s of a loud constant sample, at 24 kHz
+            await self.push_frame(OutputAudioRawFrame(chime, 24_000, 1))
+
+
+def test_pipecat_a_processor_that_plays_its_own_audio_makes_the_run_invalid():
+    case = greeting()
+
+    def pipeline(ends):
+        built = pc_pipeline.standard(case.user_speech_timeout, case.user_turn_stop_timeout)(ends)
+        at = built.index(ends.output)
+        return [*built[:at], _Chimes(), *built[at:]]
+
+    case = replace(case, pipeline=pipeline)
+    with pytest.raises(pc.InvalidRun, match="audio samples reached the sink altered"):
+        pc.run(case)
 
 
 def test_pipecat_reads_async_tool_results_from_the_context():
