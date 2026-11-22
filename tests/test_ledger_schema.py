@@ -291,3 +291,12 @@ def test_every_committed_ledger_is_a_valid_run():
 def test_a_normalized_ledger_file_is_its_own_normal_form():
     for path in sorted(GOLDEN.glob("*.ledger.normalized.jsonl")):
         assert normalize(read_jsonl(path)) == path.read_text("ascii").splitlines(), path.name
+
+
+def test_a_ledger_of_another_format_is_said_to_be_so_once(booking):
+    events = [{**e, "schema": "earful.ledger/2"} for e in booking]
+    assert validate(events) == [
+        "the ledger is earful.ledger/2, and this version of Earful reads earful.ledger/1"
+    ]
+    mixed = [events[0], *booking[1:]]  # one event of another format is said of it alone
+    assert len(validate(mixed)) == 1 and validate(mixed)[0].startswith("event 0 (run.start)")

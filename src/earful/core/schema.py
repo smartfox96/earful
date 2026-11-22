@@ -11,7 +11,7 @@ from typing import Any
 
 from jsonschema import Draft202012Validator
 
-from .ledger import run_id
+from .ledger import SCHEMA, run_id
 
 Event = dict[str, Any]
 
@@ -72,6 +72,9 @@ def validate(events: list[Event]) -> list[str]:
     """Every way ``events`` departs from earful.ledger/1. An empty list means valid."""
     if not events:
         return ["ledger is empty"]
+    named = {event.get("schema") for event in events if isinstance(event, dict)}
+    if len(named) == 1 and (other := named.pop()) != SCHEMA and isinstance(other, str):
+        return [f"the ledger is {other}, and this version of Earful reads {SCHEMA}"]
 
     errors: list[str] = []
     for i, event in enumerate(events):

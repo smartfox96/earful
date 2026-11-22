@@ -5907,4 +5907,11 @@ MUTANTS = [
         '            "stretch_us": stretch_us,\n        }\n        if workers == 0:',
         first="wait_the_stretch_and_the_delay_limit",
     ),
+    Mutant(
+        "validator: a ledger of another format is said to be so once per event",
+        "src/earful/core/schema.py",
+        "    if len(named) == 1 and (other := named.pop()) != SCHEMA and isinstance(other, str):\n",
+        "    if False:\n",
+        first="another_format_is_said_to_be_so_once",
+    ),
 ]
