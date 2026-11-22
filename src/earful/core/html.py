@@ -7,6 +7,7 @@ import json
 import unicodedata
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from functools import partial
 from pathlib import Path
 from typing import Any
 
@@ -367,6 +368,23 @@ class _Item:
     x0: float
     x1: float
     draw: Callable[[float], str]
+
+
+@dataclass
+class _SegmentLayout:
+    """Where a played segment and its words are drawn, and the line under it."""
+
+    seg: _Playout
+    begun: _Ev
+    done: _Ev | None
+    t1: int
+    x0: float
+    x1: float
+    boxes: list[tuple[float, float, str, str, str]]  # x0, x1, class, word, tip
+    summary: str
+    ghost: str
+    width: float
+    interrupted: bool
 
 
 @dataclass
@@ -905,32 +923,88 @@ class _Timeline:
         return _Item(x0 - 2, right + 8 + _w(label), draw)
 
     def _segment(self, seg: _Playout) -> _Item | None:
-        run = self.run
-        done = seg.finished
-        begun = seg.started
+        done, begun = seg.finished, seg.started
         if begun is None and done is None:
             return None
-        d = done.data if done is not None else {}
         if begun is None:
-            assert done is not None and done.t is not None
-            x = self.x(done.t)
-            label = f"segment {seg.number} was cleared before it became audible"
-
-            def draw_silent(y: float) -> str:
-                assert done is not None
-                inner = self.hit(done, x - 3, y + 11, 18 + _w(label), 20)
-                inner += (
-                    f'<rect class="seg-none" x="{_n(x)}" y="{_n(y + 12)}" width="10" height="18"/>'
-                )
-                inner += self.text(x + 15, y + 25, label, "t t2")
-                return self.a(done, inner)
-
-            return _Item(x - 3, x + 16 + _w(label), draw_silent)
-
+            assert done is not None
+            return self._silent_segment(seg, done)
         assert begun.t is not None
         t0 = begun.t
-        t1 = done.t if done is not None and done.t is not None else run.t_hi
+        t1 = done.t if done is not None and done.t is not None else self.run.t_hi
+        d = done.data if done is not None else {}
+        word_of, order = self._words_of(d)
+        boxes, cut_note, played, completed = self._word_boxes(seg, d, word_of, t0, t1)
+        cut = d.get("word_cut")
+        unplayed = [word_of[s][0] for s in order if s not in set(played) and s != cut]
+        summary = self._segment_summary(seg, d, done, played, completed, cut_note, unplayed)
+        ghost = _clip(" ".join(unplayed), 70) if unplayed else ""
+        if unplayed:
+            summary += f", {len(unplayed)} not played:"
         x0, x1 = self.x(t0), self.x(max(t1, t0))
+        layout = _SegmentLayout(
+            seg=seg,
+            begun=begun,
+            done=done,
+            t1=t1,
+            x0=x0,
+            x1=x1,
+            boxes=boxes,
+            summary=summary,
+            ghost=ghost,
+            width=_w(summary) + (_w(ghost) + 6 if ghost else 0),
+            interrupted=d.get("interrupted") is True,
+        )
+        return _Item(x0 - 11, max(x1 + 10, x0 + layout.width), partial(self._draw_segment, layout))
+
+    def _silent_segment(self, seg: _Playout, done: _Ev) -> _Item:
+        """A segment cleared before it became audible."""
+        assert done.t is not None
+        x = self.x(done.t)
+        label = f"segment {seg.number} was cleared before it became audible"
+
+        def draw_silent(y: float) -> str:
+            inner = self.hit(done, x - 3, y + 11, 18 + _w(label), 20)
+            inner += f'<rect class="seg-none" x="{_n(x)}" y="{_n(y + 12)}" width="10" height="18"/>'
+            inner += self.text(x + 15, y + 25, label, "t t2")
+            return self.a(done, inner)
+
+        return _Item(x - 3, x + 16 + _w(label), draw_silent)
+
+    def _words_of(
+        self, d: dict[str, Any]
+    ) -> tuple[dict[Any, tuple[str, int, int, int]], list[Any]]:
+        """Each stamp of the segment's utterances, as its word, microseconds, samples and
+        rate, and the stamps in the order they were synthesized."""
+        word_of: dict[Any, tuple[str, int, int, int]] = {}
+        order: list[Any] = []
+        for number in _list(d, "utterances"):
+            source = self.run.utterances.get(number) if isinstance(number, (int, str)) else None
+            if source is None:
+                continue
+            stamps = _list(source.data, "stamps")
+            texts = _str(source.data, "text").split()
+            samples = _list(source.data, "word_samples")
+            rate = _int(source.data, "sample_rate") or 0
+            for at, stamp in enumerate(stamps):
+                if not isinstance(stamp, int):
+                    continue
+                count = samples[at] if at < len(samples) and isinstance(samples[at], int) else 0
+                length = -(-count * 1_000_000 // rate) if rate > 0 else 0
+                word_of[stamp] = (texts[at] if at < len(texts) else "", length, count, rate)
+                order.append(stamp)
+        return word_of, order
+
+    def _word_boxes(
+        self,
+        seg: _Playout,
+        d: dict[str, Any],
+        word_of: dict[Any, tuple[str, int, int, int]],
+        t0: int,
+        t1: int,
+    ) -> tuple[list[tuple[float, float, str, str, str]], str, list[int], list[int]]:
+        """A box for each played word and the cut one, placed on the audible time, with the
+        note on the cut word and the stamps and completion times of the played words."""
         # The checker's own record of a segment says when it was audible.
         audible = Segment(
             0,
@@ -950,26 +1024,9 @@ class _Timeline:
                 pos -= b - a
             return audible[-1][1] if audible else t0
 
-        word_of: dict[Any, tuple[str, int, int, int]] = {}  # word, microseconds, samples, rate
-        order: list[Any] = []
-        for number in _list(d, "utterances"):
-            source = run.utterances.get(number) if isinstance(number, (int, str)) else None
-            if source is None:
-                continue
-            stamps = _list(source.data, "stamps")
-            texts = _str(source.data, "text").split()
-            samples = _list(source.data, "word_samples")
-            rate = _int(source.data, "sample_rate") or 0
-            for at, stamp in enumerate(stamps):
-                if not isinstance(stamp, int):
-                    continue
-                count = samples[at] if at < len(samples) and isinstance(samples[at], int) else 0
-                length = -(-count * 1_000_000 // rate) if rate > 0 else 0
-                word_of[stamp] = (texts[at] if at < len(texts) else "", length, count, rate)
-                order.append(stamp)
         played = [s for s in _list(d, "words_played") if isinstance(s, int)]
         completed = [c for c in _list(d, "words_completed_us") if isinstance(c, int)]
-        left = run.hangup.t if run.hangup is not None else None
+        left = self.run.hangup.t if self.run.hangup is not None else None
         boxes: list[tuple[float, float, str, str, str]] = []  # x0, x1, class, word, tip
         previous = t0
         for stamp, end in zip(played, completed):
@@ -996,108 +1053,116 @@ class _Timeline:
             boxes.append(
                 (self.x(previous), max(self.x(stop), self.x(previous) + 3), "w-cut", "", tip)
             )
-        unplayed = [word_of[s][0] for s in order if s not in set(played) and s != cut]
+        return boxes, cut_note, played, completed
 
-        interrupted = d.get("interrupted") is True
+    def _segment_summary(
+        self,
+        seg: _Playout,
+        d: dict[str, Any],
+        done: _Ev | None,
+        played: list[int],
+        completed: list[int],
+        cut_note: str,
+        unplayed: list[str],
+    ) -> str:
+        """What the segment played, in one line under it."""
         if done is None:
-            summary = f"segment {seg.number} had not finished when the ledger ends"
+            return f"segment {seg.number} had not finished when the ledger ends"
+        pushed, reached = _int(d, "pushed_us"), _int(d, "position_us")
+        audio = (
+            f"{_sec(reached)} of {_sec(pushed)}"
+            if reached is not None and pushed is not None
+            else "part"
+        )
+        if d.get("interrupted") is True:
+            summary = f"segment {seg.number} interrupted after {audio} of audio"
         else:
-            pushed, reached = _int(d, "pushed_us"), _int(d, "position_us")
-            audio = (
-                f"{_sec(reached)} of {_sec(pushed)}"
-                if reached is not None and pushed is not None
-                else "part"
-            )
-            if interrupted:
-                summary = f"segment {seg.number} interrupted after {audio} of audio"
-            else:
-                summary = f"segment {seg.number} played out, {_sec(pushed or 0)} of audio"
-            counts = [_plural(len(played), "word") + " played"]
-            if cut_note:
-                counts.append(cut_note)
-            summary += ": " + ", ".join(counts)
-            if left is not None and any(c > left for c in completed):
-                summary += "; words after the hangup reached no one"
-        ghost = _clip(" ".join(unplayed), 70) if unplayed else ""
-        if unplayed:
-            summary += f", {len(unplayed)} not played:"
-        width = _w(summary) + (_w(ghost) + 6 if ghost else 0)
+            summary = f"segment {seg.number} played out, {_sec(pushed or 0)} of audio"
+        counts = [_plural(len(played), "word") + " played"]
+        if cut_note:
+            counts.append(cut_note)
+        summary += ": " + ", ".join(counts)
+        left = self.run.hangup.t if self.run.hangup is not None else None
+        if left is not None and any(c > left for c in completed):
+            summary += "; words after the hangup reached no one"
+        return summary
 
-        def draw(y: float) -> str:
-            top = y + 12
-            out = (
-                f'<rect class="seg {"seg-cut" if interrupted or done is None else ""}" '
-                f'x="{_n(x0)}" y="{_n(top)}" width="{_n(max(x1 - x0, 2))}" height="18"/>'
+    def _draw_segment(self, layout: _SegmentLayout, y: float) -> str:
+        seg, begun, done, t1 = layout.seg, layout.begun, layout.done, layout.t1
+        x0, x1, interrupted = layout.x0, layout.x1, layout.interrupted
+        summary, ghost = layout.summary, layout.ghost
+        top = y + 12
+        out = (
+            f'<rect class="seg {"seg-cut" if interrupted or done is None else ""}" '
+            f'x="{_n(x0)}" y="{_n(top)}" width="{_n(max(x1 - x0, 2))}" height="18"/>'
+        )
+        for paused, resumed in seg.pauses:
+            assert paused.t is not None
+            until = resumed.t if resumed is not None and resumed.t is not None else t1
+            px0, px1 = self.x(paused.t), self.x(max(until, paused.t))
+            out += (
+                f'<rect class="paused" x="{_n(px0)}" y="{_n(top)}" '
+                f'width="{_n(px1 - px0)}" height="18"><title>not audible: paused from '
+                f"{_e(self.at(paused.t))} to {_e(self.at(until))}</title></rect>"
             )
-            for paused, resumed in seg.pauses:
-                assert paused.t is not None
-                until = resumed.t if resumed is not None and resumed.t is not None else t1
-                px0, px1 = self.x(paused.t), self.x(max(until, paused.t))
+        for bx0, bx1, cls, word, tip in layout.boxes:
+            out += (
+                f'<g><title>{_e(tip)}</title><rect class="{cls}" x="{_n(bx0 + 1)}" '
+                f'y="{_n(top + 1)}" width="{_n(max(bx1 - bx0 - 1, 1))}" height="16"/>'
+            )
+            if cls != "w-cut":
                 out += (
-                    f'<rect class="paused" x="{_n(px0)}" y="{_n(top)}" '
-                    f'width="{_n(px1 - px0)}" height="18"><title>not audible: paused from '
-                    f"{_e(self.at(paused.t))} to {_e(self.at(until))}</title></rect>"
+                    f'<line class="done {cls}-done" x1="{_n(bx1)}" x2="{_n(bx1)}" '
+                    f'y1="{_n(top)}" y2="{_n(top + 18)}"/>'
                 )
-            for bx0, bx1, cls, word, tip in boxes:
-                out += (
-                    f'<g><title>{_e(tip)}</title><rect class="{cls}" x="{_n(bx0 + 1)}" '
-                    f'y="{_n(top + 1)}" width="{_n(max(bx1 - bx0 - 1, 1))}" height="16"/>'
+            room = bx1 - bx0 - 2.4
+            need = _cells(word) * 6.02
+            if word and need <= room * 1.3:
+                out += self.text(
+                    bx0 + 1.6,
+                    top + 12.5,
+                    word,
+                    "t wt",
+                    f' textLength="{_n(min(need, room))}" lengthAdjust="spacingAndGlyphs"',
                 )
-                if cls != "w-cut":
-                    out += (
-                        f'<line class="done {cls}-done" x1="{_n(bx1)}" x2="{_n(bx1)}" '
-                        f'y1="{_n(top)}" y2="{_n(top + 18)}"/>'
-                    )
-                room = bx1 - bx0 - 2.4
-                need = _cells(word) * 6.02
-                if word and need <= room * 1.3:
-                    out += self.text(
-                        bx0 + 1.6,
-                        top + 12.5,
-                        word,
-                        "t wt",
-                        f' textLength="{_n(min(need, room))}" lengthAdjust="spacingAndGlyphs"',
-                    )
-                out += "</g>"
-            out += self.start(begun, x0, y + 11, "c-voice", "The segment became audible")
-            for paused, resumed in seg.pauses:
-                assert paused.t is not None
-                px = self.x(paused.t)
+            out += "</g>"
+        out += self.start(begun, x0, y + 11, "c-voice", "The segment became audible")
+        for paused, resumed in seg.pauses:
+            assert paused.t is not None
+            px = self.x(paused.t)
+            out += self.a(
+                paused,
+                self.hit(paused, px - 1, y, 12, 12)
+                + f'<g class="c-voice" transform="translate({_n(px + 1)} {_n(y + 1)}) '
+                f'scale(.9)">{_glyph("pause", 0, 0)}</g>',
+                "The segment stopped being audible",
+            )
+            if resumed is not None and resumed.t is not None:
+                rx = self.x(resumed.t)
                 out += self.a(
-                    paused,
-                    self.hit(paused, px - 1, y, 12, 12)
-                    + f'<g class="c-voice" transform="translate({_n(px + 1)} {_n(y + 1)}) '
-                    f'scale(.9)">{_glyph("pause", 0, 0)}</g>',
-                    "The segment stopped being audible",
+                    resumed,
+                    self.hit(resumed, rx - 11, y, 12, 12)
+                    + f'<g class="c-voice" transform="translate({_n(rx - 10)} {_n(y + 1)}) '
+                    f'scale(.9)">{_glyph("play", 0, 0)}</g>',
+                    "The segment became audible again",
                 )
-                if resumed is not None and resumed.t is not None:
-                    rx = self.x(resumed.t)
-                    out += self.a(
-                        resumed,
-                        self.hit(resumed, rx - 11, y, 12, 12)
-                        + f'<g class="c-voice" transform="translate({_n(rx - 10)} {_n(y + 1)}) '
-                        f'scale(.9)">{_glyph("play", 0, 0)}</g>',
-                        "The segment became audible again",
-                    )
-            tail = self.text(x0, y + 42, summary, "t t2")
-            if ghost:
-                tail += self.text(x0 + _w(summary) + 6, y + 42, ghost, "t ghost")
-            if done is None:
-                return out + tail
-            cap = (
-                f'<g class="c-voice">{_glyph("torn", x1, top + 4)}</g>'
-                if interrupted
-                else f'<rect class="seg-end" x="{_n(x1)}" y="{_n(top)}" width="3" height="18"/>'
-            )
-            inner = self.hit(done, x1 - 1, top - 1, 10, 20)
-            inner += self.hit(done, x0 - 2, y + 31, width + 4, 14)
-            return out + self.a(
-                done,
-                inner + cap + tail,
-                "The segment ended. What it played is recorded here",
-            )
-
-        return _Item(x0 - 11, max(x1 + 10, x0 + width), draw)
+        tail = self.text(x0, y + 42, summary, "t t2")
+        if ghost:
+            tail += self.text(x0 + _w(summary) + 6, y + 42, ghost, "t ghost")
+        if done is None:
+            return out + tail
+        cap = (
+            f'<g class="c-voice">{_glyph("torn", x1, top + 4)}</g>'
+            if interrupted
+            else f'<rect class="seg-end" x="{_n(x1)}" y="{_n(top)}" width="3" height="18"/>'
+        )
+        inner = self.hit(done, x1 - 1, top - 1, 10, 20)
+        inner += self.hit(done, x0 - 2, y + 31, layout.width + 4, 14)
+        return out + self.a(
+            done,
+            inner + cap + tail,
+            "The segment ended. What it played is recorded here",
+        )
 
     def framework(self) -> _Lane:
         lane = _Lane(
