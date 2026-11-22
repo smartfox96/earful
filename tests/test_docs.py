@@ -94,9 +94,10 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def test_the_rules_a_test_can_allow_are_listed_and_each_is_a_row_of_its_contract():
-    from earful.core.checker.report import RULES, rule_names
+    from earful.core.checker.report import MISSING, RULES, lost_names, rule_names
 
-    assert set(re.findall(r"`([AML]\d/[a-z0-9 -]+)`", TESTING_DOC)) == set(rule_names())
+    named = set(re.findall(r"`([AML]\d/[a-z0-9 -]+)`", TESTING_DOC))
+    assert set(rule_names()) <= named and named - set(rule_names()) <= set(lost_names())
     page = (ROOT / "docs" / "contracts.md").read_text()
     sections = dict(
         re.findall(r"^### ([AML]\d)\. .*?\n(.*?)(?=^##)", page, re.MULTILINE | re.DOTALL)
@@ -107,6 +108,8 @@ def test_the_rules_a_test_can_allow_are_listed_and_each_is_a_row_of_its_contract
         ]
         for rule in rules:
             assert any(row.startswith(rule) for row in rows), f"{contract}/{rule}"
+        for code in MISSING[contract]:  # each code a verdict of it can carry is in its table
+            assert f"`{code}`" in sections[contract], f"{contract}/{code}"
 
 
 def test_the_policy_defaults_are_those_the_contracts_page_states():

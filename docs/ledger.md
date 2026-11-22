@@ -103,6 +103,7 @@ with ordinals, and replaces nothing else; see Hashing.
 | `hangup_us` | When the user hangs up, as an offset from the origin. Null when the user stays to the end of the scenario |
 | `intents` | Per intent: `intent`, `tools`, `authorized` (durable effects allowed) |
 | `witnessed_tools` | The names of the function tools of the agent the run starts with. The tool witness records every call of each, so a call to one of them that leaves no `tool.called` was never made |
+| `history` | The items the agent's context holds before the run, in order, as context items (below) with `id` null, since the framework's identifiers are random and the header is not normalized. On LiveKit the starting agent's `chat_ctx`, on Pipecat the messages of the context `bot` returns. Absent when there are none. The contracts leave these items out of every context and of the final history they read (`docs/contracts.md`, section 4) |
 | `effects` | Tools that stand for one durable write. Per tool: `tool` and `intent`. In this run a call of such a tool made the write and did not run the tool's own body. Absent when there are none |
 | `session` | The framework options the contracts depend on: `min_interruption_duration_us`, `false_interruption_timeout_us`, `min_endpointing_delay_us`, `max_endpointing_delay_us`, `turn_end_delay_us` (how long after a speech ends the framework ends the user's turn, when no speech follows), `turn_detection`, and `extra_options` (any further options, by name, with their values) |
 | `delays` | Provider delays the scenario declares, each in place of what its code would ask for. Per delay: `of` (`llm.ttft`, `llm.duration`, `tts.ttfb` or `backend.latency`), `nth` (which model call, utterance or backend request, from 1) and `us`. Empty when the scenario declares none |
@@ -216,8 +217,10 @@ all. The checker then reads the ledger every way the candidates allow
 
 A text with attribution `none` is something the application spoke itself, such as a
 greeting. The contracts judge it like a reply: it was played, and it is remembered. The
-exception is when a model reply was still unsynthesized at that moment. The text may then
-be that reply, altered on its way to the voice, and both are unobservable.
+exception is when a model reply was still unsynthesized at that moment and shares a word
+with the text, letters and digits compared without case. The text may then be that reply,
+altered on its way to the voice, and both are unobservable. A text that shares no word
+with any such reply could not be it, and leaves it to be judged as never voiced.
 
 Tools are witnessed without changing the agent. The harness replaces each function tool
 of the agent it is given with a recording copy, through the agent's public `tools` and
@@ -466,9 +469,9 @@ change to the type or meaning of an existing field, or a change to a rule that s
 events is a new major version, with its own schema file. A change that alters what a
 recorded ledger hashes to regenerates the reference ledgers.
 
-`schema_minor` 1 added three optional fields: `handoff` on `tool.returned`,
-`turn_end_delay_us` in the header's `session`, and `word_timestamps` in its
-`providers.tts`.
+`schema_minor` 1 added four optional fields: `handoff` on `tool.returned`,
+`turn_end_delay_us` in the header's `session`, `word_timestamps` in its
+`providers.tts`, and `history` in its `scenario`.
 
 ## Before `earful.ledger/1`
 

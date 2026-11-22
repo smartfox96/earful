@@ -437,8 +437,9 @@ def test_a_search_in_which_a_case_raised_exits_3_and_says_that_this_is_why(capsy
     reference = "earful.livekit.cases:book_then_interrupt"
     status, out, _ = earful(capsys, "search", reference, "--workers", "0")
     assert status == NO_VERDICT
+    assert ": 2 cases tried, 1 judged, 0 contract rule(s) broken\n" in out
     assert out.endswith(
-        ": 2 cases tried, 1 judged, 0 contract rule(s) broken\n\n"
+        "    L2      1     0     0     0\n\n"
         "not judged: 1 of 2 cases; the search fails, since 1 raised\n"
         "    1 error: RuntimeError: the reservation service is down\n"
         "        such as backend.drop 1\n\n"
@@ -527,6 +528,16 @@ def test_replay_that_could_not_be_judged_has_no_verdict_whatever_was_expected(ca
     stand_in(clean[:-1], clean, clean)
     out = earful(capsys, "replay", KEPT_3702)[1]
     assert "  A2 gave               not valid evidence, pass, pass\n" in out
+    from test_search import _blind
+
+    stand_in(_blind(clean))  # the write left Earful's backend: A2's evidence is lost
+    status, out, _ = earful(capsys, "replay", KEPT_3702, "--expect", "clean")
+    assert status == NO_VERDICT
+    assert "  A2 gave               unobservable (outside-backend)\n" in out
+    stand_in(_blind(clean))
+    assert json.loads(earful(capsys, "replay", KEPT_3702, "--json")[1])["contract_codes"] == [
+        "outside-backend"
+    ]
 
     stand_in(broken, clean, clean)  # runs that differ show nothing either
     status, out, _ = earful(capsys, "replay", KEPT_3702, "--expect", "clean")

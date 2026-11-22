@@ -22,19 +22,33 @@ from earful.core.checker import (
 from earful.core.checker.memory import align, favourable, user_turns
 from earful.core.checker.policy import POLICIES, parse, parse_all
 from earful.core.checker.report import (
+    CODES,
+    LOST,
+    MISSING,
+    NOTHING,
     RULES,
     ContractResult,
     Finding,
     allowed,
     required,
+    result,
     rule_names,
     split,
     verdict,
 )
-from earful.core.checker.view import MAX_READINGS, Speech, Spoken, View, readings
+from earful.core.checker.view import (
+    MAX_READINGS,
+    Speech,
+    Spoken,
+    View,
+    could_be,
+    readings,
+    unseeded,
+)
 from earful.core.ledger import read_jsonl, run_id
 
 GOLDEN = Path(__file__).parent / "golden"
+CHECKER = Path(__file__).parent.parent / "src" / "earful" / "core" / "checker"
 INTENT = "book-table-1"
 
 
@@ -110,6 +124,8 @@ def test_reference_ledgers_get_the_documented_outcomes(path):
         expected["L2"] = FAIL
     if case == "reserve_table":
         expected.update(A2=PASS, A3=PASS)
+    if case in ("greeting", "reserve_table"):
+        expected["L2"] = NOT_EXERCISED  # the user never speaks while a reply is in flight
     assert check(read_jsonl(path)).outcomes() == expected
 
 
@@ -149,9 +165,11 @@ def test_a_rule_that_is_allowed_or_a_contract_that_is_required_has_to_exist(fixe
     report = check(fixed)
     assert allowed(["A2/rule", "M2/rule d"]) == allowed("A2/rule") | {"M2/rule d"}
     assert required("A2") == ["A2"] and required(["L1", "A3"]) == ["L1", "A3"]
-    for nothing in (["A3"], ["Z9/rule"], ["A2/rule b"], ["nonsense"], ["/rule"]):
+    assert allowed(["A2/outside-backend"]) == {"A2/outside-backend"}  # evidence lost
+    names = "one of: A1/rule, .*L2/rule b; or evidence lost, .* one of: A1/outside-backend, .*"
+    for nothing in (["A3"], ["Z9/rule"], ["A2/rule b"], ["nonsense"], ["/rule"], ["L2/no-origin"]):
         # Refused although nothing broke: the name is checked before the run is judged.
-        with pytest.raises(ValueError, match="no contract rule .* one of: A1/rule, .*L2/rule b$"):
+        with pytest.raises(ValueError, match=f"no contract rule .* {names}L1/tool-unwitnessed$"):
             report.assert_contracts(allow=nothing)
     for nothing in (["A9"], ["A2/rule"], [""]):
         with pytest.raises(ValueError, match="no contract .* are: A1, A2, A3, M1, M2, L1, L2$"):
@@ -175,13 +193,19 @@ def test_a_required_contract_that_is_unobservable_fails_the_assertion_and_says_w
     hidden = check(_without_backend(retire(affected)))
     assert hidden.outcome("A2") == hidden.outcome("A3") == UNOBSERVABLE
     assert hidden.broken() == ["M2/rule d"]
-    hidden.assert_contracts(allow=["M2/rule d"])
+    lost = ["A1/outside-backend", "A2/outside-backend", "A3/outside-backend"]
+    assert hidden.lost() == lost
+    hidden.assert_contracts(allow=["M2/rule d", *lost])
     with pytest.raises(ContractFailure) as caught:
-        hidden.assert_contracts(require=["A2", "M2"])
+        hidden.assert_contracts(allow=["M2/rule d"])
+    assert str(caught.value).startswith(f"the run lost the evidence for {', '.join(lost)}\n\n")
+    with pytest.raises(ContractFailure) as caught:
+        hidden.assert_contracts(allow=lost, require=["A2", "M2"])
     head, why, _ = str(caught.value).split("\n\n", 2)
     assert head == "the run breaks M2/rule d and has no pass or fail for the required A2"
     assert why == (
-        "A2 is unobservable: a tool for the intent was called but nothing reached the backend"
+        "A2 lost its evidence: a tool for the intent was called but nothing reached the "
+        "backend (outside-backend)"
     )
 
 
@@ -462,6 +486,28 @@ def test_a3_and_m1_are_unobservable_when_the_audio_cannot_be_attributed(fixed):
     report = check(fixed)
     assert report.outcome("A3") == UNOBSERVABLE
     assert [v.outcome for v in report.results["M1"].verdicts] == [PASS, UNOBSERVABLE, UNOBSERVABLE]
+    assert report.lost() == [
+        "A3/audio-unattributed",
+        "L1/audio-unattributed",
+        "M1/audio-unattributed",
+    ]
+
+
+def test_a_text_the_application_spoke_that_shares_no_word_with_a_reply_is_judged_as_its_own(
+    fixed,
+):
+    """The voice spoke four words that cannot be "Your table is booked." altered: the text is
+    the application's own, and the reply was never voiced."""
+    synthesized = of(fixed, "tts.synthesized", 1)["data"]
+    synthesized.update(
+        call=None, attribution="none", candidates=[], text="Wonderful evening ahead, friends."
+    )
+    report = check(fixed)
+    assert report.lost() == []
+    verdicts = {json.dumps(v.instance): v for v in report.results["M1"].verdicts}
+    assert verdicts['{"reply": 2}'].findings[0].rule == "rule 4"  # remembered, never voiced
+    spoken = verdicts['{"utterance": 2}']
+    assert spoken.outcome == FAIL and spoken.findings[0].rule == "rule 2"  # heard, not remembered
 
 
 def remembered(events, call):
@@ -643,6 +689,34 @@ def test_m1_a_reply_cleared_in_the_silence_after_its_last_word_is_interrupted(ba
     assert check(barge).outcome("M1") == PASS
 
 
+@pytest.mark.parametrize("behind_us", [1_000_000, 10_000_000])
+def test_m1_a_reply_that_played_and_is_absent_from_memory_fails_whatever_the_tolerance(
+    barge, behind_us
+):
+    """Both words of "Okay, stopping." played, 0.72 s of audio, and the history drops it."""
+    history = of(barge, "history.final")["data"]["items"]
+    history[:] = [i for i in history if i.get("text") != "Okay, stopping."]
+    last = check(declare(barge, M1={"behind_us": behind_us})).results["M1"].verdicts[-1]
+    assert last.measures["played"] == 2 and last.measures["contexts"][0]["drift_us"] == -720_000
+    assert [(f.rule, f.detail) for f in last.findings] == [
+        ("rule 2", "final history: all 2 word(s) were played to the end and none is remembered")
+    ]
+
+
+def test_m1_a_cut_off_reply_absent_from_memory_is_judged_by_its_drift(barge):
+    """Reply 1 was cut after 9 of its 29 words. Call 2 remembering none of it is a drift like
+    any other: the tolerance decides, since the framework only estimates what was heard."""
+    first = check(copy.deepcopy(barge)).results["M1"].verdicts[0]
+    assert (first.measures["played"], first.measures["cut"]) == (9, 1)
+    turns = context(barge, 2)
+    turns.remove(next(i for i in turns if i["type"] == "message" and i["role"] == "assistant"))
+    absent = check(seal(copy.deepcopy(barge))).results["M1"].verdicts[0]
+    behind = -absent.measures["contexts"][0]["drift_us"]
+    assert [f.rule for f in absent.findings] == ["rule 2"] and behind > 1_000_000
+    roomy = check(declare(barge, M1={"behind_us": behind})).results["M1"].verdicts[0]
+    assert roomy.outcome == PASS
+
+
 def test_m1_the_final_history_counts_only_if_read_after_the_playout_finished(barge):
     finished = of(barge, "playout.finished", 1)
     history = of(barge, "history.final")
@@ -656,6 +730,13 @@ def test_m1_the_final_history_counts_only_if_read_after_the_playout_finished(bar
     last = check(seal(barge)).results["M1"].verdicts[-1]
     assert last.outcome == UNOBSERVABLE
     assert "read before its playout finished" in last.findings[0].detail
+    assert last.findings[0].code == "history-before-playout"
+
+
+def test_m1_a_reply_that_no_context_or_final_history_follows_has_nothing_to_judge(barge):
+    barge.remove(of(barge, "history.final"))
+    last = check(seal(barge)).results["M1"].verdicts[-1]
+    assert (last.outcome, last.findings[0].code) == (NOT_EXERCISED, "no-memory-after")
 
 
 @pytest.mark.parametrize("off_us, either", [(-1, False), (0, True), (1, False)])
@@ -1029,7 +1110,7 @@ def _turns(*outcomes):
     """L1's results under one reading: a verdict per speech, none where ``None``."""
     made = {
         PASS: {},
-        UNOBSERVABLE: {"unobservable": "the run ended before the deadline"},
+        UNOBSERVABLE: {"missing": [("tool-unwitnessed", "a tool was not witnessed")]},
         FAIL: {"findings": [Finding("milestone 1", "never happened")]},
     }
     verdicts = [
@@ -1463,7 +1544,8 @@ def test_m2_a_reply_with_a_segment_still_open_has_no_place_it_is_held_to(barge):
     items = of(events, "history.final")["data"]["items"]
     items[-2], items[-1] = items[-1], items[-2]
     report = check(events)
-    assert report.results["M1"].verdicts[-1].outcome == UNOBSERVABLE
+    last = report.results["M1"].verdicts[-1]
+    assert (last.outcome, last.findings[0].code) == (NOT_EXERCISED, "run-ended")
     assert report.outcome("M2") == PASS
 
 
@@ -1816,15 +1898,28 @@ def test_l2_a_reply_that_stops_at_the_interruption_point_was_audible_at_it(
     assert report.results["L2"].verdicts[1].measures.get("audible_after_point_us") == after_us
 
 
-@pytest.mark.parametrize("before_us, broken", [(0, ["rule b"]), (1, ["rule a", "rule b"])])
-def test_l2_audio_that_starts_at_the_interruption_point_starts_and_was_not_under_way(
-    barge, before_us, broken
+@pytest.mark.parametrize("before_us", [0, 1])
+def test_l2_audio_that_starts_at_or_before_the_interruption_point_is_held_to_the_bound(
+    barge, before_us
 ):
-    """Reply 2 starts at 7.0 s. A third speech reaches its interruption point then, or 1 us on."""
+    """Reply 2 starts at 7.0 s. A third speech reaches its interruption point then, or 1 us on,
+    and its floor opened earlier, so the start is inside it as well."""
     report = check(_spoke_again(barge, 6_500_000 + before_us))
     last = report.results["L2"].verdicts[2]
     assert report.valid and last.measures["interruption_point_us"] == 7_000_000 + before_us
-    assert [f.rule for f in last.findings] == broken
+    assert [f.rule for f in last.findings] == ["rule a", "rule b"]
+
+
+def test_l2_a_reply_that_starts_where_the_floor_opens_at_the_point_is_held_to_the_bound(barge):
+    """The VAD reports the third speech at its interruption point, 7.0 s, as reply 2 starts.
+    The start is excused, and reply 2, which plays on to 7.72 s, must stop within the bound."""
+    events = _spoke_again(barge, 6_500_000)
+    of(events, "user.vad_start", 2)["t_us"] = 7_000_000
+    last = check(_by_time(events)).results["L2"].verdicts[2]
+    measures = last.measures
+    assert measures["floor_opened_us"] == measures["interruption_point_us"] == 7_000_000
+    assert [f.rule for f in last.findings] == ["rule a"]
+    assert measures["audible_after_point_us"] == 720_000  # its audio began inside the floor
 
 
 @pytest.mark.parametrize("length_us, point_us", [(500_000, 5_500_000), (499_999, None)])
@@ -2011,7 +2106,7 @@ def test_l1_first_audio_counts_even_if_the_run_ends_before_the_segment_finishes(
     report = check(seal(barge))
     last = report.results["L1"].verdicts[-1]
     assert last.outcome == PASS and last.measures["time_to_first_audio_us"] == 800_000
-    assert report.results["M1"].verdicts[-1].outcome == UNOBSERVABLE
+    assert report.results["M1"].verdicts[-1].outcome == NOT_EXERCISED  # the run ended first
 
 
 def _in_two_segments(events, later_us=2_000_000):
@@ -2064,22 +2159,25 @@ def test_a_reply_whose_last_segment_never_finished_is_not_judged_on_the_part_tha
     assert view.playout(2).pending and len(view.playout(2).segments) == 1
     report = check(events)
     (claim,) = report.results["A3"].verdicts
-    assert claim.outcome == UNOBSERVABLE and report.results["A3"].notes == ()
+    assert claim.outcome == NOT_EXERCISED and report.results["A3"].notes == ()
     assert "before its playout finished" in claim.findings[0].detail
+    assert claim.findings[0].code == "run-ended"
     last = report.results["M1"].verdicts[-1]
-    assert last.outcome == UNOBSERVABLE
+    assert last.outcome == NOT_EXERCISED
     assert "before its playout finished" in last.findings[0].detail
 
 
-def test_m1_a_reply_whose_audio_may_be_in_a_segment_that_never_started_is_unobservable(barge):
+def test_m1_a_reply_whose_audio_may_be_in_a_segment_that_never_started_has_nothing_to_judge(
+    barge,
+):
     """The sink was handed a second segment and the run ended before it became audible."""
     barge.remove(of(barge, "playout.started", 1))
     barge.remove(of(barge, "playout.finished", 1))
     events = seal(barge)
     assert View(events).open_segments() == [2]
     report = check(events)
-    assert report.valid and report.results["M1"].verdicts[-1].outcome == UNOBSERVABLE
-    assert rules(report, "M1") == []
+    assert report.valid and report.results["M1"].verdicts[-1].outcome == NOT_EXERCISED
+    assert rules(report, "M1") == [] and report.lost() == []
 
 
 def test_l2_a_speech_the_vad_never_reported_holds_no_floor(barge):
@@ -2283,7 +2381,7 @@ def test_l1_a_reply_generated_again_is_budgeted_from_the_chain_as_it_stood_then(
     assert turn.outcome == (FAIL if late_us else PASS)
 
 
-@pytest.mark.parametrize("after_us, outcome", [(-1, UNOBSERVABLE), (0, UNOBSERVABLE), (1, FAIL)])
+@pytest.mark.parametrize("after_us, outcome", [(-1, NOT_EXERCISED), (0, NOT_EXERCISED), (1, FAIL)])
 def test_l1_a_milestone_never_reached_is_missed_only_if_the_run_went_on_past_its_deadline(
     affected, after_us, outcome
 ):
@@ -2351,3 +2449,191 @@ def test_a_transcript_delivered_as_a_model_call_is_requested_is_in_its_context_i
         assert _missed(first) == [("milestone 1", said)]
     else:
         assert report.outcome("M2") == PASS and first.outcome == PASS
+
+
+def _message(role, text):
+    return {"type": "message", "id": None, "role": role, "text": text, "interrupted": False}
+
+
+EARLIER = [_message("user", "Hi, I called earlier."), _message("assistant", "Welcome back.")]
+
+
+def _seeded(events, *, recorded):
+    """The run, as if the agent had started with an earlier call's two turns."""
+    out = copy.deepcopy(events)
+    for e in out:
+        if e["kind"] in ("llm.request", "history.final"):
+            items = e["data"]["items"]
+            at = next((i for i, item in enumerate(items) if item.get("role") != "system"), 0)
+            items[at:at] = [{**item, "id": f"item_{n}"} for n, item in enumerate(EARLIER)]
+    if recorded:
+        out[0]["data"]["scenario"]["history"] = copy.deepcopy(EARLIER)
+    return seal(out)
+
+
+def test_the_history_an_agent_started_with_is_left_out_of_every_context():
+    events = load("1.8.13", "book_then_interrupt")
+    assert check(events).outcomes()["M2"] == PASS
+    unrecorded = check(_seeded(events, recorded=False))
+    assert {v.contract for v in unrecorded.failures} == {"M2", "L1"}
+    recorded = check(_seeded(events, recorded=True))
+    assert recorded.valid and recorded.outcomes() == check(events).outcomes()
+
+
+def test_each_item_of_the_starting_history_takes_out_the_first_like_it_in_order():
+    hi, back, hi_again = (
+        _message("user", "Hi."),
+        _message("assistant", "Back."),
+        _message("user", "Hi."),
+    )
+    call = {"type": "function_call", "id": "x", "name": "f", "call_id": "c1", "arguments": "{}"}
+    assert unseeded([hi, back, hi_again], [hi]) == [back, hi_again]
+    assert unseeded([back, hi], [hi, back]) == [back]  # in order: the second finds nothing after
+    assert unseeded([hi, back], [_message("user", "Gone.")]) == [hi, back]
+    assert unseeded([hi, {**call, "id": "y"}], [{**call, "id": None}]) == [hi]
+    assert unseeded([hi], [{**hi, "role": "assistant"}]) == [hi]
+    assert unseeded([hi, back], []) == [hi, back]
+
+
+def test_every_missing_verdict_carries_a_code_of_its_contract_and_kind():
+    assert set(CODES) == {code for codes in MISSING.values() for code in codes}
+    assert set(CODES.values()) == {NOTHING, LOST} and set(MISSING) == set(RULES)
+    source = "".join(path.read_text() for path in CHECKER.glob("*.py") if path.name != "report.py")
+    assert all(f'"{code}"' in source for code in CODES)  # each is given somewhere
+    ended = ("run-ended", "the run ended first")
+    nothing = verdict("L1", {}, "", missing=[ended])
+    assert (nothing.outcome, nothing.findings) == (
+        NOT_EXERCISED,
+        (Finding("not exercised", "the run ended first", code="run-ended"),),
+    )
+    lost = verdict("L1", {}, "", missing=[ended, ("tool-unwitnessed", "not witnessed")])
+    assert lost.outcome == UNOBSERVABLE and [f.rule for f in lost.findings] == ["unobservable"] * 2
+    assert [f.lost for f in lost.findings] == [False, True]
+    failed = verdict("L1", {}, "", findings=[Finding("milestone 1", "")], missing=[ended])
+    assert failed.outcome == FAIL and [f.code for f in failed.findings] == [None]
+    with pytest.raises(ValueError, match="A2 has no code 'run-ended'; its codes are"):
+        verdict("A2", {}, "", missing=[ended])
+
+
+@pytest.mark.parametrize(
+    "outcomes, contract",
+    [
+        ((PASS, NOT_EXERCISED), PASS),
+        ((NOT_EXERCISED,), NOT_EXERCISED),
+        ((), NOT_EXERCISED),
+        ((UNOBSERVABLE, PASS, NOT_EXERCISED), UNOBSERVABLE),
+        ((UNOBSERVABLE, FAIL), FAIL),
+    ],
+)
+def test_a_contract_is_its_worst_verdict_and_nothing_to_judge_is_the_least(outcomes, contract):
+    made = {
+        PASS: {},
+        FAIL: {"findings": [Finding("milestone 1", "")]},
+        UNOBSERVABLE: {"missing": [("tool-unwitnessed", "")]},
+        NOT_EXERCISED: {"missing": [("run-ended", "")]},
+    }
+    verdicts = [verdict("L1", {"speech": n}, "", **made[o]) for n, o in enumerate(outcomes)]
+    assert result("L1", POLICIES["L1"](), verdicts).outcome == contract
+
+
+def test_l2_has_nothing_to_judge_where_no_reply_was_under_way_or_waiting_to_play():
+    greeting = read_jsonl(GOLDEN / "pc-1.16.0.greeting.ledger.normalized.jsonl")
+    report = check(greeting)
+    (idle,) = report.results["L2"].verdicts
+    assert (idle.outcome, idle.findings[0].code) == (NOT_EXERCISED, "no-reply-under-way")
+    assert report.outcome("L2") == NOT_EXERCISED and report.lost() == []
+    assert report.unjudged("L2") == {
+        "L2": "had nothing to judge: no reply was under way, or waiting to play, while the user "
+        "held the floor (no-reply-under-way)"
+    }
+    # The first reply was waiting to play when the user spoke again, and was held back.
+    first, again = check(load("1.8.13", "speak_over_new_turn")).results["L2"].verdicts
+    assert (first.outcome, again.outcome) == (NOT_EXERCISED, PASS)
+    greeting[0]["data"]["scenario"]["session"]["min_interruption_duration_us"] = 10_000_000
+    (short,) = check(seal(greeting)).results["L2"].verdicts
+    assert (short.outcome, short.findings[0].code) == (NOT_EXERCISED, "no-interruption-point")
+
+
+def test_audio_the_readings_cap_leaves_unattributed_is_lost_for_that_reason(barge, monkeypatch):
+    import earful.core.checker.view as view_module
+
+    events = _generated_twice(barge)
+    assert check(events).lost() == []
+    monkeypatch.setattr(view_module, "MAX_READINGS", 1)  # two readings are now too many
+    report = check(events)
+    assert report.readings == 1 and report.reading == {}
+    assert "M1/readings-over-cap" in report.lost() and "M1/audio-unattributed" not in report.lost()
+
+
+def _spoken_later(events, text):
+    """A text the application speaks after the rest, attributed to no reply, that never plays."""
+    first = of(events, "tts.synthesized", 0)["data"]
+    said = copy.deepcopy(of(events, "tts.synthesized", 0))
+    said["t_us"] = events[-2]["t_us"]
+    said["data"].update(
+        utterance=9,
+        call=None,
+        attribution="none",
+        candidates=[],
+        text=text,
+        stamps=[32000],
+        word_samples=[first["word_samples"][0]],
+        started_us=said["t_us"],
+    )
+    events.insert(len(events) - 2, said)
+    return seal(events)
+
+
+@pytest.mark.parametrize(
+    "text, outcome, why",
+    [("Goodbye.", FAIL, "rule 4"), ("Okay.", UNOBSERVABLE, "audio-unattributed")],
+)
+def test_m1_only_a_later_text_that_could_be_the_reply_hides_whether_it_was_voiced(
+    barge, text, outcome, why
+):
+    """Reply 2, "Okay, stopping.", is never voiced and is remembered. "Goodbye." cannot be it
+    altered; "Okay." can."""
+    events = _spoken_later(_never_voiced(barge, call=2, segment=2), text)
+    (reply,) = [v for v in check(events).results["M1"].verdicts if v.instance == {"reply": 2}]
+    assert reply.outcome == outcome and why in (reply.findings[0].rule, reply.findings[0].code)
+
+
+def test_a_text_could_be_a_reply_only_if_they_share_a_word():
+    assert could_be(["Okay."], ["Okay,", "stopping."])
+    assert could_be(["TABLE"], ["your", "table"]) and could_be(["6"], ["for", "6"])
+    assert not could_be(["Goodbye."], ["Okay,", "stopping."])
+    assert not could_be(["..."], ["...", "Okay."])  # punctuation alone is no word
+
+
+def _unlinked_and_dropped(events, *, asked):
+    """The booking tool ran without a call id, and no later context shows a call or a result.
+    With ``asked`` false the model never asked for it: the application ran it itself."""
+    of(events, "tool.called")["data"]["call_id"] = None
+    if not asked:
+        of(events, "llm.response")["data"]["tool_calls"] = []
+    for e in events:
+        if e["kind"] in ("llm.request", "history.final") and e["data"].get("call") != 1:
+            kept = [i for i in e["data"]["items"] if not i["type"].startswith("function_call")]
+            e["data"]["items"] = kept
+    return seal(events)
+
+
+def test_m2_a_tool_that_ran_without_a_call_id_is_lost_only_where_the_model_asked_for_it(fixed):
+    linked = copy.deepcopy(fixed)
+    for e in linked:
+        if e["kind"] in ("llm.request", "history.final") and e["data"].get("call") != 1:
+            e["data"]["items"] = [
+                i for i in e["data"]["items"] if not i["type"].startswith("function_call")
+            ]
+    assert rules(check(seal(linked)), "M2") == ["rule d"]  # with a call id, a lost result fails
+    asked = check(_unlinked_and_dropped(copy.deepcopy(fixed), asked=True))
+    assert asked.outcome("M2") == UNOBSERVABLE and "M2/tool-unwitnessed" in asked.lost()
+    summaries = {v.summary for v in asked.results["M2"].verdicts if v.outcome == UNOBSERVABLE}
+    assert summaries == {
+        "cannot tell whether call 2 shows the conversation that happened",
+        "cannot tell whether final history shows the conversation that happened",
+    }
+    (why,) = {f.detail for v in asked.results["M2"].verdicts for f in v.findings}
+    assert why == "create_reservation ran without a call id to link it to call 'call-1-1'"
+    itself = check(_unlinked_and_dropped(copy.deepcopy(fixed), asked=False))
+    assert "M2/tool-unwitnessed" not in itself.lost() and itself.outcome("M2") != UNOBSERVABLE

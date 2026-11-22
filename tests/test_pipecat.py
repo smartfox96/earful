@@ -723,6 +723,26 @@ def test_pipecat_a_reply_cut_inside_a_word_while_it_is_generated_keeps_its_attri
     result.assert_contracts()
 
 
+def test_pipecat_a_bot_that_starts_with_history_records_it_and_is_judged_without_it():
+    earlier = [
+        {"role": "system", "content": "Be brief."},
+        {"role": "user", "content": "Hi, I called earlier."},
+        {"role": "assistant", "content": "Welcome back."},
+    ]
+    case = pc.Case(
+        "seeded",
+        lambda llm: LLMContext(messages=[dict(m) for m in earlier]),
+        [pc.UserSpeech(0.5, 1.5, "A table for two, please.")],
+        pc.ScriptedModel().otherwise(say="Of course."),
+    )
+    result = pc.run(case)
+    history = result.events[0]["data"]["scenario"]["history"]
+    assert [(i["role"], i["text"]) for i in history] == [(m["role"], m["content"]) for m in earlier]
+    outcomes = result.report.outcomes()
+    assert outcomes["M2"] == outcomes["L1"] == "pass"
+    assert "history" not in pc.run(greeting()).events[0]["data"]["scenario"]
+
+
 def test_pipecat_a_reply_spoken_across_two_audio_contexts_is_one_utterance():
     """Pipecat ends an audio context that waits 3 s for its next sentence."""
     built = greeting()

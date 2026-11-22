@@ -11,7 +11,7 @@ from breaks import BOOKING, TalksToItsServiceItself, as_written_reads_the_error
 
 from earful.core import backend as backends
 from earful.core.backend import Effect, effect
-from earful.core.checker import PASS, check
+from earful.core.checker import NOT_EXERCISED, PASS, check
 from earful.core.ledger import Ledger, run_id
 from earful.core.schema import validate
 from earful.livekit import tools
@@ -586,7 +586,8 @@ def test_the_scripted_user_and_the_witness_follow_a_handoff_to_the_next_agent(ag
     assert requested["tool"] == called["book"]
     assert result.report.failures == ()
     outcomes = result.report.outcomes()
-    assert all(outcomes[contract] == PASS for contract in ("A2", "A3", "M1", "M2", "L1", "L2"))
+    assert all(outcomes[contract] == PASS for contract in ("A2", "A3", "M1", "M2", "L1"))
+    assert outcomes["L2"] == NOT_EXERCISED  # the user never speaks over a reply
 
 
 def _greets_and_returns(returned, then=_Books):
@@ -633,7 +634,15 @@ def test_a_tool_that_returns_an_agent_is_shown_to_the_model_by_what_came_with_it
         e for e in events if e["kind"] == "llm.request" and e["t_us"] < 8_000_000
     ]
     assert len(before_the_user_speaks_again) == 1 + replies
-    assert result.report.failures == ()
+    # The agent handed over to is built from the context as the tool ran, before the first
+    # agent's follow-up was said, so it never learns of a reply the user heard in full.
+    assert result.report.broken() == (["M1/rule 2"] if replies else [])
+    if replies:
+        (forgotten,) = result.report.failures
+        assert forgotten.instance == {"reply": 2}
+        assert [f.detail for f in forgotten.findings] == [
+            f"call {n}: all 3 word(s) were played to the end and none is remembered" for n in (3, 4)
+        ]
     first_turn = result.report.results["L1"].verdicts[0]
     assert first_turn.outcome == PASS
     assert first_turn.flags == (() if replies else ("silenced_by_a_tool",))

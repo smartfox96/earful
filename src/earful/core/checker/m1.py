@@ -73,7 +73,19 @@ def _compare(
                 )
             )
         return row, findings
-    if -drift > policy.behind_us:
+    # A stop landing as the last word ended leaves the audio whole, so either mark is right.
+    cut_short = played < len(words) or playout.interrupted
+    if not cut_short and not remembered:
+        # It played to its end, so the framework knew all of it was said: the tolerance, which
+        # covers its estimate of how much of a cut-off reply was heard, does not apply.
+        findings.append(
+            Finding(
+                "rule 2",
+                f"{label}: all {played} word(s) were played to the end and none is remembered",
+                seqs,
+            )
+        )
+    elif -drift > policy.behind_us:
         findings.append(
             Finding(
                 "rule 2",
@@ -92,8 +104,6 @@ def _compare(
                 seqs,
             )
         )
-    # A stop landing as the last word ended leaves the audio whole, so either mark is right.
-    cut_short = played < len(words) or playout.interrupted
     either_mark = view.stopped_as_it_ended(playout, len(words))
     if (
         message is not None
@@ -158,7 +168,7 @@ def check(view: View, policy: policies.M1) -> ContractResult:
                     instance,
                     "cannot tell how much of it was played",
                     events=base,
-                    unobservable=missing,
+                    missing=[missing],
                 )
             )
             continue
@@ -172,13 +182,17 @@ def check(view: View, policy: policies.M1) -> ContractResult:
             flags.append("played_on_after_the_hangup")  # judged on what the user heard
             base.append(view.hangup)
         chosen = item.call in view.read_calls  # its audio rests on a reading of the ledger
-        findings, rows, unknown = [], [], []
+        findings, rows = [], []
+        unknown: list[tuple[str, str]] = []
         for context in contexts:
             label, _event, items = context
             matched, ambiguous = reading_of(context)
             if matched is None:
                 unknown.append(
-                    f"{label}: its assistant messages do not line up with what was said (see M2)"
+                    (
+                        "memory-unaligned",
+                        f"{label}: its assistant messages do not line up with what was said",
+                    )
                 )
                 continue
             chosen = chosen or item.key in ambiguous
@@ -194,11 +208,13 @@ def check(view: View, policy: policies.M1) -> ContractResult:
         measures = {"words": len(item.words), "played": played, "cut": cut, "contexts": rows}
         events = [*base, *(event for _label, event, _items in contexts)]
         if not rows and not findings:
-            reason = "; ".join(unknown) or (
-                "the final history was read before its playout finished"
-                if playout.settled is not None
-                else "no model context or final history follows it"
-            )
+            if playout.settled is not None and view.history is not None:
+                late = "the final history was read before its playout finished"
+                lacking = unknown or [("history-before-playout", late)]
+            else:
+                lacking = unknown or [
+                    ("no-memory-after", "no model context or final history follows it")
+                ]
             verdicts.append(
                 verdict(
                     "M1",
@@ -207,7 +223,7 @@ def check(view: View, policy: policies.M1) -> ContractResult:
                     events=events,
                     measures=measures,
                     flags=flags,
-                    unobservable=reason,
+                    missing=lacking,
                 )
             )
             continue

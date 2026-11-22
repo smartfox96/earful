@@ -30,7 +30,8 @@ What a scenario cannot do today:
   `user_turn_strategies_params` other than the defaults are refused.
 - Follow words a processor rewrites. Earful matches what the voice speaks to the model's
   reply word for word. Speech whose words a processor of yours changed on the way
-  belongs to no reply, and M1 and L1 are unobservable for it.
+  belongs to no reply, and M1 and L1 lose the evidence for it (`audio-unattributed`),
+  which fails the run unless allowed.
 - Run a realtime speech-to-speech model, or summarize the context with a model call.
 - Use a thread. A run in which a thread starts is invalid, and says so.
 - Queue frames from outside the pipeline. The pipeline worker is Earful's: your

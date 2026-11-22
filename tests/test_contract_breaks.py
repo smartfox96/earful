@@ -356,9 +356,11 @@ def test_l1_a_backchannel_does_not_take_the_obligation_away():
     assert "the first word of a reply starts playing: never happened" in failed.findings[-1].detail
 
 
-def test_l1_is_unobservable_when_the_run_ends_before_the_deadline():
+def test_l1_has_nothing_to_judge_when_the_run_ends_before_the_deadline():
     report = _report(_booking(_silent, drain_delay=1.0))
-    assert report.outcome("L1") == UNOBSERVABLE
+    assert report.outcome("L1") == NOT_EXERCISED
+    (cut,) = report.results["L1"].verdicts
+    assert [f.code for f in cut.findings] == ["run-ended"] and report.lost() == []
 
 
 def test_l1_does_not_apply_to_a_turn_that_expects_no_reply():

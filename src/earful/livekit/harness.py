@@ -44,6 +44,7 @@ from .providers import (
     UserSpeech,
     WorldOrigin,
     record_errors_in,
+    starting_history,
     stop_recording_errors,
     summarize_item,
 )
@@ -241,10 +242,14 @@ def _effects(case: Case, tools_found: dict[str, Effect | None]) -> dict[str, Eff
     return {**at_the_tool, **case.effects}
 
 
-def _header(case: Case, tools_found: dict[str, Effect | None]) -> dict[str, Any]:
+def _header(
+    case: Case, tools_found: dict[str, Effect | None], history: list[dict[str, Any]]
+) -> dict[str, Any]:
     effects = _effects(case, tools_found)
     intents = declared_intents(case.intents, effects, case.speeches)
     header = _scenario(case, sorted(tools_found), intents)
+    if history:
+        header["history"] = history
     if effects:
         # Stated only where there are any: a tool listed here did not run its own body.
         header["effects"] = [
@@ -599,7 +604,7 @@ async def _play(
     if refusal is not None:
         raise ValueError(refusal)
     found = {**tools.witness_session_tools(session), **await tools.witness_agent_tools(agent)}
-    scenario = _header(case, found)
+    scenario = _header(case, found, starting_history(agent.chat_ctx.items))
 
     declared = {**_declared_session(case), **_switches(case)}
     effective = _effective_session(session)

@@ -442,7 +442,20 @@ def test_a_search_requires_a_contract_of_the_case_as_given():
     with pytest.raises(ContractFailure) as caught:
         found.assert_contracts(require=["A2", "A1"])
     head, required = str(caught.value).split("\n\n")
-    assert head.endswith("judged, 0 contract rule(s) broken")
+    tried = len(found.tried)
+    summary = f"{tried} cases tried, {tried} judged, 0 contract rule(s) broken"
+    assert head.splitlines() == [
+        f"book_then_interrupt on livekit-agents 1.8.12: {summary}",
+        "    by contract: pass, fail, nothing to judge, evidence lost",
+        *(f"    {name}  {0:>5} {0:>5} {tried:>5} {0:>5}" for name in ("A1", "A2", "A3")),
+        *(f"    {name}  {tried:>5} {0:>5} {0:>5} {0:>5}" for name in ("M1", "M2", "L1", "L2")),
+    ]
+    assert found.summary()["by_contract"]["A1"] == {
+        "pass": 0,
+        "fail": 0,
+        "not_exercised": tried,
+        "unobservable": 0,
+    }
     assert required == (
         "required, with no pass or fail in the case as given:\n"
         "    A1 was not exercised: the run has no speech that retires an intent and whose "
@@ -684,6 +697,42 @@ def test_speeches_moments_and_profiles_are_checked_before_anything_runs():
         with pytest.raises(ValueError, match="profiles is a number of profiles, 0 for none"):
             explore(a_case(BOOK, WINDOW), run, profiles=profiles)
     assert run.runs == 0
+
+
+def _blind(events):
+    """The run as if the tool had written outside Earful's backend."""
+    from test_checker import seal
+
+    return seal([e for e in copy.deepcopy(events) if not e["kind"].startswith("effect.")])
+
+
+def test_evidence_a_case_loses_is_a_rule_of_its_own_with_its_cases_and_what_changed():
+    clean = ledger("1.8.12", "book_then_interrupt")
+    blind = _blind(clean)
+
+    def run(case):
+        """The write leaves the backend once the question comes before 4 s."""
+        moved = case["speeches"][1:]
+        return blind if moved and moved[0]["start_us"] < 4_000_000 else clean
+
+    found = explore(
+        a_case(BOOK, WINDOW),
+        run,
+        variables=["speech.position"],
+        speeches=[1],
+        moments=["interrupt"],
+        words=False,
+        faults=[],
+    )
+    lost = {str(one.predicate): one for one in found.breaks()}
+    assert set(lost) == {"A2/outside-backend", "A3/outside-backend"}
+    a2 = lost["A2/outside-backend"]
+    assert a2.details == ("a tool for the intent was called but nothing reached the backend",)
+    assert a2.candidates == found.by_contract()["A2"]["unobservable"] > 0
+    assert a2.what.startswith("speech.position 1 at") and not a2.everywhere
+    with pytest.raises(ContractFailure, match="A2/outside-backend  in"):
+        found.assert_contracts()
+    found.assert_contracts(allow=["A2/outside-backend", "A3/outside-backend"])
 
 
 def test_a_case_that_cannot_be_searched_is_refused_up_front():
@@ -1401,7 +1450,7 @@ def test_a_search_stops_at_its_budget_and_its_result_says_it_is_incomplete():
         cut.assert_contracts()
     head, said = str(caught.value).split("\n\n")
     tried = len(cut.tried)
-    assert head.endswith(
+    assert head.splitlines()[0].endswith(
         f": {tried} of {tried + 5} cases tried, {tried} judged, 0 contract rule(s) broken"
     )
     assert said == (
@@ -1993,6 +2042,13 @@ def test_a_replay_is_clean_only_if_the_contract_of_the_bundle_passed_in_every_ru
     assert (mixed.judged, mixed.clean, mixed.outcomes[1]) == (False, False, "not_exercised")
     clean = bundle.replay(kept, in_turn(passing), repeats=1)
     assert (clean.judged, clean.clean, clean.outcomes, clean.others) == (True, True, ("pass",), ())
+    assert (nothing.codes, clean.codes) == ((), ())
+    blind = bundle.replay(kept, in_turn(_blind(passing)), repeats=1)
+    assert (blind.judged, blind.outcomes, blind.codes) == (
+        False,
+        ("unobservable",),
+        ("outside-backend",),
+    )
 
 
 def test_a_bundle_written_before_manifests_recorded_its_cases_loads_and_says_so(tmp_path):
@@ -2040,3 +2096,28 @@ def test_every_reference_bundle_is_what_its_manifest_says(directory):
         assert events[0]["data"]["framework"] == kept.manifest["framework"]
     assert kept.manifest["reduction"]["complete"] and kept.manifest["windows"]
     assert not any(w["instant"] for w in kept.manifest["windows"])
+
+
+def test_a_failure_measured_again_past_the_end_of_its_window_is_one_window():
+    """A window is located to 1 ms: the second case, 0.4 ms past the first window's end, finds
+    the same failure. Counted once, it leaves room within ``most`` for the other failure."""
+    fails = lambda at: 3_000_500 <= at <= 3_004_500 or 5_000_000 <= at <= 5_002_000
+    found = moved_to(fails, 3_001_000, 3_004_400, 5_001_000)
+    windows, unmeasured = found._measured(A2, most=2)
+    assert [(w.lo_us, w.hi_us) for w in windows] == [(3_001_000, 3_004_400), (5_000_000, 5_002_000)]
+    assert unmeasured == 0 and all(w.lo_end == w.hi_end == "passes" for w in windows)
+
+
+def test_the_shrinker_repeats_its_passes_until_none_removes_anything():
+    """The rule breaks while the question is asked, and either the booking is too or no delay
+    is declared. Only once the delay is gone can the booking go."""
+
+    def fails(case):
+        said = [s["transcript"] for s in case["speeches"]]
+        return WINDOW["transcript"] in said and (BOOK["transcript"] in said or not case["delays"])
+
+    case = a_case(BOOK, WINDOW, delays=[{"of": "llm.ttft", "nth": 1, "us": 500_000}])
+    reduced = shrink(case, answers(fails), A2)
+    assert [s["transcript"] for s in reduced.case["speeches"]] == [WINDOW["transcript"]]
+    assert reduced.case["delays"] == []
+    assert reduced.steps == ["removed 1 of 1 declared delays", "removed 1 of 2 speeches"]

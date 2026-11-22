@@ -315,6 +315,9 @@ async def _run(case: Case, seed: int) -> RunResult:
             model.private(name)
         model.witness_tools(context.tools)
         header = _header(case, witness.names, plan.options)
+        history = summarize(context.get_messages(), {}, {})
+        if history:
+            header["history"] = history
         model.listed = frozenset(witness.names)
         assistant = plan.assistant
 

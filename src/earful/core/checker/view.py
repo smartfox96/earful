@@ -132,11 +132,47 @@ class Speech:
         return self.transcript.split()
 
 
+# The fields that tell one context item from another, by type; others compare by type.
+_ITEM_KEYS = {
+    "message": ("role", "text"),
+    "function_call": ("name", "call_id", "arguments"),
+    "function_call_output": ("call_id", "output"),
+}
+
+
+def could_be(text: list[str], reply: list[str]) -> bool:
+    """Whether a synthesized text could be a reply altered on its way to the voice: they share
+    a word, letters and digits compared without case. A text that shares none cannot be it."""
+
+    def plain(words: list[str]) -> set[str]:
+        return {"".join(ch for ch in w.lower() if ch.isalnum()) for w in words} - {""}
+
+    return bool(plain(text) & plain(reply))
+
+
+def unseeded(items: list[dict[str, Any]], seeded: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """``items`` without the history the agent started with: each item of ``seeded`` in turn
+    takes out the first item after the last one taken that is the same. One that is no longer
+    there takes nothing out."""
+
+    def key(item: dict[str, Any]) -> tuple[Any, ...]:
+        return (item["type"], *(item.get(k) for k in _ITEM_KEYS.get(item["type"], ())))
+
+    out, at = list(items), 0
+    for item in seeded:
+        found = next((i for i in range(at, len(out)) if key(out[i]) == key(item)), None)
+        if found is not None:
+            del out[found]
+            at = found
+    return out
+
+
 @dataclass
 class ModelCall:
     call: int
     request: Event
     response: Event | None = None
+    seeded: list[dict[str, Any]] = field(default_factory=list)  # the history it started with
 
     @property
     def answer(self) -> Event:
@@ -146,7 +182,8 @@ class ModelCall:
 
     @property
     def items(self) -> list[dict[str, Any]]:
-        return self.request["data"]["items"]
+        """The context, without the history the agent started with."""
+        return unseeded(self.request["data"]["items"], self.seeded)
 
     @property
     def words(self) -> list[str]:
@@ -236,7 +273,7 @@ class Playout:
 
     key: str
     utterance: Utterance | None
-    unattributable: str | None  # why its audio cannot be told apart, if it cannot
+    unattributable: tuple[str, str] | None  # the code and why its audio cannot be told apart
     interrupted: bool = False
     segments: list[Segment] = field(default_factory=list)
     settled: Event | None = None  # the event after which nothing more of it can play
@@ -248,11 +285,11 @@ class Playout:
     outlasted_hangup: bool = False
 
     @property
-    def unknown(self) -> str | None:
-        """Why what was played of it cannot be told, if it cannot."""
+    def unknown(self) -> tuple[str, str] | None:
+        """The code and why what was played of it cannot be told, if it cannot."""
         if self.unattributable:
             return self.unattributable
-        return "the run ended before its playout finished" if self.pending else None
+        return ("run-ended", "the run ended before its playout finished") if self.pending else None
 
 
 class View:
@@ -262,6 +299,8 @@ class View:
         # Replies that some ambiguous text could be: what is said of them rests on a reading.
         self.read_calls: set[int] = set()
         could_be = candidates(events)
+        # Ambiguous texts and no reading of them: there were more readings than the cap.
+        self.capped: set[int] = set(could_be) if could_be and not self.reading else set()
         self.header = events[0]["data"]
         self.scenario = self.header["scenario"]
         self.session = self.scenario["session"]
@@ -276,6 +315,7 @@ class View:
         self.effects: dict[int, Effect] = {}
         self.commands: list[Event] = []
         self.history: Event | None = None
+        self.seeded: list[dict[str, Any]] = self.scenario.get("history", [])
         self.intents: dict[str, dict[str, Any]] = {
             it["intent"]: it for it in self.scenario["intents"]
         }
@@ -292,7 +332,7 @@ class View:
             elif kind in ("user.vad_start", "user.vad_end", "user.transcript_final"):
                 speech_events.setdefault(d["speech"], {})[kind] = e
             elif kind == "llm.request":
-                self.calls[d["call"]] = ModelCall(d["call"], e)
+                self.calls[d["call"]] = ModelCall(d["call"], e, seeded=self.seeded)
             elif kind == "llm.response":
                 self.calls[d["call"]].response = e
                 for tool_call in d["tool_calls"]:
@@ -473,10 +513,12 @@ class View:
 
     @cached_property
     def contexts(self) -> list[tuple[str, Event, list[dict[str, Any]]]]:
-        """Each model context, then the final chat history, as ``(label, event, items)``."""
+        """Each model context, then the final chat history, as ``(label, event, items)``, each
+        without the history the agent started with."""
         out = [(f"call {c.call}", c.request, c.items) for c in self.calls.values()]
         if self.history is not None:
-            out.append(("final history", self.history, self.history["data"]["items"]))
+            items = unseeded(self.history["data"]["items"], self.seeded)
+            out.append(("final history", self.history, items))
         return out
 
     @cached_property
@@ -533,24 +575,37 @@ class View:
         loose = [u for u in self.utterances.values() if u.call is None]
         unsynthesized = [r for r in self.replies if r.call not in by_call]
         out: dict[str, Playout] = {}
+
+        def code(texts: list[Utterance]) -> str:
+            capped = any(u.utterance in self.capped for u in texts)
+            return "readings-over-cap" if capped else "audio-unattributed"
+
         for item in self.spoken:
             unattributable = None
             if item.call is not None:
                 utterance = by_call.get(item.call)
-                if utterance is None and any(
-                    u.event["data"]["started_us"] >= item.born["t_us"] for u in loose
-                ):
+                later = [
+                    u
+                    for u in loose
+                    if u.event["data"]["started_us"] >= item.born["t_us"]
+                    and could_be(u.words, item.words)
+                ]
+                if utterance is None and later:
                     # Its text may have been altered on the way to the voice; Earful does not guess.
                     unattributable = (
-                        "a synthesized text that was not attributed could be this reply"
+                        code(later),
+                        "a synthesized text that was not attributed could be this reply",
                     )
             else:
                 utterance = self.utterances[item.instance["utterance"]]
                 if any(
-                    r.answer["t_us"] <= utterance.event["data"]["started_us"] for r in unsynthesized
+                    r.answer["t_us"] <= utterance.event["data"]["started_us"]
+                    and could_be(utterance.words, r.words)
+                    for r in unsynthesized
                 ):
                     unattributable = (
-                        "this text could be a model reply altered before it was synthesized"
+                        code([utterance]),
+                        "this text could be a model reply altered before it was synthesized",
                     )
             playout = Playout(item.key, utterance, unattributable)
             if utterance is not None:

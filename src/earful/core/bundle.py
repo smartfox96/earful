@@ -266,6 +266,7 @@ class Replay:
     clean: bool = False  # every run was judged and the bundle's contract passed in each
     unverified: tuple[str, ...] = ()  # the bundle's case files that nothing could check
     others: tuple[str, ...] = ()  # the other rules some run broke, as CONTRACT/RULE
+    codes: tuple[str, ...] = ()  # why the contract's verdicts were missing in some run
     broke: int = 0  # how many runs broke the bundle's rule
 
     @property
@@ -306,6 +307,7 @@ def replay(
     invalid = next((o.invalid for o in outcomes if o.invalid), ())
     contract = [o.outcomes.get(bundle.predicate.contract) for o in outcomes]
     others = {str(p) for o in outcomes for p in o.failures if p != bundle.predicate}
+    codes = (code for o in outcomes for code in o.missing.get(bundle.predicate.contract, ()))
     return Replay(
         reproduced=all(broke),
         hashes=[o.hash or "" for o in outcomes],
@@ -317,6 +319,7 @@ def replay(
         unverified=bundle.unverified,
         outcomes=tuple(contract),
         others=tuple(sorted(others)),
+        codes=tuple(dict.fromkeys(codes)),
         broke=sum(broke),
     )
 

@@ -24,8 +24,19 @@ the ledger: it imports neither the scenario nor the framework under test.
 - L2 rule b does not count a gap in a streaming buffer as a reply stopping or starting.
 - A1, A2 and A3 are unobservable for a tool call that leaves nothing in the backend
   (section 2.6).
-- L1 is unobservable for a milestone that came due at the instant the scenario ended,
-  and gives `silenced_by_a_tool` only to a turn that got no spoken reply.
+- L1 has nothing to judge for a milestone that came due at the instant the scenario
+  ended, and gives `silenced_by_a_tool` only to a turn that got no spoken reply.
+- A verdict that cannot be judged carries a code (section 5). With nothing to judge it is
+  not exercised; with evidence lost it is unobservable, and a run fails on it unless the
+  code is allowed.
+- L2 has nothing to judge for a speech with no reply under way or waiting to play, and
+  rule a holds a reply that starts at the interruption point itself to the bound.
+- M1 rule 2 fails a text that played to its end and is absent from memory, whatever
+  `behind_us` is.
+- The history the agent starts with is left out of every context (section 4), and a
+  text could be a reply altered on its way to the voice only if the two share a word.
+- M2 rule d loses its evidence for a tool that ran without a call id, where the model
+  asked for a call of that tool that nothing else answered.
 
 A bundle kept under version 1 is still replayed. It is judged by version 2, and the
 replay says so.
@@ -195,30 +206,55 @@ The checker reads these from the ledger header; it never imports the scenario.
 | Effect on a tool | A call of the named tool is one durable write for an intent, made in place of the tool's body. The tool then counts among the tools that carry out the intent | A1, A2, A3 |
 | Claim on a scripted reply | The reply, or a span of its words, tells the user an intent succeeded | A3 |
 | Hangup | When the user leaves. The session is closed at that time | A3, M1, L1 |
+| Starting history | What the agent's context holds before the run, such as an earlier call's turns. The adapter reads it from the agent and records it as the header's `history`; the checker leaves those items out of every context and of the final history, so an earlier turn is neither a stray user text nor an unscripted reply. Each of its items takes out the first item that is the same, in order | M1, M2, L1 |
 | Provider delay | How long a model call, a first audio or a backend write takes, declared as data in place of what the scenario's code would ask for | L1; and it moves what every contract judges |
 | Policy values | The tolerances, bounds and budgets named in section 6, in `run.start`'s `contracts`. Times are integer microseconds, as everywhere in Earful. A value a contract does not define is an error | all |
 
 ## 5. Verdicts
 
 A contract is checked once per **instance**: each intent, each reply, each user turn, as
-section 6 defines. An instance gets one of three verdicts.
+section 6 defines. An instance gets one of four verdicts.
 
 - **pass**: the evidence required is present and the rule holds.
 - **fail**: the evidence required is present and the rule does not hold.
-- **unobservable**: evidence the rule needs is absent, so neither can be shown.
+- **not exercised**: the instance had nothing to judge, such as a deadline after the run
+  ended. The verdict carries a code that says why.
+- **unobservable**: evidence the rule needs was lost, so neither can be shown. The verdict
+  carries a code that says which.
+
+| Code | Kind | Contracts | What happened |
+| --- | --- | --- | --- |
+| `run-ended` | nothing to judge | A3, M1, L1 | The run ended before the playout finished, or before a deadline passed while the rule could still be met |
+| `no-memory-after` | nothing to judge | M1 | No model context or final history follows the reply |
+| `no-reply-under-way` | nothing to judge | L2 | No reply was under way, or waiting to play, while the user held the floor |
+| `no-interruption-point` | nothing to judge | L2 | The speech was too short to interrupt, and no reply was in flight |
+| `no-origin` | nothing to judge | L2 | The ledger has no true speech boundaries |
+| `outside-backend` | evidence lost | A1, A2, A3 | A tool for the intent was called and nothing reached the backend (section 2.6) |
+| `audio-unattributed` | evidence lost | A3, M1, L1 | A reply's audio cannot be told apart from a text that was not attributed and shares a word with it (`docs/ledger.md`, attribution) |
+| `readings-over-cap` | evidence lost | A3, M1, L1 | The same, because the ledger has more readings than the checker tries (section 2.5) |
+| `word-start-unknown` | evidence lost | A3 | The start of the claim's first word cannot be derived |
+| `memory-unaligned` | evidence lost | M1 | No context lines up with what was said (M2, rule c) |
+| `history-before-playout` | evidence lost | M1 | The final history was read before the playout finished |
+| `no-stable-text` | evidence lost | M2 | A tool's result has no stable text form to compare (rule d) |
+| `tool-unwitnessed` | evidence lost | M2, L1 | A tool behind a call or a result was not witnessed, or cannot be linked to the call |
 
 A contract's result for a run is `fail` if any instance failed, otherwise `unobservable`
-if any instance was unobservable, otherwise `pass`.
+if any lost its evidence, otherwise `pass` if any passed, otherwise **not exercised**,
+which it also is with no instances at all.
 
-A contract with no instances in a run is reported as **not exercised**. A test may
-require that a contract is exercised, so a scenario that never reaches the behaviour does
+Evidence lost counts against a run as a broken rule does. `assert_contracts` fails on it
+and names it as `CONTRACT/CODE`, such as `A2/outside-backend`, and `allow` takes that
+name. A search reports each as a rule of its own, with the cases it was lost in and what
+was changed (`docs/search.md`, section 3). Nothing to judge does not fail a run. A test may
+require that a contract was judged, so a scenario that never reaches the behaviour does
 not pass: `assert_contracts(require=["A2"])` fails unless A2 ended with a pass or a fail
 (`docs/testing.md`, section 4).
 
 Every verdict carries: the contract, the instance, a one-sentence summary, the rule each
 finding broke, the `seq` of each event it rests on, the witnesses those events came from,
-the measured numbers, and any qualifying flags. The contract's result carries the policy
-values used. A report (`earful.report/1`) holds the run id, whether the run was valid, the
+the measured numbers, and any qualifying flags. A finding carries the rule it broke, or for a
+verdict that was not judged its `code`. The contract's result carries the policy values
+used. A report (`earful.report/2`) holds the run id, whether the run was valid, the
 reading taken (section 2.5) and one result per contract; it is plain JSON. An invalid run
 has no results at all.
 
@@ -241,7 +277,7 @@ After the user corrects or cancels an intent, no new side-effecting call for it 
 | Rule | Fail if a write request for the intent comes after the retirement point |
 | In-flight calls | A write requested before the retirement point may still commit after it. This is reported as a late commit and does not fail |
 | Policy | `in_flight`: `may_finish` (default) or `must_not_commit`. `reissue_allowed`: intents the correction is permitted to start |
-| Unobservable | The backend received no write request for the intent, and its tool was called after the retirement and made no write request at all (section 2.6) |
+| Evidence lost | `outside-backend`: the backend received no write request for the intent, and its tool was called after the retirement and made no write request at all (section 2.6) |
 | Deliberate break | A model policy that calls the tool again after the correction is in its context |
 | Clean control | The same scenario with a policy that honours the correction |
 
@@ -255,7 +291,7 @@ Durable effects for an intent do not exceed the count the scenario authorized.
 | Judged record | `backend`: committed effects |
 | Rule | Fail if committed effects for the intent exceed its authorized count |
 | Policy | None of its own. The authorized count is declared on the intent (default 1). The backend mode is declared on the scenario: `plain` (every write commits) or `keyed` (a repeated idempotency key is deduplicated and does not count) |
-| Unobservable | The backend received no write request for the intent, and a tool for it was called and made no write request at all (section 2.6). A call that wrote for another intent is accounted for: the intent was not acted on, and has no instance |
+| Evidence lost | `outside-backend`: the backend received no write request for the intent, and a tool for it was called and made no write request at all (section 2.6). A call that wrote for another intent is accounted for: the intent was not acted on, and has no instance |
 | Faults | A write counts if it committed, whatever its caller was told. A write the backend rejected or lost never counts |
 | Caller gone | A write counts if it committed, although the tool that asked was cancelled or the user had hung up by then |
 | Not judged | Too few effects. That is A3 when the agent claimed success, and otherwise a scenario expectation |
@@ -276,7 +312,8 @@ The user does not hear that an action succeeded before the backend has recorded 
 | Policy | `claim_point`: `span_end` (default) or `span_start`. Which words make the claim is declared on the claim itself |
 | Faults | Only a commit makes a claim true. A write that was rejected, lost, or had not committed when the claim was heard does not, whatever the tool returned |
 | Hangup | A claim whose last word finished playing after the user hung up was not delivered |
-| Unobservable | The reply's audio cannot be attributed to the scripted reply; a segment that holds or may hold its audio never finished, even if another segment played part of it; or the backend received no write request for the intent, and a tool for it was called at or before the claim was heard and made no write request at all (section 2.6) |
+| Nothing to judge | `run-ended`: the reply's playout never finished (as M1 defines it below), even if another segment played part of it |
+| Evidence lost | `audio-unattributed`: the reply's audio cannot be attributed to the scripted reply (`readings-over-cap` where that is because the ledger has more readings than the checker tries, section 2.5). `word-start-unknown`: the start of the claim's first word cannot be derived. `outside-backend`: the backend received no write request for the intent, and a tool for it was called at or before the claim was heard and made no write request at all (section 2.6) |
 | Deliberate break | A model policy that says the booking is done in the same reply that calls the tool, with a backend that takes longer to commit than the sentence takes to play |
 | Clean control | The same backend, with the claim made only after the tool result is in context |
 
@@ -303,7 +340,7 @@ length: two words can be 0.2 s or 1.2 s.
 | Reference record | `sink`: `P`, `C`, and whether the segment was cleared before its audio ended; `world`: the length of each word's audio |
 | Judged record | Every model context requested after the playout finished; the final chat history if there is none and it was read after the playout finished. For a text of which no audio reached the sink: every model context requested after the text came to be (the model's response, or the synthesis of a text the application spoke), and the final history as well |
 | Rule 1 | `R` is a prefix of `W`. This is how a message is attributed at all (M2, rule c), so a message that is not a prefix of what was said fails M2 and leaves M1 unobservable in that context |
-| Rule 2 | Memory is not more than `behind_us` of audio behind what was played |
+| Rule 2 | Memory is not more than `behind_us` of audio behind what was played. A text that played to its end without being cut short is in memory, whatever `behind_us`: the framework knew all of it was said. The tolerance covers its estimate of how much of a cut-off text was heard, which can come out as none of it |
 | Rule 3 | Memory is not more than `ahead_us` of audio ahead of what was played |
 | Rule 4 | If it never became audible, it is absent from memory. No tolerance applies. A reply that became audible and was stopped before one whole sample had played is judged by rules 2 and 3 instead: the framework was told playback had begun |
 | Rule 5 | The message is marked interrupted exactly when the playout was cut short: a word was left unplayed, or the sink was cleared before the audio ended. The second case covers an interruption in the silence after the last word, however long after. If every word played and a pause or clear reached the sink at the instant the audio ended, either mark is accepted (section 2.3). The audio ended when its last word finished playing. For a segment that played out, the instant the sink reported it finished counts too: that is when the framework learns of it |
@@ -311,7 +348,8 @@ length: two words can be 0.2 s or 1.2 s.
 | Flags | `judged_on_final_history`: the final history is among the contexts judged, because no model call followed the playout or because no audio reached the sink. `never_reached_the_output`: no audio of it reached the sink, so it is judged from the moment it came to be. `stopped_as_it_ended`: every word played and a stop reached the sink as the audio ended, so rule 5 accepts either mark. `most_favourable_reading`: which copy of identical words was voiced or remembered is a reading (section 2.5). `played_on_after_the_hangup`: the sink consumed audio of it after the user had left, and `P` and `C` are what the user heard |
 | Hangup | `P` and `C` count what had played when the user hung up (section 3). The judged record is the final history, read after the session has closed. An output that plays on after the hangup, with a framework that remembers what it played, fails rule 3 |
 | Always reported | The drift, `len(R) - P` and `len(R) - (P + C)`, on every instance, pass or fail. A release that drifts inside the tolerance stays visible |
-| Unobservable | The audio cannot be attributed to anything the agent was scripted to say; or the run ended, or the final history was read, before the playout finished. A playout has not finished while a segment that holds or may hold its audio is open, even if another segment played part of it |
+| Nothing to judge | `run-ended`: the run ended before the playout finished. A playout has not finished while a segment that began with its audio is open, even if another segment played part of it; or, where no finished segment holds any of its audio, while any segment is open, since that one may hold it. What an open segment holds after the audio it began with is not known until it finishes. `no-memory-after`: no model context or final history follows it |
+| Evidence lost | `audio-unattributed` (or `readings-over-cap`): the audio cannot be attributed to anything the agent was scripted to say. `history-before-playout`: the final history was read before the playout finished. `memory-unaligned`: no context in which it could be compared lines up with what was said (M2, rule c) |
 | Deliberate break | A sink that tells the framework playback has started 2.5 seconds before it begins to play, as an output with an unannounced buffer would, while recording the truth |
 | Clean control | The unmodified sink |
 
@@ -351,7 +389,7 @@ and the measured drift is on every verdict.
 ### M2. Turn integrity
 
 Each model call is shown the conversation that happened. Every user turn is there, whole,
-once and in order. Every assistant message is something the agent was scripted to say, in
+once and in order. The history the agent started with is left out (section 4). Every assistant message is something the agent was scripted to say, in
 the order it was said. Every tool call that returned is there once, as the model made it,
 with the result the tool gave. A reply and a tool call come after the turns that led to
 them.
@@ -374,7 +412,7 @@ expect of it and it leaves alone.
 | Rule f, tool items | A call item or a result item belongs to a call the model had made, found by its call id, and shows that call as the model made it. A call item carries the model's tool name and arguments. A result item carries the model's tool name; one whose name the ledger does not give (null) is not compared. Arguments are equal as text, or as JSON where both parse, so a framework that writes the same arguments out again is not penalized. A call item whose id the model had not given when the context was requested fails. A result item with such an id is rule d |
 | Discard policies | `noise`: speech with no transcript leaves no turn. `backchannel`: its transcript may be present or absent; where its words could equally be the start of the next turn, the reading that explains the most user text is taken. `cancelled_tool`: a call cancelled before it returned needs no result |
 | Policy | `user_commit_lag_us` (default 1 000 000): how long after the turn can be over a transcript may still be missing. In every reference ledger a transcript is in the first context requested after its delivery |
-| Unobservable | Rule d for a tool that was not witnessed, or that ran without a call id to link it by. The value comparison in rule d, for a result with no stable text form (`text` is null); presence and order are still checked |
+| Evidence lost | `tool-unwitnessed`: rule d for a tool that was not witnessed, or that ran without a call id to link it by. `no-stable-text`: the value comparison in rule d, for a result with no stable text form (`text` is null); presence and order are still checked |
 | Always reported | `stand_in_results`: results shown for calls that had not returned, and error results shown for a handoff. `refused_calls`: error results for calls no tool received |
 | Not judged | Whether a reply is in the context at all, and how much of an interrupted reply is kept. That is M1. The order of tool calls among themselves, and of a tool call against a reply. Where a reply sits among the user turns, beyond rule e. How often a call item appears for a call no tool received |
 | Deliberate break | A public agent hook that removes tool results from the context before the model call. Further variants repeat a user turn, show a tool call with other arguments, and show the tool calls before the turn that led to them |
@@ -397,7 +435,8 @@ after it.
 | Delays on the chain | For each step already taken: the model's `duration_us`; if it spoke, the `ttfb_us` of its own utterance plus the length of its audio, since the framework finishes speaking before the next step; and, for each write its tools made, the backend `latency_us`, or the wait before the caller was told the write timed out. A tool's own running time is not on the chain: the scenario's code decides it and nothing declares it. A turn whose tool takes long by design needs a larger `slack_us` |
 | Excused | The user began speaking again before the milestone was due. If that speech expects a reply it carries the obligation, and this turn has no verdict. If it is noise or a backchannel, the turn keeps the obligation and its clock restarts when that speech ends plus the false-interruption timeout. A header whose `false_interruption_timeout_us` is null adds nothing: Pipecat declares none, because it does not resume a reply. The user hung up before the milestone was due: the turn has no verdict. A milestone that was already overdue when the user left still fails |
 | Policy | `slack_us` (default 1 000 000). `max_steps` (default 4) |
-| Unobservable | The scenario ended (the final history was read) at or before the deadline, where the milestone could still have been met (section 2.3); a tool the model called was not witnessed; or the reply's audio cannot be attributed |
+| Nothing to judge | `run-ended`: the scenario ended (the final history was read) at or before the deadline, where the milestone could still have been met (section 2.3) |
+| Evidence lost | `tool-unwitnessed`: a tool the model called was not witnessed. `audio-unattributed` (or `readings-over-cap`): a reply's audio cannot be attributed, and it may have come first |
 | Flags | `silenced_by_a_tool`: the turn got no spoken reply because its tools asked for none. A turn that was spoken to all the same, by the reply that called the tool or by the agent handed over to, does not carry it. `most_favourable_reading`: which of the turn's replies was voiced is a reading (section 2.5) |
 | Reported separately | Time to the first model call and time to first audio |
 | Deliberate break | A tool that never returns and has no timeout; a second variant where the model returns nothing at all |
@@ -434,11 +473,11 @@ is held to what the same reply without it is held to.
 | Instance | Each speech that is neither noise nor a backchannel, and that the scripted VAD reported. A speech it never reported held no floor, whether it was too short for the VAD or the run ended first: it is named in a note and has no verdict |
 | Reference record | `world`: the floor window and interruption point |
 | Judged record | `sink`: when it was audible, when segments started, and when it was asked to pause and to resume |
-| Rule a, stop | If a reply is under way at the interruption point, having begun before it, the sink stops being audible by that point plus `stop_bound_us`. The reply stopped at the end of its last audio that began before the floor window closed. So audio that returns after a gap, while the user still speaks, counts, and a gap that lasts from before the point until the user has stopped leaves the agent silent. Rule b keeps it silent from then until the floor window closes |
-| Rule b, no start | No segment starts, and none is resumed after a pause the output was asked for, inside the floor window later than `start_grace_us` after it opens. Both ends of that span are excluded. A reply that plays on after a gap in its buffer does not start: it was under way, and rule a judges it. A pause of zero length silences nothing: it is no resume and does not end the reply |
+| Rule a, stop | If a reply is under way at the interruption point, having begun at or before it, the sink stops being audible by that point plus `stop_bound_us`. A reply that starts at the point itself may start there, since the two are the same instant (section 2.3), and is held to the bound like any other. The reply stopped at the end of its last audio that began before the floor window closed. So audio that returns after a gap, while the user still speaks, counts, and a gap that lasts from before the point until the user has stopped leaves the agent silent. Rule b keeps it silent from then until the floor window closes |
+| Rule b, no start | No segment starts, and none is resumed after a pause the output was asked for, inside the floor window later than `start_grace_us` after it opens. Both ends of that span are excluded. Excusing a start at the instant the window opens excuses the start only: where that instant is the interruption point, rule a holds what plays on. A reply that plays on after a gap in its buffer does not start: it was under way, and rule a judges it. A pause of zero length silences nothing: it is no resume and does not end the reply |
 | Policy | `stop_bound_us` (default 100 000). `start_grace_us` (default 0). `interruptions_allowed` (default true; if false, rule a does not apply) |
 | Reference in doubt | A rule a failure in which a pause or clear command did reach the sink, but later than the interruption point plus `stop_bound_us`, is marked `reference_in_doubt`. It stays a failure. It is not published or attributed until someone confirms that the computed interruption point matches the framework's documented threshold on that release. A failure with no command at all, or with a timely command the sink did not obey, is not marked |
-| Unobservable | The ledger has no true speech boundaries |
+| Nothing to judge | `no-reply-under-way`: no reply was under way at the interruption point, none was waiting to play during the floor window (its synthesis began before the window closed and it had not finished playing when the window opened), and no rule broke. `no-interruption-point`: the speech was too short to have an interruption point, and no reply was in flight. `no-origin`: the ledger has no true speech boundaries. So `require=["L2"]` means an interruption, or a reply held back, was judged |
 | Reported separately | Recognition delay: from the true start of speech to the first pause or clear command the sink received. Decision lag: from the interruption point to that command; it can be negative. Stop latency: from that command to silence |
 | Deliberate break | A sink that keeps consuming for 400 ms after it is told to pause or clear; a second variant with interruptions disabled on the agent while the policy still expects them |
 | Clean control | The unmodified sink; interruptions disabled with `interruptions_allowed = false` |
@@ -718,7 +757,9 @@ interruption threshold, an output that cannot pause, a slow recognizer, a long
 endpointing delay, a greeting, a user who pauses mid-sentence and a user who goes on
 speaking. The moving speech starts as close to the one before it as it can, so the
 sweeps cover speech that resumes inside the VAD's silence window. That is 3 441 runs on
-each release.
+each release. L2 has nothing to judge for at least one speech in 3 371 of them: the first
+speech of a shape, with no reply under way, and the moving speech where it lands while
+nothing plays.
 
 What fails:
 
@@ -742,9 +783,10 @@ What fails:
   as a consequence of the setting, and as a question for the framework's maintainers
   more than a defect.
 
-No other rule fails on any release, and no verdict on any release is unobservable: where
-a framework generates a reply again and the scripted model gives the same words, the run
-is read as section 2.5 describes.
+No other rule fails on any release, and no verdict on any release lost its evidence:
+where a framework generates a reply again and the scripted model gives the same words,
+the run is read as section 2.5 describes. These figures were measured again on 22
+November 2026, after the changes listed at the top of this page, and none moved.
 
 A failure that has not been classified (section 7) is not reported here. The sweep is
 how such results are found; they are published once someone has reproduced them

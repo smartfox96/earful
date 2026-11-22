@@ -149,18 +149,43 @@ reason cannot be run: run the agent without it.
 [`compatibility.md`](compatibility.md#the-options-earful-models-on-livekit) lists every
 option and what Earful does with it.
 
+### The run lost the evidence for a contract
+
+```text
+the run lost the evidence for A2/outside-backend
+```
+
+A verdict could not be judged because evidence it needs was lost, and the code after the
+slash says which ([`contracts.md`](contracts.md#5-verdicts)). `outside-backend`: a tool
+for an intent was called and nothing reached Earful's backend, so the tool writes some
+other way; declare it an effect, or have it write through `effect`.
+`audio-unattributed`: a reply's text was altered on its way to the voice. `tool-unwitnessed`:
+a tool the model called is not one Earful witnesses. When the loss is expected, name it in
+`allow`, as a rule is named. A search reports each as a rule of its own, with the change
+that caused it.
+
+### A required contract had nothing to judge
+
+```text
+L2 had nothing to judge: no reply was under way, or waiting to play, while the user held the floor (no-reply-under-way)
+```
+
+The run never reached what the contract judges, so `require` fails. For L2, have the user
+speak while a reply plays. For L1, `run-ended` means the run ended before the deadline:
+give the scenario more `drain_delay`.
+
 ### A rule or a contract that does not exist
 
 ```text
-earful: no contract rule 'A3'. A rule is CONTRACT/RULE, one of: A1/rule, A1/in-flight, A2/rule, A3/rule, M1/rule 2, M1/rule 3, M1/rule 4, M1/rule 5, M2/rule a, M2/rule b, M2/rule c, M2/rule d, M2/rule e, M2/rule f, L1/milestone 1, L1/milestone 2, L1/milestone 3, L2/rule a, L2/rule b
+earful: no contract rule 'A3'. A rule is CONTRACT/RULE, one of: A1/rule, A1/in-flight, A2/rule, A3/rule, M1/rule 2, M1/rule 3, M1/rule 4, M1/rule 5, M2/rule a, M2/rule b, M2/rule c, M2/rule d, M2/rule e, M2/rule f, L1/milestone 1, L1/milestone 2, L1/milestone 3, L2/rule a, L2/rule b; or evidence lost, CONTRACT/CODE, one of: A1/outside-backend, A2/outside-backend, A3/outside-backend, A3/audio-unattributed, A3/readings-over-cap, A3/word-start-unknown, M1/audio-unattributed, M1/readings-over-cap, M1/memory-unaligned, M1/history-before-playout, M2/no-stable-text, M2/tool-unwitnessed, L1/audio-unattributed, L1/readings-over-cap, L1/tool-unwitnessed
 ```
 
 ```text
 earful: no contract 'A9'. The contracts are: A1, A2, A3, M1, M2, L1, L2
 ```
 
-`allow` and `--keep` take a rule, such as `A3/rule`. `require` takes a contract, such as
-`A3`.
+`allow` and `--keep` take a rule, such as `A3/rule`, or a code of evidence lost, such as
+`A2/outside-backend`. `require` takes a contract, such as `A3`.
 
 ### The scenario cannot be imported
 

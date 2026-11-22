@@ -11,10 +11,10 @@ if TYPE_CHECKING:
     from ..predicate import Predicate
 
 CONTRACTS = "earful.contracts/2"
-REPORT = "earful.report/1"
+REPORT = "earful.report/2"
 
 PASS, FAIL, UNOBSERVABLE, NOT_EXERCISED = "pass", "fail", "unobservable", "not_exercised"
-_SEVERITY = {PASS: 0, UNOBSERVABLE: 1, FAIL: 2}  # a verdict's outcomes, from best to worst
+_SEVERITY = {NOT_EXERCISED: 0, PASS: 0, UNOBSERVABLE: 1, FAIL: 2}  # from best to worst
 SPLIT = "reading_split"  # the flag on a verdict that another reading makes worse
 
 Event = dict[str, Any]
@@ -29,6 +29,47 @@ RULES: dict[str, tuple[str, ...]] = {
     "M2": ("rule a", "rule b", "rule c", "rule d", "rule e", "rule f"),
     "L1": ("milestone 1", "milestone 2", "milestone 3"),
     "L2": ("rule a", "rule b"),
+}
+NOTHING, LOST = "nothing to judge", "evidence lost"
+# Why a verdict is missing -> its kind. With nothing to judge the verdict is not exercised;
+# with evidence lost it is unobservable, and the run fails unless the code is allowed.
+CODES: dict[str, str] = {
+    "run-ended": NOTHING,
+    "no-memory-after": NOTHING,
+    "no-origin": NOTHING,
+    "no-reply-under-way": NOTHING,
+    "no-interruption-point": NOTHING,
+    "outside-backend": LOST,
+    "audio-unattributed": LOST,
+    "readings-over-cap": LOST,
+    "word-start-unknown": LOST,
+    "memory-unaligned": LOST,
+    "history-before-playout": LOST,
+    "no-stable-text": LOST,
+    "tool-unwitnessed": LOST,
+}
+# Contract -> the codes a missing verdict of it can carry (docs/contracts.md, section 5).
+MISSING: dict[str, tuple[str, ...]] = {
+    "A1": ("outside-backend",),
+    "A2": ("outside-backend",),
+    "A3": (
+        "run-ended",
+        "outside-backend",
+        "audio-unattributed",
+        "readings-over-cap",
+        "word-start-unknown",
+    ),
+    "M1": (
+        "run-ended",
+        "no-memory-after",
+        "audio-unattributed",
+        "readings-over-cap",
+        "memory-unaligned",
+        "history-before-playout",
+    ),
+    "M2": ("no-stable-text", "tool-unwitnessed"),
+    "L1": ("run-ended", "audio-unattributed", "readings-over-cap", "tool-unwitnessed"),
+    "L2": ("no-origin", "no-interruption-point", "no-reply-under-way"),
 }
 # Contract -> what a run holds when the contract has an instance to judge.
 _EXERCISED_BY = {
@@ -51,12 +92,25 @@ def rule_names() -> list[str]:
     return [f"{contract}/{rule}" for contract, rules in RULES.items() for rule in rules]
 
 
+def lost_names() -> list[str]:
+    """Every code of evidence lost, as ``CONTRACT/CODE``. A run fails on one as on a rule."""
+    return [
+        f"{contract}/{code}"
+        for contract, codes in MISSING.items()
+        for code in codes
+        if CODES[code] == LOST
+    ]
+
+
 def parse_rule(text: str) -> tuple[str, str]:
-    """The contract and the rule ``CONTRACT/RULE`` names. Raises ``ValueError`` if none has it."""
+    """The contract and the rule ``CONTRACT/RULE`` names, or the code of evidence lost
+    ``CONTRACT/CODE`` names. Raises ``ValueError`` if no contract has it."""
     contract, _, name = text.partition("/")
-    if name not in RULES.get(contract, ()):
+    if text not in (*rule_names(), *lost_names()):
         raise ValueError(
-            f"no contract rule {text!r}. A rule is CONTRACT/RULE, one of: {', '.join(rule_names())}"
+            f"no contract rule {text!r}. A rule is CONTRACT/RULE, one of: "
+            f"{', '.join(rule_names())}; or evidence lost, CONTRACT/CODE, one of: "
+            f"{', '.join(lost_names())}"
         )
     return contract, name
 
@@ -82,11 +136,17 @@ def required(require: Iterable[str] | str) -> list[str]:
 
 @dataclass(frozen=True)
 class Finding:
-    """One reason a verdict is not a plain pass: a broken rule, or missing evidence."""
+    """One reason a verdict is not a plain pass: a broken rule, or why it is missing."""
 
-    rule: str  # the rule as docs/contracts.md names it, e.g. "rule d" or "unobservable"
+    rule: str  # the rule as docs/contracts.md names it, or "unobservable" or "not exercised"
     detail: str
     seqs: tuple[int, ...] = ()
+    code: str | None = None  # why a verdict is missing: a key of ``CODES``
+
+    @property
+    def lost(self) -> bool:
+        """Whether this is evidence lost, on which a run fails unless the code is allowed."""
+        return self.code is not None and CODES[self.code] == LOST
 
 
 @dataclass(frozen=True)
@@ -95,7 +155,7 @@ class Verdict:
 
     contract: str
     instance: dict[str, Any]  # what was judged, e.g. {"intent": "book-table-1"}
-    outcome: str  # pass, fail or unobservable
+    outcome: str  # pass, fail, unobservable (evidence lost) or not_exercised (nothing to judge)
     summary: str
     findings: tuple[Finding, ...] = ()
     evidence: tuple[int, ...] = ()  # seq of every event the verdict rests on
@@ -137,6 +197,8 @@ class Report:
 
     @property
     def failures(self) -> tuple[Verdict, ...]:
+        """Every failed verdict. An invalid run has none, since it has no verdicts at all:
+        read ``valid`` first."""
         return tuple(v for r in self.results.values() for v in r.failures)
 
     def to_json(self) -> dict[str, Any]:
@@ -146,6 +208,18 @@ class Report:
         """Every rule a failed verdict names, as ``CONTRACT/RULE``, sorted."""
         return sorted(
             {f"{v.contract}/{finding.rule}" for v in self.failures for finding in v.findings}
+        )
+
+    def lost(self) -> list[str]:
+        """Every code of evidence lost a verdict carries, as ``CONTRACT/CODE``, sorted."""
+        return sorted(
+            {
+                f"{v.contract}/{finding.code}"
+                for r in self.results.values()
+                for v in r.verdicts
+                for finding in v.findings
+                if finding.lost
+            }
         )
 
     def lines(self, *, measures: bool = False, passes: bool = False) -> list[str]:
@@ -158,7 +232,10 @@ class Report:
             for v in result.verdicts:
                 if v.outcome != PASS or v.flags or passes or measures:
                     out.append(f"    {v.outcome}: {json.dumps(v.instance)} {v.summary}")
-                out += [f"        {f.rule}: {f.detail}" for f in v.findings]
+                out += [
+                    f"        {f.rule}{f' ({f.code})' if f.code else ''}: {f.detail}"
+                    for f in v.findings
+                ]
                 if measures and v.measures:
                     out.append(f"        {json.dumps(v.measures)}")
                 if v.flags:
@@ -172,11 +249,21 @@ class Report:
         out = {}
         for contract in required(require):
             result = self.results.get(contract)
-            if result is not None and result.outcome == NOT_EXERCISED:
+            if result is None or result.outcome not in (NOT_EXERCISED, UNOBSERVABLE):
+                continue
+            why = [
+                f"{f.detail} ({f.code})"
+                for v in result.verdicts
+                if v.outcome == result.outcome
+                for f in v.findings
+                if f.code
+            ]
+            if result.outcome == UNOBSERVABLE:
+                out[contract] = f"lost its evidence: {'; '.join(dict.fromkeys(why))}"
+            elif why:
+                out[contract] = f"had nothing to judge: {'; '.join(dict.fromkeys(why))}"
+            else:
                 out[contract] = f"was not exercised: the run has no {_EXERCISED_BY[contract]}"
-            elif result is not None and result.outcome == UNOBSERVABLE:
-                why = [f.detail for v in result.verdicts for f in v.findings]
-                out[contract] = f"is unobservable: {'; '.join(dict.fromkeys(why))}"
         return out
 
     def assert_contracts(
@@ -186,9 +273,9 @@ class Report:
         require: Iterable[str] | str = (),
         what: str = "the run",
     ) -> None:
-        """Raise ``ContractFailure`` if the run is invalid, breaks a rule not in ``allow``, or
-        gives a contract in ``require`` no pass or fail. Raises ``ValueError`` for a rule or a
-        contract that does not exist."""
+        """Raise ``ContractFailure`` if the run is invalid, breaks a rule or lost evidence not
+        in ``allow``, or gives a contract in ``require`` no pass or fail. Raises ``ValueError``
+        for a rule, a code or a contract that does not exist."""
         __tracebackhide__ = True  # pytest then shows the test's own line, not this one
         allowing, unjudged = allowed(allow), self.unjudged(require)
         if not self.valid:
@@ -197,8 +284,11 @@ class Report:
                 + "\n".join(f"  {reason}" for reason in self.invalid)
             )
         broken = [rule for rule in self.broken() if rule not in allowing]
-        if broken or unjudged:
+        lost = [code for code in self.lost() if code not in allowing]
+        if broken or lost or unjudged:
             said = [f"breaks {', '.join(broken)}"] if broken else []
+            if lost:
+                said.append(f"lost the evidence for {', '.join(lost)}")
             if unjudged:
                 said.append(f"has no pass or fail for the required {', '.join(unjudged)}")
             parts = [
@@ -216,21 +306,30 @@ def verdict(
     *,
     events: Iterable[Event | None] = (),
     findings: Iterable[Finding] = (),
-    unobservable: str | None = None,
+    missing: Iterable[tuple[str, str]] = (),
     measures: dict[str, Any] | None = None,
     flags: Iterable[str] = (),
 ) -> Verdict:
-    """Build a verdict: fail on any finding, unobservable if ``unobservable`` is set, else pass."""
+    """Build a verdict: fail on any finding; else, for each ``(code, why)`` in ``missing``,
+    unobservable if any is evidence lost and not exercised if all are nothing to judge;
+    else pass."""
     used = sorted({e["seq"]: e for e in events if e is not None}.values(), key=lambda e: e["seq"])
-    findings = list(findings)
+    findings, missing = list(findings), list(dict.fromkeys(missing))
     unknown = [finding.rule for finding in findings if finding.rule not in RULES[contract]]
     if unknown:
         raise ValueError(f"{contract} has no rule {unknown[0]!r}; its rules are {RULES[contract]}")
+    strange = [code for code, _why in missing if code not in MISSING[contract]]
+    if strange:
+        raise ValueError(
+            f"{contract} has no code {strange[0]!r}; its codes are {MISSING[contract]}"
+        )
     if findings:
         outcome = FAIL
-    elif unobservable is not None:
-        outcome = UNOBSERVABLE
-        findings = [Finding("unobservable", unobservable)]
+    elif missing:
+        lost = any(CODES[code] == LOST for code, _why in missing)
+        outcome = UNOBSERVABLE if lost else NOT_EXERCISED
+        rule = "unobservable" if lost else "not exercised"
+        findings = [Finding(rule, why, code=code) for code, why in missing]
     else:
         outcome = PASS
     return Verdict(
@@ -249,16 +348,10 @@ def verdict(
 def result(
     contract: str, policy: Any, verdicts: list[Verdict], notes: Iterable[str] = ()
 ) -> ContractResult:
-    """A contract's outcome is its worst verdict; with no verdicts it was not exercised."""
+    """A contract's outcome is its worst verdict: fail, unobservable, pass, then not exercised,
+    which it also is with no verdicts."""
     outcomes = {v.outcome for v in verdicts}
-    if not verdicts:
-        outcome = NOT_EXERCISED
-    elif FAIL in outcomes:
-        outcome = FAIL
-    elif UNOBSERVABLE in outcomes:
-        outcome = UNOBSERVABLE
-    else:
-        outcome = PASS
+    outcome = next((o for o in (FAIL, UNOBSERVABLE, PASS) if o in outcomes), NOT_EXERCISED)
     return ContractResult(contract, outcome, asdict(policy), tuple(verdicts), tuple(notes))
 
 

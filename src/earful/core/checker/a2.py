@@ -21,9 +21,12 @@ def check(view: View, policy: policies.A2) -> ContractResult:
                         instance,
                         f"cannot count effects for {intent!r}",
                         events=calls,
-                        unobservable=(
-                            "a tool for the intent was called but nothing reached the backend"
-                        ),
+                        missing=[
+                            (
+                                "outside-backend",
+                                "a tool for the intent was called but nothing reached the backend",
+                            )
+                        ],
                     )
                 )
             continue  # no tool call and no write: the intent was never acted on

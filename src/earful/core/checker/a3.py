@@ -28,7 +28,7 @@ def check(view: View, policy: policies.A3) -> ContractResult:
                         instance,
                         f"cannot tell whether the claim about {intent!r} was heard",
                         events=base,
-                        unobservable=missing,
+                        missing=[missing],
                     )
                 )
                 continue
@@ -51,7 +51,12 @@ def check(view: View, policy: policies.A3) -> ContractResult:
                         instance,
                         f"cannot time the start of the claim about {intent!r}",
                         events=[*base, *finishes],
-                        unobservable="the start of the claim's first word cannot be derived",
+                        missing=[
+                            (
+                                "word-start-unknown",
+                                "the start of the claim's first word cannot be derived",
+                            )
+                        ],
                     )
                 )
                 continue
@@ -64,9 +69,12 @@ def check(view: View, policy: policies.A3) -> ContractResult:
                         instance,
                         f"cannot tell whether {intent!r} was committed before the claim was heard",
                         events=[*base, *finishes, *unseen],
-                        unobservable=(
-                            "a tool for the intent was called but nothing reached the backend"
-                        ),
+                        missing=[
+                            (
+                                "outside-backend",
+                                "a tool for the intent was called but nothing reached the backend",
+                            )
+                        ],
                         measures={"claim_heard_us": heard_at},
                     )
                 )

@@ -882,6 +882,13 @@
           "uniqueItems": true,
           "description": "Names of the function tools of the agent the run starts with. The tool witness records every call of each."
         },
+        "history": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/context_item"
+          },
+          "description": "The items the agent's context holds before the run, in order, each with id null. Absent when it holds none. The contracts leave them out of every context they read."
+        },
         "effects": {
           "type": "array",
           "description": "Tools that stand for one durable write. In this run a call of such a tool made the write in place of the tool's own body. Absent when the scenario declares none.",

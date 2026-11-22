@@ -292,6 +292,7 @@ def _replay(args: argparse.Namespace) -> int:
         "reproduced": result.reproduced,
         "clean": result.clean,
         "contract_outcomes": list(result.outcomes),
+        "contract_codes": list(result.codes),
         "other_rules_broken": list(result.others),
         "repeatable": result.repeatable,
         "identical_to_recorded": result.identical,
@@ -314,7 +315,8 @@ def _replay(args: argparse.Namespace) -> int:
         print(f"replayed {args.repeats} times on {on.get('name')} {on.get('version')}")
         print(f"  breaks the rule       {breaks}")
         contract = f"{kept.predicate.contract} gave"
-        print(f"  {contract:<22}{gave[0] if len(set(gave)) == 1 else ', '.join(gave)}")
+        why = f" ({', '.join(result.codes)})" if result.codes else ""
+        print(f"  {contract:<22}{gave[0] if len(set(gave)) == 1 else ', '.join(gave)}{why}")
         if result.others:
             print(f"  other rules broken    {', '.join(result.others)}")
         print(f"  every run the same    {'yes' if result.repeatable else 'no'}")

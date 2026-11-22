@@ -94,18 +94,21 @@ code blocks the thread is not ended.
 
 ## What each contract cannot decide
 
-A verdict is unobservable when evidence the rule needs is absent. It does not fail an
-assertion unless the test names the contract in `require`.
+A verdict that was not judged carries a code ([`contracts.md`](contracts.md#5-verdicts)).
+With nothing to judge, such as a deadline after the run ended, it is not exercised, and it
+fails an assertion only if the test names the contract in `require`. With evidence lost
+it is unobservable, and it fails an assertion and a search unless `allow` names its
+`CONTRACT/CODE`.
 
-| Contract | Unobservable when |
+| Contract | Evidence lost when |
 | --- | --- |
 | [A1](contracts.md#a1-retired-intent) | The intent's tool was called after the retirement and nothing reached the backend for the intent |
 | [A2](contracts.md#a2-one-logical-effect) | A tool for the intent was called and nothing reached the backend for the intent |
-| [A3](contracts.md#a3-truthful-confirmation) | The reply's audio cannot be attributed to the scripted reply, a segment that may hold it never finished, or nothing reached the backend for the intent |
-| [M1](contracts.md#m1-played-vs-remembered) | The audio cannot be attributed to anything the agent was scripted to say, or the run ended before the playout finished |
+| [A3](contracts.md#a3-truthful-confirmation) | The reply's audio cannot be attributed to the scripted reply, the start of the claim's first word cannot be derived, or nothing reached the backend for the intent |
+| [M1](contracts.md#m1-played-vs-remembered) | The audio cannot be attributed to anything the agent was scripted to say, the final history was read before the playout finished, or no context lines up with what was said |
 | [M2](contracts.md#m2-turn-integrity) | For a tool call: the tool was not witnessed or ran without a call id. For its value: the result has no stable text form |
-| [L1](contracts.md#l1-progress) | The scenario ended at or before the deadline, a tool the model called was not witnessed, or the reply's audio cannot be attributed |
-| [L2](contracts.md#l2-interruption) | The ledger has no true speech boundaries |
+| [L1](contracts.md#l1-progress) | A tool the model called was not witnessed, or a reply's audio cannot be attributed |
+| [L2](contracts.md#l2-interruption) | Never. A speech with no reply under way or waiting to play has nothing to judge |
 
 What the contracts leave alone:
 

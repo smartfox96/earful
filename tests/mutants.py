@@ -470,15 +470,15 @@ MUTANTS = [
     Mutant(
         "M1: memory behind by exactly the tolerance fails",
         "src/earful/core/checker/m1.py",
-        "    if -drift > policy.behind_us:\n",
-        "    if -drift >= policy.behind_us:\n",
+        "    elif -drift > policy.behind_us:\n",
+        "    elif -drift >= policy.behind_us:\n",
         first="drift_equal_to_the_tolerance",
     ),
     Mutant(
         "M1: memory behind by a microsecond more than the tolerance passes",
         "src/earful/core/checker/m1.py",
-        "    if -drift > policy.behind_us:\n",
-        "    if -drift > policy.behind_us + 1:\n",
+        "    elif -drift > policy.behind_us:\n",
+        "    elif -drift > policy.behind_us + 1:\n",
         first="drift_equal_to_the_tolerance",
     ),
     Mutant(
@@ -987,8 +987,8 @@ MUTANTS = [
     Mutant(
         "M2: a tool called as a context is requested, after it, is judged in it",
         "src/earful/core/checker/m2.py",
-        '        if tool.call_id is None or tool.called["seq"] > context.event["seq"]:\n',
-        '        if tool.call_id is None or tool.called["t_us"] > context.event["t_us"]:\n',
+        '        if tool.called["seq"] > context.event["seq"]:\n',
+        '        if tool.called["t_us"] > context.event["t_us"]:\n',
         first="instant_its_tool_is_called",
     ),
     Mutant(
@@ -1760,8 +1760,10 @@ MUTANTS = [
     Mutant(
         "shrink: faults are never removed",
         "src/earful/core/shrink.py",
-        ('        ("delays", "declared delays"),\n        ("faults", "faults"),\n    ):\n'),
-        ('        ("delays", "declared delays"),\n    ):\n'),
+        (
+            '            ("delays", "declared delays"),\n            ("faults", "faults"),\n        ):\n'
+        ),
+        ('            ("delays", "declared delays"),\n        ):\n'),
         first="test_a_fault_is_a_difference_and_a_reduction_keeps_it_only_if_the_failure_needs_it",
     ),
     Mutant(
@@ -2194,8 +2196,8 @@ MUTANTS = [
     Mutant(
         "shrink: the hangup is never removed",
         "src/earful/core/shrink.py",
-        '    if current["hangup_us"] is not None and not spent() and breaks(cases.without_hangup(current)):\n',
-        "    if False:\n",
+        '        if current["hangup_us"] is not None and breaks(cases.without_hangup(current)):\n',
+        "        if False:\n",
         first="test_a_hangup_is_a_difference_and_a_reduction_keeps_it_only_if_the_failure_needs_it",
     ),
     Mutant(
@@ -2756,17 +2758,10 @@ MUTANTS = [
         first="reference_is_in_doubt_only_if",
     ),
     Mutant(
-        "L2: audio that starts at the interruption point was under way at it",
-        "src/earful/core/checker/l2.py",
-        "            run = next((r for r in runs if r[0][0][0] < point <= r[0][-1][1]), None)\n",
-        "            run = next((r for r in runs if r[0][0][0] <= point <= r[0][-1][1]), None)\n",
-        first="starts_at_the_interruption_point",
-    ),
-    Mutant(
         "L2: a reply that stops at the interruption point was not audible at it",
         "src/earful/core/checker/l2.py",
-        "            run = next((r for r in runs if r[0][0][0] < point <= r[0][-1][1]), None)\n",
-        "            run = next((r for r in runs if r[0][0][0] < point < r[0][-1][1]), None)\n",
+        "            run = next((r for r in runs if r[0][0][0] <= point <= r[0][-1][1]), None)\n",
+        "            run = next((r for r in runs if r[0][0][0] <= point < r[0][-1][1]), None)\n",
         first="stops_at_the_interruption_point",
     ),
     Mutant(
@@ -3105,8 +3100,8 @@ MUTANTS = [
     Mutant(
         "report: a broken rule does not fail the assertion",
         "src/earful/core/checker/report.py",
-        "        if broken or unjudged:\n",
-        "        if unjudged:\n",
+        "        if broken or lost or unjudged:\n",
+        "        if lost or unjudged:\n",
         first="says_which_rule_and_why",
     ),
     Mutant(
@@ -3119,15 +3114,15 @@ MUTANTS = [
     Mutant(
         "report: a required contract that was not exercised passes the assertion",
         "src/earful/core/checker/report.py",
-        "            if result is not None and result.outcome == NOT_EXERCISED:\n",
-        "            if False:\n",
+        "            if result is None or result.outcome not in (NOT_EXERCISED, UNOBSERVABLE):\n",
+        "            if result is None or result.outcome not in (UNOBSERVABLE,):\n",
         first="required_contract_that_was_not_exercised",
     ),
     Mutant(
         "report: a required contract that is unobservable passes the assertion",
         "src/earful/core/checker/report.py",
-        "            elif result is not None and result.outcome == UNOBSERVABLE:\n",
-        "            elif False:\n",
+        "            if result is None or result.outcome not in (NOT_EXERCISED, UNOBSERVABLE):\n",
+        "            if result is None or result.outcome not in (NOT_EXERCISED,):\n",
         first="required_contract_that_is_unobservable",
     ),
     Mutant(
@@ -3140,7 +3135,7 @@ MUTANTS = [
     Mutant(
         "report: a rule is taken on the name of its contract alone",
         "src/earful/core/checker/report.py",
-        "    if name not in RULES.get(contract, ()):\n",
+        "    if text not in (*rule_names(), *lost_names()):\n",
         "    if contract not in RULES:\n",
         first="allowed_or_a_contract_that_is_required_has_to_exist",
     ),
@@ -5006,55 +5001,6 @@ MUTANTS = [
         first="test_where_the_clock_began_decides_nothing",
     ),
     Mutant(
-        "shrink: the hangup is tried after the speeches",
-        "src/earful/core/shrink.py",
-        (
-            '    if current["hangup_us"] is not None and not spent() and breaks(cases.without_hangup(current)):\n'
-            "        current = cases.without_hangup(current)\n"
-            '        steps.append("removed the hangup")\n'
-            "\n"
-            "    for name, plural in (\n"
-            '        ("speeches", "speeches"),\n'
-            '        ("delays", "declared delays"),\n'
-            '        ("faults", "faults"),\n'
-            "    ):\n"
-            "        items = current[name]\n"
-            "        if items and not spent():\n"
-            "\n"
-            "            def fails(keep: list[int], whole: dict[str, Any] = current, name: str = name) -> bool:\n"
-            "                return breaks(_keeping(whole, name, keep))\n"
-            "\n"
-            "            kept = ddmin(range(len(items)), fails)\n"
-            "            if len(kept) < len(items):\n"
-            "                current = _keeping(current, name, kept)\n"
-            '                steps.append(f"removed {len(items) - len(kept)} of {len(items)} {plural}")\n'
-            "\n"
-        ),
-        (
-            "    for name, plural in (\n"
-            '        ("speeches", "speeches"),\n'
-            '        ("delays", "declared delays"),\n'
-            '        ("faults", "faults"),\n'
-            "    ):\n"
-            "        items = current[name]\n"
-            "        if items and not spent():\n"
-            "\n"
-            "            def fails(keep: list[int], whole: dict[str, Any] = current, name: str = name) -> bool:\n"
-            "                return breaks(_keeping(whole, name, keep))\n"
-            "\n"
-            "            kept = ddmin(range(len(items)), fails)\n"
-            "            if len(kept) < len(items):\n"
-            "                current = _keeping(current, name, kept)\n"
-            '                steps.append(f"removed {len(items) - len(kept)} of {len(items)} {plural}")\n'
-            "\n"
-            '    if current["hangup_us"] is not None and not spent() and breaks(cases.without_hangup(current)):\n'
-            "        current = cases.without_hangup(current)\n"
-            '        steps.append("removed the hangup")\n'
-            "\n"
-        ),
-        first="test_a_reduced_case_still_fails_and_holds_nothing_the_failure_does_not_need or hangup_the_failure_does_not_need_keeps_no_speech",
-    ),
-    Mutant(
         "shrink: a time is settled on the one edge its window has",
         "src/earful/core/shrink.py",
         "        lo = aim = min(found.lo_us + MARGIN_US, found.hi_us)\n",
@@ -5427,15 +5373,15 @@ MUTANTS = [
     Mutant(
         "cli: a replay does not print the contract's outcome",
         "src/earful/cli.py",
-        "        print(f\"  {contract:<22}{gave[0] if len(set(gave)) == 1 else ', '.join(gave)}\")\n",
+        "        print(f\"  {contract:<22}{gave[0] if len(set(gave)) == 1 else ', '.join(gave)}{why}\")\n",
         "",
         first="could_not_be_judged_has_no_verdict",
     ),
     Mutant(
         "cli: a replay prints one outcome where runs differ",
         "src/earful/cli.py",
-        "        print(f\"  {contract:<22}{gave[0] if len(set(gave)) == 1 else ', '.join(gave)}\")\n",
-        '        print(f"  {contract:<22}{gave[0]}")\n',
+        "        print(f\"  {contract:<22}{gave[0] if len(set(gave)) == 1 else ', '.join(gave)}{why}\")\n",
+        '        print(f"  {contract:<22}{gave[0]}{why}")\n',
         first="could_not_be_judged_has_no_verdict",
     ),
     Mutant(
@@ -5535,5 +5481,292 @@ MUTANTS = [
         "            model.private(name)\n",
         "            pass\n",
         first="private_name_elsewhere",
+    ),
+    Mutant(
+        "view: the starting history is left in a model's context",
+        "src/earful/core/checker/view.py",
+        '        return unseeded(self.request["data"]["items"], self.seeded)\n',
+        '        return self.request["data"]["items"]\n',
+        first="history_an_agent or starts_with_history",
+    ),
+    Mutant(
+        "view: the starting history is left in the final history",
+        "src/earful/core/checker/view.py",
+        '            items = unseeded(self.history["data"]["items"], self.seeded)\n',
+        '            items = self.history["data"]["items"]\n',
+        first="history_an_agent",
+    ),
+    Mutant(
+        "view: a starting item is looked for from the start each time",
+        "src/earful/core/checker/view.py",
+        "            del out[found]\n            at = found\n",
+        "            del out[found]\n            at = 0\n",
+        first="first_like_it",
+    ),
+    Mutant(
+        "view: a starting message is matched by its role alone",
+        "src/earful/core/checker/view.py",
+        '    "message": ("role", "text"),\n',
+        '    "message": ("role",),\n',
+        first="first_like_it",
+    ),
+    Mutant(
+        "livekit: the header leaves out the starting history",
+        "src/earful/livekit/harness.py",
+        '    if history:\n        header["history"] = history\n',
+        '    if False:\n        header["history"] = history\n',
+        first="starts_with_history",
+    ),
+    Mutant(
+        "livekit: the starting history keeps the framework's random identifiers",
+        "src/earful/livekit/providers.py",
+        '    return [{**summarize_item(item), "id": None} for item in items]\n',
+        "    return [summarize_item(item) for item in items]\n",
+        first="starts_with_history",
+    ),
+    Mutant(
+        "pipecat: the header leaves out the starting history",
+        "src/earful/pipecat/harness.py",
+        '        if history:\n            header["history"] = history\n',
+        '        if False:\n            header["history"] = history\n',
+        first="starts_with_history",
+    ),
+    Mutant(
+        "report: evidence lost does not fail the assertion",
+        "src/earful/core/checker/report.py",
+        "        if broken or lost or unjudged:\n",
+        "        if broken or unjudged:\n",
+        first="unobservable_fails_the_assertion",
+    ),
+    Mutant(
+        "report: nothing to judge makes a verdict unobservable",
+        "src/earful/core/checker/report.py",
+        "        outcome = UNOBSERVABLE if lost else NOT_EXERCISED\n",
+        "        outcome = UNOBSERVABLE\n",
+        first="carries_a_code",
+    ),
+    Mutant(
+        "report: evidence lost makes a verdict not exercised",
+        "src/earful/core/checker/report.py",
+        "        outcome = UNOBSERVABLE if lost else NOT_EXERCISED\n",
+        "        outcome = NOT_EXERCISED\n",
+        first="carries_a_code",
+    ),
+    Mutant(
+        "report: a verdict takes a code its contract does not give",
+        "src/earful/core/checker/report.py",
+        "    if strange:\n",
+        "    if False:\n",
+        first="carries_a_code",
+    ),
+    Mutant(
+        "report: a contract with a pass and nothing to judge is not exercised",
+        "src/earful/core/checker/report.py",
+        "    outcome = next((o for o in (FAIL, UNOBSERVABLE, PASS) if o in outcomes), NOT_EXERCISED)\n",
+        "    outcome = next((o for o in (FAIL, UNOBSERVABLE) if o in outcomes), NOT_EXERCISED)\n",
+        first="worst_verdict",
+    ),
+    Mutant(
+        "report: a code of evidence lost cannot be allowed",
+        "src/earful/core/checker/report.py",
+        "    if text not in (*rule_names(), *lost_names()):\n",
+        "    if text not in rule_names():\n",
+        first="has_to_exist",
+    ),
+    Mutant(
+        "report: a code with nothing to judge can be allowed",
+        "src/earful/core/checker/report.py",
+        "        if CODES[code] == LOST\n    ]\n",
+        "    ]\n",
+        first="has_to_exist",
+    ),
+    Mutant(
+        "report: every code is evidence lost",
+        "src/earful/core/checker/report.py",
+        "        return self.code is not None and CODES[self.code] == LOST\n",
+        "        return self.code is not None\n",
+        first="carries_a_code",
+    ),
+    Mutant(
+        "report: a required contract with nothing to judge is said not to be exercised",
+        "src/earful/core/checker/report.py",
+        "            elif why:\n",
+        "            elif False:\n",
+        first="nothing_to_judge_where",
+    ),
+    Mutant(
+        "predicate: evidence lost is no failure",
+        "src/earful/core/predicate.py",
+        "    return broken | {Predicate.parse(name) for name in report.lost()}\n",
+        "    return broken\n",
+        first="loses_is_a_rule",
+    ),
+    Mutant(
+        "search: no counts by contract",
+        "src/earful/core/search.py",
+        "        if counted:\n",
+        "        if False:\n",
+        first="requires_a_contract_of_the_case",
+    ),
+    Mutant(
+        "search: evidence lost has no details",
+        "src/earful/core/search.py",
+        "                if predicate.rule in (finding.rule, finding.code)\n",
+        "                if predicate.rule == finding.rule\n",
+        first="loses_is_a_rule",
+    ),
+    Mutant(
+        "view: the readings cap is never the reason audio is lost",
+        "src/earful/core/checker/view.py",
+        '            return "readings-over-cap" if capped else "audio-unattributed"\n',
+        '            return "audio-unattributed"\n',
+        first="readings_cap",
+    ),
+    Mutant(
+        "L2: a reply waiting to play is not something to judge",
+        "src/earful/core/checker/l2.py",
+        "        if run is None and not in_flight(opened, closed):\n",
+        "        if run is None:\n",
+        first="nothing_to_judge_where",
+    ),
+    Mutant(
+        "L2: a speech with no reply to stop or hold back is judged",
+        "src/earful/core/checker/l2.py",
+        "        if run is None and not in_flight(opened, closed):\n",
+        "        if False:\n",
+        first="nothing_to_judge_where",
+    ),
+    Mutant(
+        "L2: a speech too short to interrupt is said to have no reply under way",
+        "src/earful/core/checker/l2.py",
+        "            if point is None:\n                short =",
+        "            if False:\n                short =",
+        first="nothing_to_judge_where",
+    ),
+    Mutant(
+        "L1: a deadline after the run ended is evidence lost",
+        "src/earful/core/checker/l1.py",
+        '                return "run-ended", deadline\n',
+        '                return "tool-unwitnessed", deadline\n',
+        first="nothing_to_judge_when_the_run_ends or run_went_on_past",
+    ),
+    Mutant(
+        "M1: a final history read early is nothing to judge",
+        "src/earful/core/checker/m1.py",
+        '                lacking = unknown or [("history-before-playout", late)]\n',
+        '                lacking = unknown or [("no-memory-after", late)]\n',
+        first="final_history_counts_only",
+    ),
+    Mutant(
+        "M1: a run with no final history read it early",
+        "src/earful/core/checker/m1.py",
+        "            if playout.settled is not None and view.history is not None:\n",
+        "            if playout.settled is not None:\n",
+        first="no_context_or_final_history",
+    ),
+    Mutant(
+        "bundle: a replay names no code",
+        "src/earful/core/bundle.py",
+        "        codes=tuple(dict.fromkeys(codes)),\n",
+        "        codes=(),\n",
+        first="clean_only_if_the_contract",
+    ),
+    Mutant(
+        "cli: a replay does not print the code",
+        "src/earful/cli.py",
+        '        why = f" ({\', \'.join(result.codes)})" if result.codes else ""\n',
+        '        why = ""\n',
+        first="could_not_be_judged_has_no_verdict",
+    ),
+    Mutant(
+        "L2: a reply that starts at the interruption point is not under way",
+        "src/earful/core/checker/l2.py",
+        "            run = next((r for r in runs if r[0][0][0] <= point <= r[0][-1][1]), None)\n",
+        "            run = next((r for r in runs if r[0][0][0] < point <= r[0][-1][1]), None)\n",
+        first="held_to_the_bound",
+    ),
+    Mutant(
+        "M1: a reply that played to its end and is absent from memory is within the tolerance",
+        "src/earful/core/checker/m1.py",
+        "    if not cut_short and not remembered:\n",
+        "    if False:\n",
+        first="absent_from_memory_fails_whatever",
+    ),
+    Mutant(
+        "M1: a cut-off reply absent from memory fails whatever the tolerance",
+        "src/earful/core/checker/m1.py",
+        "    if not cut_short and not remembered:\n",
+        "    if played and not remembered:\n",
+        first="cut_off_reply",
+    ),
+    Mutant(
+        "view: any later text attributed to no reply could be a reply never voiced",
+        "src/earful/core/checker/view.py",
+        "                    and could_be(u.words, item.words)\n",
+        "",
+        first="could_be_the_reply_hides",
+    ),
+    Mutant(
+        "view: a text the application spoke could be any reply not yet synthesized",
+        "src/earful/core/checker/view.py",
+        "                    and could_be(utterance.words, r.words)\n",
+        "",
+        first="shares_no_word_with_a_reply",
+    ),
+    Mutant(
+        "view: a text and a reply share a word only in the same case",
+        "src/earful/core/checker/view.py",
+        '        return {"".join(ch for ch in w.lower() if ch.isalnum()) for w in words} - {""}\n',
+        '        return {"".join(ch for ch in w if ch.isalnum()) for w in words} - {""}\n',
+        first="share_a_word",
+    ),
+    Mutant(
+        "view: punctuation alone is a word a text and a reply can share",
+        "src/earful/core/checker/view.py",
+        '        return {"".join(ch for ch in w.lower() if ch.isalnum()) for w in words} - {""}\n',
+        '        return {"".join(ch for ch in w.lower() if ch.isalnum()) for w in words}\n',
+        first="share_a_word",
+    ),
+    Mutant(
+        "M2: a tool that ran without a call id is passed over",
+        "src/earful/core/checker/m2.py",
+        "        if tool.call_id is None:\n            _unlinked(view, context, tool)\n",
+        "        if tool.call_id is None:\n            pass\n",
+        first="without_a_call_id_is_lost",
+    ),
+    Mutant(
+        "M2: a tool the application ran itself is taken for one the model asked for",
+        "src/earful/core/checker/m2.py",
+        "    if asked:\n        why = ",
+        "    if True:\n        why = ",
+        first="without_a_call_id_is_lost",
+    ),
+    Mutant(
+        "M2: a verdict that lost its evidence says the context shows the conversation",
+        "src/earful/core/checker/m2.py",
+        "                if context.unknown\n",
+        "                if False\n",
+        first="without_a_call_id_is_lost",
+    ),
+    Mutant(
+        "shrink: the passes run once",
+        "src/earful/core/shrink.py",
+        '                    steps.append(f"removed {len(items) - len(kept)} of {len(items)} {plural}")\n                    removed = True\n',
+        '                    steps.append(f"removed {len(items) - len(kept)} of {len(items)} {plural}")\n',
+        first="repeats_its_passes",
+    ),
+    Mutant(
+        "window: a failure measured again past a window's end is a window of its own",
+        "src/earful/core/search.py",
+        "            if same is not None:\n",
+        "            if False:\n",
+        first="past_the_end_of_its_window",
+    ),
+    Mutant(
+        "window: two measurements of one window keep the first one's upper end",
+        "src/earful/core/search.py",
+        "    hi = one if one.hi_us >= other.hi_us else other\n",
+        "    hi = one\n",
+        first="past_the_end_of_its_window",
     ),
 ]

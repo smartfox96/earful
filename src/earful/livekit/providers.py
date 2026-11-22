@@ -290,6 +290,12 @@ def summarize_item(item: Any) -> dict[str, Any]:
     return out
 
 
+def starting_history(items: list[Any]) -> list[dict[str, Any]]:
+    """The items an agent's context holds before the run, for the header. Their identifiers
+    are random and the header is not normalized, so each is null."""
+    return [{**summarize_item(item), "id": None} for item in items]
+
+
 class ScriptedLLM(lk_llm.LLM[NoReturn]):
     """Deterministic model. Also the memory witness: it records every context it is shown."""
 

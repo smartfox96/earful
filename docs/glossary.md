@@ -44,9 +44,10 @@ last column links to where the term is explained.
 | --- | --- | --- |
 | contract | A statement about one run that is decided from the run's ledger alone. There are seven | [`contracts.md`](contracts.md#1-what-a-contract-is) |
 | instance | What a contract is checked for once: an intent, a reply, a user turn | [`contracts.md`](contracts.md#5-verdicts) |
-| verdict | The outcome of one contract for one instance: pass, fail or unobservable | [`contracts.md`](contracts.md#5-verdicts) |
-| unobservable | Evidence the rule needs is absent, so neither a pass nor a fail can be shown | [`contracts.md`](contracts.md#5-verdicts) |
-| not exercised | The contract had no instance in the run. It did not pass | [`contracts.md`](contracts.md#5-verdicts) |
+| verdict | The outcome of one contract for one instance: pass, fail, not exercised or unobservable | [`contracts.md`](contracts.md#5-verdicts) |
+| unobservable | Evidence the rule needs was lost, so neither a pass nor a fail can be shown. It carries a code and fails the run unless allowed | [`contracts.md`](contracts.md#5-verdicts) |
+| not exercised | The instance, or the whole contract, had nothing to judge. It did not pass | [`contracts.md`](contracts.md#5-verdicts) |
+| code | Why a verdict was not judged, such as `run-ended` (nothing to judge) or `outside-backend` (evidence lost) | [`contracts.md`](contracts.md#5-verdicts) |
 | rule | A named part of a contract that a failed verdict cites, written `CONTRACT/RULE`, as in `M2/rule d` | [`testing.md`](testing.md#4-one-run) |
 | finding | One reason a verdict is not a plain pass: the rule that broke, with its detail | [`contracts.md`](contracts.md#5-verdicts) |
 | flag | A qualification on a verdict, such as `reading_split` | [`contracts.md`](contracts.md#5-verdicts) |

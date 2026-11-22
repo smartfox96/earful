@@ -244,10 +244,12 @@ release under test. A rule is named by its contract and by what the report calls
 | L1 | `L1/milestone 1`, `L1/milestone 2`, `L1/milestone 3` |
 | L2 | `L2/rule a`, `L2/rule b` |
 
-Only a failed contract fails the assertion. A contract that is `not_exercised` or
-`unobservable` does not, so a run in which the model never calls the booking tool writes
-nothing, leaves A2 not exercised and passes. `require` names the contracts a test is
-about. Each must end with a pass or a fail:
+A failed contract fails the assertion, and so does evidence lost: a verdict that is
+`unobservable` because, say, a tool wrote outside Earful's backend fails it as
+`A2/outside-backend` unless `allow` names that. A contract that is `not_exercised` had
+nothing to judge and does not fail, so a run in which the model never calls the booking
+tool writes nothing, leaves A2 not exercised and passes. `require` names the contracts a
+test is about. Each must end with a pass or a fail:
 
 ```python
 result.assert_contracts(require=["A2", "A3"])

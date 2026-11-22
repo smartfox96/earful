@@ -7,11 +7,20 @@ from dataclasses import dataclass, field
 
 from . import policy as policies
 from .memory import user_turns
-from .report import UNOBSERVABLE, ContractResult, Finding, result, verdict
+from .report import CODES, ContractResult, Finding, result, verdict
 from .view import Event, ModelCall, Speech, View
 
 MET, MISSED, SUPERSEDED = "met", "missed", "superseded"
 LEFT = "the user left"
+# A milestone that could not be judged has the code of why as its status.
+_WHY = {
+    "run-ended": "the run ended before a deadline passed",
+    "tool-unwitnessed": "a tool Earful does not witness was asked for, so whether it was called "
+    "cannot be known",
+    "audio-unattributed": "a reply's audio cannot be attributed, and it may have come first",
+    "readings-over-cap": "a reply's audio cannot be attributed, since the ledger has more "
+    "readings than the checker tries, and it may have come first",
+}
 AUDIO = "the first word of a reply starts playing"
 
 Step = tuple[str, str, int | None, int]  # (milestone, status, reached, deadline)
@@ -57,7 +66,7 @@ class _Budget:
             if self._left is not None and self._left < deadline:
                 return LEFT, deadline
             if reached is None and self._ended <= deadline:
-                return UNOBSERVABLE, deadline
+                return "run-ended", deadline
             return MISSED, deadline
 
 
@@ -124,7 +133,7 @@ def _tool_round(
     never = [tc["name"] for tc in rest if view.refusal(tc["call_id"]) is None]
     if any(name not in view.witnessed_tools for name in never):
         # A tool Earful does not witness: whether it was called cannot be known.
-        turn.steps.append((f"round {number}: every tool call is made", UNOBSERVABLE, None, 0))
+        turn.steps.append((f"round {number}: every tool call is made", "tool-unwitnessed", None, 0))
         turn.stalled = True
         return None
     made = max([t.called["t_us"] for t in ran] + [asked for _ in refused]) if not never else None
@@ -204,12 +213,12 @@ def _first_audio(turn: _Turn) -> None:
     def budget_of(call: ModelCall, before: int) -> int:
         return before + call.answer["data"]["duration_us"] + turn.ttfb_of(call)
 
-    unknown = False
+    unknown: str | None = None  # the code, if a reply's audio cannot be attributed
     heard: list[tuple[int, ModelCall, int]] = []
     for call, before in turn.spoke:
         playout = view.playout(call.call)
         if playout.unattributable:
-            unknown = True
+            unknown = unknown or playout.unattributable[0]
         elif playout.first_audible_us is not None:
             heard.append((playout.first_audible_us, call, before))
     if heard:
@@ -219,10 +228,10 @@ def _first_audio(turn: _Turn) -> None:
         turn.used += [s.started for s in playout.segments]
         status, deadline = turn.budget.settle(at, budget_of(call, before))
         if status == MISSED and unknown:
-            status = UNOBSERVABLE  # a reply whose audio cannot be attributed may have come first
+            status = unknown  # a reply whose audio cannot be attributed may have come first
         turn.steps.append((AUDIO, status, at, deadline))
     elif unknown:
-        turn.steps.append((AUDIO, UNOBSERVABLE, None, 0))
+        turn.steps.append((AUDIO, unknown, None, 0))
     elif turn.spoke:
         turn.record(AUDIO, None, max(budget_of(call, before) for call, before in turn.spoke))
     elif not turn.stalled and not turn.silenced:
@@ -316,7 +325,7 @@ def check(view: View, policy: policies.L1) -> ContractResult:
             )
         elif LEFT in statuses:
             notes.append(f"speech {speech.index}: the user hung up before a response was due")
-        elif UNOBSERVABLE in statuses:
+        elif unseen := [status for status in statuses if status in CODES]:
             verdicts.append(
                 verdict(
                     "L1",
@@ -325,8 +334,7 @@ def check(view: View, policy: policies.L1) -> ContractResult:
                     events=used,
                     measures=measures,
                     flags=flags,
-                    unobservable="the run ended before a deadline passed, a tool was not "
-                    "witnessed, or the reply's audio cannot be attributed",
+                    missing=[(code, _WHY[code]) for code in unseen],
                 )
             )
         else:

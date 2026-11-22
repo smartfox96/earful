@@ -84,11 +84,37 @@ formats have versions of their own
   the header, written before the run, could not list it. A pipecat-ai release that keeps
   one of the private names the scripted model reads elsewhere is refused in one line
   before the run, where it raised `AttributeError`.
-- A Pipecat reply cut while the model is still generating it keeps its attribution. On
-  the interruption Pipecat gives the voice the sentence written so far, which can end
-  inside a word, and the text was matched to the reply word by word: the utterance was
-  attributed to no reply, and M1 and L1 had no verdict while the assertion passed. A
-  synthesized text is now matched to the reply it starts as text.
+- A verdict that cannot be judged carries a code, and each code is nothing to judge or
+  evidence lost ([`docs/contracts.md`](https://github.com/smartfox96/earful/blob/main/docs/contracts.md#5-verdicts)).
+  Nothing to judge, such as a deadline after the run ended, is now `not_exercised`, not
+  `unobservable`. Evidence lost, such as a tool that writes outside Earful's backend, is
+  `unobservable` and fails `assert_contracts` and a search unless `allow` names its
+  `CONTRACT/CODE`; a search reports it as a rule of its own, with the change that caused
+  it. So some runs and searches that passed now fail. L2 has nothing to judge for a
+  speech with no reply under way or waiting to play, so `require=["L2"]` means an
+  interruption, or a reply held back, was judged. A search prints each contract's counts
+  of pass, fail, nothing to judge and evidence lost, and a replay prints the code. The
+  report format is `earful.report/2`: a finding carries `code`.
+- The shrinker repeats its passes until a whole round removes nothing, so a reduced case
+  holds nothing the failure does not need even where removing one thing frees another.
+  A failure a search measures again just past the end of a window it already measured
+  is that window, counted once.
+- M2 rule d loses its evidence for a tool that ran without a call id when the model asked
+  for a call of that tool that nothing else answered: such a tool was passed over, and a
+  context that dropped its result passed. A tool the application ran itself is not a
+  call of the model's and is still left alone. An M2 verdict that lost its evidence says
+  so in its summary, `Report.failures` says it is empty for an invalid run, and the
+  contracts page states exactly when a playout has not finished.
+- A reply that was never voiced is unattributable only when a later text attributed to
+  no reply shares a word with it. Any unrelated phrase spoken later, such as a goodbye,
+  turned M1's rule 4 failure for that reply into a missing verdict.
+- M1 rule 2 fails a reply that played to its end without being cut short and is absent
+  from memory, whatever `behind_us` is. A short reply that played in full and was
+  forgotten passed under the default tolerance of one second. A cut-off reply is judged
+  by its drift as before: the framework only estimates how much of it was heard.
+- L2 rule a holds a reply that starts at the interruption point itself to the stop bound.
+  Where the floor window opens at that instant, as it does for every speech on Pipecat,
+  such a reply was judged by neither rule and could play on over the user.
 - A replay is clean only when the bundle's contract passed in every run. A run in which
   that contract had nothing to judge or could not judge leaves the replay not judged, and
   `earful replay` exits 3: before, a replay of an A2 bundle on a run where A2 was not
@@ -142,6 +168,15 @@ formats have versions of their own
 
 ### Fixed
 
+- An agent that starts with history, such as earlier turns in its `chat_ctx` on LiveKit or
+  in the context `bot` returns on Pipecat, no longer fails M2 rules a, b and c and L1
+  milestone 1 in a valid run. Both adapters record those items as the header's optional
+  `history`, and the checker leaves them out of every context it reads.
+- A Pipecat reply cut while the model is still generating it keeps its attribution. On
+  the interruption Pipecat gives the voice the sentence written so far, which can end
+  inside a word, and the text was matched to the reply word by word: the utterance was
+  attributed to no reply, and M1 and L1 had no verdict while the assertion passed. A
+  synthesized text is now matched to the reply it starts as text.
 - A reply played in several segments was first audible when the first one began.
 - L1 failed a turn whose milestone came due at the very instant the scenario ended. The
   milestone could still have been met then, so the turn is unobservable.

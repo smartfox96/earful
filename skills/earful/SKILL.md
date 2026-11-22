@@ -105,7 +105,9 @@ something untrue. `assert_contracts(allow=["L2/rule b"])` lets one named rule br
 
 A contract the run never reached is reported as not exercised and does not fail. Name the contracts
 a test is about, and it fails unless each got a pass or a fail:
-`assert_contracts(require=["A2", "A3"])`.
+`assert_contracts(require=["A2", "A3"])`. Evidence lost, such as a tool that writes outside
+Earful's backend, fails the run as a broken rule does, and
+`assert_contracts(allow=["A2/outside-backend"])` lets it.
 
 `earful run module:function` and `earful search module:function` do the same from the
 command line. An `InvalidRun` is a fault in the scenario, often a context the model has
