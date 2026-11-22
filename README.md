@@ -329,7 +329,6 @@ and what CI runs for each.
 | [`docs/limits.md`](https://github.com/smartfox96/earful/blob/main/docs/limits.md) | What Earful does not do and what it cannot see |
 | [`docs/glossary.md`](https://github.com/smartfox96/earful/blob/main/docs/glossary.md) | The terms the pages, the command and the reports use |
 | [`CHANGELOG.md`](https://github.com/smartfox96/earful/blob/main/CHANGELOG.md) | What changed in each release |
-| [`docs/history/`](https://github.com/smartfox96/earful/tree/main/docs/history) | What was measured at each stage of the first build, kept as written |
 
 ## Layout
 

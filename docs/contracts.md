@@ -16,31 +16,6 @@ report.failures                 # every failed verdict, with the events it rests
 `earful check LEDGER.jsonl` prints the same from a file. The checker reads only
 the ledger: it imports neither the scenario nor the framework under test.
 
-`earful.contracts/1` was the version of Earful 0.1.1. Version 2 differs in these rules:
-
-- M2 has rule f, and rule e also holds tool items and replies to their place among the
-  user turns. Rule d owes a call that handed the session to another agent in the final
-  history and in the model call that follows it up.
-- L2 rule b does not count a gap in a streaming buffer as a reply stopping or starting.
-- A1, A2 and A3 are unobservable for a tool call that leaves nothing in the backend
-  (section 2.6).
-- L1 has nothing to judge for a milestone that came due at the instant the scenario
-  ended, and gives `silenced_by_a_tool` only to a turn that got no spoken reply.
-- A verdict that cannot be judged carries a code (section 5). With nothing to judge it is
-  not exercised; with evidence lost it is unobservable, and a run fails on it unless the
-  code is allowed.
-- L2 has nothing to judge for a speech with no reply under way or waiting to play, and
-  rule a holds a reply that starts at the interruption point itself to the bound.
-- M1 rule 2 fails a text that played to its end and is absent from memory, whatever
-  `behind_us` is.
-- The history the agent starts with is left out of every context (section 4), and a
-  text could be a reply altered on its way to the voice only if the two share a word.
-- M2 rule d loses its evidence for a tool that ran without a call id, where the model
-  asked for a call of that tool that nothing else answered.
-
-A bundle kept under version 1 is still replayed. It is judged by version 2, and the
-replay says so.
-
 ## 1. What a contract is
 
 A contract is a statement about one run that can be decided from the run's ledger alone.
@@ -533,194 +508,136 @@ These are requirements on the ledger. `docs/ledger.md` defines each event named 
 | Model contexts and the final chat history, item by item, the latter labelled as framework state | M1, M2 | `llm.request`: `items`; `history.final`: `read_from`, `items`. One item shape, defined in the schema |
 | Identifiers: run, speech, model call, reply, utterance, segment, tool call, intent | all | `docs/ledger.md`, Identifiers. A reply is identified by its model `call`. Every intent an event names must be declared |
 
-## 9. Decisions taken
+## 9. Design decisions
 
-Agreed 16 November 2026. Each is a choice with a reasonable alternative, recorded here so
-it can be revisited with the reason in view.
+Each is a choice with a reasonable alternative, recorded with its reason.
 
-1. **Talking over the user is part of L2.** Rule b is what catches a stale reply that
-   starts after the user has begun a new turn. The alternative is an eighth contract, which
-   names the failure more clearly but splits one measurement of who holds the floor across
-   two contracts.
-2. **M1 has a default tolerance.** The alternative is exact agreement by default, which
-   fails ordinary interruptions on every release. The tolerance was measured on the
-   framework under test, so the measured drift is reported on every instance. The
-   tolerance was first one word; decision 11 replaced it.
-3. **"Not exercised" is reported alongside the three verdicts.** The alternative is to
+1. **Talking over the user is part of L2.** Rule b catches a stale reply that starts after
+   the user has begun a new turn. An eighth contract would name the failure more clearly,
+   and would split one measurement of who holds the floor across two contracts.
+2. **"Not exercised" is reported alongside the three verdicts.** The alternative is to
    report a contract with no instances as a pass.
-4. **A1's retirement point is the delivery of the correcting transcript.** The alternative
-   is the first model call that sees it, which would excuse a tool call started from a
-   stale context after the user had already corrected themselves.
-5. **A3 times a claim at the end of its last word.** The alternative is the start of its
-   first word, which is stricter.
-6. **L2's interruption point comes from the declared threshold.** The alternative is the
-   framework's reported decision time, which would make the framework a witness in its own
-   case and let a late decision pass. Failures that depend on Earful's model of the
-   threshold are marked `reference_in_doubt`.
-
-Taken while building the checker, 16 November 2026:
-
-7. **The checker never guesses which reply a remembered message is.** When two replies
-   have the same text and only one is remembered, order cannot say which. Both were left
-   ambiguous and M1 reported them unobservable. The alternative considered then, taking
-   the earlier one, reports two false failures where there is one unknown. Decision 22
-   replaced this. The checker still does not guess, and it no longer reports the reply as
-   unobservable.
-8. **M1's deliberate break is an output that starts late.** A misreported playback
-   position would break nothing: the framework does not use the position an output
-   reports to decide what it remembers. It runs its own estimate from the moment the
-   output says playback started. An output that says so 2.5 seconds early makes memory
-   run ahead of what was played. Any buffer the framework does not know about has the
-   same effect.
-9. **L1's budget is built only from what the scenario declared.** Each deadline is the
+3. **A1's retirement point is the delivery of the correcting transcript.** The first model
+   call that sees it would excuse a tool call started from a stale context after the user
+   had corrected themselves.
+4. **A3 times a claim at the end of its last word.** The start of its first word is
+   stricter.
+5. **L2's interruption point comes from the declared threshold.** The framework's reported
+   decision time would make the framework a witness in its own case and let a late
+   decision pass. Failures that depend on Earful's model of the threshold are marked
+   `reference_in_doubt`.
+6. **M1's tolerance is audio time, with a default.** Over four sentences and three
+   speaking rates, the framework's memory is from four words behind to two ahead of what
+   was played, and always within about 0.7 s. Exact agreement fails ordinary
+   interruptions on every release, and a tolerance in words is too loose for short words
+   and too tight for long ones. The measured drift is reported on every instance.
+7. **M1's deliberate break is an output that starts late.** A misreported playback
+   position breaks nothing: the framework does not use the position an output reports to
+   decide what it remembers. It runs its own estimate from the moment the output says
+   playback started. An output that says so 2.5 seconds early makes memory run ahead of
+   what was played. Any buffer the framework does not know about has the same effect.
+8. **L1's budget is built only from what the scenario declared.** Each deadline is the
    declared end-of-turn delay plus the scripted delays of the steps taken so far, plus one
-   allowance of slack. The alternative, measuring each step from when the previous one
-   happened, forgives a turn that falls behind a little at every step.
-10. **Policy values are versioned with the contracts.** The ledger carries them as
-    declared, and `earful.contracts/2` defines which exist. A scenario that
-    declares one that does not exist is refused, by the harness before the run and by the
-    checker.
-
-11. **M1's tolerance is audio time.** Measured over four sentences and three
-    speaking rates, the framework's memory is anywhere from four words behind to two
-    ahead of what was played, and always within about 0.7 s. A tolerance in words is too
-    loose for short words and too tight for long ones. The first tolerance, one word, had
-    been measured on a single sentence spoken by a voice that gave every word the same
-    length.
-12. **Text the application speaks itself is judged like a reply.** A greeting spoken with
-    the framework's `say` is played and remembered like anything else. The alternative,
-    ignoring it, would fail M2 on every agent that greets, or leave what was said outside
-    the contracts.
-13. **Speeches closer together than the VAD's silence window are refused.** A VAD hears
-    them as one speech; reporting an end and a start at the same instant, as the harness
-    would, is something no VAD does. Decision 23 replaced the refusal with a model of
-    what a VAD does.
-14. **A tool that raised is not held to rule d's presence.** Frameworks and releases
-    differ in what they show the model for one; a raise that asks for silence leaves no
-    trace at all on older releases.
-
-Taken after sweeping 22 scenario shapes through the checker (section 10), 16 November
-2026. Each replaced a rule that failed an ordinary agent, or could not see what the
-ledger was able to show.
-
-15. **Only a tool call that returned is owed its result.** While a call is still running,
-    livekit-agents 1.8 shows the model a stand-in result; earlier releases show nothing.
-    The first rule d failed any result with no witnessed return, and so failed every slow
-    tool that the user interrupted on 1.8. What a framework shows for a call that has not
-    returned is its choice. The stand-ins are counted on every verdict.
-16. **A call the framework refuses is its own account, and counts as progress.** Given
+   allowance of slack. Measuring each step from when the previous one happened forgives a
+   turn that falls behind a little at every step.
+9. **Policy values are versioned with the contracts.** The ledger carries them as
+   declared, and `earful.contracts/2` defines which exist. A scenario that declares one
+   that does not exist is refused, by the harness before the run and by the checker.
+10. **Text the application speaks itself is judged like a reply.** A greeting spoken with
+    the framework's `say` is played and remembered like anything else. Ignoring it would
+    fail M2 on every agent that greets, or leave what was said outside the contracts.
+11. **A tool that raised is not held to rule d's presence.** Frameworks and releases
+    differ in what they show the model for one, and a raise that asks for silence leaves
+    no trace at all on older releases.
+12. **Only a tool call that returned is owed its result.** While a call is still running,
+    livekit-agents 1.8 shows the model a stand-in result and earlier releases show
+    nothing. What a framework shows for a call that has not returned is its choice. Owing
+    a result for every call fails every slow tool the user interrupts on 1.8. The
+    stand-ins are counted on every verdict.
+13. **A call the framework refuses is its own account, and counts as progress.** Given
     arguments the tool cannot take, or a tool that does not exist, every supported
     release answers the model with an error result and never runs the tool. M2 does not
     judge that result, and L1 counts the call as made and finished. A result that is not
-    marked as an error, for a call no tool received, still fails.
-17. **The header names the tools the witness records.** Without it, a tool that was never
-    called looked the same as a tool Earful could not see, and a turn whose tool call the
-    framework dropped was unobservable. With it, the absence is evidence.
-18. **A transcript is owed once its turn can be over.** Rule b used to add that a
-    transcript never disappears once it has appeared. A framework that answers ahead of
-    time shows the model a transcript it has not yet committed; a call it then makes for
-    the turn before does not hold it. The lag is now measured from the instant the turn
+    marked as an error, for a call no tool received, fails.
+14. **The header names the tools the witness records.** A tool that was never called can
+    then be told from one Earful cannot see, and a call the framework dropped is evidence.
+15. **A transcript is owed once its turn can be over.** A framework that answers ahead of
+    time shows the model a transcript it has not yet committed, and a call it then makes
+    for the turn before does not hold it. The lag is measured from the instant the turn
     can be over, so a long endpointing delay, or a user who goes on speaking, does not
-    fail.
-19. **Any reply to a turn is its response.** L1 followed a turn's replies only through
-    its tool rounds, and so missed a reply the framework generated again after a
-    backchannel: the turn was answered and the verdict said it never was.
-20. **Rule 4 turns on whether a reply became audible.** It turned on whether one whole
-    sample had played. A reply that started 3 us before the user's speech reached the
-    interruption threshold was stopped at once; the framework remembered its first word,
-    and rule 4 failed it with no tolerance, where one more sample would have made the
-    same memory an exact match.
-21. **An order nothing in the scenario decides is not held against the framework**
-    (section 2.3). Two such instants turned up: a stop arriving as the audio ends, and a
-    tool returning as a call for a later turn is made. The alternative, deciding by
-    `seq`, is repeatable on a virtual clock and tells a user nothing about their agent.
-    The exception is kept narrow. In rule d it covers only a call for a later turn, so a
-    follow-up call that drops its tool's result is still caught.
-22. **Identical words are read the kindest way** (section 2.5). Decision 7 left a reply
-    unobservable whenever the same sentence was said twice and one copy was voiced or
-    kept. A framework does that by itself: it generates a reply again for the same turn,
-    and a scripted model gives the same words. On livekit-agents 1.8.12 that left M1
-    unobservable in 134 of 3 168 swept runs, L1 in 51 and A3 in 10. Which copy it was
-    cannot be observed, in the ledger or in production, and nothing a user hears depends
-    on it. The ledger names every candidate, the checker checks every reading, and a run
-    fails only if every reading does. The alternative, choosing the earliest or the
-    latest copy, would be a guess.
-
-Taken while building the search (`docs/search.md`), 16 November 2026:
-
-23. **Speech that resumes within the VAD's silence window is one segment.** Refusing such
-    scenarios (decision 13) put the moments around a turn's commit out of reach: a user
-    who speaks again half a second after stopping does so as the
-    turn is committed, the model is called and the tool runs. The scripted VAD now does
-    what a VAD does, reporting one segment, and L2 takes the floor window and the
-    interruption point from the segment.
-24. **A provider delay can be declared as data.** How long a model call or a backend
-    write takes was a matter for the scenario's code, so a search could move the user's
-    speech and could not move a tool's completion. A declared delay takes the place of
-    the code's, is stated in the header and is recorded where it is applied. L1 budgets
-    each reply with the time to first audio its own utterance had.
-25. **L1 names the milestone a turn missed.** Its findings all carried one rule name, so
-    a search or a reduction that follows "the same failure" could slide from a model that
-    was never called to a reply that never played without noticing.
-
-Taken while adding backend faults, agreed 17 November 2026:
-
-26. **A backend fault is declared as data, for one write.** The caller is told what a
-    real client is told: an error, or a timeout that says nothing about whether the write
+    fail. Requiring that a transcript never disappears once it has appeared fails every
+    framework that answers ahead of time.
+16. **Any reply to a turn is its response.** L1 counts every reply to a turn, including
+    one the framework generates again after a backchannel. Following a turn's replies only
+    through its tool rounds reports such a turn as never answered.
+17. **Rule 4 turns on whether a reply became audible.** Turning on whether one whole
+    sample played fails a reply that started 3 us before the user's speech reached the
+    interruption threshold: it was stopped at once, the framework remembered its first
+    word, and one more sample would have made the same memory an exact match.
+18. **An order nothing in the scenario decides is not held against the framework**
+    (section 2.3). Two such instants occur: a stop arriving as the audio ends, and a tool
+    returning as a call for a later turn is made. Deciding by `seq` is repeatable on a
+    virtual clock and tells a user nothing about their agent. The exception is narrow. In
+    rule d it covers only a call for a later turn, so a follow-up call that drops its
+    tool's result is caught.
+19. **Identical words are read the kindest way** (section 2.5). A framework can generate a
+    reply again for the same turn, and a scripted model gives the same words. Which copy
+    was voiced or kept cannot be observed, in the ledger or in production, and nothing a
+    user hears depends on it. The ledger names every candidate, the checker checks every
+    reading, and a run fails only if every reading does. Choosing the earliest or the
+    latest copy would be a guess. Leaving such a reply unobservable would leave M1
+    unobservable in 134 of 3 168 swept runs on livekit-agents 1.8.12, L1 in 51 and A3
+    in 10.
+20. **Speech that resumes within the VAD's silence window is one segment.** A VAD hears it
+    as one speech. Refusing such scenarios would put the moments around a turn's commit
+    out of reach: a user who speaks again half a second after stopping does so as the turn
+    is committed, the model is called and the tool runs. L2 takes the floor window and
+    the interruption point from the segment.
+21. **A provider delay can be declared as data.** A declared delay takes the place of the
+    code's, is stated in the header and is recorded where it is applied, so a search moves
+    a tool's completion as it moves the user's speech. L1 budgets each reply with the
+    time to first audio its own utterance had.
+22. **L1 names the milestone a turn missed.** With one rule name for every finding, a
+    search or a reduction that follows "the same failure" could slide from a model that
+    was never called to a reply that never played.
+23. **A backend fault is declared as data, for one write.** The caller is told what a real
+    client is told: an error, or a timeout that says nothing about whether the write
     committed. The ledger records the outcome of a write and what its caller was told as
-    separate events. A2 and A3 judge the outcome. The alternative, a tool written to fail
-    in the scenario's code, cannot be added by a search or removed by a reduction.
-
-Taken while adding the hangup, agreed 17 November 2026:
-
-27. **A write's outcome does not depend on its caller.** It is scheduled when the write
-    is requested, so a tool that is cancelled while it waits has still written. Before,
-    the write was part of the tool's own task and was cancelled with it, which let the
-    framework under test change the backend's record, and made a cancelled call that
-    later commits impossible to reach. A service that has received a request carries it
-    out whether or not the client is still listening. A backend that abandons the write
-    is the `backend.drop` fault. On the five supported releases the framework lets a
-    running tool finish, both when its reply is interrupted and when the session closes.
-28. **A user who hangs up is owed nothing that was not yet due, and heard nothing
+    separate events. A2 and A3 judge the outcome. A tool written to fail in the
+    scenario's code cannot be added by a search or removed by a reduction.
+24. **A write's outcome does not depend on its caller.** It is scheduled when the write is
+    requested, so a tool that is cancelled while it waits has still written. A service
+    that has received a request carries it out whether or not the client is still
+    listening. A backend that abandons the write is the `backend.drop` fault. A write that
+    is part of the tool's own task lets the framework under test change the backend's
+    record, and puts a cancelled call that later commits out of reach. On the supported
+    releases the framework lets a running tool finish, both when its reply is interrupted
+    and when the session closes.
+25. **A user who hangs up is owed nothing that was not yet due, and heard nothing
     after.** The scenario declares when the user leaves, and the session is closed then
     as a participant's disconnect closes it. L1 gives no verdict to a turn whose next
-    milestone was not yet due. M1 and A3 count what had played by the hangup. The
-    alternative for M1, counting everything the sink consumed, passes an output that
-    plays a confirmation to nobody and a history that records it as said.
-
-Taken at an architecture review, 17 November 2026:
-
-29. **A reading has to be possible in time, and a verdict says when the reading decides
-    it** (section 2.5). The scripted voice named a reply as a candidate from the moment
-    the model decided its answer, which is before the first token. A reading could then
-    have the voice speak a reply the model had not begun to give, and a run could pass
-    on it. The scripted voice now names a reply from its first token on. The checker
-    also drops such a candidate itself, because a ledger may come from an adapter that
-    names candidates some other way. A pass under one reading of two also
-    looked the same as a pass under both, so a verdict that another reading makes worse
-    now carries `reading_split`. The alternative, reporting the verdicts of every
-    reading, leaves the comparison to whoever reads the report.
-
-Taken while reading each rule against the code, 19 November 2026:
-
-30. **M2 says what it checks, and holds a tool item to the call the model made.** Its
-    summary promised every reply and every tool call, once each and in order. The rules
-    checked less. A call item renamed, given other arguments and moved ahead of the turn
-    that led to it passed in every context, and so did a reply recorded after a turn
-    that began once it had played. Rule f now compares a tool item with the model's
-    call. Rule e covers tool items, and holds a reply to come before a turn that began
-    after its playout finished. The summary lists what is checked and the "Not judged"
-    row what is left alone. The alternative for order, one total order over every item,
-    needs a time for each item, and no context states one.
-31. **A gap in a streaming buffer neither stops a reply nor starts it.** Rule b counted
-    every resume as a start. A reply already playing, with a gap of one microsecond
-    between the VAD's report and the interruption point, failed, and the same reply
-    without the gap could play on to the bound. L2 now follows what the output was
-    asked to do. Playing on after a gap is the reply continuing, held by rule a to the
-    bound. A resume after `sink.pause` inside the floor window is still rule b: the
-    framework chose to speak while the user held the floor. The alternative, excusing
-    every resume of a reply that was audible before the floor opened, would pass a
-    framework that pauses for the user and then resumes over them.
+    milestone was not yet due. M1 and A3 count what had played by the hangup. Counting
+    everything the sink consumed would pass an output that plays a confirmation to nobody
+    and a history that records it as said.
+26. **A reading has to be possible in time, and a verdict says when the reading decides
+    it** (section 2.5). The scripted voice names a reply as a candidate from its first
+    token on, and the checker drops a candidate named earlier, since a ledger may come
+    from an adapter that names candidates some other way. A verdict that another reading
+    makes worse carries `reading_split`. Reporting the verdicts of every reading leaves
+    the comparison to whoever reads the report.
+27. **M2 holds a tool item to the call the model made.** Rule f compares a tool item with
+    the model's call. Rule e covers tool items, and holds a reply to come before a turn
+    that began after its playout finished. The summary lists what is checked and the "Not
+    judged" row what is left alone. One total order over every item needs a time for each
+    item, and no context states one.
+28. **A gap in a streaming buffer neither stops a reply nor starts it.** L2 follows what
+    the output was asked to do. Playing on after a gap is the reply continuing, held by
+    rule a to the bound. A resume after `sink.pause` inside the floor window is rule b:
+    the framework chose to speak while the user held the floor. Counting every resume as a
+    start fails a reply already playing when one microsecond falls between the VAD's
+    report and the interruption point. Excusing every resume of a reply audible before
+    the floor opened would pass a framework that pauses for the user and then resumes
+    over them.
 
 ## 10. What the reference ledgers measure
 
@@ -785,8 +702,7 @@ What fails:
 
 No other rule fails on any release, and no verdict on any release lost its evidence:
 where a framework generates a reply again and the scripted model gives the same words,
-the run is read as section 2.5 describes. These figures were measured again on 22
-November 2026, after the changes listed at the top of this page, and none moved.
+the run is read as section 2.5 describes.
 
 A failure that has not been classified (section 7) is not reported here. The sweep is
 how such results are found; they are published once someone has reproduced them

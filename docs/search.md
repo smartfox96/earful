@@ -533,9 +533,8 @@ the one way they change.
   values has no candidate inside it: one that opens and closes between two transitions,
   more than 10 ms from each, and also one that lies strictly inside the 10 ms on one side
   of a transition, such as from 2 ms to 8 ms after it.
-  Stepping a variable in fixed increments (`scripts/contracts_sweep.py`) covers those,
-  and found nothing the boundary search missed on the supported releases
-  (`docs/history/gate1-core.md`).
+  Stepping a variable in fixed increments (`scripts/contracts_sweep.py`) covers those
+  ([`contracts.md`](contracts.md#sweeps)).
 - **Reached means aimed at.** The coverage list records that a case was built to put a
   handle beside a transition of the run the search read, and that the run of that case
   could be judged. It does not check that the transition still fell at that instant in
