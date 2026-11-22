@@ -212,6 +212,9 @@ def _search(args: argparse.Namespace) -> int:
             words=not args.no_words,
             max_runs=args.max_runs,
             planned=lambda plan: print(f"earful: {plan}", file=sys.stderr),
+            **_in_us(
+                delay_limit_us=args.delay_limit_ms, wait_us=args.wait_ms, stretch_us=args.stretch_ms
+            ),
         )
 
     try:
@@ -278,6 +281,11 @@ def _search(args: argparse.Namespace) -> int:
     if any(not one.instants_only and str(one.predicate) not in allow for one in broken):
         return BROKEN
     return NO_VERDICT if unjudged or found.no_verdict else OK
+
+
+def _in_us(**given_ms: int | None) -> dict[str, int]:
+    """The options given in milliseconds, in microseconds; those left out are not passed."""
+    return {name: ms * 1000 for name, ms in given_ms.items() if ms is not None}
 
 
 # What the directory of a kept bundle begins with, for each framework.
@@ -588,6 +596,24 @@ def _parser() -> argparse.ArgumentParser:
         type=int,
         metavar="N",
         help="stop after N runs. A search cut short is incomplete and exits 3 unless a rule broke",
+    )
+    sub.add_argument(
+        "--wait-ms",
+        type=int,
+        metavar="MS",
+        help="how long the caller of a faulted write waits (default 1000)",
+    )
+    sub.add_argument(
+        "--stretch-ms",
+        type=int,
+        metavar="MS",
+        help="how long --pairs makes a slow write or generation (default 1500)",
+    )
+    sub.add_argument(
+        "--delay-limit-ms",
+        type=int,
+        metavar="MS",
+        help="the longest a delay or a wait is made (default 10000)",
     )
     sub.add_argument(
         "--no-windows",

@@ -199,7 +199,8 @@ is its own, and moves with it.
 A delay is placed against the transitions of the case as it is. A speech is placed against
 the transitions of the run without that speech: the timeline it would interrupt. A hangup
 is placed against the transitions of the run in which the user stays. No delay
-is made longer than a limit, 10 s by default. A model that answers after a minute is a
+is made longer than a limit, 10 s by default (`delay_limit_us`, `--delay-limit-ms`). A
+model that answers after a minute is a
 different scenario and is outside the search.
 
 By default the search moves where every speech sits, every provider delay and the
@@ -208,7 +209,7 @@ hangup: the user leaves at every transition from the end of their last speech on
 variables, some speeches, some handles, or the boundaries other than word ends.
 
 **Faults.** The search adds each fault to each backend write the run made, one fault per
-candidate. The caller waits 1 s unless told otherwise (`wait_us`). A timeout is run in
+candidate. The caller waits 1 s unless told otherwise (`wait_us`, `--wait-ms`). A timeout is run in
 both orders. One is the scenario's own: its write commits before that wait is over, or
 after. The other is made by letting the write take 1 s longer than the wait, or the caller
 wait 1 s longer than the write. Two more handles follow from a fault:
@@ -234,7 +235,7 @@ Each is placed against the transitions of the run with the fault in place.
   It also makes a provider slow and moves every speech and the hangup against that. A
   write that commits at once has no moment at which it is under way, so a speech or a
   hangup moved alone never falls inside it. Each backend write and each model generation
-  the run made is stretched to `stretch_us`, 1.5 s by default and at most the delay
+  the run made is stretched to `stretch_us` (`--stretch-ms`), 1.5 s by default and at most the delay
   limit, one per version of the case. The version is run and checked, and every speech
   and the hangup are moved against its run. 1.5 s is longer than the default
   interruption threshold, so a speech can interrupt while the write or the generation is

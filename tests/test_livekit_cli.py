@@ -439,6 +439,25 @@ def test_a_failure_that_cannot_be_kept_is_said_after_what_the_search_found(
     assert summary["bundles"] == {} and list(summary["not_kept"]) == ["A3/rule"]
 
 
+def test_a_search_takes_its_wait_stretch_and_delay_limit_in_milliseconds(capsys, monkeypatch):
+    from earful.core import search
+
+    given, explore = [], search.explore
+
+    def recorded(case, run, **options):
+        given.append({k: options[k] for k in ("wait_us", "stretch_us", "delay_limit_us")})
+        return explore(case, run, **options)
+
+    monkeypatch.setattr(search, "explore", recorded)
+    narrow = ("--variables", "none", "--faults", "backend.error", "--no-words", "--workers", "0")
+    reference = "breaks:as_written_reads_the_error"
+    timing = ("--wait-ms", "2500", "--stretch-ms", "2000", "--delay-limit-ms", "8000")
+    assert earful(capsys, "search", reference, *narrow, *timing)[0] == OK
+    assert given == [{"wait_us": 2_500_000, "stretch_us": 2_000_000, "delay_limit_us": 8_000_000}]
+    status, _, err = earful(capsys, "search", reference, *narrow, "--wait-ms", "0")
+    assert status == REFUSED and "wait_us is a number of microseconds, at least 1" in err
+
+
 def test_a_search_asked_for_what_there_is_not_starts_no_worker(capsys, monkeypatch):
     started = []
     monkeypatch.setattr(scenario, "pool", lambda workers=None: started.append(workers))

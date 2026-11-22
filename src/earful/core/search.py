@@ -1121,6 +1121,13 @@ def explore(
     an unknown variable, fault, speech or moment."""
     kinds, fault_kinds = check_arguments(case, variables, faults)
     wanted_speeches, wanted_moments = _wanted(case, speeches, moments, profiles, max_runs)
+    for name, value, least in (
+        ("delay_limit_us", delay_limit_us, 1),
+        ("wait_us", wait_us, 1),
+        ("stretch_us", stretch_us, 0),  # 0 makes nothing slow
+    ):
+        if type(value) is not int or value < least:
+            raise ValueError(f"{name} is a number of microseconds, at least {least}; got {value!r}")
     runner = Runner(run)
     runner.purpose = "read"
     events = runner.ledger(case)

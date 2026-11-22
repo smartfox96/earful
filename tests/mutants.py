@@ -5893,4 +5893,18 @@ MUTANTS = [
         "    if True:\n",
         first="made_for_another_scenario",
     ),
+    Mutant(
+        "search: a wait below one microsecond is taken",
+        "src/earful/core/search.py",
+        "        if type(value) is not int or value < least:\n",
+        "        if type(value) is not int:\n",
+        first="wait_the_stretch_and_the_delay_limit",
+    ),
+    Mutant(
+        "api: a search drops the wait it is given",
+        "src/earful/scripted/api.py",
+        '            "wait_us": wait_us,\n            "stretch_us": stretch_us,\n        }\n        if workers == 0:',
+        '            "stretch_us": stretch_us,\n        }\n        if workers == 0:',
+        first="wait_the_stretch_and_the_delay_limit",
+    ),
 ]

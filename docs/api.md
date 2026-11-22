@@ -467,6 +467,9 @@ def explore(
     words=True,
     max_runs=None,
     planned=None,
+    delay_limit_us=10000000,
+    wait_us=1000000,
+    stretch_us=1500000,
 ): ...
 ```
 
@@ -487,8 +490,12 @@ Searches a scenario for the timings and faults at which it breaks a contract
 | `words` | Whether the end of each played word is a boundary |
 | `max_runs` | A budget of runs. A search it stops is not `complete` |
 | `planned` | A function that is handed the search's plan before the cases run. `print` shows it |
+| `delay_limit_us` | The longest a delay or a wait is made ([`search.md`](search.md#3-the-boundary-scheduler)) |
+| `wait_us` | How long the caller of a write with a timeout or a drop waits |
+| `stretch_us` | How long `pairs` makes a slow write or generation, up to `delay_limit_us`. 0 makes none slow |
 
-It raises `ValueError` for an unknown variable or fault, for a negative `workers`, for
+It raises `ValueError` for an unknown variable or fault, for a wait or a delay limit below
+1 or a negative stretch, for a negative `workers`, for
 `workers` with a scenario that cannot be imported, and for a case that cannot be run as
 given. It raises `WorkersUnavailable` where worker processes cannot be used.
 
@@ -754,6 +761,9 @@ case declares for a model call, utterance or write the run never reached is name
 | `--profiles N` | Seeded provider-timing profiles |
 | `--no-words` | The end of a played word is not a boundary |
 | `--max-runs N` | Stop after N runs. A search cut short exits 3 unless a rule broke |
+| `--wait-ms MS` | How long the caller of a faulted write waits. Default 1000 |
+| `--stretch-ms MS` | How long `--pairs` makes a slow write or generation. Default 1500 |
+| `--delay-limit-ms MS` | The longest a delay or a wait is made. Default 10000 |
 | `--no-windows` | Do not measure how wide each failure is |
 | `--keep CONTRACT/RULE` | Reduce a case that breaks the rule and write it as a bundle. Needs `--out`. Repeatable |
 | `--out DIR` | Where bundles go |
@@ -829,6 +839,9 @@ class Earful:
         words=True,
         max_runs=None,
         planned=None,
+        delay_limit_us=None,
+        wait_us=None,
+        stretch_us=None,
     ): ...
     def keep(self, found, rule, directory=None, *, repeats=3): ...
     def replay(self, directory, *, repeats=3): ...

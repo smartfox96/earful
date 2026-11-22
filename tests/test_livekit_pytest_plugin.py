@@ -187,6 +187,14 @@ def test_a_search_nobody_gave_a_number_for_leaves_it_to_the_adapter(asked, tmp_p
     assert [options["workers"] for options in asked] == [None, 2]
 
 
+def test_a_search_is_given_the_wait_only_if_the_test_gives_one(asked, tmp_path):
+    helper = Earful(tmp_path, workers=0)
+    helper.explore(IMPORTABLE)
+    helper.explore(IMPORTABLE, wait_us=5, stretch_us=6, delay_limit_us=7)
+    assert "wait_us" not in asked[0]
+    assert (asked[1]["wait_us"], asked[1]["stretch_us"], asked[1]["delay_limit_us"]) == (5, 6, 7)
+
+
 def test_a_test_run_that_xdist_has_spread_over_the_processors_searches_in_its_own_process(
     asked, tmp_path
 ):

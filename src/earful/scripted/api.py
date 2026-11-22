@@ -129,6 +129,9 @@ class AdapterAPI(Generic[Case, RunResult]):
         words: bool = True,
         max_runs: int | None = None,
         planned: Callable[[search.Plan], None] | None = None,
+        delay_limit_us: int = search.DELAY_LIMIT_US,
+        wait_us: int = search.WAIT_US,
+        stretch_us: int = search.STRETCH_US,
     ) -> search.Exploration:
         """Search a scenario for the timings and faults at which it breaks a contract.
         ``workers`` above 0 runs cases in that many processes and needs an importable scenario;
@@ -151,6 +154,9 @@ class AdapterAPI(Generic[Case, RunResult]):
                 "words": words,
                 "max_runs": max_runs,
                 "planned": planned,
+                "delay_limit_us": delay_limit_us,
+                "wait_us": wait_us,
+                "stretch_us": stretch_us,
             }
             auto = self._suited(found.reference)
             if auto:
@@ -176,6 +182,9 @@ class AdapterAPI(Generic[Case, RunResult]):
             "words": words,
             "max_runs": max_runs,
             "planned": planned,
+            "delay_limit_us": delay_limit_us,
+            "wait_us": wait_us,
+            "stretch_us": stretch_us,
         }
         if workers == 0:
 

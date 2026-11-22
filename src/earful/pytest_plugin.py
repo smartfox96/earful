@@ -103,10 +103,13 @@ class Earful:
         words: bool = True,
         max_runs: int | None = None,
         planned: Callable[[Plan], None] | None = None,
+        delay_limit_us: int | None = None,
+        wait_us: int | None = None,
+        stretch_us: int | None = None,
     ) -> Exploration:
-        """Search a scenario with the adapter's ``explore``; ``variables`` and ``faults`` left
-        out are its defaults. Where neither ``workers`` nor the command line says how many, the
-        adapter chooses, unless pytest-xdist spread the test run, which searches in-process."""
+        """Search a scenario with the adapter's ``explore``; what is left out is its default.
+        Where neither ``workers`` nor the command line says how many, the adapter chooses,
+        unless pytest-xdist spread the test run, which searches in-process."""
         adapter, source = _adapters.select(scenario)
         options: dict[str, Any] = {
             "data": data,
@@ -119,10 +122,14 @@ class Earful:
             "max_runs": max_runs,
             "planned": planned,
         }
-        if variables is not None:
-            options["variables"] = variables
-        if faults is not None:
-            options["faults"] = faults
+        given = {
+            "variables": variables,
+            "faults": faults,
+            "delay_limit_us": delay_limit_us,
+            "wait_us": wait_us,
+            "stretch_us": stretch_us,
+        }
+        options.update({name: value for name, value in given.items() if value is not None})
         if workers is None:
             workers = self.workers  # what the command line says
         if workers is None and self.spread:
