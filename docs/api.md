@@ -389,7 +389,9 @@ def run(source, *, data=None, seed=None) -> RunResult: ...
 Runs a scenario once on the virtual clock. `source` is a `Case`, a function that returns
 one, or a `module:function` reference. `seed` is 0 when left out. `data` is a case as data
 (`earful.case/1`), such as the example of a broken rule a search gives, and is run with
-the scenario's code and the seed it holds: a different `seed` with it is refused. It raises `InvalidRun` for a run that is not valid evidence, and
+the scenario's code and the seed it holds: a different `seed` with it is refused. A delay
+or fault declared for a model call, utterance or write the run never reached is named in a
+`UserWarning`. It raises `InvalidRun` for a run that is not valid evidence, and
 `ValueError` for a scenario or a case that is refused before it runs.
 
 ### `run_case`
@@ -724,7 +726,9 @@ registers the bot's functions on its model service and returns its `LLMContext`.
 
 ### `earful run`
 
-`earful run SCENARIO` runs a scenario once and prints its verdicts.
+`earful run SCENARIO` runs a scenario once and prints its verdicts. A delay or fault the
+case declares for a model call, utterance or write the run never reached is named on an
+`unapplied` line under the heading, and in the JSON under `unapplied`.
 
 | Option | Meaning |
 | --- | --- |

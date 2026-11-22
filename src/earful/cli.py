@@ -172,11 +172,14 @@ def _run(args: argparse.Namespace) -> int:
     if args.ledger is not None:
         write_jsonl(result.events, args.ledger, normalized=True)
     report = result.report
+    unused = cases.unapplied(result.events)
     if args.json:
-        print(json.dumps({"case": result.case, "hash": result.hash, **report.to_json()}))
+        summary = {"case": result.case, "hash": result.hash, **report.to_json()}
+        print(json.dumps({**summary, "unapplied": unused}))
     else:
         unjudged = _required(report, require)
-        print("\n".join([*timeline.heading(result.events), "", *report.lines()]))
+        notes = [f"unapplied  {line}" for line in unused]
+        print("\n".join([*timeline.heading(result.events), *notes, "", *report.lines()]))
         if unjudged:
             print("\n" + "\n".join(unjudged))
         if args.ledger is not None:

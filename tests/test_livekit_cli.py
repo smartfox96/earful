@@ -105,6 +105,21 @@ def test_a_saved_case_runs_with_its_own_seed_and_a_different_one_is_refused(caps
         assert status == REFUSED and "the case holds seed 7 and seed=0 was asked for" in err
 
 
+def test_a_fault_on_a_write_the_run_never_makes_is_named(capsys, tmp_path):
+    reference = "breaks:as_written_confirms_a_failed_booking"
+    saved = tmp_path / "late.case.json"
+    saved.write_text(json.dumps(cases.with_fault(scenario.default(reference), "backend.error", 9)))
+    status, out, _ = earful(capsys, "run", reference, "--case", saved)
+    assert status == OK and "\nunapplied  backend.error 9: the run made 1 write(s)\n" in out
+    status, out, _ = earful(capsys, "run", reference, "--case", saved, "--json")
+    assert json.loads(out)["unapplied"] == ["backend.error 9: the run made 1 write(s)"]
+    import earful.livekit as adapter
+
+    with pytest.warns(UserWarning, match=r"never applied: backend.error 9: the run made 1 write"):
+        adapter.run(reference, data=json.loads(saved.read_text()))
+    assert "unapplied" not in earful(capsys, "run", reference)[1]
+
+
 def test_a_scenario_or_a_case_that_does_not_exist_is_refused(capsys, tmp_path):
     status, _, err = earful(capsys, "run", "earful.livekit.cases:nope")
     assert status == REFUSED and "no scenario 'earful.livekit.cases:nope'" in err

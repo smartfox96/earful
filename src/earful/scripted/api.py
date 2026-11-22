@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import contextlib
 import functools
+import warnings
 from collections.abc import Callable, Iterable
 from concurrent.futures.process import BrokenProcessPool
 from contextlib import AbstractContextManager
@@ -88,13 +89,17 @@ class AdapterAPI(Generic[Case, RunResult]):
     ) -> RunResult:
         """Run a scenario once and return its ledger, with the verdicts on ``report``.
         ``data`` is a case as data (earful.case/1), such as one a search found, and holds its
-        own seed. Raises ``InvalidRun`` if the run is not valid evidence, ``ValueError`` if
-        either is refused."""
+        own seed. Warns of a declared delay or fault the run never reached. Raises
+        ``InvalidRun`` if the run is not valid evidence, ``ValueError`` if either is refused."""
         found = self.scenario.Scenario.of(source)
         if data is None:
-            return self.run_case(found.make(), seed=seeded(None, seed))
-        built = found.build(data)
-        return self.run_case(built, seed=seeded(data, seed))
+            result = self.run_case(found.make(), seed=seeded(None, seed))
+        else:
+            result = self.run_case(found.build(data), seed=seeded(data, seed))
+        unused = cases.unapplied(result.events)
+        if unused:
+            warnings.warn(f"declared but never applied: {'; '.join(unused)}", stacklevel=2)
+        return result
 
     def explore(
         self,

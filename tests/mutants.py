@@ -3087,8 +3087,8 @@ MUTANTS = [
     Mutant(
         "api: a case's data is not what is run",
         "src/earful/scripted/api.py",
-        "        built = found.build(data)\n",
-        "        built = found.make()\n",
+        "            result = self.run_case(found.build(data), seed=seeded(data, seed))\n",
+        "            result = self.run_case(found.make(), seed=seeded(data, seed))\n",
         first="run_from_its_data",
     ),
     Mutant(
@@ -5874,5 +5874,19 @@ MUTANTS = [
         "        except ValueError as exc:  # what was found is still printed\n",
         "        except KeyError as exc:  # what was found is still printed\n",
         first="cannot_be_kept",
+    ),
+    Mutant(
+        "case: a fault on a write the run never makes goes unnamed",
+        "src/earful/core/case.py",
+        '        if declared["nth"] > made:\n',
+        "        if False:\n",
+        first="never_makes_is_named",
+    ),
+    Mutant(
+        "case: a model call's delay is counted against writes",
+        "src/earful/core/case.py",
+        '    "llm.ttft": ("llm.request", "model call"),\n',
+        "",
+        first="unapplied",
     ),
 ]

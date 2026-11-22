@@ -752,6 +752,24 @@ def test_a_bundle_kept_for_evidence_lost_records_what_its_findings_say(tmp_path)
     assert manifest["original"]["findings"] == manifest["minimal"]["findings"] == said
 
 
+def test_unapplied_names_each_declaration_the_run_never_reached():
+    events = copy.deepcopy(ledger("1.8.12", "book_then_interrupt"))
+    calls = sum(e["kind"] == "llm.request" for e in events)
+    writes = sum(e["kind"] == "effect.requested" for e in events)
+    scenario = events[0]["data"]["scenario"]
+    scenario["delays"] = [
+        {"of": "llm.ttft", "nth": calls + 1, "us": 1},
+        {"of": "tts.ttfb", "nth": 1, "us": 1},
+        {"of": "backend.latency", "nth": writes, "us": 1},
+    ]
+    scenario["faults"] = [{"of": "backend.error", "nth": writes + 1, "us": None}]
+    assert cases.unapplied(events) == [
+        f"llm.ttft {calls + 1}: the run made {calls} model call(s)",
+        f"backend.error {writes + 1}: the run made {writes} write(s)",
+    ]
+    assert cases.unapplied(ledger("1.8.12", "book_then_interrupt")) == []
+
+
 def test_a_case_that_cannot_be_searched_is_refused_up_front():
     run = answers(lambda case: False)
     with pytest.raises(ValueError, match="not an earful.case/1 document"):
