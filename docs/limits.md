@@ -41,6 +41,7 @@ a defect of the framework, of the application or of the test is decided by a per
 - Realtime speech-to-speech models, and any pipeline other than STT, LLM and TTS.
 - A room or a network transport.
 - A hangup in the middle of a speech. The user can leave once their last speech is over.
+- Two speeches of the user that overlap. A case or a ledger that declares them is refused.
 - On LiveKit: an `AgentSession` or `Agent` option outside the table in
   [`compatibility.md`](compatibility.md#the-options-earful-models-on-livekit), such as an
   agent with its own STT, VAD, model or voice, or a turn detector other than the
@@ -50,7 +51,12 @@ a defect of the framework, of the application or of the test is decided by a per
   model, turn strategies other than the three the page below names, context
   summarization, and frames queued from outside the pipeline. The pipeline worker is
   Earful's, so transport event handlers, observers and RTVI do not run
-  ([`pipecat.md`](pipecat.md#what-runs-and-what-does-not)).
+  ([`pipecat.md`](pipecat.md#what-runs-and-what-does-not)). A function the bot registers
+  after `bot()` returns, and audio a processor plays of its own, make the run invalid. A
+  pipecat-ai release that keeps the private names the scripted model reads
+  (`LLMService._functions` and two others) elsewhere is refused before the run.
+- Audio repeated on its way to the output. A word that reaches the output with more audio
+  than it was synthesized with makes the run invalid.
 - `earful init` writes a test for a livekit-agents agent class or a Pipecat bot function,
   and reads the functions a Pipecat bot registers by calling it with `None` for each
   argument after the model service. A bot that cannot be called so is refused.
@@ -89,6 +95,11 @@ code blocks the thread is not ended.
   its argument handling, its errors, the idempotency key it would send.
 - The scripted model's tool calls are checked by argument name. Argument values are not
   checked ([`testing.md`](testing.md#2-the-model)).
+- On LiveKit a scripted reply keeps to what the request allows, such as no tool call under
+  `tool_choice="none"`, and a run whose reply breaks it is invalid
+  ([`compatibility.md`](compatibility.md#the-options-earful-models-on-livekit)). A rule
+  cannot see the request's `tool_choice`: give the context of such a request a rule that
+  answers without a call.
 - On LiveKit a tool whose calls cannot be recorded, such as one inside a toolset, makes
   the run invalid.
 - On Pipecat, speech whose words a processor changed on the way to the voice belongs to
@@ -157,6 +168,8 @@ What the contracts leave alone:
 - The scenario digest covers one file, the module that defines the scenario's function.
   An agent in another module can change without a replay saying so.
 - The files of a bundle are checked against its manifest, and nothing checks the manifest.
+  A manifest whose rule no contract has, or whose recorded ledger does not break its rule,
+  is refused.
 - A replay gives the recorded ledger only on the release, the Earful version and the
   scenario code the bundle was made with
   ([`search.md`](search.md#6-the-bundle-earfulbundle1)).

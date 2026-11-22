@@ -55,6 +55,9 @@ there the extra installs Earful alone. `earful.pipecat` warns once when it is im
 a 1.16 release other than 1.16.0, and refuses to import on a release outside the range.
 
 The adapter uses Pipecat's VAD turn-start and speech-timeout turn-stop strategies.
+The scripted model reads three private names of `LLMService`: `_functions`,
+`_cancel_tool_names` and `_sync_registered_tool_handlers`. A release that keeps one of
+them elsewhere is refused in one line before a run.
 [Writing a Pipecat scenario](pipecat.md)
 
 ## The options Earful models on LiveKit
@@ -103,8 +106,11 @@ is held to the same rules, and one that breaks them makes the run invalid.
 
 The scripted model keeps to what a request allows. A reply that calls a tool under
 `tool_choice="none"`, which livekit-agents sends once `max_tool_steps` rounds of tool
-calls have run, calls none under `"required"`, calls another tool than the one named, or
-calls two tools at once under `parallel_tool_calls=False` is a harness error.
+calls have run and while the session closes, calls none under `"required"`, calls another
+tool than the one named, or calls two tools at once under `parallel_tool_calls=False` is a
+harness error. A run without a hangup ends once the agent is quiet, with no tool running
+and no reply generated or played, so the session closes over a tool only after
+`drain_timeout`.
 
 ## What CI runs for LiveKit
 
