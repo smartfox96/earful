@@ -18,6 +18,9 @@ formats have versions of their own
 - `examples/pipecat_booking` is the booking example as a Pipecat bot, and
   [`docs/pipecat.md`](https://github.com/smartfox96/earful/blob/main/docs/pipecat.md)
   walks through what a search of it finds and how each result is dealt with.
+- `earful init mybot.bot:booking_bot` writes a first test for a Pipecat bot, from the
+  functions it registers and the tools its context advertises, as it does for a LiveKit
+  agent's tools.
 - `earful.pipecat.cases` holds three reference scenarios, `greeting`, `reserve_table` and
   `barge_in`, as `earful.livekit.cases` holds LiveKit's.
 - `Case.allow_interruptions` and `Case.preemptive_generation` on LiveKit, for what the

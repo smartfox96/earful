@@ -5,6 +5,8 @@ from __future__ import annotations
 
 import argparse
 import contextlib
+import importlib
+import inspect
 import json
 import os
 import sys
@@ -421,12 +423,34 @@ def _ignored(directory: Path) -> str | None:
     return None
 
 
-def _init(args: argparse.Namespace) -> int:
+def _named(reference: str) -> Any:
+    """What ``module:name`` names, or None where it names nothing: the scaffold then says why."""
+    module, _, name = reference.partition(":")
     try:
-        from .livekit.scaffold import scaffold
+        return getattr(importlib.import_module(module), name) if module and name else None
+    except (ImportError, AttributeError, ValueError):
+        return None
+
+
+def _init(args: argparse.Namespace) -> int:
+    # A livekit-agents agent is a class; a Pipecat bot is the function that sets it up.
+    named = _named(args.agent)
+    bot = named is not None and not inspect.isclass(named) and callable(named)
+    try:
+        if bot:
+            from .pipecat.scaffold import scaffold
+        else:
+            from .livekit.scaffold import scaffold
     except ImportError as exc:
+        if bot:
+            raise Refused(
+                f"{args.agent} is not a class of agent (a subclass of livekit.agents.Agent). "
+                "As a function it would be a Pipecat bot, and pipecat-ai is not installed. "
+                'Install it with: pip install "earful[pipecat]"'
+            ) from exc
         raise Refused(
-            f"`earful init` writes a test for a livekit-agents agent only. {exc}"
+            f"{args.agent} needs livekit-agents, which is not installed. Install it with: "
+            'pip install "earful[livekit]"'
         ) from exc
 
     made = scaffold(args.agent)
@@ -439,7 +463,7 @@ def _init(args: argparse.Namespace) -> int:
         raise Refused(f"cannot write {target}: {exc.strerror or exc}") from exc
     print(f"wrote      {target}")
     if made.tools:
-        print(f"tools      {', '.join(made.tools)}")
+        print(f"{made.noun:<11}{', '.join(made.tools)}")
         print("           each is declared an effect; delete those that only read")
     if made.unbuilt:
         print(f"build      None for each argument does not build the agent ({made.unbuilt})")

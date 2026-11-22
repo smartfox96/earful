@@ -229,7 +229,7 @@ def test_init_does_not_write_over_a_file_and_writes_where_it_is_told(here, capsy
         ("no_such_module:Agent", "no agent 'no_such_module:Agent'"),
         ("scaffolded:Missing", "no agent 'scaffolded:Missing'"),
         ("scaffolded:not_an_agent", "is not a class of agent"),
-        ("json:JSONDecoder", "writes a test for a livekit-agents agent only"),
+        ("json:JSONDecoder", "for a livekit-agents agent class or a Pipecat bot function"),
     ],
 )
 def test_what_does_not_name_a_class_of_agent_is_refused(here, capsys, reference, why):

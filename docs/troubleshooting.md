@@ -573,7 +573,7 @@ earful: test_booking_agent.py is already there; move it, or name another file wi
 ```
 
 ```text
-earful: agent:Reservations is not a class of agent (a subclass of livekit.agents.Agent). `earful init` writes a test for a livekit-agents agent only
+earful: agent:Reservations is not a class of agent (a subclass of livekit.agents.Agent). `earful init` writes a test for a livekit-agents agent class or a Pipecat bot function
 ```
 
 ```text
@@ -590,6 +590,15 @@ earful: `earful init` cannot write a call of the tool 'redeem': it has no value 
 
 The scripted call needs a value for each required argument, and none it knows fits this
 one. Write the test by hand from [`testing.md`](testing.md).
+
+```text
+earful: needs_a_service(llm, reservations=None) raised AttributeError: 'NoneType' object has no attribute 'connect'. `earful init` calls the bot to read the functions it registers
+```
+
+Pipecat. `earful init` calls the bot function with a model service of its own and `None`
+for each argument after it, to see what it registers. Give it a function that registers
+the bot's functions without using those arguments, or one that takes only the model
+service.
 
 ## A Pipecat pipeline that is refused
 

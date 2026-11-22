@@ -51,7 +51,9 @@ a defect of the framework, of the application or of the test is decided by a per
   summarization, and frames queued from outside the pipeline. The pipeline worker is
   Earful's, so transport event handlers, observers and RTVI do not run
   ([`pipecat.md`](pipecat.md#what-runs-and-what-does-not)).
-- `earful init` writes a test for a livekit-agents agent only.
+- `earful init` writes a test for a livekit-agents agent class or a Pipecat bot function,
+  and reads the functions a Pipecat bot registers by calling it with `None` for each
+  argument after the model service. A bot that cannot be called so is refused.
 
 ## The virtual clock
 

@@ -704,11 +704,12 @@ prints.
 ### `earful init`
 
 `earful init AGENT` writes a first test for a livekit-agents agent, named as
-`module:Class`.
+`module:Class`, or for a Pipecat bot, named as `module:function`: the function that
+registers the bot's functions on its model service and returns its `LLMContext`.
 
 | Option | Meaning |
 | --- | --- |
-| `-o`, `--output FILE` | Write there. The default is `test_<agent>.py` |
+| `-o`, `--output FILE` | Write there. The default is `test_<agent>.py`, or `test_<function>.py` for a bot |
 
 ### `earful check`
 

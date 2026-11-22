@@ -4,9 +4,7 @@ from __future__ import annotations
 
 import importlib
 import inspect
-import json
 import re
-from dataclasses import dataclass
 from typing import Any
 
 import jsonschema
@@ -14,51 +12,18 @@ import livekit.agents as lk
 import pydantic
 from livekit.agents import llm as lk_llm
 
+from ..scripted.scaffold import (
+    Scaffold,
+    effects_lines,
+    literal,
+    model_lines,
+    placeholder,
+    snake,
+    tests_lines,
+)
+
 _REFERENCE = re.compile(r"^[A-Za-z_][A-Za-z0-9_.]*:[A-Za-z_][A-Za-z0-9_]*$")
 _TOOLS = (lk_llm.FunctionTool, lk_llm.RawFunctionTool)
-
-
-@dataclass(frozen=True)
-class Scaffold:
-    """A test file for one agent: the name of the file and its text."""
-
-    filename: str
-    source: str
-    tools: tuple[str, ...]  # the agent's function tools, each declared an effect
-    unbuilt: str | None = None  # why the agent could not be built to read its tools
-
-
-def _snake(name: str) -> str:
-    # SupportAgent -> support_agent
-    spaced = re.sub(r"(?<=[a-z0-9])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])", "_", name)
-    return spaced.lower()
-
-
-def _literal(value: Any) -> str:
-    # Strings in double quotes, as the rest of the written file has them.
-    if isinstance(value, str):
-        return json.dumps(value)
-    if isinstance(value, dict):
-        return "{" + ", ".join(f"{json.dumps(k)}: {_literal(v)}" for k, v in value.items()) + "}"
-    if isinstance(value, list):
-        return "[" + ", ".join(_literal(v) for v in value) + "]"
-    if isinstance(value, tuple):
-        return "(" + ", ".join(_literal(v) for v in value) + ")"
-    return repr(value)
-
-
-def _laid_out(before: str, value: Any, after: str = "", indent: int = 0) -> list[str]:
-    """``before``, the literal and ``after`` on one line, or one item a line past 100 columns."""
-    pad = " " * indent
-    whole = f"{pad}{before}{_literal(value)}{after}"
-    if len(whole) <= 100 or not isinstance(value, (dict, list, tuple)) or not value:
-        return [whole]
-    opening, closing = {dict: ("{", "}"), list: ("[", "]"), tuple: ("(", ")")}[type(value)]
-    items = value.items() if isinstance(value, dict) else ((None, item) for item in value)
-    lines = [f"{pad}{before}{opening}"]
-    for key, item in items:
-        lines += _laid_out("" if key is None else f"{_literal(key)}: ", item, ",", indent + 4)
-    return [*lines, f"{pad}{closing}{after}"]
 
 
 def _resolve(reference: str) -> tuple[str, str, Any]:
@@ -75,7 +40,7 @@ def _resolve(reference: str) -> tuple[str, str, Any]:
     if not (inspect.isclass(target) and issubclass(target, lk.Agent)):
         raise ValueError(
             f"{reference} is not a class of agent (a subclass of livekit.agents.Agent). "
-            "`earful init` writes a test for a livekit-agents agent only"
+            "`earful init` writes a test for a livekit-agents agent class or a Pipecat bot function"
         )
     return module, name, target
 
@@ -117,46 +82,6 @@ def _tools(agent: type[lk.Agent], needs: list[inspect.Parameter]) -> tuple[list[
     return tools, unbuilt
 
 
-_FORMATS = {
-    "date-time": "2026-01-01T12:00:00Z",
-    "date": "2026-01-01",
-    "time": "12:00:00",
-    "uuid": "00000000-0000-0000-0000-000000000000",
-    "email": "user@example.com",
-    "uri": "https://example.com",
-}
-_PLAIN = {"integer": 1, "number": 1, "boolean": True, "null": None}
-
-
-def _placeholder(schema: dict[str, Any], defs: dict[str, Any], depth: int = 0) -> Any:
-    """A value of the simplest kind ``schema`` allows. ``_arguments`` asks the tool if it fits."""
-    if depth > 16:  # a model that holds itself
-        return None
-    if "$ref" in schema:
-        return _placeholder(defs.get(schema["$ref"].rpartition("/")[2], {}), defs, depth + 1)
-    if "const" in schema:
-        return schema["const"]
-    if schema.get("enum"):
-        return schema["enum"][0]
-    for options in ("anyOf", "oneOf", "allOf"):
-        for option in schema.get(options, []):
-            if option.get("type") != "null":
-                return _placeholder(option, defs, depth + 1)
-    kind = schema.get("type")
-    if kind == "object":
-        properties = schema.get("properties", {})
-        return {
-            name: _placeholder(properties.get(name, {}), defs, depth + 1)
-            for name in schema.get("required", [])
-        }
-    if kind == "array":
-        item = _placeholder(schema.get("items", {}), defs, depth + 1)
-        return [item] * schema.get("minItems", 0)
-    if kind == "string":
-        return _FORMATS.get(schema.get("format", ""), "example")
-    return _PLAIN.get(kind if isinstance(kind, str) else "", "example")
-
-
 def _arguments(tool: Any) -> dict[str, Any]:
     """A value for each argument ``tool`` requires, or ``ValueError`` if the tool refuses them."""
     name = tool.info.name
@@ -166,7 +91,7 @@ def _arguments(tool: Any) -> dict[str, Any]:
         else:
             schema = lk_llm.utils.build_legacy_openai_schema(tool, internally_tagged=True)
             parameters = schema["parameters"]
-        arguments: dict[str, Any] = _placeholder(
+        arguments: dict[str, Any] = placeholder(
             {**parameters, "type": "object"}, parameters.get("$defs", {})
         )
         if isinstance(tool, lk_llm.RawFunctionTool):
@@ -209,7 +134,7 @@ def scaffold(reference: str) -> Scaffold:
     tools, unbuilt = _tools(agent, needs)
     names = [tool.info.name for tool in tools]
     called, arguments = _call(tools) if tools else ("", {})
-    scenario = _snake(name)
+    scenario = snake(name)
     uses = ["Case", "Effect", "ScriptedModel", "UserSpeech"] if tools else None
     lines = [
         f'"""A first Earful test of {name}, written by `earful init`. Edit what is marked."""',
@@ -221,23 +146,7 @@ def scaffold(reference: str) -> Scaffold:
     lines += ["", f"from {module} import {name}", ""]
 
     if tools:
-        intent = _literal(called.replace("_", "-"))
-        lines += [
-            "# The scripted model: the first rule that holds replies. It calls the tool again",
-            "# once if the call fails, as a model does. Change the tool, its arguments and the",
-            "# words to what your agent does.",
-            *_laid_out("CALL = ", (called, arguments)),
-            "model = (",
-            "    ScriptedModel()",
-            f'    .when(tool_succeeded(), say="That is done.", claims=[{intent}])',
-            "    .when(",
-            "        tool_failed() & (lambda context: len(context.tool_results) >= 2),",
-            '        say="Sorry, I could not do that.",',
-            "    )",
-            '    .when(tool_failed(), say="One moment, let me try that again.", call=CALL)',
-            '    .otherwise(say="One moment.", call=CALL)',
-            ")",
-        ]
+        lines += model_lines(called, arguments)
     else:
         lines += [
             "# The scripted model. Add `.when(user_said(...), say=...)` rules before `otherwise`.",
@@ -268,24 +177,11 @@ def scaffold(reference: str) -> Scaffold:
     lines += [
         f"def {scenario}() -> Case:",
         "    return Case(",
-        f"        name={_literal(scenario)},",
+        f"        name={literal(scenario)},",
         f"        agent={'build' if needs else name},",
     ]
     if tools:
-        lines += [
-            "        # Each tool here is one durable write: in a run its body does not run.",
-            "        # Delete the line of a tool that only reads, and hand the agent a stand-in.",
-            "        # No write has an idempotency key, so the call the model makes again after a",
-            "        # timeout writes twice, and the search fails on A2. If the tool sends a key",
-            "        # its service honours, declare both: Effect(..., key=...) here, and",
-            '        # backend_mode="keyed" on this Case.',
-            "        effects={",
-            *(
-                f"            {_literal(tool)}: Effect({_literal(tool.replace('_', '-'))}),"
-                for tool in names
-            ),
-            "        },",
-        ]
+        lines += effects_lines(names)
     lines += [
         "        # What the user says, in seconds from the start.",
         "        speeches=[",
@@ -295,16 +191,7 @@ def scaffold(reference: str) -> Scaffold:
         "    )",
         "",
         "",
-        "# A contract named here must reach a verdict: a test that judged nothing fails.",
-        f"REQUIRED = {_literal(['A2', 'A3', 'L1'] if tools else ['L1'])}",
-        "",
-        "",
-        "def test_the_conversation_as_written(earful):",
-        f"    earful.run({scenario}).assert_contracts(require=REQUIRED)",
-        "",
-        "",
-        "def test_every_timing_and_fault_near_it(earful):",
-        f"    earful.explore({scenario}).assert_contracts(require=REQUIRED)",
+        *tests_lines(scenario, ["A2", "A3", "L1"] if tools else ["L1"]),
     ]
     return Scaffold(f"test_{scenario}.py", "\n".join(lines) + "\n", tuple(names), unbuilt)
 
