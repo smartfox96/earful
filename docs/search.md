@@ -152,7 +152,9 @@ of where a search puts things: a moved speech reaches a context the scripted mod
 rule for, and that run is not valid. A search with some of these still has a result. A run
 that raises is an error in the scenario's code or in Earful, and no search is expected to
 have one. One such case fails the search's assertion, and `earful search` exits 3. So does
-a search that could judge none of the cases it tried.
+a search that tried no case or could judge none of the cases it tried, and one in which a
+run made to find where to put things raised or was not valid evidence (section 3, What a
+search reports).
 
 A refusal is the adapter declining a case before anything runs: data that is not
 `earful.case/1`, a setting it does not have, a scenario that contradicts itself. It
@@ -289,6 +291,18 @@ for each rule.
           such as speech.position 1 at 2.500 s (as written 20.000 s), to put interrupt at llm.done
   ```
 
+- **What was not read.** The runs made to find where to put things that could not be
+  judged: the case without a speech, the case without the hangup, the case under a fault,
+  with a delay stretched or under a profile. The cases such a run would place were never
+  made, so they are in no count above. One that raised or was not valid evidence fails
+  the search. A refused one is said and does not. A run that is also a case, such as one
+  under a fault, is listed here and among the cases not judged.
+
+  ```
+  not read: 1 run(s) made to find where to put things could not be judged, so the cases they would place were not tried; the search fails
+      the case as given, without speech 1: invalid: harness error: policy raised on call 1: NoRule: ...
+  ```
+
 ## 4. Windows
 
 A failing candidate shows that a failure exists near a boundary. A **window** measures
@@ -302,7 +316,7 @@ millisecond is located again to the microsecond. Each end says why the search st
 | End | Meaning |
 | --- | --- |
 | `passes` | A run just beyond it does not break the rule. This is an edge of the failure |
-| `blocked` | No case exists beyond it (a delay at zero, a speech against another), or none could be judged. The failure holds as far as the scenario can go |
+| `blocked` | No case exists beyond it (a delay at zero, a speech against another), or none could be judged. The failure holds as far as the scenario can go. Where a run beyond could not be judged, the text says why, and so do the window's `lo_unjudged` and `hi_unjudged` |
 | `reach` | The search gave up, 30 s out by default. The failure may hold further |
 
 A window with no width, located to the microsecond, with a passing run on each side is an

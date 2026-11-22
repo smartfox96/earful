@@ -82,7 +82,7 @@ last column links to where the term is explained.
 | --- | --- | --- |
 | window | A stretch of values of one variable over which every run breaks the predicate | [`search.md`](search.md#4-windows) |
 | `passes` | An end of a window beyond which a run does not break the rule. An edge of the failure | [`search.md`](search.md#4-windows) |
-| `blocked` | An end beyond which no case exists or none could be judged | [`search.md`](search.md#4-windows) |
+| `blocked` | An end beyond which no case exists or none could be judged. Where a run could not be judged, the window says why | [`search.md`](search.md#4-windows) |
 | `reach` | An end at which the search gave up. The failure may hold further | [`search.md`](search.md#4-windows) |
 | instant | A window with no width and a passing run a microsecond either side. It turns on the order of two same-instant events and is not counted | [`search.md`](search.md#4-windows) |
 

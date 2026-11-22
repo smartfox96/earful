@@ -477,18 +477,19 @@ def test_pipecat_documented_example_runs_from_pytest_and_the_installed_cli(tmp_p
     ledger = tmp_path / "greeting.jsonl"
     command("earful", "run", "test_greeting:greeting", "--ledger", str(ledger))
     assert "pipecat-ai" in command("earful", "report", str(ledger))
-    command(
+    searched = command(
         "earful",
         "search",
         "test_greeting:greeting",
         "--workers",
         "0",
         "--variables",
-        "none",
+        "user.hangup",
         "--faults",
         "none",
         "--no-words",
     )
+    assert " judged, 0 contract rule(s) broken" in searched  # a search of no case would fail
 
 
 def test_pipecat_documented_pipeline_runs_as_written(pytester):

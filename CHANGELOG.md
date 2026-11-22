@@ -74,6 +74,11 @@ formats have versions of their own
   `max_tool_steps` rounds of tool calls have run, no call under `"required"`, another
   tool than the one named, or two calls under `parallel_tool_calls=False`.
 - A search in which a case raised an exception fails.
+- A search fails when a run it makes to find where to put things raises or is not valid
+  evidence, such as the case without a speech it is about to move: the cases that run
+  would place were skipped and nothing said so. A search fails when it tried no case. An
+  index in `speeches`, a name in `moments` or a number of `profiles` that does not exist
+  is refused. A window end at a run that could not be judged says why.
 - A mistake in a scenario (a reference that is not a scenario, a speech that ends before
   it starts, an unknown backend mode or fault) is refused in one line with exit status 2.
 - Under pytest, a test's `.earful/<test>/` directory is cleared when the test starts.

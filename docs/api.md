@@ -478,9 +478,9 @@ Searches a scenario for the timings and faults at which it breaks a contract
 | `variables` | The kinds of time to move. `'speech.end'` and `'speech.stt_delay'` can be added |
 | `faults` | The faults to add to each backend write |
 | `pairs` | Also try two changes at once |
-| `profiles` | How many seeded redraws of the provider delays to move the speeches under |
-| `speeches` | The indices of the speeches to move. `None` moves every one |
-| `moments` | The handles of a speech to place: `'vad_start'`, `'interrupt'`, `'transcript'`, `'vad_end'`, `'turn_end'`. `None` places every one |
+| `profiles` | How many seeded redraws of the provider delays to move the speeches under, 0 or more |
+| `speeches` | The indices of the speeches to move, from 0. `None` moves every one. An index the case does not have raises `ValueError` |
+| `moments` | The handles of a speech to place: `'vad_start'`, `'interrupt'`, `'transcript'`, `'vad_end'`, `'turn_end'`. `None` places every one. Any other name raises `ValueError` |
 | `words` | Whether the end of each played word is a boundary |
 | `max_runs` | A budget of runs. A search it stops is not `complete` |
 | `planned` | A function that is handed the search's plan before the cases run. `print` shows it |
@@ -586,7 +586,7 @@ What `explore` returns.
 | Attribute | Meaning |
 | --- | --- |
 | `case` | The case the search started from, as data |
-| `assert_contracts` | A method: raises `ContractFailure` if a rule broke, a case raised, no case could be judged, the budget cut the search short, or the case as given has no pass or fail for a contract in `require`. Takes `allow` and `require` as a `RunResult` does |
+| `assert_contracts` | A method: raises `ContractFailure` if a rule broke, if the search has `no_verdict`, or if the case as given has no pass or fail for a contract in `require`. Takes `allow` and `require` as a `RunResult` does |
 | `breaks` | A method: each broken rule as a `Break` |
 | `describe` | A method: what the search found, as text |
 | `predicates` | A method: every rule some case broke |
@@ -595,8 +595,11 @@ What `explore` returns.
 | `summary` | A method: the counts as plain data |
 | `not_judged` | A method: why cases could not be judged, grouped by reason |
 | `complete` | False if `max_runs` was spent first |
-| `nothing_judged` | Whether the search tried cases and could judge none |
+| `nothing_judged` | Whether the search judged no case: it tried none, or could judge none it tried |
 | `errored` | How many of the cases tried raised |
+| `unread` | The runs made to find where to put things that could not be judged, each with its `run` (which one) and its `outcome` |
+| `unreadable` | How many of those raised or were not valid evidence |
+| `no_verdict` | Whether the search cannot pass whatever it found: `nothing_judged`, `errored`, `unreadable`, or not `complete` |
 
 A `Break` has the `predicate`, how many `candidates` break it, whether it breaks
 `everywhere`, what was `changed`, its `windows`, an `example` case as data with `what`

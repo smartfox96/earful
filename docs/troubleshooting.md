@@ -370,6 +370,28 @@ Every case the search tried was refused, raised or gave an invalid run. The line
 follow give each reason with its count and an example. The assertion fails and the
 command exits 3, since such a search shows nothing about the contracts.
 
+```text
+no case was tried, which leaves the search with no result
+```
+
+The search was asked for nothing it could move: no variable, no fault, or speeches and
+moments the case does not reach. Widen it.
+
+### A run made to find where to put things could not be judged
+
+```text
+not read: 1 run(s) made to find where to put things could not be judged, so the cases they would place were not tried; the search fails
+    the case as given, without speech 1: invalid: harness error: policy raised on call 1: NoRule: ...
+```
+
+Before it moves a speech, a search runs the case without that speech, and before it
+moves the hangup, the case without the hangup. It also runs the case under each fault,
+and with each delay stretched. The cases each such run would place are made from its
+ledger, so when the run is invalid or raises, none of them is tried, and the search
+fails. Most often the scripted model has no rule for the context the run reaches: give
+it one, or an `otherwise()`. To leave a speech out, pass `speeches=` with the others; to
+leave a fault out, pass `faults=` without it.
+
 A search with some cases not judged and others judged passes, unless one of them raised:
 
 ```text

@@ -409,7 +409,10 @@ def test_a_search_that_could_judge_nothing_it_tried_exits_3_and_gives_the_reason
         ": 1 cases tried, 0 judged, 0 contract rule(s) broken\n\n"
         "not judged: 1 of 1 cases, which leaves the search with no result\n"
         "    1 refused: this adapter cannot fail a write\n"
-        "        such as backend.error 1\n"
+        "        such as backend.error 1\n\n"
+        "not read: 1 run(s) made to find where to put things could not be judged, so the "
+        "cases they would place were not tried\n"
+        "    backend.error 1: refused: this adapter cannot fail a write\n"
     )
     status, out, _ = earful(capsys, "search", reference, "--workers", "0", "--json")
     assert status == NO_VERDICT and json.loads(out)["not_judged"][0]["cases"] == 1
@@ -437,10 +440,20 @@ def test_a_search_in_which_a_case_raised_exits_3_and_says_that_this_is_why(capsy
         ": 2 cases tried, 1 judged, 0 contract rule(s) broken\n\n"
         "not judged: 1 of 2 cases; the search fails, since 1 raised\n"
         "    1 error: RuntimeError: the reservation service is down\n"
-        "        such as backend.drop 1\n"
+        "        such as backend.drop 1\n\n"
+        "not read: 1 run(s) made to find where to put things could not be judged, so the "
+        "cases they would place were not tried; the search fails\n"
+        "    backend.drop 1: error: RuntimeError: the reservation service is down\n"
     )
     status, out, _ = earful(capsys, "search", reference, "--workers", "0", "--json")
     assert status == NO_VERDICT and json.loads(out)["error"] == 1
+    assert json.loads(out)["not_read"] == [
+        {
+            "run": "backend.drop 1",
+            "why": "error",
+            "reason": "RuntimeError: the reservation service is down",
+        }
+    ]
 
 
 def test_where_workers_cannot_be_started_the_search_runs_in_this_process_unless_told_a_number(
