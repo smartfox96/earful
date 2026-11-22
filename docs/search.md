@@ -440,16 +440,23 @@ earful: failures/lk-1.8.13.booking.A2-rule/minimal.case.json is not the case the
 `case_digest` was added in `schema_minor` 1. A bundle written before it is still read. Its
 case files cannot be checked, and a replay says so.
 
-The files are checked against the manifest, and nothing checks the manifest. The checks
-find a file that was edited, damaged or left out. They do not make a bundle from an
-unknown source safe to replay.
+The files are checked against the manifest. The manifest's predicate must be a rule some
+contract has, and the recorded ledger of the reduced case must break it under the
+contracts this Earful judges by; a bundle that does not show the failure it names is
+refused. Nothing else checks the manifest. The checks find a file that was edited,
+damaged or left out. They do not make a bundle from an unknown source safe to replay.
 
 **Replaying** runs the reduced case again, three times by default, and says:
 
-- **judged**: every run was valid evidence (`docs/ledger.md`, Validity). A replay with a
-  run that was not shows nothing about the rule, and `invalid` gives the reasons.
+- **judged**: every run was valid evidence (`docs/ledger.md`, Validity) and gave the
+  predicate's contract a pass or a fail. A replay with a run that was not, or in which the
+  contract had nothing to judge or could not judge, shows nothing about the rule.
+  `invalid` gives the reasons a run was not valid evidence.
 - **reproduced**: every run was judged and broke the frozen predicate.
-- **clean**: every run was judged and none broke it.
+- **clean**: every run was judged and the predicate's contract passed in each.
+- **outcomes**: the contract's outcome in each run, printed as `A2 gave pass`.
+- **others**: the rules of any contract that some run broke other than the frozen one.
+  They do not change whether the replay is clean, and the replay prints them.
 - **repeatable**: every run gave the same ledger.
 - **identical**: that ledger is the one recorded. Expected only on the release, and with
   the Earful version and scenario code, the bundle was made with.
@@ -462,9 +469,9 @@ On the release it was found on, a bundle is reproduced, repeatable and identical
 platform. On a release that repaired the defect it is clean and repeatable. That pair is
 the regression test.
 
-A replay can be neither reproduced nor clean: a run was not valid evidence, or some runs
-broke the rule and others did not. "Not reproduced" therefore does not mean the defect is
-gone. A test of a fix asserts `clean`, and `earful replay --expect clean` exits 0 only for
+A replay can be neither reproduced nor clean: a run was not valid evidence, the contract
+had nothing to judge in a run, it failed by another of its rules, or some runs broke the
+rule and others did not. "Not reproduced" therefore does not mean the defect is gone. A test of a fix asserts `clean`, and `earful replay --expect clean` exits 0 only for
 a clean replay. A replay that was not judged, or whose runs differ, exits 3 whatever was
 expected. A replay makes at least one run: `repeats` below 1 is a `ValueError`.
 

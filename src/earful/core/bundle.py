@@ -15,10 +15,10 @@ from typing import Any
 from jsonschema import Draft202012Validator
 
 from . import case as cases
-from .checker import CONTRACTS, check
+from .checker import CONTRACTS, FAIL, PASS, check
 from .ledger import SCHEMA as LEDGER
 from .ledger import ledger_hash, read_jsonl, write_jsonl
-from .predicate import Predicate
+from .predicate import Predicate, failures
 from .schema import validate as ledger_errors
 from .search import Run, Runner, judged
 from .shrink import shrink
@@ -227,12 +227,26 @@ def load(directory: Path) -> Bundle:
                 f"{path} names the {name} format {manifest['formats'][name]}; "
                 f"this Earful reads {reads}"
             )
+    named = f"{manifest['predicate']['contract']}/{manifest['predicate']['rule']}"
+    try:
+        predicate = Predicate.parse(named)
+    except ValueError:
+        raise ValueError(f"{path} names {named}, a rule no contract has") from None
     found = {which: _case(directory / FILES[which][0], manifest[which]) for which in FILES}
     events = {which: _ledger(directory / FILES[which][1], manifest[which]) for which in FILES}
+    report = check(events["minimal"])
+    if predicate not in failures(report):
+        under = f"under {CONTRACTS}"
+        if manifest["formats"]["contracts"] != CONTRACTS:
+            under += f", and the bundle was kept under {manifest['formats']['contracts']}"
+        raise ValueError(
+            f"{directory / FILES['minimal'][1]} does not break {predicate} {under}: the "
+            "bundle does not show the failure it names"
+        )
     return Bundle(
         directory,
         manifest,
-        Predicate(manifest["predicate"]["contract"], manifest["predicate"]["rule"]),
+        predicate,
         found["minimal"],
         found["original"],
         events,
@@ -247,14 +261,18 @@ class Replay:
     recorded: str  # the hash the bundle recorded for the reduced case
     framework: dict[str, str]  # what it was replayed on
     scenario_changed: bool | None  # the scenario's code has changed; None if unknown
+    outcomes: tuple[str | None, ...]  # the contract's outcome in each run; None if invalid
     invalid: tuple[str, ...] = ()  # why a run was not valid evidence, if one was not
-    clean: bool = False  # every run was judged and none broke the rule
+    clean: bool = False  # every run was judged and the bundle's contract passed in each
     unverified: tuple[str, ...] = ()  # the bundle's case files that nothing could check
+    others: tuple[str, ...] = ()  # the other rules some run broke, as CONTRACT/RULE
+    broke: int = 0  # how many runs broke the bundle's rule
 
     @property
     def judged(self) -> bool:
-        """Every run was valid evidence. A replay that was not judged shows nothing."""
-        return not self.invalid
+        """Every run was valid evidence and gave the bundle's contract a pass or a fail. A
+        replay that was not judged shows nothing about the rule."""
+        return all(outcome in (PASS, FAIL) for outcome in self.outcomes)
 
     @property
     def repeatable(self) -> bool:
@@ -286,6 +304,8 @@ def replay(
     # A run that is not valid evidence has no failures, so it never counts as breaking.
     broke = [bundle.predicate in o.failures for o in outcomes]
     invalid = next((o.invalid for o in outcomes if o.invalid), ())
+    contract = [o.outcomes.get(bundle.predicate.contract) for o in outcomes]
+    others = {str(p) for o in outcomes for p in o.failures if p != bundle.predicate}
     return Replay(
         reproduced=all(broke),
         hashes=[o.hash or "" for o in outcomes],
@@ -293,8 +313,11 @@ def replay(
         framework=framework,
         scenario_changed=changed,
         invalid=invalid,
-        clean=not invalid and not any(broke),
+        clean=all(outcome == PASS for outcome in contract),
         unverified=bundle.unverified,
+        outcomes=tuple(contract),
+        others=tuple(sorted(others)),
+        broke=sum(broke),
     )
 
 

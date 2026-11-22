@@ -106,7 +106,7 @@ last column links to where the term is explained.
 | `minimal` | The reduced case | [`search.md`](search.md#6-the-bundle-earfulbundle1) |
 | replay | Running a bundle's reduced case again on the installed release | [`search.md`](search.md#6-the-bundle-earfulbundle1) |
 | reproduced | Every run of a replay was judged and broke the rule | [`search.md`](search.md#6-the-bundle-earfulbundle1) |
-| clean | Every run of a replay was judged and none broke the rule. A test of a fix asserts this | [`search.md`](search.md#6-the-bundle-earfulbundle1) |
+| clean | Every run of a replay was judged and the rule's contract passed in each. A test of a fix asserts this | [`search.md`](search.md#6-the-bundle-earfulbundle1) |
 | repeatable | Every run of a replay gave the same ledger | [`search.md`](search.md#6-the-bundle-earfulbundle1) |
 | identical | The ledger of a replay is the one the bundle recorded | [`search.md`](search.md#6-the-bundle-earfulbundle1) |
 | `scenario_digest` | SHA-256 of the source of the module that defines the scenario's function. A replay compares it to say whether that file changed | [`search.md`](search.md#6-the-bundle-earfulbundle1) |

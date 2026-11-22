@@ -74,6 +74,12 @@ formats have versions of their own
   `max_tool_steps` rounds of tool calls have run, no call under `"required"`, another
   tool than the one named, or two calls under `parallel_tool_calls=False`.
 - A search in which a case raised an exception fails.
+- A replay is clean only when the bundle's contract passed in every run. A run in which
+  that contract had nothing to judge or could not judge leaves the replay not judged, and
+  `earful replay` exits 3: before, a replay of an A2 bundle on a run where A2 was not
+  exercised and another rule broke was clean. The replay prints the contract's outcome
+  and any other rule that broke. Loading a bundle refuses a manifest whose rule no
+  contract has, or whose recorded ledger does not break it.
 - A search fails when a run it makes to find where to put things raises or is not valid
   evidence, such as the case without a speech it is about to move: the cases that run
   would place were skipped and nothing said so. A search fails when it tried no case. An

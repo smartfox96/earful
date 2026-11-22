@@ -1842,6 +1842,8 @@ def in_manifest(**formats):
     )
 
 
+L2_RULE_B = {"contract": "L2", "rule": "rule b"}
+
 # What is done to a copy of the bundle, and what the refusal says after the directory.
 TAMPERED = {
     "a ledger that is no ledger": (
@@ -1888,6 +1890,14 @@ TAMPERED = {
         in_manifest(case="earful.case/2"),
         "/manifest.json names the case format earful.case/2; this Earful reads earful.case/1",
     ),
+    "a rule no contract has": (
+        lambda d: rewrite(d / "manifest.json", lambda m: m["predicate"].update(rule="rule z")),
+        "/manifest.json names A2/rule z, a rule no contract has",
+    ),
+    "a rule its ledger does not break": (
+        lambda d: rewrite(d / "manifest.json", lambda m: m["predicate"].update(L2_RULE_B)),
+        "/minimal.ledger.jsonl does not break L2/rule b under earful.contracts/2",
+    ),
 }
 
 
@@ -1921,6 +1931,13 @@ def test_a_bundle_kept_under_the_contracts_before_these_is_read(tmp_path):
     in_manifest(contracts="earful.contracts/1")(directory)
     assert bundle.load(directory).manifest["formats"]["contracts"] == "earful.contracts/1"
     assert bundle.FORMATS["contracts"] == "earful.contracts/2"
+    rewrite(directory / "manifest.json", lambda manifest: manifest["predicate"].update(L2_RULE_B))
+    with pytest.raises(
+        ValueError,
+        match=r"under earful.contracts/2, and the bundle was kept under "
+        r"earful.contracts/1: the bundle does not show the failure it names$",
+    ):
+        bundle.load(directory)
 
 
 def test_a_replay_is_reproduced_or_clean_only_if_every_run_was_judged(tmp_path):
@@ -1951,9 +1968,31 @@ def test_a_replay_is_reproduced_or_clean_only_if_every_run_was_judged(tmp_path):
     in_some = bundle.replay(kept, in_turn(failing, passing, failing))
     assert shows(in_some) == (True, False, False, False)
     assert shows(bundle.replay(kept, in_turn(passing), repeats=1)) == (True, False, True, True)
+    assert (broken.outcomes, broken.others, broken.broke) == (("fail",) * 3, ("M2/rule d",), 3)
+    assert (unjudged.outcomes, in_some.broke) == ((None,) * 3, 2)
     for repeats in (0, -1):
         with pytest.raises(ValueError, match=f"at least one run; got repeats={repeats}"):
             bundle.replay(kept, in_turn(), repeats=repeats)
+
+
+def test_a_replay_is_clean_only_if_the_contract_of_the_bundle_passed_in_every_run(tmp_path):
+    """A run in which A2 has nothing to judge shows nothing about A2, whatever else broke."""
+    kept = bundle.load(a_copy(tmp_path))
+    passing = ledger("1.8.12", "book_then_interrupt")
+    elsewhere = ledger("1.5.6", "speak_over_new_turn")  # A2 not exercised, L2 rule b broken
+
+    def in_turn(*ledgers):
+        runs = iter(ledgers)
+        return lambda case: next(runs)
+
+    nothing = bundle.replay(kept, in_turn(elsewhere, elsewhere, elsewhere))
+    assert (nothing.judged, nothing.reproduced, nothing.clean) == (False, False, False)
+    assert nothing.outcomes == ("not_exercised",) * 3 and nothing.others == ("L2/rule b",)
+    assert nothing.invalid == () and nothing.repeatable
+    mixed = bundle.replay(kept, in_turn(passing, elsewhere, passing))
+    assert (mixed.judged, mixed.clean, mixed.outcomes[1]) == (False, False, "not_exercised")
+    clean = bundle.replay(kept, in_turn(passing), repeats=1)
+    assert (clean.judged, clean.clean, clean.outcomes, clean.others) == (True, True, ("pass",), ())
 
 
 def test_a_bundle_written_before_manifests_recorded_its_cases_loads_and_says_so(tmp_path):

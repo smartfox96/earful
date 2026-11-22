@@ -616,9 +616,12 @@ the `minimal` and `original` cases, and `ledger(which)`.
 
 | Attribute | Meaning |
 | --- | --- |
-| `judged` | Every run was valid evidence |
+| `judged` | Every run was valid evidence and gave the rule's contract a pass or a fail |
 | `reproduced` | Every run was judged and broke the rule |
-| `clean` | Every run was judged and none broke it |
+| `clean` | Every run was judged and the rule's contract passed in each |
+| `outcomes` | The contract's outcome in each run, `None` for a run that was not valid evidence |
+| `others` | The other rules some run broke, as `CONTRACT/RULE` |
+| `broke` | How many runs broke the rule |
 | `repeatable` | Every run gave the same ledger |
 | `identical` | That ledger is the one the bundle recorded |
 | `scenario_changed` | Whether the scenario's module differs from when the bundle was kept. `None` if that is not known |

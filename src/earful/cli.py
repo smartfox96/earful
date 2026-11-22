@@ -291,6 +291,8 @@ def _replay(args: argparse.Namespace) -> int:
         "judged": result.judged,
         "reproduced": result.reproduced,
         "clean": result.clean,
+        "contract_outcomes": list(result.outcomes),
+        "other_rules_broken": list(result.others),
         "repeatable": result.repeatable,
         "identical_to_recorded": result.identical,
         "scenario_code_changed": result.scenario_changed,
@@ -303,13 +305,18 @@ def _replay(args: argparse.Namespace) -> int:
         made, on = kept.manifest["framework"], result.framework
         if result.reproduced:
             breaks = "yes"
-        elif result.clean:
-            breaks = "no"
+        elif not result.judged:
+            breaks = "not judged"
         else:
-            breaks = "in some runs" if result.judged else "not judged"
+            breaks = "in some runs" if result.broke else "no"
+        gave = ["not valid evidence" if one is None else one for one in result.outcomes]
         print(f"{kept.predicate}, kept on {made.get('name')} {made.get('version')}")
         print(f"replayed {args.repeats} times on {on.get('name')} {on.get('version')}")
         print(f"  breaks the rule       {breaks}")
+        contract = f"{kept.predicate.contract} gave"
+        print(f"  {contract:<22}{gave[0] if len(set(gave)) == 1 else ', '.join(gave)}")
+        if result.others:
+            print(f"  other rules broken    {', '.join(result.others)}")
         print(f"  every run the same    {'yes' if result.repeatable else 'no'}")
         print(f"  the ledger recorded   {'yes' if result.identical else 'no'}")
         changed = {None: "not known", True: "yes", False: "no"}[result.scenario_changed]

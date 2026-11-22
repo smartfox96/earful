@@ -517,8 +517,29 @@ describe the code as it is now.
 
 ### The replay is neither reproduced nor clean
 
-`earful replay --expect clean` exits 3 when a run was not valid evidence or the runs
-differ. Read the `invalid:` lines it prints. A test of a fix asserts `clean`.
+```text
+  breaks the rule       not judged
+  A2 gave               not_exercised
+  other rules broken    L2/rule b
+```
+
+`earful replay` exits 3, whatever `--expect` says, when a run was not valid evidence,
+when the rule's contract had nothing to judge or could not judge in a run, or when the
+runs differ. Read the `invalid:` lines it prints and the contract's outcome. A contract
+with nothing to judge means the reduced case no longer reaches what the rule is about:
+the scenario's code changed, or the release behaves another way before that point. A
+test of a fix asserts `clean`, which needs a pass.
+
+### A bundle that does not show the failure it names
+
+```text
+earful: failures/lk-1.8.13.booking.A2-rule/minimal.ledger.jsonl does not break A2/rule under earful.contracts/2: the bundle does not show the failure it names
+```
+
+The recorded ledger of the reduced case does not break the rule the manifest names. The
+manifest was edited, or the bundle was kept under an earlier version of the contracts
+whose rule judged that ledger otherwise; the message then names both versions. Keep the
+failure again with this Earful.
 
 ## `earful init`
 
