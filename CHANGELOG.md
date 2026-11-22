@@ -95,6 +95,9 @@ formats have versions of their own
   interruption, or a reply held back, was judged. A search prints each contract's counts
   of pass, fail, nothing to judge and evidence lost, and a replay prints the code. The
   report format is `earful.report/2`: a finding carries `code`.
+- A reply that was never voiced is unattributable only when a later text attributed to
+  no reply shares a word with it. Any unrelated phrase spoken later, such as a goodbye,
+  turned M1's rule 4 failure for that reply into a missing verdict.
 - M1 rule 2 fails a reply that played to its end without being cut short and is absent
   from memory, whatever `behind_us` is. A short reply that played in full and was
   forgotten passed under the default tolerance of one second. A cut-off reply is judged

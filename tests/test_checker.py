@@ -36,7 +36,15 @@ from earful.core.checker.report import (
     split,
     verdict,
 )
-from earful.core.checker.view import MAX_READINGS, Speech, Spoken, View, readings, unseeded
+from earful.core.checker.view import (
+    MAX_READINGS,
+    Speech,
+    Spoken,
+    View,
+    could_be,
+    readings,
+    unseeded,
+)
 from earful.core.ledger import read_jsonl, run_id
 
 GOLDEN = Path(__file__).parent / "golden"
@@ -483,6 +491,23 @@ def test_a3_and_m1_are_unobservable_when_the_audio_cannot_be_attributed(fixed):
         "L1/audio-unattributed",
         "M1/audio-unattributed",
     ]
+
+
+def test_a_text_the_application_spoke_that_shares_no_word_with_a_reply_is_judged_as_its_own(
+    fixed,
+):
+    """The voice spoke four words that cannot be "Your table is booked." altered: the text is
+    the application's own, and the reply was never voiced."""
+    synthesized = of(fixed, "tts.synthesized", 1)["data"]
+    synthesized.update(
+        call=None, attribution="none", candidates=[], text="Wonderful evening ahead, friends."
+    )
+    report = check(fixed)
+    assert report.lost() == []
+    verdicts = {json.dumps(v.instance): v for v in report.results["M1"].verdicts}
+    assert verdicts['{"reply": 2}'].findings[0].rule == "rule 4"  # remembered, never voiced
+    spoken = verdicts['{"utterance": 2}']
+    assert spoken.outcome == FAIL and spoken.findings[0].rule == "rule 2"  # heard, not remembered
 
 
 def remembered(events, call):
@@ -2538,3 +2563,43 @@ def test_audio_the_readings_cap_leaves_unattributed_is_lost_for_that_reason(barg
     report = check(events)
     assert report.readings == 1 and report.reading == {}
     assert "M1/readings-over-cap" in report.lost() and "M1/audio-unattributed" not in report.lost()
+
+
+def _spoken_later(events, text):
+    """A text the application speaks after the rest, attributed to no reply, that never plays."""
+    first = of(events, "tts.synthesized", 0)["data"]
+    said = copy.deepcopy(of(events, "tts.synthesized", 0))
+    said["t_us"] = events[-2]["t_us"]
+    said["data"].update(
+        utterance=9,
+        call=None,
+        attribution="none",
+        candidates=[],
+        text=text,
+        stamps=[32000],
+        word_samples=[first["word_samples"][0]],
+        started_us=said["t_us"],
+    )
+    events.insert(len(events) - 2, said)
+    return seal(events)
+
+
+@pytest.mark.parametrize(
+    "text, outcome, why",
+    [("Goodbye.", FAIL, "rule 4"), ("Okay.", UNOBSERVABLE, "audio-unattributed")],
+)
+def test_m1_only_a_later_text_that_could_be_the_reply_hides_whether_it_was_voiced(
+    barge, text, outcome, why
+):
+    """Reply 2, "Okay, stopping.", is never voiced and is remembered. "Goodbye." cannot be it
+    altered; "Okay." can."""
+    events = _spoken_later(_never_voiced(barge, call=2, segment=2), text)
+    (reply,) = [v for v in check(events).results["M1"].verdicts if v.instance == {"reply": 2}]
+    assert reply.outcome == outcome and why in (reply.findings[0].rule, reply.findings[0].code)
+
+
+def test_a_text_could_be_a_reply_only_if_they_share_a_word():
+    assert could_be(["Okay."], ["Okay,", "stopping."])
+    assert could_be(["TABLE"], ["your", "table"]) and could_be(["6"], ["for", "6"])
+    assert not could_be(["Goodbye."], ["Okay,", "stopping."])
+    assert not could_be(["..."], ["...", "Okay."])  # punctuation alone is no word

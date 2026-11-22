@@ -140,6 +140,16 @@ _ITEM_KEYS = {
 }
 
 
+def could_be(text: list[str], reply: list[str]) -> bool:
+    """Whether a synthesized text could be a reply altered on its way to the voice: they share
+    a word, letters and digits compared without case. A text that shares none cannot be it."""
+
+    def plain(words: list[str]) -> set[str]:
+        return {"".join(ch for ch in w.lower() if ch.isalnum()) for w in words} - {""}
+
+    return bool(plain(text) & plain(reply))
+
+
 def unseeded(items: list[dict[str, Any]], seeded: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """``items`` without the history the agent started with: each item of ``seeded`` in turn
     takes out the first item after the last one taken that is the same. One that is no longer
@@ -574,7 +584,12 @@ class View:
             unattributable = None
             if item.call is not None:
                 utterance = by_call.get(item.call)
-                later = [u for u in loose if u.event["data"]["started_us"] >= item.born["t_us"]]
+                later = [
+                    u
+                    for u in loose
+                    if u.event["data"]["started_us"] >= item.born["t_us"]
+                    and could_be(u.words, item.words)
+                ]
                 if utterance is None and later:
                     # Its text may have been altered on the way to the voice; Earful does not guess.
                     unattributable = (
@@ -584,7 +599,9 @@ class View:
             else:
                 utterance = self.utterances[item.instance["utterance"]]
                 if any(
-                    r.answer["t_us"] <= utterance.event["data"]["started_us"] for r in unsynthesized
+                    r.answer["t_us"] <= utterance.event["data"]["started_us"]
+                    and could_be(utterance.words, r.words)
+                    for r in unsynthesized
                 ):
                     unattributable = (
                         code([utterance]),

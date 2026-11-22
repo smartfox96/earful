@@ -5746,4 +5746,32 @@ MUTANTS = [
         "    if played and not remembered:\n",
         first="cut_off_reply",
     ),
+    Mutant(
+        "view: any later text attributed to no reply could be a reply never voiced",
+        "src/earful/core/checker/view.py",
+        "                    and could_be(u.words, item.words)\n",
+        "",
+        first="could_be_the_reply_hides",
+    ),
+    Mutant(
+        "view: a text the application spoke could be any reply not yet synthesized",
+        "src/earful/core/checker/view.py",
+        "                    and could_be(utterance.words, r.words)\n",
+        "",
+        first="shares_no_word_with_a_reply",
+    ),
+    Mutant(
+        "view: a text and a reply share a word only in the same case",
+        "src/earful/core/checker/view.py",
+        '        return {"".join(ch for ch in w.lower() if ch.isalnum()) for w in words} - {""}\n',
+        '        return {"".join(ch for ch in w if ch.isalnum()) for w in words} - {""}\n',
+        first="share_a_word",
+    ),
+    Mutant(
+        "view: punctuation alone is a word a text and a reply can share",
+        "src/earful/core/checker/view.py",
+        '        return {"".join(ch for ch in w.lower() if ch.isalnum()) for w in words} - {""}\n',
+        '        return {"".join(ch for ch in w.lower() if ch.isalnum()) for w in words}\n',
+        first="share_a_word",
+    ),
 ]

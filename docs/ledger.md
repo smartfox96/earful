@@ -217,8 +217,10 @@ all. The checker then reads the ledger every way the candidates allow
 
 A text with attribution `none` is something the application spoke itself, such as a
 greeting. The contracts judge it like a reply: it was played, and it is remembered. The
-exception is when a model reply was still unsynthesized at that moment. The text may then
-be that reply, altered on its way to the voice, and both are unobservable.
+exception is when a model reply was still unsynthesized at that moment and shares a word
+with the text, letters and digits compared without case. The text may then be that reply,
+altered on its way to the voice, and both are unobservable. A text that shares no word
+with any such reply could not be it, and leaves it to be judged as never voiced.
 
 Tools are witnessed without changing the agent. The harness replaces each function tool
 of the agent it is given with a recording copy, through the agent's public `tools` and

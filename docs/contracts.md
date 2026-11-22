@@ -219,7 +219,7 @@ section 6 defines. An instance gets one of four verdicts.
 | `no-interruption-point` | nothing to judge | L2 | The speech was too short to interrupt, and no reply was in flight |
 | `no-origin` | nothing to judge | L2 | The ledger has no true speech boundaries |
 | `outside-backend` | evidence lost | A1, A2, A3 | A tool for the intent was called and nothing reached the backend (section 2.6) |
-| `audio-unattributed` | evidence lost | A3, M1, L1 | A reply's audio cannot be told apart from a text that was not attributed |
+| `audio-unattributed` | evidence lost | A3, M1, L1 | A reply's audio cannot be told apart from a text that was not attributed and shares a word with it (`docs/ledger.md`, attribution) |
 | `readings-over-cap` | evidence lost | A3, M1, L1 | The same, because the ledger has more readings than the checker tries (section 2.5) |
 | `word-start-unknown` | evidence lost | A3 | The start of the claim's first word cannot be derived |
 | `memory-unaligned` | evidence lost | M1 | No context lines up with what was said (M2, rule c) |
