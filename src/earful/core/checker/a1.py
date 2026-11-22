@@ -22,9 +22,12 @@ def check(view: View, policy: policies.A1) -> ContractResult:
                         instance,
                         f"cannot tell whether {intent!r} was written again",
                         events=[point, *called_after],
-                        unobservable=(
-                            "the intent's tool was called but does not write through the backend"
-                        ),
+                        missing=[
+                            (
+                                "outside-backend",
+                                "the intent's tool was called and nothing reached the backend",
+                            )
+                        ],
                     )
                 )
                 continue

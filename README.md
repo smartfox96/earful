@@ -262,7 +262,8 @@ Each contract is decided from the ledger alone ([`docs/contracts.md`](https://gi
 | L1 | Progress | A turn that is owed a reply does not get one in time |
 | L2 | Interruption | The agent is audible while the user holds the floor |
 
-A verdict is pass, fail or unobservable. A failed contract is evidence about one run
+A verdict is pass or fail, or, when it cannot be judged, not exercised (nothing to judge)
+or unobservable (evidence lost), with a code that says why. A failed contract is evidence about one run
 against what the test declared. Whether it is a defect of the framework, of the
 application or of the test is a separate question, and `docs/contracts.md` says how to
 answer it.

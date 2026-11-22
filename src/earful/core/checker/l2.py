@@ -16,6 +16,16 @@ def check(view: View, policy: policies.L2) -> ContractResult:
     starts.sort(key=lambda e: e["seq"])
     ordered = sorted(view.speeches, key=lambda s: s.start)
 
+    def in_flight(opened: int, closed: int) -> bool:
+        """Whether a reply's synthesis began before the floor closed and it had not finished
+        playing when the floor opened: playing or waiting, rule b had it to hold back."""
+        return any(
+            p.utterance is not None
+            and p.utterance.event["data"]["started_us"] < closed
+            and (p.settled is None or p.settled["t_us"] > opened)
+            for p in view.playouts.values()
+        )
+
     for position, speech in enumerate(ordered):
         if speech.noise or speech.backchannel:
             continue
@@ -26,7 +36,7 @@ def check(view: View, policy: policies.L2) -> ContractResult:
                     "L2",
                     instance,
                     "cannot place the speech in time",
-                    unobservable="the ledger has no true boundaries for this speech",
+                    missing=[("no-origin", "the ledger has no true boundaries for this speech")],
                 )
             )
             continue
@@ -55,8 +65,10 @@ def check(view: View, policy: policies.L2) -> ContractResult:
         }
 
         # Rule a: under way at the interruption point -> silent by that point plus the bound.
-        if policy.interruptions_allowed and point is not None:
+        run = None
+        if point is not None:
             run = next((r for r in runs if r[0][0][0] < point <= r[0][-1][1]), None)
+        if policy.interruptions_allowed and point is not None:
             # What was heard of it from the point on: a gap that outlasts the floor ends it.
             heard = [b for a, b in run[0] if a < closed and b >= point] if run else []
             if run is not None and heard:
@@ -96,15 +108,27 @@ def check(view: View, policy: policies.L2) -> ContractResult:
                     )
                 )
 
+        # With no reply to stop or to hold back there is nothing to judge, unless one started.
+        missing = []
+        if run is None and not in_flight(opened, closed):
+            if point is None:
+                short = "the speech ended before it could interrupt, and no reply was in flight"
+                missing = [("no-interruption-point", short)]
+            else:
+                idle = "no reply was under way, or waiting to play, while the user held the floor"
+                missing = [("no-reply-under-way", idle)]
         verdicts.append(
             verdict(
                 "L2",
                 instance,
-                "the agent was silent while the user held the floor"
-                if not findings
-                else "the agent was audible while the user held the floor",
+                "the agent was audible while the user held the floor"
+                if findings
+                else "nothing was under way to interrupt"
+                if missing
+                else "the agent was silent while the user held the floor",
                 events=used,
                 findings=findings,
+                missing=missing,
                 measures=measures,
                 flags=flags,
             )

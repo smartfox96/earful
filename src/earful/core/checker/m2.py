@@ -23,7 +23,7 @@ class _Context:
     delivered: list[Speech]  # the transcripts delivered before it was requested
     turns: UserTurns
     findings: list[Finding] = field(default_factory=list)
-    unknown: list[str] = field(default_factory=list)  # what could not be compared, and why
+    unknown: list[tuple[str, str]] = field(default_factory=list)  # code, why not compared
     used: list[Event | None] = field(default_factory=list)
 
     @property
@@ -133,7 +133,9 @@ def _tool_call(
             )
         )
     if returned["data"]["text"] is None:
-        context.unknown.append(f"the value {name} returned has no stable text form to compare")
+        context.unknown.append(
+            ("no-stable-text", f"the value {name} returned has no stable text form to compare")
+        )
     elif shown["output"] != returned["data"]["text"]:
         context.findings.append(
             Finding(
@@ -185,8 +187,10 @@ def _unrun_results(view: View, context: _Context) -> int:
             refused += 1
         elif invocation is None and item.get("name") not in view.witnessed_tools:
             context.unknown.append(
-                f"the tool behind result {item['call_id']!r} was not witnessed, "
-                "or cannot be linked to it"
+                (
+                    "tool-unwitnessed",
+                    f"no witnessed tool call is behind result {item['call_id']!r}",
+                )
             )
         else:
             context.findings.append(
@@ -364,7 +368,7 @@ def check(view: View, policy: policies.M2) -> ContractResult:
                 else f"{context.label} does not show the conversation that happened",
                 events=context.used,
                 findings=context.findings,
-                unobservable="; ".join(context.unknown) if context.unknown else None,
+                missing=context.unknown,
                 measures={
                     "user_turns": len(context.present),
                     "said_matched": len(alignment.matched),

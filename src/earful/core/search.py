@@ -13,7 +13,7 @@ from typing import Any
 
 from . import case as cases
 from .case import Variable
-from .checker import ContractFailure, check
+from .checker import FAIL, UNOBSERVABLE, ContractFailure, check
 from .checker.report import allowed
 from .ledger import ledger_hash
 from .predicate import Predicate, failures
@@ -45,6 +45,7 @@ class Outcome:
     failures: tuple[Predicate, ...] = ()
     outcomes: dict[str, str] = field(default_factory=dict)  # contract -> outcome
     hash: str | None = None
+    missing: dict[str, tuple[str, ...]] = field(default_factory=dict)  # contract -> codes
     invalid: tuple[str, ...] = ()  # the run is not valid evidence
     refused: str | None = None  # the adapter would not run the case
     error: str | None = None
@@ -75,7 +76,17 @@ def judged(case: cases.Case, events: list[Event]) -> Outcome:
     report = check(events)
     if not report.valid:
         return Outcome(case, invalid=report.invalid, hash=ledger_hash(events))
-    return Outcome(case, tuple(sorted(failures(report))), report.outcomes(), ledger_hash(events))
+    missing = {
+        name: tuple(dict.fromkeys(f.code for v in r.verdicts for f in v.findings if f.code))
+        for name, r in report.results.items()
+    }
+    return Outcome(
+        case,
+        tuple(sorted(failures(report))),
+        report.outcomes(),
+        ledger_hash(events),
+        missing=missing,
+    )
 
 
 def attempt(run: Run, case: cases.Case) -> tuple[Outcome, list[Event] | None]:
@@ -546,6 +557,9 @@ def _seconds(us: int) -> str:
     return f"{us / 1_000_000:.3f} s"
 
 
+# A contract's outcomes in a case, in the order a search counts them.
+_OUTCOMES = ("pass", "fail", "not_exercised", "unobservable")
+
 _ENDS = {
     "passes": "passes beyond it",
     "blocked": "no case exists beyond it",
@@ -697,6 +711,16 @@ class Exploration:
         """How many of the cases tried raised. No healthy search has one."""
         return sum(t.outcome.error is not None for t in self.tried)
 
+    def by_contract(self) -> dict[str, dict[str, int]]:
+        """For each contract, how many of the cases judged it passed, failed, had nothing to
+        judge (not exercised) or lost the evidence (unobservable)."""
+        out: dict[str, dict[str, int]] = {}
+        for tried in self.tried:
+            for contract, outcome in tried.outcome.outcomes.items():
+                counts = out.setdefault(contract, dict.fromkeys(_OUTCOMES, 0))
+                counts[outcome] += 1
+        return out
+
     def not_judged(self) -> list[NotJudged]:
         """Why cases could not be judged, the reason with the most cases first. Reasons that
         differ only in their numbers are one reason."""
@@ -739,12 +763,13 @@ class Exploration:
                 nearest = min(breaking, key=distance)
                 example, what = nearest.candidate.case, self._what(nearest.candidate)
             ledger = self.runner.ledger(example)
+            results = check(ledger).results if ledger is not None else {}
             details = tuple(
                 finding.detail
-                for verdict in (check(ledger).failures if ledger is not None else ())
-                if verdict.contract == predicate.contract
+                for verdict in (results[predicate.contract].verdicts if results else ())
+                if verdict.outcome == FAIL or verdict.outcome == UNOBSERVABLE
                 for finding in verdict.findings
-                if finding.rule == predicate.rule
+                if predicate.rule in (finding.rule, finding.code)
             )
             out.append(
                 Break(
@@ -800,6 +825,11 @@ class Exploration:
                 f"{counts['ran']} judged, {len(found)} contract rule(s) broken"
             )
         ]
+        counted = self.by_contract()
+        if counted:
+            lines.append("    by contract: pass, fail, nothing to judge, evidence lost")
+            for contract, tally in counted.items():
+                lines.append(f"    {contract:<4}" + " ".join(f"{n:>5}" for n in tally.values()))
         if not self.complete:
             left = [f"{self.not_run} case(s) not run"] if self.not_run else []
             left += [f"{self.unmeasured} failure(s) not measured"] if self.unmeasured else []
@@ -910,6 +940,7 @@ class Exploration:
             },
             "errors": sorted({t.outcome.error for t in self.tried if t.outcome.error}),
             "not_judged": [asdict(group) for group in self.not_judged()],
+            "by_contract": self.by_contract(),
             "not_read": [
                 {"run": one.run, "why": one.outcome.why_not, "reason": one.outcome.reason}
                 for one in self.unread

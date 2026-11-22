@@ -546,12 +546,14 @@ What the checker returns for one ledger.
 | `outcomes` | A method: contract id to outcome |
 | `failures` | Every failed `Verdict` |
 | `broken` | A method: every rule a failed verdict names, as `CONTRACT/RULE` |
+| `lost` | A method: every code of evidence lost a verdict carries, as `CONTRACT/CODE`. An assertion fails on each unless `allow` names it |
 | `lines` | A method: the report as lines of text |
 | `unjudged` | A method: each contract of those named that has no pass or fail, and why |
 | `assert_contracts` | A method: as on a `RunResult`. It also raises for an invalid run |
-| `to_json` | A method: the report as plain data (`earful.report/1`) |
+| `to_json` | A method: the report as plain data (`earful.report/2`) |
 
-An outcome is `'pass'`, `'fail'`, `'unobservable'` or `'not_exercised'`.
+An outcome is `'pass'`, `'fail'`, `'unobservable'` (evidence lost) or `'not_exercised'`
+(nothing to judge) ([`contracts.md`](contracts.md#5-verdicts)).
 
 ### `Verdict`
 
@@ -561,9 +563,9 @@ The outcome of one contract for one instance.
 | --- | --- |
 | `contract` | The contract id |
 | `instance` | What was judged, such as `{"intent": "book-table"}` |
-| `outcome` | `'pass'`, `'fail'` or `'unobservable'` |
+| `outcome` | `'pass'`, `'fail'`, `'unobservable'` or `'not_exercised'` |
 | `summary` | One sentence |
-| `findings` | Each with the `rule` it names, a `detail` and the `seqs` of its events |
+| `findings` | Each with the `rule` it names, a `detail` and the `seqs` of its events. A verdict that was not judged has one per reason, with its `code` |
 | `evidence` | The `seq` of every event the verdict rests on |
 | `witnesses` | The sources of those events |
 | `measures` | What was measured |
@@ -596,6 +598,7 @@ What `explore` returns.
 | `not_judged` | A method: why cases could not be judged, grouped by reason |
 | `complete` | False if `max_runs` was spent first |
 | `nothing_judged` | Whether the search judged no case: it tried none, or could judge none it tried |
+| `by_contract` | A method: for each contract, how many cases judged gave it `pass`, `fail`, `not_exercised` and `unobservable` |
 | `errored` | How many of the cases tried raised |
 | `unread` | The runs made to find where to put things that could not be judged, each with its `run` (which one) and its `outcome` |
 | `unreadable` | How many of those raised or were not valid evidence |
@@ -621,6 +624,7 @@ the `minimal` and `original` cases, and `ledger(which)`.
 | `clean` | Every run was judged and the rule's contract passed in each |
 | `outcomes` | The contract's outcome in each run, `None` for a run that was not valid evidence |
 | `others` | The other rules some run broke, as `CONTRACT/RULE` |
+| `codes` | Why the rule's contract was not judged in some run, as codes ([`contracts.md`](contracts.md#5-verdicts)) |
 | `broke` | How many runs broke the rule |
 | `repeatable` | Every run gave the same ledger |
 | `identical` | That ledger is the one the bundle recorded |

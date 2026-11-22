@@ -13,7 +13,7 @@ import livekit.agents as lk
 from earful.core.backend import (
     effect,
 )
-from earful.core.checker import PASS, check
+from earful.core.checker import NOT_EXERCISED, PASS, check
 from earful.core.ledger import Ledger
 from earful.core.schema import validate
 from earful.livekit import tools
@@ -420,7 +420,7 @@ def test_speech_that_resumes_within_the_vads_silence_window_is_one_segment_to_it
         "the menu please.",
     ]
     report = check(events)
-    assert report.failures == () and report.outcome("L2") == PASS
+    assert report.failures == () and report.outcome("L2") == NOT_EXERCISED  # nothing to stop
     assert [v.instance for v in report.results["L2"].verdicts] == [{"speech": 0}, {"speech": 1}]
     resumed = report.results["L2"].verdicts[1].measures
     assert resumed["floor_opened_us"] == 1_800_000  # its own start: the VAD had already reported

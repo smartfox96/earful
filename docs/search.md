@@ -272,10 +272,16 @@ for each rule.
 
 ### What a search reports
 
+- **By contract.** Under the first line, for each contract, how many of the cases judged
+  gave it a pass, a fail, nothing to judge, and evidence lost
+  ([`contracts.md`](contracts.md#5-verdicts)).
 - **What broke.** Per predicate: how many candidates break it and what they changed, for
   example `speech.position 1`, `backend.error 1` or `backend.drop 1 + backend.wait 1`. A
   rule that breaks in the case as given and in every candidate that ran is marked
-  `everywhere`: it does not depend on timing.
+  `everywhere`: it does not depend on timing. Evidence a case lost is a predicate of its
+  own, `CONTRACT/CODE` such as `A2/outside-backend`, reported the same way: a change
+  that leaves a verdict without its evidence has hidden it, and the search fails unless
+  `allow` names it.
 - **How wide.** Section 4.
 - **What was reached.** For each handle, the kinds of transition it was put beside in a
   run that could be judged, and the kinds it never was, with the reason: no such case

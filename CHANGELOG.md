@@ -84,6 +84,17 @@ formats have versions of their own
   the header, written before the run, could not list it. A pipecat-ai release that keeps
   one of the private names the scripted model reads elsewhere is refused in one line
   before the run, where it raised `AttributeError`.
+- A verdict that cannot be judged carries a code, and each code is nothing to judge or
+  evidence lost ([`docs/contracts.md`](https://github.com/smartfox96/earful/blob/main/docs/contracts.md#5-verdicts)).
+  Nothing to judge, such as a deadline after the run ended, is now `not_exercised`, not
+  `unobservable`. Evidence lost, such as a tool that writes outside Earful's backend, is
+  `unobservable` and fails `assert_contracts` and a search unless `allow` names its
+  `CONTRACT/CODE`; a search reports it as a rule of its own, with the change that caused
+  it. So some runs and searches that passed now fail. L2 has nothing to judge for a
+  speech with no reply under way or waiting to play, so `require=["L2"]` means an
+  interruption, or a reply held back, was judged. A search prints each contract's counts
+  of pass, fail, nothing to judge and evidence lost, and a replay prints the code. The
+  report format is `earful.report/2`: a finding carries `code`.
 - A replay is clean only when the bundle's contract passed in every run. A run in which
   that contract had nothing to judge or could not judge leaves the replay not judged, and
   `earful replay` exits 3: before, a replay of an A2 bundle on a run where A2 was not

@@ -30,13 +30,15 @@ class Predicate:
 
 
 def failures(report: Report) -> set[Predicate]:
-    """Every contract rule ``report`` says was broken. Empty for an invalid run."""
-    return {
+    """Every contract rule ``report`` says was broken, and every code of evidence it lost,
+    which a run fails on as on a rule. Empty for an invalid run."""
+    broken = {
         Predicate(verdict.contract, finding.rule)
         for verdict in report.failures
         if verdict.outcome == FAIL
         for finding in verdict.findings
     }
+    return broken | {Predicate.parse(name) for name in report.lost()}
 
 
 __all__ = ["Predicate", "failures"]

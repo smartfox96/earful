@@ -263,7 +263,7 @@ class Playout:
 
     key: str
     utterance: Utterance | None
-    unattributable: str | None  # why its audio cannot be told apart, if it cannot
+    unattributable: tuple[str, str] | None  # the code and why its audio cannot be told apart
     interrupted: bool = False
     segments: list[Segment] = field(default_factory=list)
     settled: Event | None = None  # the event after which nothing more of it can play
@@ -275,11 +275,11 @@ class Playout:
     outlasted_hangup: bool = False
 
     @property
-    def unknown(self) -> str | None:
-        """Why what was played of it cannot be told, if it cannot."""
+    def unknown(self) -> tuple[str, str] | None:
+        """The code and why what was played of it cannot be told, if it cannot."""
         if self.unattributable:
             return self.unattributable
-        return "the run ended before its playout finished" if self.pending else None
+        return ("run-ended", "the run ended before its playout finished") if self.pending else None
 
 
 class View:
@@ -289,6 +289,8 @@ class View:
         # Replies that some ambiguous text could be: what is said of them rests on a reading.
         self.read_calls: set[int] = set()
         could_be = candidates(events)
+        # Ambiguous texts and no reading of them: there were more readings than the cap.
+        self.capped: set[int] = set(could_be) if could_be and not self.reading else set()
         self.header = events[0]["data"]
         self.scenario = self.header["scenario"]
         self.session = self.scenario["session"]
@@ -563,16 +565,21 @@ class View:
         loose = [u for u in self.utterances.values() if u.call is None]
         unsynthesized = [r for r in self.replies if r.call not in by_call]
         out: dict[str, Playout] = {}
+
+        def code(texts: list[Utterance]) -> str:
+            capped = any(u.utterance in self.capped for u in texts)
+            return "readings-over-cap" if capped else "audio-unattributed"
+
         for item in self.spoken:
             unattributable = None
             if item.call is not None:
                 utterance = by_call.get(item.call)
-                if utterance is None and any(
-                    u.event["data"]["started_us"] >= item.born["t_us"] for u in loose
-                ):
+                later = [u for u in loose if u.event["data"]["started_us"] >= item.born["t_us"]]
+                if utterance is None and later:
                     # Its text may have been altered on the way to the voice; Earful does not guess.
                     unattributable = (
-                        "a synthesized text that was not attributed could be this reply"
+                        code(later),
+                        "a synthesized text that was not attributed could be this reply",
                     )
             else:
                 utterance = self.utterances[item.instance["utterance"]]
@@ -580,7 +587,8 @@ class View:
                     r.answer["t_us"] <= utterance.event["data"]["started_us"] for r in unsynthesized
                 ):
                     unattributable = (
-                        "this text could be a model reply altered before it was synthesized"
+                        code([utterance]),
+                        "this text could be a model reply altered before it was synthesized",
                     )
             playout = Playout(item.key, utterance, unattributable)
             if utterance is not None:

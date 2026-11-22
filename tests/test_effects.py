@@ -11,7 +11,7 @@ from breaks import BOOKING, TalksToItsServiceItself, as_written_reads_the_error
 
 from earful.core import backend as backends
 from earful.core.backend import Effect, effect
-from earful.core.checker import PASS, check
+from earful.core.checker import NOT_EXERCISED, PASS, check
 from earful.core.ledger import Ledger, run_id
 from earful.core.schema import validate
 from earful.livekit import tools
@@ -586,7 +586,8 @@ def test_the_scripted_user_and_the_witness_follow_a_handoff_to_the_next_agent(ag
     assert requested["tool"] == called["book"]
     assert result.report.failures == ()
     outcomes = result.report.outcomes()
-    assert all(outcomes[contract] == PASS for contract in ("A2", "A3", "M1", "M2", "L1", "L2"))
+    assert all(outcomes[contract] == PASS for contract in ("A2", "A3", "M1", "M2", "L1"))
+    assert outcomes["L2"] == NOT_EXERCISED  # the user never speaks over a reply
 
 
 def _greets_and_returns(returned, then=_Books):
