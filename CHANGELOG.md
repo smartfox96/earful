@@ -8,6 +8,8 @@ formats have versions of their own
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-11-22
+
 ### Frameworks
 
 - A Pipecat adapter, `earful.pipecat`, for pipecat-ai 1.16 on Python 3.11 or later:
@@ -163,6 +165,7 @@ The first release.
 - The formats `earful.ledger/1`, `earful.case/1` and `earful.bundle/1`, each with a
   JSON Schema.
 
-[Unreleased]: https://github.com/smartfox96/earful/compare/v0.1.1...HEAD
+[Unreleased]: https://github.com/smartfox96/earful/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/smartfox96/earful/compare/v0.1.1...v0.2.0
 [0.1.1]: https://github.com/smartfox96/earful/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/smartfox96/earful/releases/tag/v0.1.0
