@@ -1,10 +1,14 @@
 # Writing a Pipecat scenario
 
-Install from this checkout with Python 3.11 or later and pytest available.
+Install with Python 3.11 or later and pytest available.
 
 ```bash
-pip install -e ".[pipecat]"
+pip install "earful[pipecat]"
 ```
+
+The quotes keep the shell from reading the brackets, and `[pipecat]` installs pipecat-ai
+alongside in the release Earful is tested with. Pipecat support is new in the first
+release after 0.1.1; from a checkout, `pip install -e ".[pipecat]"` does the same.
 
 ## What runs, and what does not
 

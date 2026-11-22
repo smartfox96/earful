@@ -213,6 +213,16 @@ def test_a_lock_file_is_the_list_the_environment_scripts_write():
         assert names == sorted(names) and "earful" not in names, path
 
 
+def test_each_adapter_is_installed_by_its_extra_on_the_pages_a_reader_starts_from():
+    project = (ROOT / "pyproject.toml").read_text()
+    readme, pipecat = (ROOT / "README.md").read_text(), (ROOT / "docs" / "pipecat.md").read_text()
+    for extra, pages in (("livekit", [readme]), ("pipecat", [readme, pipecat])):
+        assert f"\n{extra} = [" in project, extra
+        assert all(f'pip install "earful[{extra}]"' in page for page in pages), extra
+    source = (ROOT / "src" / "earful" / "pipecat" / "__init__.py").read_text()
+    assert 'pip install "earful[pipecat]"' in source  # what the adapter says when it is missing
+
+
 def test_each_extra_accepts_the_releases_the_page_and_the_adapter_say_it_does():
     project = (ROOT / "pyproject.toml").read_text()
     livekit, pipecat = SUPPORT["livekit-agents"], SUPPORT["pipecat-ai"]
