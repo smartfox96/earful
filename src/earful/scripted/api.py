@@ -16,6 +16,7 @@ from ..core import bundle, crosscheck, search
 from ..core import case as cases
 from ..core.predicate import Predicate
 from ..core.shrink import nearest
+from .scenario import INLINE
 
 # Named as an adapter names its own classes: help() prints these names.
 Case = TypeVar("Case")
@@ -51,6 +52,16 @@ def seeded(data: dict[str, Any] | None, seed: int | None) -> int:
             "out to run the case as it was found, or change the case"
         )
     return int(data["seed"])
+
+
+def same_scenario(reference: str | None, data: dict[str, Any] | None) -> None:
+    """Raise ``ValueError`` if ``data`` is a case made for another scenario than ``reference``."""
+    if data is None or reference is None or data.get("scenario") in (None, INLINE, reference):
+        return
+    raise ValueError(
+        f"the case was made for the scenario {data['scenario']!r}, and {reference!r} was given; "
+        "run it with the scenario it names"
+    )
 
 
 def function(method: Callable[P, R], module: str) -> Callable[P, R]:
@@ -92,6 +103,7 @@ class AdapterAPI(Generic[Case, RunResult]):
         own seed. Warns of a declared delay or fault the run never reached. Raises
         ``InvalidRun`` if the run is not valid evidence, ``ValueError`` if either is refused."""
         found = self.scenario.Scenario.of(source)
+        same_scenario(found.reference, data)
         if data is None:
             result = self.run_case(found.make(), seed=seeded(None, seed))
         else:
@@ -132,6 +144,7 @@ class AdapterAPI(Generic[Case, RunResult]):
         # Checked here too, before any worker process is started.
         variables, faults = search.check_arguments(start, variables, faults)
         seeded(data, seed)
+        same_scenario(found.reference, data)
         options: dict[str, Any] = {
             "variables": variables,
             "faults": faults,
@@ -201,6 +214,7 @@ class AdapterAPI(Generic[Case, RunResult]):
         found = self.scenario.Scenario.of(source)
         if runs < 1:
             raise ValueError(f"a cross-check makes at least one real-clock run; got {runs}")
+        same_scenario(found.reference, data)
 
         def built() -> tuple[Case, int]:
             made = found.make() if data is None else found.build(data)

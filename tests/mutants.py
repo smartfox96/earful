@@ -5893,4 +5893,11 @@ MUTANTS = [
         "        if False:\n",
         first="declared_fault_is_logged_in_one_line",
     ),
+    Mutant(
+        "api: a case made for another scenario is run with the one given",
+        "src/earful/scripted/api.py",
+        '    if data is None or reference is None or data.get("scenario") in (None, INLINE, reference):\n',
+        "    if True:\n",
+        first="made_for_another_scenario",
+    ),
 ]

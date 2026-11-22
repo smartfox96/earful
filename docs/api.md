@@ -389,7 +389,8 @@ def run(source, *, data=None, seed=None) -> RunResult: ...
 Runs a scenario once on the virtual clock. `source` is a `Case`, a function that returns
 one, or a `module:function` reference. `seed` is 0 when left out. `data` is a case as data
 (`earful.case/1`), such as the example of a broken rule a search gives, and is run with
-the scenario's code and the seed it holds: a different `seed` with it is refused. A delay
+the scenario's code and the seed it holds. A different `seed` with it is refused, and so
+is a case made for another scenario than `source`. A delay
 or fault declared for a model call, utterance or write the run never reached is named in a
 `UserWarning`. It raises `InvalidRun` for a run that is not valid evidence, and
 `ValueError` for a scenario or a case that is refused before it runs.
@@ -474,7 +475,7 @@ Searches a scenario for the timings and faults at which it breaks a contract
 
 | Argument | Meaning |
 | --- | --- |
-| `data` | A case as data to search from, in place of the scenario as written |
+| `data` | A case as data to search from, in place of the scenario as written. A case made for another scenario than `source` is refused |
 | `seed` | The seed of the scenario as written, 0 when left out. A case given as `data` holds its own, and a different `seed` with it is refused |
 | `workers` | Worker processes to run the cases in. 0 runs them in this process. More needs a scenario that can be imported ([`testing.md`](testing.md#6-where-a-scenario-lives)) |
 | `variables` | The kinds of time to move. `'speech.end'` and `'speech.stt_delay'` can be added |

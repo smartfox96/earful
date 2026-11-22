@@ -123,6 +123,18 @@ def test_a_fault_on_a_write_the_run_never_makes_is_named(capsys, tmp_path):
     assert "unapplied" not in earful(capsys, "run", reference)[1]
 
 
+def test_a_case_made_for_another_scenario_is_refused(capsys, tmp_path):
+    made_for = "breaks:as_written_reads_the_error"
+    saved = tmp_path / "other.case.json"
+    saved.write_text(json.dumps(scenario.default(made_for)))
+    reference = "breaks:as_written_confirms_a_failed_booking"
+    said = f"the case was made for the scenario {made_for!r}, and {reference!r} was given"
+    for command in ("run", "search", "crosscheck"):
+        status, _, err = earful(capsys, command, reference, "--case", saved)
+        assert status == REFUSED and said in err, command
+    assert earful(capsys, "run", made_for, "--case", saved)[0] == OK
+
+
 def test_a_scenario_or_a_case_that_does_not_exist_is_refused(capsys, tmp_path):
     status, _, err = earful(capsys, "run", "earful.livekit.cases:nope")
     assert status == REFUSED and "no scenario 'earful.livekit.cases:nope'" in err
