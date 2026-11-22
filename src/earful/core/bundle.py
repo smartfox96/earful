@@ -18,7 +18,7 @@ from . import case as cases
 from .checker import CONTRACTS, FAIL, PASS, check
 from .ledger import SCHEMA as LEDGER
 from .ledger import ledger_hash, read_jsonl, write_jsonl
-from .predicate import Predicate, failures
+from .predicate import Predicate, details_of, failures
 from .schema import validate as ledger_errors
 from .search import Run, Runner, judged
 from .shrink import shrink
@@ -65,16 +65,6 @@ def _write_json(path: Path, value: Any) -> None:
 def case_digest(case: cases.Case) -> str:
     """What a manifest records of a case file: SHA-256 of the case as one line of JSON."""
     return hashlib.sha256(cases.canonical(case).encode("ascii")).hexdigest()
-
-
-def _findings(events: list[Event], predicate: Predicate) -> list[str]:
-    return [
-        finding.detail
-        for verdict in check(events).failures
-        if verdict.contract == predicate.contract
-        for finding in verdict.findings
-        if finding.rule == predicate.rule
-    ]
 
 
 def capture(
@@ -127,7 +117,7 @@ def capture(
             "speeches": len(case["speeches"]),
             "delays": len(case["delays"]),
             "faults": len(case["faults"]),
-            "findings": _findings(found_events, predicate),
+            "findings": list(details_of(check(found_events), predicate)),
         },
         "minimal": {
             "hash": ledger_hash(minimal_events),
@@ -135,7 +125,7 @@ def capture(
             "speeches": len(shrunk.case["speeches"]),
             "delays": len(shrunk.case["delays"]),
             "faults": len(shrunk.case["faults"]),
-            "findings": _findings(minimal_events, predicate),
+            "findings": list(details_of(check(minimal_events), predicate)),
         },
         "reduction": {
             "runs": shrunk.runs,

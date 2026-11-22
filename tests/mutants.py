@@ -5603,10 +5603,10 @@ MUTANTS = [
         first="requires_a_contract_of_the_case",
     ),
     Mutant(
-        "search: evidence lost has no details",
-        "src/earful/core/search.py",
-        "                if predicate.rule in (finding.rule, finding.code)\n",
-        "                if predicate.rule == finding.rule\n",
+        "predicate: evidence lost has no details",
+        "src/earful/core/predicate.py",
+        "        if predicate.rule in (finding.rule, finding.code)\n",
+        "        if predicate.rule == finding.rule\n",
         first="loses_is_a_rule",
     ),
     Mutant(

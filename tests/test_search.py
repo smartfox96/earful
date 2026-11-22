@@ -743,6 +743,15 @@ def test_evidence_a_case_loses_is_a_rule_of_its_own_with_its_cases_and_what_chan
     found.assert_contracts(allow=["A2/outside-backend", "A3/outside-backend"])
 
 
+def test_a_bundle_kept_for_evidence_lost_records_what_its_findings_say(tmp_path):
+    blind = _blind(ledger("1.8.12", "book_then_interrupt"))
+    lost = Predicate.parse("A2/outside-backend")
+    case = a_case(BOOK, WINDOW)
+    manifest = bundle.capture(tmp_path / "kept", case, held(lambda moved: blind, case), lost)
+    said = ["a tool for the intent was called but nothing reached the backend"]
+    assert manifest["original"]["findings"] == manifest["minimal"]["findings"] == said
+
+
 def test_a_case_that_cannot_be_searched_is_refused_up_front():
     run = answers(lambda case: False)
     with pytest.raises(ValueError, match="not an earful.case/1 document"):

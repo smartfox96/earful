@@ -14,10 +14,10 @@ from typing import Any
 
 from . import case as cases
 from .case import Variable
-from .checker import FAIL, UNOBSERVABLE, ContractFailure, check
+from .checker import ContractFailure, check
 from .checker.report import allowed
 from .ledger import ledger_hash
-from .predicate import Predicate, failures
+from .predicate import Predicate, details_of, failures
 
 Event = dict[str, Any]
 Run = Callable[[cases.Case], list[Event]]
@@ -828,14 +828,7 @@ class Exploration:
                 example, what = nearest.candidate.case, self._what(nearest.candidate)
             with self.runner.counting("examples"):
                 ledger = self.runner.ledger(example)
-            results = check(ledger).results if ledger is not None else {}
-            details = tuple(
-                finding.detail
-                for verdict in (results[predicate.contract].verdicts if results else ())
-                if verdict.outcome == FAIL or verdict.outcome == UNOBSERVABLE
-                for finding in verdict.findings
-                if predicate.rule in (finding.rule, finding.code)
-            )
+            details = details_of(check(ledger), predicate) if ledger is not None else ()
             out.append(
                 Break(
                     predicate=predicate,
