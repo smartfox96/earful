@@ -95,6 +95,12 @@ formats have versions of their own
   interruption, or a reply held back, was judged. A search prints each contract's counts
   of pass, fail, nothing to judge and evidence lost, and a replay prints the code. The
   report format is `earful.report/2`: a finding carries `code`.
+- M2 rule d loses its evidence for a tool that ran without a call id when the model asked
+  for a call of that tool that nothing else answered: such a tool was passed over, and a
+  context that dropped its result passed. A tool the application ran itself is not a
+  call of the model's and is still left alone. An M2 verdict that lost its evidence says
+  so in its summary, `Report.failures` says it is empty for an invalid run, and the
+  contracts page states exactly when a playout has not finished.
 - A reply that was never voiced is unattributable only when a later text attributed to
   no reply shares a word with it. Any unrelated phrase spoken later, such as a goodbye,
   turned M1's rule 4 failure for that reply into a missing verdict.

@@ -544,7 +544,7 @@ What the checker returns for one ledger.
 | `readings` | How many readings the ledger allows |
 | `outcome` | A method: the outcome of one contract |
 | `outcomes` | A method: contract id to outcome |
-| `failures` | Every failed `Verdict` |
+| `failures` | Every failed `Verdict`. Empty for an invalid run, which has no verdicts: read `valid` first, or use `assert_contracts`, which fails on an invalid run |
 | `broken` | A method: every rule a failed verdict names, as `CONTRACT/RULE` |
 | `lost` | A method: every code of evidence lost a verdict carries, as `CONTRACT/CODE`. An assertion fails on each unless `allow` names it |
 | `lines` | A method: the report as lines of text |

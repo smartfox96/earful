@@ -197,6 +197,8 @@ class Report:
 
     @property
     def failures(self) -> tuple[Verdict, ...]:
+        """Every failed verdict. An invalid run has none, since it has no verdicts at all:
+        read ``valid`` first."""
         return tuple(v for r in self.results.values() for v in r.failures)
 
     def to_json(self) -> dict[str, Any]:

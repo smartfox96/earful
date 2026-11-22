@@ -987,8 +987,8 @@ MUTANTS = [
     Mutant(
         "M2: a tool called as a context is requested, after it, is judged in it",
         "src/earful/core/checker/m2.py",
-        '        if tool.call_id is None or tool.called["seq"] > context.event["seq"]:\n',
-        '        if tool.call_id is None or tool.called["t_us"] > context.event["t_us"]:\n',
+        '        if tool.called["seq"] > context.event["seq"]:\n',
+        '        if tool.called["t_us"] > context.event["t_us"]:\n',
         first="instant_its_tool_is_called",
     ),
     Mutant(
@@ -5773,5 +5773,26 @@ MUTANTS = [
         '        return {"".join(ch for ch in w.lower() if ch.isalnum()) for w in words} - {""}\n',
         '        return {"".join(ch for ch in w.lower() if ch.isalnum()) for w in words}\n',
         first="share_a_word",
+    ),
+    Mutant(
+        "M2: a tool that ran without a call id is passed over",
+        "src/earful/core/checker/m2.py",
+        "        if tool.call_id is None:\n            _unlinked(view, context, tool)\n",
+        "        if tool.call_id is None:\n            pass\n",
+        first="without_a_call_id_is_lost",
+    ),
+    Mutant(
+        "M2: a tool the application ran itself is taken for one the model asked for",
+        "src/earful/core/checker/m2.py",
+        "    if asked:\n        why = ",
+        "    if True:\n        why = ",
+        first="without_a_call_id_is_lost",
+    ),
+    Mutant(
+        "M2: a verdict that lost its evidence says the context shows the conversation",
+        "src/earful/core/checker/m2.py",
+        "                if context.unknown\n",
+        "                if False\n",
+        first="without_a_call_id_is_lost",
     ),
 ]

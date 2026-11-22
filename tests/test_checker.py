@@ -2603,3 +2603,37 @@ def test_a_text_could_be_a_reply_only_if_they_share_a_word():
     assert could_be(["TABLE"], ["your", "table"]) and could_be(["6"], ["for", "6"])
     assert not could_be(["Goodbye."], ["Okay,", "stopping."])
     assert not could_be(["..."], ["...", "Okay."])  # punctuation alone is no word
+
+
+def _unlinked_and_dropped(events, *, asked):
+    """The booking tool ran without a call id, and no later context shows a call or a result.
+    With ``asked`` false the model never asked for it: the application ran it itself."""
+    of(events, "tool.called")["data"]["call_id"] = None
+    if not asked:
+        of(events, "llm.response")["data"]["tool_calls"] = []
+    for e in events:
+        if e["kind"] in ("llm.request", "history.final") and e["data"].get("call") != 1:
+            kept = [i for i in e["data"]["items"] if not i["type"].startswith("function_call")]
+            e["data"]["items"] = kept
+    return seal(events)
+
+
+def test_m2_a_tool_that_ran_without_a_call_id_is_lost_only_where_the_model_asked_for_it(fixed):
+    linked = copy.deepcopy(fixed)
+    for e in linked:
+        if e["kind"] in ("llm.request", "history.final") and e["data"].get("call") != 1:
+            e["data"]["items"] = [
+                i for i in e["data"]["items"] if not i["type"].startswith("function_call")
+            ]
+    assert rules(check(seal(linked)), "M2") == ["rule d"]  # with a call id, a lost result fails
+    asked = check(_unlinked_and_dropped(copy.deepcopy(fixed), asked=True))
+    assert asked.outcome("M2") == UNOBSERVABLE and "M2/tool-unwitnessed" in asked.lost()
+    summaries = {v.summary for v in asked.results["M2"].verdicts if v.outcome == UNOBSERVABLE}
+    assert summaries == {
+        "cannot tell whether call 2 shows the conversation that happened",
+        "cannot tell whether final history shows the conversation that happened",
+    }
+    (why,) = {f.detail for v in asked.results["M2"].verdicts for f in v.findings}
+    assert why == "create_reservation ran without a call id to link it to call 'call-1-1'"
+    itself = check(_unlinked_and_dropped(copy.deepcopy(fixed), asked=False))
+    assert "M2/tool-unwitnessed" not in itself.lost() and itself.outcome("M2") != UNOBSERVABLE

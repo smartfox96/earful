@@ -162,7 +162,10 @@ def _tool_calls(view: View, context: _Context, by_request: dict[int, _Context]) 
     """Rule d: every tool call that returned is shown once, with its result. Counts stand-ins."""
     stand_ins = 0
     for tool in view.tools.values():
-        if tool.call_id is None or tool.called["seq"] > context.event["seq"]:
+        if tool.called["seq"] > context.event["seq"]:
+            continue
+        if tool.call_id is None:
+            _unlinked(view, context, tool)
             continue
         asked = view.request_of.get(tool.call_id)
         asked_in = by_request[asked.request["seq"]] if asked is not None else None
@@ -170,6 +173,21 @@ def _tool_calls(view: View, context: _Context, by_request: dict[int, _Context]) 
         owed = _owes_a_handoff(view, context, tool)
         stand_ins += _tool_call(context, tool, tool.call_id, later_turn, owed)
     return stand_ins
+
+
+def _unlinked(view: View, context: _Context, tool: ToolInvocation) -> None:
+    """Rule d cannot follow a tool that ran without a call id if the model asked for a call of
+    it that nothing else answered. With no such call, the application ran it itself."""
+    asked = [
+        call_id
+        for call_id, call in view.asked.items()
+        if call["name"] == tool.name
+        and call_id not in view.invocation_of
+        and view.refusal(call_id) is None
+    ]
+    if asked:
+        why = f"{tool.name} ran without a call id to link it to call {asked[0]!r}"
+        context.unknown.append(("tool-unwitnessed", why))
 
 
 def _unrun_results(view: View, context: _Context) -> int:
@@ -363,9 +381,11 @@ def check(view: View, policy: policies.M2) -> ContractResult:
             verdict(
                 "M2",
                 {"context": context.label},
-                f"{context.label} shows the conversation that happened"
-                if not context.findings
-                else f"{context.label} does not show the conversation that happened",
+                f"{context.label} does not show the conversation that happened"
+                if context.findings
+                else f"cannot tell whether {context.label} shows the conversation that happened"
+                if context.unknown
+                else f"{context.label} shows the conversation that happened",
                 events=context.used,
                 findings=context.findings,
                 missing=context.unknown,
