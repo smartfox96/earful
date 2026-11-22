@@ -1,6 +1,7 @@
 """The documentation agrees with the code, schemas and workflows it describes."""
 
 import ast
+import json
 import re
 from pathlib import Path
 
@@ -213,6 +214,16 @@ def test_a_lock_file_is_the_list_the_environment_scripts_write():
         assert names == sorted(names) and "earful" not in names, path
 
 
+def test_each_adapter_is_installed_by_its_extra_on_the_pages_a_reader_starts_from():
+    project = (ROOT / "pyproject.toml").read_text()
+    readme, pipecat = (ROOT / "README.md").read_text(), (ROOT / "docs" / "pipecat.md").read_text()
+    for extra, pages in (("livekit", [readme]), ("pipecat", [readme, pipecat])):
+        assert f"\n{extra} = [" in project, extra
+        assert all(f'pip install "earful[{extra}]"' in page for page in pages), extra
+    source = (ROOT / "src" / "earful" / "pipecat" / "__init__.py").read_text()
+    assert 'pip install "earful[pipecat]"' in source  # what the adapter says when it is missing
+
+
 def test_each_extra_accepts_the_releases_the_page_and_the_adapter_say_it_does():
     project = (ROOT / "pyproject.toml").read_text()
     livekit, pipecat = SUPPORT["livekit-agents"], SUPPORT["pipecat-ai"]
@@ -309,13 +320,22 @@ def test_the_releases_with_each_known_defect_are_the_same_everywhere_they_are_li
         assert shown.endswith(f"| {', '.join(present)} | {', '.join(repaired)} |")
 
 
+def test_each_case_page_quotes_the_hash_its_bundle_records():
+    for page in sorted((ROOT / "docs" / "cases").glob("*.md")):
+        text = page.read_text()
+        (bundle,) = re.findall(r"Bundle: `(tests/bundles/[^`]+)/`", text)
+        manifest = json.loads((ROOT / bundle / "manifest.json").read_text())
+        (quoted,) = re.findall(r"Recorded ledger hash on [\d.]+:\s+`([0-9a-f]{64})`", text)
+        assert quoted == manifest["minimal"]["hash"], page.name
+
+
 def test_the_readme_shows_the_example_as_it_is_in_the_repository():
     for name in ("agent.py", "test_booking.py"):
         source = (ROOT / "examples" / "booking" / name).read_text()
         assert f"```python\n{source}```" in README, f"the README does not show {name} as it is"
     assert 'idempotency_key=f"table-for-{party_size}"' in README
     for line in (
-        "A2/rule  in 261 case(s)",
+        "A2/rule  in 272 case(s)",
         "2 durable effects for 'book-table'; the scenario authorized 1",
         "changed: backend.timeout 1, commit first",
         "search 1 (booking) breaks A2/rule: backend.timeout 1, commit first",
@@ -666,15 +686,22 @@ def test_every_message_the_troubleshooting_page_quotes_is_one_the_code_gives():
 
 
 def test_the_troubleshooting_page_says_what_exercises_each_contract_as_the_checker_does():
-    from earful.core.checker.report import _EXERCISED_BY
+    from earful.core.checker.contracts import DECLARED
 
     section = _sections(TROUBLESHOOTING)["Not exercised"]
-    assert {contract: cells[0] for contract, cells in _rows(section)[1:]} == _EXERCISED_BY
+    exercised_by = {name: contract.exercised_by for name, contract in DECLARED.items()}
+    assert {contract: cells[0] for contract, cells in _rows(section)[1:]} == exercised_by
 
 
 def _links(text):
     """Each link in ``text`` that is not to a site, as its path and its anchor."""
     return re.findall(r"\]\((?!https?://)([^)#\s]*)(?:#([^)\s]+))?\)", text)
+
+
+def test_the_readme_lists_every_page_of_the_documentation():
+    readme = (ROOT / "README.md").read_text()
+    listed = set(re.findall(r"\| \[`docs/([a-z_]+\.md)`\]", readme))
+    assert listed == {page.name for page in (ROOT / "docs").glob("*.md")}
 
 
 def test_every_link_between_the_pages_leads_to_a_heading_that_exists():

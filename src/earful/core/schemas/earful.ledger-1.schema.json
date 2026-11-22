@@ -2098,19 +2098,7 @@
     },
     "fw.*": {
       "description": "A public event of the framework under test, recorded as explanation. Fields are adapter-defined. Never decides a verdict.",
-      "type": "object",
-      "required": [
-        "created_us"
-      ],
-      "properties": {
-        "created_us": {
-          "description": "The framework's own timestamp for the event, if it has one.",
-          "type": [
-            "integer",
-            "null"
-          ]
-        }
-      }
+      "type": "object"
     },
     "effect.failed": {
       "description": "The backend rejected a write. Nothing was committed, and the caller was told.",

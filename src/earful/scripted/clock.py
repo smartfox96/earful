@@ -467,7 +467,9 @@ def virtual_wall_clock() -> Iterator[ClockPatchReport]:
             from opentelemetry.sdk import trace as otel_sdk_trace
 
             if hasattr(otel_sdk_trace, "time_ns"):
-                stack.enter_context(mock.patch.object(otel_sdk_trace, "time_ns", _now_ns))
+                # A span reads the clock as it starts and ends, and tracing may be off.
+                spans = _reading_without_a_step(_now_ns)
+                stack.enter_context(mock.patch.object(otel_sdk_trace, "time_ns", spans))
                 _REPORT.otel_patched = True
         except ImportError:
             pass
@@ -600,3 +602,15 @@ def now_us() -> int:
     if isinstance(loop, VirtualTimeLoop):
         return loop.time_us()
     return round(loop.time() * _TICKS_PER_SECOND)  # real-clock control runs
+
+
+QUIET_FOR_US = 1_000_000
+
+
+async def quiet(busy: Callable[[], bool]) -> None:
+    """Wait until ``busy()`` has been false for a second, read every tenth of a second."""
+    since = now_us()
+    while now_us() - since < QUIET_FOR_US:
+        await asyncio.sleep(0.1)
+        if busy():
+            since = now_us()

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import importlib.util
 import inspect
 import json
 import os
@@ -22,14 +23,24 @@ pytest.importorskip("pipecat")
 from loguru import logger
 from pipecat.adapters.llm.schemas.function_schema import FunctionSchema
 from pipecat.adapters.llm.schemas.tools_schema import ToolsSchema
-from pipecat.frames.frames import CancelFrame, FunctionCallResultProperties, OutputAudioRawFrame
+from pipecat.frames.frames import (
+    CancelFrame,
+    EndWorkerFrame,
+    FunctionCallResultProperties,
+    LLMContextFrame,
+    OutputAudioRawFrame,
+    StartFrame,
+    TTSSpeakFrame,
+)
 from pipecat.processors.aggregators.llm_context import LLMContext
+from pipecat.processors.frame_processor import FrameDirection, FrameProcessor
 
 from earful import pipecat as pc
 from earful.cli import main
 from earful.core import bundle, case, schema
 from earful.core.ledger import Ledger
 from earful.core.search import evaluate
+from earful.pipecat import pipeline as pc_pipeline
 from earful.pipecat import scenario
 from earful.pipecat.cases import MENU
 from earful.pipecat.sink import ClockedOutput
@@ -493,6 +504,88 @@ def test_pipecat_documented_example_runs_from_pytest_and_the_installed_cli(tmp_p
     assert " judged, 0 contract rule(s) broken" in searched  # a search of no case would fail
 
 
+def test_pipecat_the_skill_for_coding_agents_uses_only_what_the_pipecat_adapter_has():
+    """Its section for Pipecat is parsed: imports, keyword arguments and names in code type."""
+    import ast
+    import importlib
+
+    import earful
+
+    skill = (Path(__file__).resolve().parents[1] / "skills" / "earful" / "SKILL.md").read_text()
+    section = skill.partition("\n## A Pipecat bot\n")[2].partition("\n## ")[0]
+    assert section, "the skill has a section for Pipecat"
+    (block,) = re.findall(r"```python\n(.*?)```", section, flags=re.DOTALL)
+    spans = re.findall(r"`([^`\n]+)`", re.sub(r"```.*?```", "", section, flags=re.DOTALL))
+    trees = [ast.parse(block)]
+    for span in spans:
+        try:
+            trees.append(ast.parse(span))
+        except SyntaxError:
+            continue  # prose in code type: a command, a rule's name, a fragment
+    known = {}
+    for node in ast.walk(trees[0]):
+        if isinstance(node, ast.ImportFrom) and (node.module or "").startswith("earful"):
+            module = importlib.import_module(node.module)
+            for alias in node.names:
+                assert hasattr(module, alias.name), f"{node.module} has no {alias.name}"
+                known[alias.name] = getattr(module, alias.name)
+    known.setdefault("Effect", pc.Effect)
+    methods = {"when": pc.ScriptedModel.when, "otherwise": pc.ScriptedModel.otherwise}
+    checked = 0
+    for tree in trees:
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call):
+                continue
+            if isinstance(node.func, ast.Name) and node.func.id in known:
+                target = known[node.func.id]
+            elif isinstance(node.func, ast.Attribute) and node.func.attr in methods:
+                target = methods[node.func.attr]
+            elif isinstance(node.func, ast.Attribute) and node.func.attr == "assert_contracts":
+                target = pc.RunResult.assert_contracts
+            else:
+                continue
+            takes = inspect.signature(target).parameters
+            for keyword in node.keywords:
+                assert keyword.arg in takes, f"{ast.unparse(node.func)} takes no {keyword.arg}"
+                checked += 1
+    assert checked >= 8
+    fields = set(inspect.signature(pc.Case).parameters)
+    ends = {f"ends.{name}" for name in inspect.signature(pc.Ends).parameters}
+    for span in spans:
+        name = span.rstrip("=")
+        if re.fullmatch(r"[A-Za-z_]+", name):
+            assert name in fields or hasattr(pc, name) or hasattr(earful, name), name
+        elif span.startswith("ends."):
+            assert span in ends, span
+
+
+MYBOT = """
+from pipecat.services.llm_service import FunctionCallParams
+
+
+def register_functions(llm, reservations):
+    async def create_reservation(params: FunctionCallParams) -> None:
+        receipt = await reservations.create(params.arguments["party_size"])
+        await params.result_callback(f"Booked: {receipt}.")
+
+    llm.register_function("create_reservation", create_reservation)
+"""
+
+
+def test_pipecat_the_test_the_skill_shows_a_coding_assistant_runs_as_written(pytester):
+    skill = (Path(__file__).resolve().parents[1] / "skills" / "earful" / "SKILL.md").read_text()
+    section = skill.partition("\n## A Pipecat bot\n")[2].partition("\n## ")[0]
+    (shown,) = re.findall(r"```python\n(.*?)```", section, flags=re.DOTALL)
+    (pytester.path / "mybot").mkdir()
+    (pytester.path / "mybot" / "__init__.py").write_text("")
+    (pytester.path / "mybot" / "bot.py").write_text(MYBOT)
+    pytester.makepyfile(test_booking=shown)
+    result = pytester.runpytest_inprocess(
+        "-p", "no:cacheprovider", "-p", "no:asyncio", "-k", "as_written"
+    )
+    result.assert_outcomes(passed=1, deselected=1)
+
+
 def test_pipecat_documented_pipeline_runs_as_written(pytester):
     page = PAGE.read_text()
     _first, shown, *_others = re.findall(r"```python\n(.*?)```", page, flags=re.DOTALL)
@@ -502,6 +595,120 @@ def test_pipecat_documented_pipeline_runs_as_written(pytester):
     result.assert_outcomes(passed=1)
     for refused in ("VADProcessor", "TurnAnalyzerUserTurnStopStrategy", "vad_analyzer"):
         assert f"`{refused}`" in page  # the limits name what the tests above refuse
+
+
+def test_pipecat_a_bot_that_speaks_first_greets_before_the_user_says_anything(tmp_path):
+    """The page's recipe, run as it is shown."""
+    page = (Path(__file__).resolve().parents[1] / "docs" / "pipecat.md").read_text()
+    (shown,) = [
+        b for b in re.findall(r"```python\n(.*?)```", page, flags=re.DOTALL) if "SpeaksFirst" in b
+    ]
+    path = tmp_path / "speaks_first.py"
+    path.write_text(shown)
+    spec = importlib.util.spec_from_file_location("speaks_first", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    result = pc.run(module.greets)
+    result.assert_contracts()
+    kinds = [e["kind"] for e in result.events]
+    first = events(result, "llm.response")[0]
+    assert first["text"] == "Welcome to the restaurant. How can I help?"
+    assert kinds.index("llm.response") < kinds.index("user.vad_start")
+    assert kinds.index("playout.started") < kinds.index("user.vad_start")
+
+
+class _Chimes(FrameProcessor):
+    """Plays a chime of its own as the pipeline starts, as hold music would."""
+
+    async def process_frame(self, frame, direction):
+        await super().process_frame(frame, direction)
+        await self.push_frame(frame, direction)
+        if isinstance(frame, StartFrame):
+            chime = bytes([0x10, 0x27]) * 2400  # 0.1 s of a loud constant sample, at 24 kHz
+            await self.push_frame(OutputAudioRawFrame(chime, 24_000, 1))
+
+
+def test_pipecat_a_processor_that_plays_its_own_audio_makes_the_run_invalid():
+    case = greeting()
+
+    def pipeline(ends):
+        built = pc_pipeline.standard(case.user_speech_timeout, case.user_turn_stop_timeout)(ends)
+        at = built.index(ends.output)
+        return [*built[:at], _Chimes(), *built[at:]]
+
+    case = replace(case, pipeline=pipeline)
+    with pytest.raises(pc.InvalidRun, match="audio samples reached the sink altered"):
+        pc.run(case)
+
+
+def _around(case, processor, before):
+    """``case`` with ``processor`` in Earful's pipeline, just before the one named ``before``."""
+
+    def pipeline(ends):
+        built = pc_pipeline.standard(case.user_speech_timeout, case.user_turn_stop_timeout)(ends)
+        at = built.index(getattr(ends, before))
+        return [*built[:at], processor(), *built[at:]]
+
+    return replace(case, pipeline=pipeline)
+
+
+class _Welcomes(FrameProcessor):
+    """Speaks a welcome of the application's own as the pipeline starts."""
+
+    async def process_frame(self, frame, direction):
+        await super().process_frame(frame, direction)
+        await self.push_frame(frame, direction)
+        if isinstance(frame, StartFrame):
+            await self.push_frame(TTSSpeakFrame("Welcome to the restaurant."))
+
+
+def test_pipecat_text_a_processor_speaks_is_judged_as_text_the_application_spoke():
+    result = pc.run(_around(greeting(), _Welcomes, "tts"))
+    result.assert_contracts()
+    welcome = events(result, "tts.synthesized")[0]
+    assert (welcome["attribution"], welcome["text"]) == ("none", "Welcome to the restaurant.")
+    judged = [v for v in result.report.results["M1"].verdicts if v.instance == {"utterance": 1}]
+    assert [v.outcome for v in judged] == ["pass"]  # played, and remembered
+
+
+class _Breaks(FrameProcessor):
+    """Raises on the context it should hand the model."""
+
+    async def process_frame(self, frame, direction):
+        await super().process_frame(frame, direction)
+        if isinstance(frame, LLMContextFrame):
+            raise RuntimeError("the processor broke")  # noqa: TRY004 - a fault, not a type
+        await self.push_frame(frame, direction)
+
+
+def test_pipecat_a_processor_that_raises_makes_the_run_invalid_with_its_error():
+    with pytest.raises(pc.InvalidRun, match="Error processing frame: the processor broke"):
+        pc.run(_around(greeting(), _Breaks, "llm"))
+
+
+def _ends_the_call(llm):
+    async def end_call(params):
+        await params.result_callback("Goodbye.")
+        await params.llm.push_frame(EndWorkerFrame(), FrameDirection.UPSTREAM)
+
+    llm.register_function("end_call", end_call)
+    return LLMContext()
+
+
+def test_pipecat_a_bot_that_ends_the_call_is_judged_on_what_happened_before():
+    case = pc.Case(
+        "ends",
+        _ends_the_call,
+        [pc.UserSpeech(0.5, 1.5, "That is all, goodbye.")],
+        pc.ScriptedModel()
+        .when(pc.tool_returned("end_call"), say="Bye.")
+        .otherwise(call=("end_call", {})),
+    )
+    result = pc.run(case)
+    result.assert_contracts()
+    assert [e["name"] for e in events(result, "tool.called")] == ["end_call"]
+    assert [s["text"] for s in events(result, "tts.synthesized")] == ["Bye."]
+    assert result.events[-1]["kind"] == "run.end"
 
 
 def test_pipecat_reads_async_tool_results_from_the_context():
@@ -721,6 +928,26 @@ def test_pipecat_a_reply_cut_inside_a_word_while_it_is_generated_keeps_its_attri
     outcomes = result.report.outcomes()
     assert outcomes["M1"] == outcomes["L1"] == "pass"
     result.assert_contracts()
+
+
+def test_pipecat_a_user_who_speaks_before_the_first_token_cancels_the_reply_unheard():
+    case = pc.Case(
+        "barge_in_generating",
+        lambda llm: LLMContext(),
+        [
+            pc.UserSpeech(0.5, 2.5, "Tell me about the menu."),
+            pc.UserSpeech(4.0, 5.0, "Actually, just the specials."),
+        ],
+        pc.ScriptedModel()
+        .when(pc.user_said("specials"), say="The special is sea bass.")
+        .otherwise(say="Tonight we have soup and fish.", ttft=2.0, duration=3.0),
+    )
+    result = pc.run(case)
+    result.assert_contracts()
+    spoken = [(s["call"], s["text"]) for s in events(result, "tts.synthesized")]
+    assert spoken == [(2, "The special is sea bass.")]  # nothing of the first reply
+    (over,) = [v for v in result.report.results["L2"].verdicts if v.instance == {"speech": 1}]
+    assert (over.outcome, over.findings[0].code) == ("not_exercised", "no-reply-under-way")
 
 
 def test_pipecat_a_bot_that_starts_with_history_records_it_and_is_judged_without_it():

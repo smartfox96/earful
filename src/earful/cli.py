@@ -5,11 +5,14 @@ from __future__ import annotations
 
 import argparse
 import contextlib
+import importlib
+import inspect
 import json
 import os
 import sys
 import sysconfig
 import traceback
+import warnings
 from collections.abc import Callable, Iterator, Sequence
 from pathlib import Path
 from typing import Any
@@ -163,18 +166,22 @@ def _run(args: argparse.Namespace) -> int:
     case = _case(args.case)
     adapter, source = _scenario(args.scenario)
     try:
-        with _running(args.scenario):
+        with _running(args.scenario), warnings.catch_warnings():
+            warnings.filterwarnings("ignore", "declared but never applied")  # printed below
             result = adapter.run(source, data=case, seed=args.seed)
     except adapter.InvalidRun as exc:
         result = exc.result
     if args.ledger is not None:
         write_jsonl(result.events, args.ledger, normalized=True)
     report = result.report
+    unused = cases.unapplied(result.events)
     if args.json:
-        print(json.dumps({"case": result.case, "hash": result.hash, **report.to_json()}))
+        summary = {"case": result.case, "hash": result.hash, **report.to_json()}
+        print(json.dumps({**summary, "unapplied": unused}))
     else:
         unjudged = _required(report, require)
-        print("\n".join([*timeline.heading(result.events), "", *report.lines()]))
+        notes = [f"unapplied  {line}" for line in unused]
+        print("\n".join([*timeline.heading(result.events), *notes, "", *report.lines()]))
         if unjudged:
             print("\n" + "\n".join(unjudged))
         if args.ledger is not None:
@@ -205,6 +212,9 @@ def _search(args: argparse.Namespace) -> int:
             words=not args.no_words,
             max_runs=args.max_runs,
             planned=lambda plan: print(f"earful: {plan}", file=sys.stderr),
+            **_in_us(
+                delay_limit_us=args.delay_limit_ms, wait_us=args.wait_ms, stretch_us=args.stretch_ms
+            ),
         )
 
     try:
@@ -217,13 +227,18 @@ def _search(args: argparse.Namespace) -> int:
     # A rule that is kept is measured whatever else is: its reduction starts from there.
     broken = found.breaks(windows=keep if args.no_windows else True)
     kept: dict[str, Any] = {}
+    not_kept: dict[str, str] = {}  # rule -> why its bundle could not be written
     function = args.scenario.rpartition(":")[2]
     release = (found.runner.ledger(found.case) or [{}])[0].get("data", {}).get("framework", {})
     for predicate in keep:
         if not any(one.predicate == predicate for one in broken):
             continue
         directory = args.out / _bundle_name(release, function, predicate)
-        manifest = adapter.keep(found, predicate, directory).manifest
+        try:
+            manifest = adapter.keep(found, predicate, directory).manifest
+        except ValueError as exc:  # what was found is still printed
+            not_kept[str(predicate)] = str(exc)
+            continue
         kept[str(predicate)] = {
             "directory": str(directory),
             "speeches": [manifest["original"]["speeches"], manifest["minimal"]["speeches"]],
@@ -245,6 +260,7 @@ def _search(args: argparse.Namespace) -> int:
                 entry["unmeasured"] = one.unmeasured
                 entry["instants_only"] = one.instants_only
         summary["bundles"] = kept
+        summary["not_kept"] = not_kept
         print(json.dumps(summary, indent=2))
     else:
         print(found.describe(broken, unjudged))
@@ -255,13 +271,21 @@ def _search(args: argparse.Namespace) -> int:
                 + ", ".join(unmeasured)
             )
         for rule, entry in kept.items():
-            print(f"\nkept {rule} in {entry['directory']}")
-        missing = [str(p) for p in keep if str(p) not in kept]
+            runs = entry["reduction"]["runs"]
+            print(f"\nkept {rule} in {entry['directory']}, reduced in {runs} more run(s)")
+        for rule, why in not_kept.items():
+            print(f"\nnot kept {rule}: {why}")
+        missing = [str(p) for p in keep if str(p) not in kept and str(p) not in not_kept]
         if missing:
             print(f"\nnot kept, since no case broke them: {', '.join(missing)}")
     if any(not one.instants_only and str(one.predicate) not in allow for one in broken):
         return BROKEN
     return NO_VERDICT if unjudged or found.no_verdict else OK
+
+
+def _in_us(**given_ms: int | None) -> dict[str, int]:
+    """The options given in milliseconds, in microseconds; those left out are not passed."""
+    return {name: ms * 1000 for name, ms in given_ms.items() if ms is not None}
 
 
 # What the directory of a kept bundle begins with, for each framework.
@@ -421,12 +445,34 @@ def _ignored(directory: Path) -> str | None:
     return None
 
 
-def _init(args: argparse.Namespace) -> int:
+def _named(reference: str) -> Any:
+    """What ``module:name`` names, or None where it names nothing: the scaffold then says why."""
+    module, _, name = reference.partition(":")
     try:
-        from .livekit.scaffold import scaffold
+        return getattr(importlib.import_module(module), name) if module and name else None
+    except (ImportError, AttributeError, ValueError):
+        return None
+
+
+def _init(args: argparse.Namespace) -> int:
+    # A livekit-agents agent is a class; a Pipecat bot is the function that sets it up.
+    named = _named(args.agent)
+    bot = named is not None and not inspect.isclass(named) and callable(named)
+    try:
+        if bot:
+            from .pipecat.scaffold import scaffold
+        else:
+            from .livekit.scaffold import scaffold
     except ImportError as exc:
+        if bot:
+            raise Refused(
+                f"{args.agent} is not a class of agent (a subclass of livekit.agents.Agent). "
+                "As a function it would be a Pipecat bot, and pipecat-ai is not installed. "
+                'Install it with: pip install "earful[pipecat]"'
+            ) from exc
         raise Refused(
-            f"`earful init` writes a test for a livekit-agents agent only. {exc}"
+            f"{args.agent} needs livekit-agents, which is not installed. Install it with: "
+            'pip install "earful[livekit]"'
         ) from exc
 
     made = scaffold(args.agent)
@@ -439,7 +485,7 @@ def _init(args: argparse.Namespace) -> int:
         raise Refused(f"cannot write {target}: {exc.strerror or exc}") from exc
     print(f"wrote      {target}")
     if made.tools:
-        print(f"tools      {', '.join(made.tools)}")
+        print(f"{made.noun:<11}{', '.join(made.tools)}")
         print("           each is declared an effect; delete those that only read")
     if made.unbuilt:
         print(f"build      None for each argument does not build the agent ({made.unbuilt})")
@@ -487,12 +533,15 @@ def _parser() -> argparse.ArgumentParser:
     def scenario(sub: Any) -> None:
         sub.add_argument("scenario", metavar="SCENARIO", help="module:function")
         sub.add_argument("--case", type=Path, metavar="FILE", help="a saved case (earful.case/1)")
-        sub.add_argument("--seed", type=int, default=0, help="seed of the run (default 0)")
+        sub.add_argument(
+            "--seed", type=int, help="seed of the run (default 0, or the one --case holds)"
+        )
 
     sub = command(
         "init",
         _init,
-        "Write a first test for a livekit-agents agent, from the agent's own tools.",
+        "Write a first test for a livekit-agents agent class or a Pipecat bot function, "
+        "from its own tools.",
     )
     sub.add_argument(
         "agent", metavar="AGENT", help="module:Class, such as myapp.agent:SupportAgent"
@@ -549,6 +598,24 @@ def _parser() -> argparse.ArgumentParser:
         help="stop after N runs. A search cut short is incomplete and exits 3 unless a rule broke",
     )
     sub.add_argument(
+        "--wait-ms",
+        type=int,
+        metavar="MS",
+        help="how long the caller of a faulted write waits (default 1000)",
+    )
+    sub.add_argument(
+        "--stretch-ms",
+        type=int,
+        metavar="MS",
+        help="how long --pairs makes a slow write or generation (default 1500)",
+    )
+    sub.add_argument(
+        "--delay-limit-ms",
+        type=int,
+        metavar="MS",
+        help="the longest a delay or a wait is made (default 10000)",
+    )
+    sub.add_argument(
         "--no-windows",
         action="store_true",
         help="do not measure how wide each failure is (a kept one is still measured). A "
@@ -591,7 +658,9 @@ def _parser() -> argparse.ArgumentParser:
         "source", metavar="SCENARIO|BUNDLE_DIR", help="module:function, or a kept failure"
     )
     sub.add_argument("--case", type=Path, metavar="FILE", help="a saved case (earful.case/1)")
-    sub.add_argument("--seed", type=int, default=0, help="seed of the runs (default 0)")
+    sub.add_argument(
+        "--seed", type=int, help="seed of the runs (default 0, or the one the case holds)"
+    )
     sub.add_argument("--runs", type=int, default=3, metavar="N", help="real-clock runs (default 3)")
     sub.add_argument(
         "--tolerance-ms",

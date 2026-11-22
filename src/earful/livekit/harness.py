@@ -16,7 +16,7 @@ from livekit import rtc
 from livekit.agents import utils
 
 from ..core import backend as backends
-from ..core.backend import BackendMode, Effect, EffectBackend
+from ..core.backend import BackendError, BackendMode, BackendTimeout, Effect, EffectBackend
 from ..core.checker import Report, check
 from ..core.ledger import Ledger, ledger_hash
 from ..core.predicate import Predicate
@@ -24,12 +24,12 @@ from ..core.schema import validity
 from ..core.timebase import to_seconds, to_us
 from ..scripted.case import DELAYS, Delay, Fault, Intent, InvalidRun, check_case, declared_intents
 from ..scripted.clock import (
-    WALL_CLOCK_EPOCH,
     ClockPatchReport,
     VirtualTimeLoop,
     left_the_clock,
     now_us,
     patch_report,
+    quiet,
     run_real,
     run_virtual,
 )
@@ -321,11 +321,6 @@ def _scenario(case: Case, witnessed_tools: list[str], intents: list[Intent]) -> 
     }
 
 
-def _created_us(ev: Any) -> int | None:
-    created = getattr(ev, "created_at", None)
-    return round((created - WALL_CLOCK_EPOCH) * 1_000_000) if created is not None else None
-
-
 def _check_handover(
     session: lk.AgentSession[Any], checked: list[lk.Agent], errors: list[str]
 ) -> None:
@@ -350,7 +345,7 @@ def _tap(
         def handler(ev: Any) -> None:
             try:
                 _check_handover(session, checked, errors)
-                ledger.append("framework", f"fw.{name}", created_us=_created_us(ev), **fields(ev))
+                ledger.append("framework", f"fw.{name}", **fields(ev))
             except Exception as exc:  # noqa: BLE001
                 errors.append(f"tap {name}: {type(exc).__name__}: {exc}")
 
@@ -446,6 +441,12 @@ class _WarningCollector(logging.Handler):
             self.messages.append(f"{record.name}: {record.getMessage()}")
         if record.levelno < self._shown(record.name):
             return
+        raised = record.exc_info[1] if record.exc_info else None
+        if isinstance(raised, (BackendError, BackendTimeout)):  # a fault the scenario declared
+            record = logging.makeLogRecord(
+                {**record.__dict__, "msg": f"{record.getMessage()}: {raised}", "args": None}
+            )
+            record.exc_info = record.exc_text = None
         # As propagation would, with this handler found, so Python's last resort is not used.
         handlers, above = self._handlers, self._logger.parent if self._propagate else None
         while True:
@@ -630,6 +631,15 @@ async def _play(
     if case.hangup is None:
         await stt.done
         await asyncio.sleep(case.drain_delay)
+
+        def busy() -> bool:
+            return witness.running or session.agent_state in ("thinking", "speaking")
+
+        # A draining session asks the model with tool_choice='none': not over a running tool.
+        # One that never returns is judged as such, and the session is drained over it.
+        if busy():
+            with contextlib.suppress(asyncio.TimeoutError):
+                await asyncio.wait_for(quiet(busy), timeout=case.drain_timeout)
         with contextlib.suppress(RuntimeError, asyncio.TimeoutError):
             await asyncio.wait_for(session.drain(), timeout=case.drain_timeout)
     else:

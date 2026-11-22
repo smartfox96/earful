@@ -5,6 +5,7 @@ import re
 import shutil
 import subprocess
 import sys
+import warnings
 from pathlib import Path
 
 import pytest
@@ -91,6 +92,47 @@ def test_run_exits_1_when_the_scenario_breaks_a_rule_as_it_does_from_a_saved_cas
     assert status == BROKEN
     assert json.loads(out)["results"]["A3"]["outcome"] == "fail"
     assert earful(capsys, "run", reference, "--case", saved, "--allow", "A3/rule")[0] == OK
+
+
+def test_a_saved_case_runs_with_its_own_seed_and_a_different_one_is_refused(capsys, tmp_path):
+    reference = "breaks:as_written_confirms_a_failed_booking"
+    saved = tmp_path / "seeded.case.json"
+    saved.write_text(json.dumps(scenario.default(reference, 7)))
+    status, out, _ = earful(capsys, "run", reference, "--case", saved)
+    assert status == OK and "(seed 7)" in out
+    assert earful(capsys, "run", reference, "--case", saved, "--seed", "7")[0] == OK
+    for command in ("run", "search", "crosscheck"):
+        status, _, err = earful(capsys, command, reference, "--case", saved, "--seed", "0")
+        assert status == REFUSED and "the case holds seed 7 and seed=0 was asked for" in err
+
+
+def test_a_fault_on_a_write_the_run_never_makes_is_named(capsys, tmp_path):
+    reference = "breaks:as_written_confirms_a_failed_booking"
+    saved = tmp_path / "late.case.json"
+    saved.write_text(json.dumps(cases.with_fault(scenario.default(reference), "backend.error", 9)))
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")  # the command says it once, on its own line
+        status, out, _ = earful(capsys, "run", reference, "--case", saved)
+    assert status == OK and "\nunapplied  backend.error 9: the run made 1 write(s)\n" in out
+    status, out, _ = earful(capsys, "run", reference, "--case", saved, "--json")
+    assert json.loads(out)["unapplied"] == ["backend.error 9: the run made 1 write(s)"]
+    import earful.livekit as adapter
+
+    with pytest.warns(UserWarning, match=r"never applied: backend.error 9: the run made 1 write"):
+        adapter.run(reference, data=json.loads(saved.read_text()))
+    assert "unapplied" not in earful(capsys, "run", reference)[1]
+
+
+def test_a_case_made_for_another_scenario_is_refused(capsys, tmp_path):
+    made_for = "breaks:as_written_reads_the_error"
+    saved = tmp_path / "other.case.json"
+    saved.write_text(json.dumps(scenario.default(made_for)))
+    reference = "breaks:as_written_confirms_a_failed_booking"
+    said = f"the case was made for the scenario {made_for!r}, and {reference!r} was given"
+    for command in ("run", "search", "crosscheck"):
+        status, _, err = earful(capsys, command, reference, "--case", saved)
+        assert status == REFUSED and said in err, command
+    assert earful(capsys, "run", made_for, "--case", saved)[0] == OK
 
 
 def test_a_scenario_or_a_case_that_does_not_exist_is_refused(capsys, tmp_path):
@@ -330,6 +372,17 @@ def test_search_finds_the_break_keeps_it_and_the_kept_bundle_replays(capsys, tmp
     assert status == BROKEN
     assert out.startswith(f"book_then_interrupt on livekit-agents {lk.__version__}: ")
     assert "A3/rule  in " in out and "changed: backend." in out
+    (runs,) = re.findall(r"^    (\d+) run\(s\): (.*)$", out, re.MULTILINE)
+    spent = dict(reversed(part.split(" ", 1)) for part in runs[1].split(", "))
+    assert list(spent) == [
+        "to find where to put things",
+        "for the cases",
+        "to measure the failures",
+    ]
+    assert int(runs[0]) == sum(map(int, spent.values()))
+    # A label with a comma of its own stays one label.
+    (also,) = re.findall(r"^    also by changing: (.*)$", out, re.MULTILINE)
+    assert "backend.timeout 1, commit first + backend.latency 1" in also.split("; ")
     assert earful(capsys, "search", reference, *narrow, "--allow", "A3/rule")[0] == OK
 
     kept = ("--keep", "A3/rule", "--keep", "A2/rule", "--out", tmp_path)
@@ -337,6 +390,10 @@ def test_search_finds_the_break_keeps_it_and_the_kept_bundle_replays(capsys, tmp
     summary = json.loads(out)
     assert status == BROKEN and summary["scenario"] == reference
     assert list(summary["bundles"]) == ["A3/rule"]  # no case broke A2/rule: nothing to keep
+    # The reduction's runs are the bundle's, and the search's own count leaves them out.
+    assert summary["bundles"]["A3/rule"]["reduction"]["runs"] > 0
+    assert "reduce" not in summary["runs_by_purpose"]
+    assert summary["runs"] == sum(summary["runs_by_purpose"].values())
     # The kept rule is measured although --no-windows was given.
     assert summary["found"]["A3/rule"]["windows"]
     assert summary["found"]["A3/rule"]["instants_only"] is False
@@ -353,6 +410,52 @@ def test_search_finds_the_break_keeps_it_and_the_kept_bundle_replays(capsys, tmp
         capsys, "search", reference, *narrow, "--keep", "A2/rule", "--out", tmp_path
     )
     assert "not kept, since no case broke them: A2/rule" in out
+    shutil.rmtree(directory)
+    status, out, _ = earful(
+        capsys, "search", reference, *narrow, "--keep", "A3/rule", "--out", tmp_path
+    )
+    assert re.search(
+        rf"\nkept A3/rule in {re.escape(str(directory))}, reduced in \d+ more run\(s\)\n", out
+    )
+
+
+def test_a_failure_that_cannot_be_kept_is_said_after_what_the_search_found(
+    capsys, monkeypatch, tmp_path
+):
+    def cannot(found, rule, directory, **options):
+        raise ValueError("a case that does not repeat is not kept as a bundle")
+
+    import earful.livekit as adapter
+
+    monkeypatch.setattr(adapter, "keep", cannot)
+    reference = "breaks:as_written_confirms_a_failed_booking"
+    narrow = ("--variables", "none", "--no-words", "--workers", "0")
+    kept = ("--keep", "A3/rule", "--out", tmp_path)
+    status, out, err = earful(capsys, "search", reference, *narrow, *kept)
+    assert status == BROKEN and "does not repeat" not in err and "A3/rule  in " in out
+    assert out.endswith("\nnot kept A3/rule: a case that does not repeat is not kept as a bundle\n")
+    status, out, _ = earful(capsys, "search", reference, *narrow, *kept, "--json")
+    summary = json.loads(out)
+    assert summary["bundles"] == {} and list(summary["not_kept"]) == ["A3/rule"]
+
+
+def test_a_search_takes_its_wait_stretch_and_delay_limit_in_milliseconds(capsys, monkeypatch):
+    from earful.core import search
+
+    given, explore = [], search.explore
+
+    def recorded(case, run, **options):
+        given.append({k: options[k] for k in ("wait_us", "stretch_us", "delay_limit_us")})
+        return explore(case, run, **options)
+
+    monkeypatch.setattr(search, "explore", recorded)
+    narrow = ("--variables", "none", "--faults", "backend.error", "--no-words", "--workers", "0")
+    reference = "breaks:as_written_reads_the_error"
+    timing = ("--wait-ms", "2500", "--stretch-ms", "2000", "--delay-limit-ms", "8000")
+    assert earful(capsys, "search", reference, *narrow, *timing)[0] == OK
+    assert given == [{"wait_us": 2_500_000, "stretch_us": 2_000_000, "delay_limit_us": 8_000_000}]
+    status, _, err = earful(capsys, "search", reference, *narrow, "--wait-ms", "-1")
+    assert status == REFUSED and "wait_us is a number of microseconds, at least 0" in err
 
 
 def test_a_search_asked_for_what_there_is_not_starts_no_worker(capsys, monkeypatch):
@@ -407,7 +510,8 @@ def test_a_search_that_could_judge_nothing_it_tried_exits_3_and_gives_the_reason
     status, out, _ = earful(capsys, "search", reference, "--workers", "0")
     assert status == NO_VERDICT
     assert out.endswith(
-        ": 1 cases tried, 0 judged, 0 contract rule(s) broken\n\n"
+        ": 1 cases tried, 0 judged, 0 contract rule(s) broken\n"
+        "    2 run(s): 2 to find where to put things\n\n"
         "not judged: 1 of 1 cases, which leaves the search with no result\n"
         "    1 refused: this adapter cannot fail a write\n"
         "        such as backend.error 1\n\n"
@@ -635,7 +739,10 @@ def test_without_the_framework_ledgers_are_checked_and_a_run_is_refused_with_wha
     done = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, check=False)
     assert done.returncode == 0, done.stderr
     assert 'pip install "earful[livekit]"' in done.stderr
-    assert "earful: `earful init` writes a test for a livekit-agents agent only. " in done.stderr
+    assert (
+        "earful: myapp.agent:SupportAgent needs livekit-agents, which is not installed. "
+        'Install it with: pip install "earful[livekit]"'
+    ) in done.stderr
 
 
 def test_run_exits_3_for_a_run_that_is_not_valid_evidence_and_still_writes_its_ledger(
@@ -704,7 +811,8 @@ def test_a_search_says_how_many_cases_it_will_run_and_one_cut_short_by_its_budge
     assert status == NO_VERDICT
     (said,) = re.findall(
         r"^earful: (\d+) cases \(\d+ placements of a time, and the faults\); (\d+) to run, "
-        r"after 1 run\(s\) to find them\. The budget of 3 runs covers 2 of them$",
+        r"after 1 run\(s\) to find them\. The budget of 3 runs covers 2 of them\. "
+        r"Measuring where each failure starts and ends takes more runs$",
         err,
         re.MULTILINE,
     )

@@ -180,6 +180,28 @@ def with_fault(case: Case, of: str, nth: int, us: int | None = None) -> Case | N
     return None if validate(out) else out
 
 
+# A declared delay or fault -> the event that counts its occurrences, and what they are.
+_COUNTED_BY = {
+    "llm.ttft": ("llm.request", "model call"),
+    "llm.duration": ("llm.request", "model call"),
+    "tts.ttfb": ("tts.synthesized", "utterance"),
+}
+
+
+def unapplied(events: list[dict[str, Any]]) -> list[str]:
+    """Each delay or fault a run's header declares for an occurrence the run never reached."""
+    if not events or events[0].get("kind") != "run.start":
+        return []
+    scenario = events[0]["data"]["scenario"]
+    out = []
+    for declared in [*scenario.get("delays", []), *scenario.get("faults", [])]:
+        counted, noun = _COUNTED_BY.get(declared["of"], ("effect.requested", "write"))
+        made = sum(e["kind"] == counted for e in events)
+        if declared["nth"] > made:
+            out.append(f"{declared['of']} {declared['nth']}: the run made {made} {noun}(s)")
+    return out
+
+
 __all__ = [
     "DELAY_KINDS",
     "FAULT_KINDS",
@@ -191,6 +213,7 @@ __all__ = [
     "Variable",
     "canonical",
     "load_schema",
+    "unapplied",
     "validate",
     "value",
     "with_fault",

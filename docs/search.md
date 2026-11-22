@@ -199,7 +199,8 @@ is its own, and moves with it.
 A delay is placed against the transitions of the case as it is. A speech is placed against
 the transitions of the run without that speech: the timeline it would interrupt. A hangup
 is placed against the transitions of the run in which the user stays. No delay
-is made longer than a limit, 10 s by default. A model that answers after a minute is a
+is made longer than a limit, 10 s by default (`delay_limit_us`, `--delay-limit-ms`). A
+model that answers after a minute is a
 different scenario and is outside the search.
 
 By default the search moves where every speech sits, every provider delay and the
@@ -208,7 +209,7 @@ hangup: the user leaves at every transition from the end of their last speech on
 variables, some speeches, some handles, or the boundaries other than word ends.
 
 **Faults.** The search adds each fault to each backend write the run made, one fault per
-candidate. The caller waits 1 s unless told otherwise (`wait_us`). A timeout is run in
+candidate. The caller waits 1 s unless told otherwise (`wait_us`, `--wait-ms`). A timeout is run in
 both orders. One is the scenario's own: its write commits before that wait is over, or
 after. The other is made by letting the write take 1 s longer than the wait, or the caller
 wait 1 s longer than the write. Two more handles follow from a fault:
@@ -234,7 +235,7 @@ Each is placed against the transitions of the run with the fault in place.
   It also makes a provider slow and moves every speech and the hangup against that. A
   write that commits at once has no moment at which it is under way, so a speech or a
   hangup moved alone never falls inside it. Each backend write and each model generation
-  the run made is stretched to `stretch_us`, 1.5 s by default and at most the delay
+  the run made is stretched to `stretch_us` (`--stretch-ms`), 1.5 s by default and at most the delay
   limit, one per version of the case. The version is run and checked, and every speech
   and the hangup are moved against its run. 1.5 s is longer than the default
   interruption threshold, so a speech can interrupt while the write or the generation is
@@ -258,7 +259,7 @@ says what it is about to run. `earful search` prints it on standard error, and
 `explore(..., planned=print)` hands it to a function. For the README's booking example:
 
 ```
-earful: 736 cases (733 placements of a time, and the faults); 732 to run, after 6 run(s) to find them
+earful: 736 cases (733 placements of a time, and the faults); 732 to run, after 6 run(s) to find them. Measuring where each failure starts and ends takes more runs
 ```
 
 `max_runs`, `--max-runs N` on the command line, is a budget. The runs that read the
@@ -267,8 +268,12 @@ and no further failure is measured. Such a search is not `complete`: its report 
 many cases were not run and how many failures were not measured, its assertion fails, and
 `earful search` exits 3 unless a rule broke. A budget is a stop for a search that turned
 out too large. To make a search smaller, narrow it: fewer variables, some speeches, no
-word ends. Reading the ledger of each broken rule's example afterwards takes one run more
-for each rule.
+word ends.
+
+The report then says how many runs the search made and what each was for: reading the
+boundaries, the cases, measuring the failures, and reading an example of each where its
+ledger was not already read. A failure kept as a bundle is reduced in runs of its own,
+which the bundle's manifest counts (`reduction.runs`) and `earful search --keep` prints.
 
 ### What a search reports
 
@@ -444,7 +449,7 @@ A bundle that fails a check is refused with one line that names the file. `earfu
 earful: failures/lk-1.8.13.booking.A2-rule/minimal.case.json is not the case the manifest records: its digest is 5d0c…, and the manifest has e41a…
 ```
 
-`case_digest` was added in `schema_minor` 1. A bundle written before it is still read. Its
+`case_digest` is at `schema_minor` 1, and a manifest without it is read. Its
 case files cannot be checked, and a replay says so.
 
 The files are checked against the manifest. The manifest's predicate must be a rule some
@@ -470,7 +475,7 @@ damaged or left out. They do not make a bundle from an unknown source safe to re
 - **scenario code changed**: the digest of the scenario's module differs from the one
   recorded. The bundle then tests something other than what was found.
 - **unverified**: the case files the manifest records no digest of. Empty unless the
-  bundle was written before `case_digest`.
+  manifest has no `case_digest`.
 
 On the release it was found on, a bundle is reproduced, repeatable and identical, on any
 platform. On a release that repaired the defect it is clean and repeatable. That pair is
@@ -529,9 +534,8 @@ the one way they change.
   values has no candidate inside it: one that opens and closes between two transitions,
   more than 10 ms from each, and also one that lies strictly inside the 10 ms on one side
   of a transition, such as from 2 ms to 8 ms after it.
-  Stepping a variable in fixed increments (`scripts/contracts_sweep.py`) covers those,
-  and found nothing the boundary search missed on the supported releases
-  (`docs/history/gate1-core.md`).
+  Stepping a variable in fixed increments (`scripts/contracts_sweep.py`) covers those
+  ([`contracts.md`](contracts.md#sweeps)).
 - **Reached means aimed at.** The coverage list records that a case was built to put a
   handle beside a transition of the run the search read, and that the run of that case
   could be judged. It does not check that the transition still fell at that instant in

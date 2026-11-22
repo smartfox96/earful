@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from importlib import import_module
 from typing import Any
 
 from ..schema import validity
-from . import a1, a2, a3, l1, l2, m1, m2
-from .policy import POLICIES, PolicyError, parse_all
+from .contracts import DECLARED
+from .policy import PolicyError, parse_all
 from .report import (
     CONTRACTS,
     FAIL,
@@ -24,13 +25,7 @@ from .report import (
 from .view import Reading, View, readings
 
 _CHECKS: dict[str, Callable[[View, Any], ContractResult]] = {
-    "A1": a1.check,
-    "A2": a2.check,
-    "A3": a3.check,
-    "M1": m1.check,
-    "M2": m2.check,
-    "L1": l1.check,
-    "L2": l2.check,
+    name: import_module(f"{__name__}.{name.lower()}").check for name in DECLARED
 }
 
 
@@ -57,7 +52,7 @@ def _judge(events: list[dict[str, Any]]) -> tuple[Reading, int, dict[str, Contra
     best: tuple[tuple[int, int], Reading, dict[str, ContractResult]] | None = None
     for reading in possible:
         view = View(events, reading)
-        results = {name: _CHECKS[name](view, policies[name]) for name in POLICIES}
+        results = {name: check(view, policies[name]) for name, check in _CHECKS.items()}
         checked.append(results)
         verdicts = [v for result in results.values() for v in result.verdicts]
         score = (

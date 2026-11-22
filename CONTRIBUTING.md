@@ -96,8 +96,8 @@ a framework threshold is decided by the scenario and never by float rounding.
 `backend` and `harness` events. The framework's own `fw.*` events explain a run and
 decide nothing (`docs/contracts.md`, section 2).
 
-**The reference ledgers change only on purpose.** `tests/golden/` holds 21 ledgers that
-every platform must reproduce byte for byte, 18 of LiveKit and 3 of Pipecat, and
+**The reference ledgers change only on purpose.** `tests/golden/` holds 23 ledgers that
+every platform must reproduce byte for byte, 18 of LiveKit and 5 of Pipecat, and
 `tests/bundles/` the two reduced historical failures. Checks never write there. If a change is meant to alter a ledger,
 run `scripts/check_all.sh --update`, read the diff, and say in the pull request why each
 change is expected. An unexplained diff in a reference ledger is a bug.
@@ -114,7 +114,7 @@ behaviour, add the break that removes it and name the test that should catch it.
 the named tests are run against a break, which is what keeps the whole run short; a break
 that some other test catches fails the run as misnamed. When you move code a break is
 anchored on, or rename a test a break names, `scripts/lint.sh` fails until the break is
-brought along. A break that no test can catch is a sign the code it breaks is not needed.
+brought along. Code whose break no test can catch is not needed.
 
 **Tests over a second are marked `slow`.** `pytest -m "not slow"` is the loop to work in.
 
@@ -156,24 +156,27 @@ A release in a new minor series also moves the upper bound of the `livekit` extr
 it. Until then `earful.livekit` refuses to import on that series. The canary's `beyond`
 job fails from the day such a release is on PyPI.
 
-## Moving to a pipecat-ai release
+## Adding a pipecat-ai release
 
-One pipecat-ai release is supported at a time, so a new one takes the place of the old.
+The newest two minor series of pipecat-ai are supported, each by one tested release. A
+release in a new series is added and the oldest series is dropped; a later release in a
+supported series takes the place of the one tested.
 
 1. `EARFUL_LOCK=write scripts/make_pipecat_env.sh <version> <date>`, with a date a few
    days after the release. This builds `.venvs/pc-<version>` and writes
-   `compat/pc-<version>.lock.txt`. Delete the old lock file.
-2. Put the release and the date where the old ones are: the defaults of
+   `compat/pc-<version>.lock.txt`. Delete the lock file of the release it replaces.
+2. Put the release and the date beside the others, or where the replaced ones are: the defaults of
    `scripts/make_pipecat_env.sh`, `scripts/make_lint_env.sh`, `scripts/check_all.sh`, the
    `pipecat` and `docs` jobs of `.github/workflows/ci.yml`, `docs/compatibility.md`, the
    README, this page, `tests/test_ci.py` and `SUPPORT` in
    `src/earful/scripted/releases.py`. A release in a new minor series also moves the
-   `pipecat` extra, in `SUPPORT` and in `pyproject.toml`. Tests fail while these disagree.
+   `pipecat` extra, in `SUPPORT` and in `pyproject.toml`: its lowest release is that of the
+   older supported series. Tests fail while these disagree.
 3. `scripts/ran_every_test.sh --without livekit .venvs/pc-<version>/bin/python` runs
    every test that does not need livekit-agents and fails if one is skipped.
    `scripts/lint.sh` checks the adapter's types against the new release.
-4. `scripts/check_all.sh --update` records the three Pipecat reference ledgers under the
-   new release's name. Delete the old release's, and read the new ones against them
+4. `scripts/check_all.sh --update` records the five Pipecat reference ledgers under the
+   new release's name. Delete those of the release it replaces, and read the new ones against them
    (`python scripts/ledger_diff.py`). A difference in behaviour, in a ledger or in a test
    that had to change, belongs in the pull request.
 
@@ -187,10 +190,9 @@ down before the code.
    deliberate break and a clean control. Section 2.2 says which events may decide a
    verdict.
 2. Add `src/earful/core/checker/<name>.py` with a `check(view, policy)` that reads the
-   run through `View`. Register it in `_CHECKS` (`src/earful/core/checker/__init__.py`),
-   its policy in `POLICIES` (`src/earful/core/checker/policy.py`), its rules in `RULES`
-   and what exercises it in `_EXERCISED_BY` (`src/earful/core/checker/report.py`), and
-   its title in `CONTRACT_TITLES` (`src/earful/core/html.py`).
+   run through `View`, and declare the contract in `DECLARED`
+   (`src/earful/core/checker/contracts.py`): its title and statement, its policy class,
+   its rules, the codes a missing verdict can carry, and what exercises it.
 3. Test it three ways. The break and the control are scenarios in
    `tests/test_contract_breaks.py`. Hand-edited ledgers in `tests/test_checker.py` put a
    run on each side of every tolerance. `tests/mutants.py` gets a deliberate break for

@@ -1,10 +1,14 @@
 # Writing a Pipecat scenario
 
-Install from this checkout with Python 3.11 or later and pytest available.
+Install with Python 3.11 or later and pytest available.
 
 ```bash
-pip install -e ".[pipecat]"
+pip install "earful[pipecat]"
 ```
+
+`[pipecat]` installs pipecat-ai alongside, in the release Earful is tested with. From a
+checkout,
+`pip install -e ".[pipecat]"` does the same.
 
 ## What runs, and what does not
 
@@ -13,7 +17,7 @@ the input, which scripts the VAD, the speech-to-text, the model, the voice and t
 output. The context aggregators, the turn strategies, function dispatch and every
 processor of yours between them are Pipecat's and yours, and run as they are.
 
-What a scenario cannot do today:
+What a scenario cannot do:
 
 - Run a real service or transport. A pipeline that holds one is refused, with the
   processor's name.
@@ -36,7 +40,8 @@ What a scenario cannot do today:
 - Use a thread. A run in which a thread starts is invalid, and says so.
 - Queue frames from outside the pipeline. The pipeline worker is Earful's: your
   transport event handlers, observers and RTVI do not run, so a bot that speaks first
-  from `on_client_connected` does not speak first here.
+  from `on_client_connected` does not speak first here. A processor can do it instead
+  (A bot that speaks first, below).
 
 Each refusal is a `ValueError` of one line, raised before the run starts.
 
@@ -76,6 +81,24 @@ The CLI and fixture select the adapter from the case. The same scenario works wi
 `earful search` and `earful crosscheck`. A bundle records the framework for replay.
 A case object or local factory can also run in the test process. Worker searches and
 saved bundles need an importable factory such as `test_greeting:greeting`.
+
+## A first test of your bot
+
+`earful init` writes a first test from the functions your bot registers. Name the
+function that registers them and returns the context, as `module:function`:
+
+```bash
+earful init mybot.bot:booking_bot    # writes test_booking_bot.py
+```
+
+It calls that function with a model service of its own, and `None` for each argument
+after it, to see which functions it registers and which tools its context advertises.
+The scripted model calls the first of them, with a value for each argument the context's
+schema requires, and once more if the call fails. Every function is declared an effect,
+so no function body runs. A function registered without a schema gets a call with no
+arguments, and the file says to give it the ones it reads. Both tests require A2, A3 and
+L1 to reach a verdict, and the search fails on a write the model repeats until the file
+declares that write's idempotency key, as on LiveKit.
 
 ## Your own pipeline
 
@@ -178,6 +201,93 @@ A setting changes what the contracts find. With a mute strategy or with
 `VADUserTurnStartStrategy(enable_interruptions=False)` the bot talks on while the user
 speaks, and L2 reports it. Declare `contracts={"L2": {"interruptions_allowed": False}}`
 on the case if that is what the application intends.
+
+## A bot that speaks first
+
+A bot that greets the caller usually queues `LLMRunFrame` from its transport's
+`on_client_connected` handler, which does not run here. Ask from inside the pipeline
+instead: a processor that pushes `LLMRunFrame` as the pipeline starts. Put it before the
+user context aggregator, which turns the frame into a model call.
+
+```python
+from pipecat.frames.frames import LLMRunFrame, StartFrame
+from pipecat.processors.aggregators.llm_context import LLMContext
+from pipecat.processors.aggregators.llm_response_universal import (
+    LLMContextAggregatorPair,
+    LLMUserAggregatorParams,
+)
+from pipecat.processors.frame_processor import FrameProcessor
+from pipecat.turns.user_start.vad_user_turn_start_strategy import VADUserTurnStartStrategy
+from pipecat.turns.user_stop.speech_timeout_user_turn_stop_strategy import (
+    SpeechTimeoutUserTurnStopStrategy,
+)
+from pipecat.turns.user_turn_strategies import UserTurnStrategies
+
+from earful.pipecat import Case, Ends, ScriptedModel, UserSpeech, user_said
+
+
+class SpeaksFirst(FrameProcessor):
+    """Asks the model for a reply as the pipeline starts."""
+
+    async def process_frame(self, frame, direction):
+        await super().process_frame(frame, direction)
+        await self.push_frame(frame, direction)
+        if isinstance(frame, StartFrame):
+            await self.push_frame(LLMRunFrame())
+
+
+def pipeline(ends: Ends):
+    turns = UserTurnStrategies(
+        start=[VADUserTurnStartStrategy()],
+        stop=[SpeechTimeoutUserTurnStopStrategy(user_speech_timeout=0.6)],
+    )
+    pair = LLMContextAggregatorPair(
+        ends.context, user_params=LLMUserAggregatorParams(user_turn_strategies=turns)
+    )
+    return [
+        ends.input,
+        ends.stt,
+        SpeaksFirst(),
+        pair.user(),
+        ends.llm,
+        ends.tts,
+        ends.output,
+        pair.assistant(),
+    ]
+
+
+def greets():
+    return Case(
+        name="greets",
+        bot=lambda llm: LLMContext(),
+        speeches=[UserSpeech(4.0, 5.5, "A table for two, please.")],
+        policy=ScriptedModel()
+        .when(user_said("table"), say="Of course, for two.")
+        .otherwise(say="Welcome to the restaurant. How can I help?"),
+        pipeline=pipeline,
+        user_speech_timeout=0.6,
+    )
+
+
+def test_the_bot_greets_the_caller(earful):
+    earful.run(greets).assert_contracts()
+```
+
+The greeting is a reply like any other. It is model call 1, made before the user has
+said anything, so the scripted model's `otherwise` gives it. M1 holds it to what played,
+and a user who speaks over it is an interruption L2 judges.
+
+Three things a bot can do that do not fit a scenario:
+
+- **Pipecat Flows.** A flow manager is built around the pipeline's task, which is
+  Earful's, and moves the conversation between nodes outside the model service. Test
+  the functions and the prompts of one node as a bot of its own.
+- **A handler that holds the worker or the transport**, such as one that queues frames
+  on the task or reads the client's state. Neither is the application's in a run, so a
+  scenario cannot hand it to such code.
+- **A processor that plays its own audio**, such as a chime or hold music pushed as
+  audio frames. Earful's output reads every sample as a word the voice spoke, so audio
+  that comes from elsewhere is a stamp error and makes the run invalid.
 
 ## Tools and effects
 
@@ -297,18 +407,32 @@ The conversation as written passes. The search fails with three rules:
 
 ```text
 ContractFailure: booking on pipecat-ai 1.16.0: 753 cases tried, 753 judged, 3 contract rule(s) broken
+    886 run(s): 6 to find where to put things, 749 for the cases, 129 to measure the failures, 2 to read an example of each
+    by contract: pass, fail, nothing to judge, evidence lost
+    A1      0     0   753     0
+    A2    465   278    10     0
+    A3    687     0    66     0
+    M1    748     3     2     0
+    M2    727    26     0     0
+    L1    717     0    36     0
+    L2      0     0   753     0
 
 A2/rule  in 278 case(s)
     2 durable effects for 'book-table'; the scenario authorized 1
     changed: backend.timeout 1, commit first
+    also by changing: backend.timeout 1, commit first + backend.latency 1; backend.timeout 1, commit first + backend.wait 1; backend.timeout 1, commit later; backend.timeout 1, commit later + backend.wait 1
+    breaks with backend.latency 1 from 0.000 s (no case exists beyond it) to 32.958 s (still breaks where the search stopped)
+    breaks with backend.wait 1 from 0.000 s (no case exists beyond it) to 29.099 s (a run beyond it could not be judged, invalid: harness error: the bot was still busy 30.0 s after the scenario)
 
 M1/rule 2  in 3 case(s)
     final history: 5 word(s) were played but only 0 are remembered: 1080000 us of played audio is forgotten
     changed: user.hangup 0 at 6.540 s (not declared as written)
+    breaks with user.hangup 0 from 6.540 s (passes beyond it) to 6.899 s (passes beyond it)
 
 M2/rule d  in 26 case(s)
     create_reservation (call-1-1) finished before this context, which holds 0 call item(s) and 0 result item(s) for it
     changed: user.hangup 0 at 3.600 s (not declared as written)
+    breaks with user.hangup 0 from 3.600 s (passes beyond it) to 4.959 s (passes beyond it)
 ```
 
 **A2 is the application's.** The service committed a booking and told the bot it had
@@ -347,7 +471,7 @@ test, by rule:
 With the key sent and the two rules allowed, both tests pass. A rule that is allowed
 still appears in the report, and any other rule still fails the test.
 
-Two more results of this kind are worth knowing before you search your own bot. With
+Two more results of this kind can appear in a search of your own bot. With
 `tts_word_timestamps=True`, Pipecat marks a reply complete once its last word starts, so
 a cut inside that word leaves it marked complete (M1 rule 5). A function call that is
 still running when the user speaks is cancelled, which is Pipecat's default
@@ -360,7 +484,9 @@ idempotency key (A2).
 A search is quiet: Pipecat's logging is off while it runs. A single run logs as Pipecat
 does, and `LOGURU_LEVEL=WARNING` in the environment turns that down. An error Pipecat
 reports about itself, such as an audio context that got no audio in time, is recorded as
-an `fw.error` event and counted in `run.end`. The run is still judged.
+an `fw.error` event and counted in `run.end`. The run is still judged. A processor of
+yours that raises makes the run invalid, with its error: the pipeline broke, so nothing
+after it can be judged.
 
 All case times are in seconds. `vad_start_secs` and `vad_stop_secs` set the scripted
 VAD timing. `user_speech_timeout` and `user_turn_stop_timeout` configure Pipecat's

@@ -124,8 +124,10 @@ def test_reference_ledgers_get_the_documented_outcomes(path):
         expected["L2"] = FAIL
     if case == "reserve_table":
         expected.update(A2=PASS, A3=PASS)
-    if case in ("greeting", "reserve_table"):
+    if case in ("greeting", "reserve_table", "own_pipeline", "hangs_up"):
         expected["L2"] = NOT_EXERCISED  # the user never speaks while a reply is in flight
+    if case == "hangs_up":  # the user leaves before the confirmation's last word is heard
+        expected.update(A2=PASS)
     assert check(read_jsonl(path)).outcomes() == expected
 
 
@@ -144,6 +146,16 @@ def test_an_invalid_run_yields_no_verdicts(fixed):
     report = check(fixed)
     assert not report.valid and report.results == {}
     assert "reached the sink altered" in report.invalid[0]
+
+
+def test_each_declared_contract_is_checked_by_the_module_named_after_it():
+    from importlib import import_module
+
+    from earful.core.checker.contracts import DECLARED
+
+    for name in DECLARED:
+        module = import_module(f"earful.core.checker.{name.lower()}")
+        assert callable(module.check) and name in (module.__doc__ or ""), name
 
 
 CHECKER = Path(__file__).resolve().parents[1] / "src" / "earful" / "core" / "checker"

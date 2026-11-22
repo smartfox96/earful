@@ -62,18 +62,8 @@ def test_help_shows_each_public_function_as_a_function_of_the_adapter():
         assert pickle.loads(pickle.dumps(function)) is function
     assert str(inspect.signature(adapter.run)) == (
         "(source: 'str | Case | Callable[[], Case]', *, "
-        "data: 'dict[str, Any] | None' = None, seed: 'int' = 0) -> 'RunResult'"
+        "data: 'dict[str, Any] | None' = None, seed: 'int | None' = None) -> 'RunResult'"
     )
-
-
-def test_the_old_import_paths_of_the_clock_and_the_scripted_model_give_the_same_objects():
-    from earful.livekit import clock, playbook
-    from earful.scripted import clock as shared_clock
-    from earful.scripted import playbook as shared_playbook
-
-    for old, shared in ((clock, shared_clock), (playbook, shared_playbook)):
-        assert old.__all__ and "earful.scripted" in old.__doc__
-        assert all(getattr(old, name) is getattr(shared, name) for name in old.__all__)
 
 
 def _newest_tested_release():
@@ -94,10 +84,9 @@ def test_the_readme_and_the_search_page_quote_the_cases_the_example_search_plans
         check=False,
         cwd=ROOT / "examples" / "booking",
     )
-    (planned,) = re.findall(
-        r"^(earful: (\d+) cases .* to find them)\. The budget", done.stderr, re.MULTILINE
-    )
+    (planned,) = re.findall(r"^(earful: (\d+) cases .*)$", done.stderr, re.MULTILINE)
     line, cases = planned
+    line = re.sub(r"\. The budget of 1 runs covers 0 of them", "", line)
     assert f"```\n{line}\n```" in (ROOT / "docs" / "search.md").read_text()
     assert f"booking on livekit-agents {release}: {cases} cases tried, {cases} judged" in README
     assert f"Earful ran the conversation {cases} times" in README
@@ -132,6 +121,9 @@ def test_the_skill_for_coding_agents_uses_only_what_exists():
 
     front, _, body = SKILL.removeprefix("---\n").partition("\n---\n")
     assert SKILL.startswith("---\nname: earful\n") and "\ndescription: " in "\n" + front
+    # The section for Pipecat is held to the Pipecat adapter by tests/test_pipecat.py.
+    before, _, rest = body.partition("\n## A Pipecat bot\n")
+    body = before + "\n## " + rest.partition("\n## ")[2]
 
     blocks = re.findall(r"```python\n(.*?)```", body, flags=re.DOTALL)
     spans = re.findall(r"`([^`\n]+)`", re.sub(r"```.*?```", "", body, flags=re.DOTALL))
@@ -254,3 +246,36 @@ def test_the_compatibility_page_lists_the_options_the_code_does():
     named = options.AGENT_RUN | options.AGENT_TURNS | options.AGENT_REFUSED.keys()
     keys_of_turn_handling = {"enabled", "min_duration", "false_interruption_timeout"}
     assert named <= _names(agent) <= named | keys_of_turn_handling
+
+
+def test_the_page_on_scripting_the_model_runs_as_written():
+    """Each block builds its model, and each model answers the conversation it is shown for."""
+    from earful.livekit import ScriptedModel
+
+    page = (ROOT / "docs" / "scripting.md").read_text()
+    blocks = re.findall(r"```python\n(.*?)```", page, flags=re.DOTALL)
+    assert len(blocks) == 3
+    built = []
+    for block in blocks:
+        names: dict = {}
+        exec(compile(block, "scripting.md", "exec"), names)  # noqa: S102
+        assert isinstance(names["model"], ScriptedModel)
+        built.append(names)
+
+    def said(model, *items):
+        return model(list(items))
+
+    user = {"type": "message", "role": "user", "text": "A table for four tonight, please."}
+    failed = {"type": "function_call_output", "call_id": "c1", "name": "create_reservation"}
+    first, retries, cancels = (names["model"] for names in built)
+    assert said(first, user).tool_calls[0].name == "create_reservation"
+    error = {**failed, "output": "timed out", "is_error": True}
+    assert said(retries, user, error).tool_calls  # it tries once more
+    again = {**error, "call_id": "c2"}
+    assert not said(retries, user, error, again).tool_calls  # and then gives up
+    cancel = {"type": "message", "role": "user", "text": "Actually, cancel that."}
+    assert (
+        said(cancels, user, cancel).text == "Understood."
+        and not said(cancels, user, cancel).tool_calls
+    )
+    assert built[2]["speeches"][1].retires == ("book-table",)

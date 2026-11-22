@@ -97,8 +97,8 @@ and every run calls it first.
 | `preemptive_generation` | `True` | Whether the session starts a reply before the user's turn ends: its preemptive generation option `enabled` |
 | `min_endpointing_delay` | `0.5` | The session's endpointing `min_delay` |
 | `max_endpointing_delay` | `6.0` | The session's endpointing `max_delay` |
-| `drain_delay` | `5.0` | How long the run goes on after the last transcript, or after a hangup, before it is wound up |
-| `drain_timeout` | `30.0` | How long the session then has to finish before it is cut off |
+| `drain_delay` | `5.0` | How long the run goes on after the last transcript, or after a hangup, before it is wound up. Without a hangup it then waits for the agent to fall quiet, up to `drain_timeout`: no tool running, no reply generated or played |
+| `drain_timeout` | `30.0` | How long the agent then has to fall quiet, and the session to finish, before it is cut off |
 | `sink` | `ClockedSink` | The class of the audio output. A subclass models a faulty output |
 | `session_kwargs` | `{}` | Further `AgentSession` options, of those [`compatibility.md`](compatibility.md#the-options-earful-models-on-livekit) lists. Any other is refused |
 
@@ -383,13 +383,16 @@ not async.
 ### `run`
 
 ```python
-def run(source, *, data=None, seed=0) -> RunResult: ...
+def run(source, *, data=None, seed=None) -> RunResult: ...
 ```
 
 Runs a scenario once on the virtual clock. `source` is a `Case`, a function that returns
-one, or a `module:function` reference. `data` is a case as data (`earful.case/1`), such
-as the example of a broken rule a search gives, and is run with the scenario's code and
-the seed it holds. It raises `InvalidRun` for a run that is not valid evidence, and
+one, or a `module:function` reference. `seed` is 0 when left out. `data` is a case as data
+(`earful.case/1`), such as the example of a broken rule a search gives, and is run with
+the scenario's code and the seed it holds. A different `seed` with it is refused, and so
+is a case made for another scenario than `source`. A delay
+or fault declared for a model call, utterance or write the run never reached is named in a
+`UserWarning`. It raises `InvalidRun` for a run that is not valid evidence, and
 `ValueError` for a scenario or a case that is refused before it runs.
 
 ### `run_case`
@@ -446,8 +449,8 @@ def explore(
     source,
     *,
     data=None,
-    seed=0,
-    workers=0,
+    seed=None,
+    workers=None,
     variables=(
         "speech.position",
         "llm.ttft",
@@ -464,6 +467,9 @@ def explore(
     words=True,
     max_runs=None,
     planned=None,
+    delay_limit_us=10000000,
+    wait_us=1000000,
+    stretch_us=1500000,
 ): ...
 ```
 
@@ -472,9 +478,9 @@ Searches a scenario for the timings and faults at which it breaks a contract
 
 | Argument | Meaning |
 | --- | --- |
-| `data` | A case as data to search from, in place of the scenario as written |
-| `seed` | The seed of the scenario as written. A case given as `data` holds its own |
-| `workers` | Worker processes to run the cases in. 0 runs them in this process. More needs a scenario that can be imported ([`testing.md`](testing.md#6-where-a-scenario-lives)) |
+| `data` | A case as data to search from, in place of the scenario as written. A case made for another scenario than `source` is refused |
+| `seed` | The seed of the scenario as written, 0 when left out. A case given as `data` holds its own, and a different `seed` with it is refused |
+| `workers` | Worker processes to run the cases in. 0 runs them in this process, and more needs a scenario that can be imported ([`testing.md`](testing.md#6-where-a-scenario-lives)). Left out, a scenario that can be imported gets one per processor, or what `EARFUL_WORKERS` says, and this process where workers cannot start |
 | `variables` | The kinds of time to move. `'speech.end'` and `'speech.stt_delay'` can be added |
 | `faults` | The faults to add to each backend write |
 | `pairs` | Also try two changes at once |
@@ -484,8 +490,12 @@ Searches a scenario for the timings and faults at which it breaks a contract
 | `words` | Whether the end of each played word is a boundary |
 | `max_runs` | A budget of runs. A search it stops is not `complete` |
 | `planned` | A function that is handed the search's plan before the cases run. `print` shows it |
+| `delay_limit_us` | The longest a delay or a wait is made ([`search.md`](search.md#3-the-boundary-scheduler)) |
+| `wait_us` | How long the caller of a write with a timeout or a drop waits |
+| `stretch_us` | How long `pairs` makes a slow write or generation, up to `delay_limit_us`. 0 makes none slow |
 
-It raises `ValueError` for an unknown variable or fault, for a negative `workers`, for
+It raises `ValueError` for an unknown variable or fault, for a negative wait or stretch,
+for a delay limit below 1, for a negative `workers`, for
 `workers` with a scenario that cannot be imported, and for a case that cannot be run as
 given. It raises `WorkersUnavailable` where worker processes cannot be used.
 
@@ -497,7 +507,7 @@ which and what to do ([`troubleshooting.md`](troubleshooting.md#worker-processes
 ### `cross_check`
 
 ```python
-def cross_check(source, *, data=None, seed=0, runs=3, tolerance=None): ...
+def cross_check(source, *, data=None, seed=None, runs=3, tolerance=None): ...
 ```
 
 Runs the case once on the virtual clock and `runs` times on the real clock, and returns a
@@ -704,11 +714,12 @@ prints.
 ### `earful init`
 
 `earful init AGENT` writes a first test for a livekit-agents agent, named as
-`module:Class`.
+`module:Class`, or for a Pipecat bot, named as `module:function`: the function that
+registers the bot's functions on its model service and returns its `LLMContext`.
 
 | Option | Meaning |
 | --- | --- |
-| `-o`, `--output FILE` | Write there. The default is `test_<agent>.py` |
+| `-o`, `--output FILE` | Write there. The default is `test_<agent>.py`, or `test_<function>.py` for a bot |
 
 ### `earful check`
 
@@ -723,12 +734,14 @@ prints.
 
 ### `earful run`
 
-`earful run SCENARIO` runs a scenario once and prints its verdicts.
+`earful run SCENARIO` runs a scenario once and prints its verdicts. A delay or fault the
+case declares for a model call, utterance or write the run never reached is named on an
+`unapplied` line under the heading, and in the JSON under `unapplied`.
 
 | Option | Meaning |
 | --- | --- |
 | `--case FILE` | Run a saved case (`earful.case/1`) |
-| `--seed N` | The seed. Default 0 |
+| `--seed N` | The seed. Default 0, or the one the case holds: a different one is refused |
 | `--ledger FILE` | Write the ledger there |
 | `--json` | The report as JSON |
 | `--allow CONTRACT/RULE` | A rule that may break. Repeatable |
@@ -741,13 +754,16 @@ prints.
 | Option | Meaning |
 | --- | --- |
 | `--case FILE` | Search from a saved case |
-| `--seed N` | The seed. Default 0 |
+| `--seed N` | The seed. Default 0, or the one the case holds: a different one is refused |
 | `--variables A,B` | The kinds of time to move, or `none` |
 | `--faults A,B` | The faults to add to each backend write, or `none` |
 | `--pairs` | Also try two changes at once |
 | `--profiles N` | Seeded provider-timing profiles |
 | `--no-words` | The end of a played word is not a boundary |
 | `--max-runs N` | Stop after N runs. A search cut short exits 3 unless a rule broke |
+| `--wait-ms MS` | How long the caller of a faulted write waits. Default 1000 |
+| `--stretch-ms MS` | How long `--pairs` makes a slow write or generation. Default 1500 |
+| `--delay-limit-ms MS` | The longest a delay or a wait is made. Default 10000 |
 | `--no-windows` | Do not measure how wide each failure is |
 | `--keep CONTRACT/RULE` | Reduce a case that breaks the rule and write it as a bundle. Needs `--out`. Repeatable |
 | `--out DIR` | Where bundles go |
@@ -774,7 +790,7 @@ real one.
 | Option | Meaning |
 | --- | --- |
 | `--case FILE` | Run a saved case |
-| `--seed N` | The seed. Default 0 |
+| `--seed N` | The seed. Default 0, or the one the case holds: a different one is refused |
 | `--runs N` | Real-clock runs. Default 3 |
 | `--tolerance-ms MS` | How far an event may be from its virtual time. Default 100 |
 | `--words N` | Words a segment that was cut short may differ by. Default 1 |
@@ -806,14 +822,34 @@ The fixture chooses the adapter from the scenario it is given.
 
 ```python
 class Earful:
-    def run(self, scenario, *, data=None, seed=0): ...
-    def explore(self, scenario, **options): ...
-    def keep(self, found, rule, directory=None): ...
+    def run(self, scenario, *, data=None, seed=None): ...
+    def explore(
+        self,
+        scenario,
+        *,
+        data=None,
+        seed=None,
+        workers=None,
+        variables=None,
+        faults=None,
+        pairs=False,
+        profiles=0,
+        speeches=None,
+        moments=None,
+        words=True,
+        max_runs=None,
+        planned=None,
+        delay_limit_us=None,
+        wait_us=None,
+        stretch_us=None,
+    ): ...
+    def keep(self, found, rule, directory=None, *, repeats=3): ...
     def replay(self, directory, *, repeats=3): ...
 ```
 
-`run`, `explore` and `replay` take what the adapter's functions take and return what they
-return. `explore` without `workers` uses one worker for each processor where the scenario
-can be imported. `keep` without a directory writes the bundle under the test's evidence
-directory. When the test fails, the fixture writes the ledger and the report of each run
+Each takes what the adapter's function of that name takes and returns what it returns.
+`explore` without `variables` or `faults` uses the adapter's defaults. Without `workers`
+it uses the number `--earful-workers` gives, or the adapter's default, and searches in the
+test's process when pytest-xdist has spread the test run over the processors. `keep`
+without a directory writes the bundle under the test's evidence directory. When the test fails, the fixture writes the ledger and the report of each run
 and of each broken rule's example there.

@@ -5,7 +5,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from .checker import FAIL, Report
+from .checker import FAIL, UNOBSERVABLE, Report
 from .checker.report import parse_rule
 
 
@@ -41,4 +41,17 @@ def failures(report: Report) -> set[Predicate]:
     return broken | {Predicate.parse(name) for name in report.lost()}
 
 
-__all__ = ["Predicate", "failures"]
+def details_of(report: Report, predicate: Predicate) -> tuple[str, ...]:
+    """What each finding by which ``report`` breaks ``predicate`` says, for a rule or a code
+    of evidence lost."""
+    result = report.results.get(predicate.contract)
+    return tuple(
+        finding.detail
+        for verdict in (result.verdicts if result is not None else ())
+        if verdict.outcome in (FAIL, UNOBSERVABLE)
+        for finding in verdict.findings
+        if predicate.rule in (finding.rule, finding.code)
+    )
+
+
+__all__ = ["Predicate", "details_of", "failures"]

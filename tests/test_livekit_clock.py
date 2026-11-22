@@ -219,3 +219,17 @@ def test_a_session_leaves_the_random_module_as_it_found_it():
     before = random.getstate()
     run_case(CASES["barge_in_mid_word"](), seed=3)
     assert random.getstate() == before
+
+
+def test_a_span_reads_the_clock_without_moving_it():
+    from opentelemetry.sdk import trace as otel  # livekit-agents depends on it
+
+    async def main():
+        time.time()
+        before = time.time()
+        for _ in range(5):
+            otel.time_ns()  # what a span reads as it starts and ends
+        return before, time.time()
+
+    before, after = run_virtual(main)
+    assert round((after - before) * 1_000_000) == 1

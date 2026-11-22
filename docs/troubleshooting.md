@@ -241,11 +241,13 @@ The script is wrong. Correct the name or the arguments in the rule that makes th
 ### The scripted model called a tool where the request allowed none
 
 ```text
-invalid: harness error: call 4: the request allowed no tool call (tool_choice='none'), and the scripted model called ['look_up_hours']. livekit-agents asks so once max_tool_steps rounds of tool calls have run: script a reply without a call for that request
+invalid: harness error: call 4: the request allowed no tool call (tool_choice='none'), and the scripted model called ['look_up_hours']. livekit-agents asks so once max_tool_steps rounds of tool calls have run, and while the session closes: script a reply without a call for that request
 ```
 
 A real model answers such a request in words. Give the model a rule that answers without
-a call once the tool has run, or raise `max_tool_steps` in `session_kwargs`.
+a call once the tool has run, or raise `max_tool_steps` in `session_kwargs`. The session
+closes once the agent is quiet, or after `drain_timeout` if it never is, so a request made
+while it closes means a tool ran longer than that.
 
 ### The scripted model has no rule for a context
 
@@ -387,6 +389,7 @@ valid first.
 
 ```text
 booking on livekit-agents 1.8.13: 1 cases tried, 0 judged, 0 contract rule(s) broken
+    ...
 
 not judged: 1 of 1 cases, which leaves the search with no result
 ```
@@ -421,6 +424,7 @@ A search with some cases not judged and others judged passes, unless one of them
 
 ```text
 booking on livekit-agents 1.8.13: 60 cases tried, 58 judged, 0 contract rule(s) broken
+    ...
 
 not judged: 2 of 60 cases; the search fails, since 2 raised
     2 error: RuntimeError: boom
@@ -466,6 +470,15 @@ ValueError: the search found no case that breaks L2/rule b
 A bundle is written for a rule the search found broken. The second line is the command's
 and the third is what `keep` raises.
 
+```text
+not kept A2/rule: the reduced case gave the ledger that broke A2/rule in 1 of the 3 runs made after the reduction; a case that does not repeat is not kept as a bundle
+```
+
+The search found the rule broken, and the reduced case did not break it in every run made
+after the reduction. `earful search` prints what it found first, and its exit status is
+the search's. Look for a time read off the virtual clock in the scenario's code
+([`limits.md`](limits.md#the-virtual-clock)).
+
 ### The test `earful init` wrote fails on A2
 
 `earful init` ends its output with:
@@ -476,7 +489,7 @@ and the third is what `keep` raises.
 ```
 
 The generated model calls the tool again after a failure, and no tool body runs, so the
-second call writes twice. This is the test doing its work. If the tool sends an
+second call writes twice, which is the failure the test exists to find. If the tool sends an
 idempotency key its service honours, declare both in the file: `Effect(..., key=...)`
 for the tool and `backend_mode="keyed"` on the case.
 
@@ -573,7 +586,7 @@ earful: test_booking_agent.py is already there; move it, or name another file wi
 ```
 
 ```text
-earful: agent:Reservations is not a class of agent (a subclass of livekit.agents.Agent). `earful init` writes a test for a livekit-agents agent only
+earful: agent:Reservations is not a class of agent (a subclass of livekit.agents.Agent). `earful init` writes a test for a livekit-agents agent class or a Pipecat bot function
 ```
 
 ```text
@@ -590,6 +603,15 @@ earful: `earful init` cannot write a call of the tool 'redeem': it has no value 
 
 The scripted call needs a value for each required argument, and none it knows fits this
 one. Write the test by hand from [`testing.md`](testing.md).
+
+```text
+earful: needs_a_service(llm, reservations=None) raised AttributeError: 'NoneType' object has no attribute 'connect'. `earful init` calls the bot to read the functions it registers
+```
+
+Pipecat. `earful init` calls the bot function with a model service of its own and `None`
+for each argument after it, to see what it registers. Give it a function that registers
+the bot's functions without using those arguments, or one that takes only the model
+service.
 
 ## A Pipecat pipeline that is refused
 

@@ -1,6 +1,7 @@
 """A scenario built in a test: run and searched in process, refused where it needs a name."""
 
 import hashlib
+import os
 import sys
 from concurrent.futures.process import BrokenProcessPool
 
@@ -74,11 +75,64 @@ def pools(monkeypatch):
     return started
 
 
+def test_a_search_nobody_gave_a_number_for_gets_a_worker_per_processor_where_it_can(monkeypatch):
+    """Where workers cannot be started, it runs in this process; a number given is held to."""
+    monkeypatch.delenv("EARFUL_WORKERS", raising=False)
+    monkeypatch.setattr(os, "cpu_count", lambda: 6)
+    started = []
+
+    def refused(workers=None):
+        started.append(workers)
+        raise PermissionError(13, "Permission denied")
+
+    monkeypatch.setattr(scenario, "pool", refused)
+    narrow = {"variables": (), "faults": ["backend.error"], "words": False}
+    importable = "breaks:as_written_confirms_a_failed_booking"
+    assert explore(importable, **narrow).tried  # judged here, after the pool was refused
+    explore(booking(READS_THE_ERROR), **narrow)  # built inline: this process
+    monkeypatch.setattr(os, "cpu_count", lambda: 1)  # one worker is no faster than this process
+    explore(importable, **narrow)
+    monkeypatch.setenv("EARFUL_WORKERS", "3")
+    explore(importable, **narrow)
+    assert started == [6, 3]
+    with pytest.raises(WorkersUnavailable):
+        explore(importable, workers=2, **narrow)
+
+
+def test_a_search_takes_the_wait_the_stretch_and_the_delay_limit_it_is_given():
+    narrow = {"variables": (), "faults": ["backend.timeout"], "words": False, "workers": 0}
+    found = explore(booking(READS_THE_ERROR), wait_us=2_500_000, **narrow)
+    added = [t for t in found.tried if t.candidate.variable is None]  # a fault, nothing moved
+    assert added and {f["us"] for t in added for f in t.candidate.case["faults"]} == {2_500_000}
+    for name, least in (("wait_us", 0), ("stretch_us", 0), ("delay_limit_us", 1)):
+        with pytest.raises(
+            ValueError, match=f"{name} is a number of microseconds, at least {least}"
+        ):
+            explore(booking(READS_THE_ERROR), **{name: least - 1}, **narrow)
+
+
 def test_a_case_built_in_a_test_runs_and_its_contracts_are_asserted():
     result = run(booking(READS_THE_ERROR))
     result.assert_contracts()
     assert result.report.outcome("A2") == "pass" and result.report.outcome("A3") == "pass"
     assert result.events is result.ledger.events
+
+
+def test_a_tool_still_running_when_the_scenario_is_over_is_waited_for():
+    """A draining session would ask the model to answer the timed-out booking without a tool.
+    On livekit-agents 1.5 and 1.6 the agent looks idle during a tool this long."""
+    tries_again = (
+        ScriptedModel()
+        .when(tool_succeeded(), say="Your table is booked.", claims=[BOOKING_INTENT])
+        .when(tool_returned(), BOOK)
+        .when(user_ever_said("table"), BOOK)
+        .otherwise(say="How can I help?")
+    )
+    slow = booking(tries_again, drain_delay=1.0, faults=[Fault("backend.timeout", 1, 20.0)])
+    result = run(slow)
+    called = [e["data"]["name"] for e in result.events if e["kind"] == "tool.called"]
+    assert called == ["create_reservation", "create_reservation"]
+    assert result.report.valid
 
 
 def test_a_broken_contract_fails_the_test_and_says_which_rule_and_why():
@@ -335,9 +389,13 @@ def test_a_search_does_not_fill_the_log_with_the_frameworks_own_records(caplog):
     assert logging.getLogger("livekit").propagate  # and left logging as it found it
 
 
-def test_a_scenario_with_a_name_runs_in_this_process_unless_workers_are_asked_for(pools):
+def test_a_scenario_with_a_name_runs_in_this_process_when_workers_0_is_asked_for(pools):
     found = explore(
-        as_written_confirms_a_failed_booking, variables=(), faults=["backend.error"], words=False
+        as_written_confirms_a_failed_booking,
+        workers=0,
+        variables=(),
+        faults=["backend.error"],
+        words=False,
     )
     assert found.predicates() == [CONFIRMED_BUT_NOT_DONE] and pools == []
     with pytest.raises(ValueError, match="number of processes"):

@@ -42,8 +42,10 @@ across the handoff ([`contracts.md`](contracts.md#m2-turn-integrity), rule d).
 
 ## pipecat-ai
 
-One release is supported. It is pinned and recorded the same way
-(`scripts/make_pipecat_env.sh`).
+The newest two minor series are supported, each tested on one release, pinned and
+recorded the same way (`scripts/make_pipecat_env.sh`). pipecat-ai ships a minor about
+every two weeks; when the canary below finds one the extra does not accept, it is added
+and the oldest series is dropped.
 
 | pipecat-ai | Dependencies as of | Lock file |
 | --- | --- | --- |
@@ -55,6 +57,9 @@ there the extra installs Earful alone. `earful.pipecat` warns once when it is im
 a 1.16 release other than 1.16.0, and refuses to import on a release outside the range.
 
 The adapter uses Pipecat's VAD turn-start and speech-timeout turn-stop strategies.
+The scripted model reads three private names of `LLMService`: `_functions`,
+`_cancel_tool_names` and `_sync_registered_tool_handlers`. A release that keeps one of
+them elsewhere is refused in one line before a run.
 [Writing a Pipecat scenario](pipecat.md)
 
 ## The options Earful models on LiveKit
@@ -103,8 +108,11 @@ is held to the same rules, and one that breaks them makes the run invalid.
 
 The scripted model keeps to what a request allows. A reply that calls a tool under
 `tool_choice="none"`, which livekit-agents sends once `max_tool_steps` rounds of tool
-calls have run, calls none under `"required"`, calls another tool than the one named, or
-calls two tools at once under `parallel_tool_calls=False` is a harness error.
+calls have run and while the session closes, calls none under `"required"`, calls another
+tool than the one named, or calls two tools at once under `parallel_tool_calls=False` is a
+harness error. A run without a hangup ends once the agent is quiet, with no tool running
+and no reply generated or played, so the session closes over a tool only after
+`drain_timeout`.
 
 ## What CI runs for LiveKit
 
@@ -135,7 +143,7 @@ imports and checks a ledger with nothing but its own dependencies.
 On every pull request, each row below builds the pinned environment without
 livekit-agents and runs every test that does not need it: the Pipecat tests and the
 tests of the core. A row fails if any of those is skipped
-(`scripts/ran_every_test.sh --without livekit`). Each row also runs the three Pipecat
+(`scripts/ran_every_test.sh --without livekit`). Each row also runs the five Pipecat
 reference cases 120 times and compares them with the committed ledgers
 (`scripts/repeat.py`).
 
@@ -228,3 +236,6 @@ ledgers, and reads bundles. It runs nothing. Python 3.10 or later.
   from the VAD, whatever the environment configures.
 - A tool whose calls cannot be recorded, such as one inside a toolset. The run is invalid
   and names the tool.
+- livekit-agents 2.0. It runs the session in a compiled core with its own runtime and
+  threads, which Earful's virtual clock does not reach, and the `livekit` extra accepts
+  releases below 1.9.

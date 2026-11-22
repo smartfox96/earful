@@ -41,6 +41,7 @@ from ..scripted.clock import (
     left_the_clock,
     now_us,
     patch_report,
+    quiet,
     run_real,
     run_virtual,
 )
@@ -85,7 +86,7 @@ class Tap(FrameProcessor):
         if name is not None and direction is FrameDirection.DOWNSTREAM:
             if isinstance(frame, (UserStartedSpeakingFrame, UserStoppedSpeakingFrame)):
                 self.user_speaking = isinstance(frame, UserStartedSpeakingFrame)
-            self._ledger.append("framework", f"fw.{name}", created_us=self._ledger.now_us())
+            self._ledger.append("framework", f"fw.{name}")
         await self.push_frame(frame, direction)
 
 
@@ -224,44 +225,29 @@ def _header(case: Case, tools: set[str], options: dict[str, Any]) -> dict[str, A
     }
 
 
-QUIET_FOR_US = 1_000_000
 # On the real clock a sleep ends late. An output with this much audio buffered plays on.
 REAL_CLOCK_LATE_US = 20_000
 # Pipecat names an audio context by a random id and a processor by a count kept per process.
 _UNSTABLE = re.compile(r"[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}|(?<=#)\d+")
 
 
-async def _quiet(busy: Callable[[], bool]) -> None:
-    """Wait until nothing has been busy for a second: no tool running, no reply being
-    generated or synthesized, nothing playing. Pipecat's EndFrame cancels a function call
-    that is still running, so a scenario must not end the pipeline over one."""
-    since = now_us()
-    while now_us() - since < QUIET_FOR_US:
-        await asyncio.sleep(0.1)
-        if busy():
-            since = now_us()
+@dataclass
+class _Scripted:
+    """Earful's side of a run: the backend, the scripted user and recognizer, the model, the
+    voice and the output."""
+
+    backend: EffectBackend
+    origin: WorldOrigin
+    witness: ToolWitness
+    left: asyncio.Event  # set when the user hangs up
+    user: ScriptedUser
+    stt: ScriptedSTT
+    model: ScriptedLLM
+    voice: StampedTTS
+    output: ClockedOutput
 
 
-async def _run(case: Case, seed: int) -> RunResult:
-    if not callable(case.bot):
-        raise ValueError(  # noqa: TRY004 - a case that is refused, as check_case refuses one
-            "bot is a function that is handed the model service and returns the context; "
-            f"got an object of {type(case.bot).__name__}"
-        )
-    check_case(case)
-    random.seed(seed)
-    loop = asyncio.get_running_loop()
-    virtual = isinstance(loop, VirtualTimeLoop)
-    if virtual:
-        ledger = Ledger(now_us)
-    else:  # a real-clock control run: times are from the start of the run
-        began_us = now_us()
-        ledger = Ledger(lambda: now_us() - began_us)
-    errors = [
-        f"{name} reads the wall clock and could not be given the virtual one"
-        for name in (patch_report().unpatched if virtual else ())
-    ]
-
+def _scripted(case: Case, ledger: Ledger, errors: list[str], virtual: bool) -> _Scripted:
     def declared_us(of: str) -> dict[int, int]:
         return {d.nth: to_us(d.seconds) for d in case.delays if d.of == of}
 
@@ -275,7 +261,7 @@ async def _run(case: Case, seed: int) -> RunResult:
     )
     origin = WorldOrigin(ledger, errors, tolerance_us=0 if virtual else 5_000)
     witness = ToolWitness(ledger, case.effects)
-    left = asyncio.Event()  # set when the user hangs up
+    left = asyncio.Event()
     user = ScriptedUser(
         ledger,
         case.speeches,
@@ -302,65 +288,200 @@ async def _run(case: Case, seed: int) -> RunResult:
         word_timestamps=case.tts_word_timestamps,
     )
     output = ClockedOutput(ledger, voice.table, late_us=0 if virtual else REAL_CLOCK_LATE_US)
+    return _Scripted(backend, origin, witness, left, user, stt, model, voice, output)
 
-    token = backends.install(backend)
-    reported = 0  # errors the pipeline reported about itself
-    try:
-        context = case.bot(model)
-        ends = Ends(user, stt, model, voice, output, context)
-        timeouts = (case.user_speech_timeout, case.user_turn_stop_timeout)
-        build = case.pipeline or pipelines.standard(*timeouts)
-        plan = pipelines.inspect(build(ends), ends, *timeouts, own=case.pipeline is not None)
-        for name in PRIVATE:  # read again during the run, so a release without one is refused now
-            model.private(name)
-        model.witness_tools(context.tools)
-        header = _header(case, witness.names, plan.options)
-        history = summarize(context.get_messages(), {}, {})
-        if history:
-            header["history"] = history
-        model.listed = frozenset(witness.names)
-        assistant = plan.assistant
 
-        def committed(_aggregator: Any, message: Any) -> None:
-            if message.interrupted and message.content:
-                for item in reversed(context.get_messages()):
-                    if (
-                        isinstance(item, dict)
-                        and item.get("role") == "assistant"
-                        and item.get("content") == message.content
-                    ):
-                        model.interrupted[id(item)] = item
-                        break
+def _built(case: Case, s: _Scripted) -> tuple[LLMContext, pipelines.Plan, dict[str, Any]]:
+    """The bot's context, the pipeline as inspected, and the header of the run."""
+    model, witness = s.model, s.witness
+    context = case.bot(model)
+    ends = Ends(s.user, s.stt, model, s.voice, s.output, context)
+    timeouts = (case.user_speech_timeout, case.user_turn_stop_timeout)
+    build = case.pipeline or pipelines.standard(*timeouts)
+    plan = pipelines.inspect(build(ends), ends, *timeouts, own=case.pipeline is not None)
+    for name in PRIVATE:  # read again during the run, so a release without one is refused now
+        model.private(name)
+    model.witness_tools(context.tools)
+    header = _header(case, witness.names, plan.options)
+    history = summarize(context.get_messages(), {}, {})
+    if history:
+        header["history"] = history
+    model.listed = frozenset(witness.names)
 
-        assistant.add_event_handler("on_assistant_turn_stopped", committed)
-        tap = Tap(ledger)
-        pipeline = Pipeline([*plan.processors, tap])
-        worker = PipelineWorker(
-            pipeline,
-            params=PipelineParams(audio_out_sample_rate=SAMPLE_RATE),
-            clock=VirtualClock() if virtual else None,
-            enable_rtvi=False,
-            enable_turn_tracking=False,
-            idle_timeout_secs=None,
+    def committed(_aggregator: Any, message: Any) -> None:
+        if message.interrupted and message.content:
+            for item in reversed(context.get_messages()):
+                if (
+                    isinstance(item, dict)
+                    and item.get("role") == "assistant"
+                    and item.get("content") == message.content
+                ):
+                    model.interrupted[id(item)] = item
+                    break
+
+    plan.assistant.add_event_handler("on_assistant_turn_stopped", committed)
+    return context, plan, header
+
+
+def _worker(
+    plan: pipelines.Plan,
+    s: _Scripted,
+    ledger: Ledger,
+    errors: list[str],
+    reported: list[str],
+    virtual: bool,
+) -> tuple[PipelineWorker, Tap]:
+    """The worker that runs the pipeline. An error a processor raises is the run's, and one
+    Pipecat reports of itself is recorded and counted in ``reported``."""
+    tap = Tap(ledger)
+    pipeline = Pipeline([*plan.processors, tap])
+    worker = PipelineWorker(
+        pipeline,
+        params=PipelineParams(audio_out_sample_rate=SAMPLE_RATE),
+        clock=VirtualClock() if virtual else None,
+        enable_rtvi=False,
+        enable_turn_tracking=False,
+        idle_timeout_secs=None,
+    )
+
+    def pipeline_error(_worker: PipelineWorker, frame: ErrorFrame) -> None:
+        if any(exc is frame.exception for exc in s.witness.exceptions):
+            return  # a tool raised: the witness has recorded it
+        if frame.exception is not None or frame.fatal:
+            errors.append(_UNSTABLE.sub("#", frame.error))  # a processor broke
+            return
+        # Something Pipecat says of itself, such as a voice that sent no audio in time.
+        reported.append(frame.error)
+        ledger.append(
+            "framework",
+            "fw.error",
+            error=_UNSTABLE.sub("#", frame.error),
         )
 
-        def pipeline_error(_worker: PipelineWorker, frame: ErrorFrame) -> None:
-            nonlocal reported
-            if any(exc is frame.exception for exc in witness.exceptions):
-                return  # a tool raised: the witness has recorded it
-            if frame.exception is not None or frame.fatal:
-                errors.append(_UNSTABLE.sub("#", frame.error))  # a processor broke
-                return
-            # Something Pipecat says of itself, such as a voice that sent no audio in time.
-            reported += 1
-            ledger.append(
-                "framework",
-                "fw.error",
-                created_us=ledger.now_us(),
-                error=_UNSTABLE.sub("#", frame.error),
+    worker.add_event_handler("on_pipeline_error", pipeline_error)
+    return worker, tap
+
+
+async def _play(
+    case: Case, worker: PipelineWorker, tap: Tap, s: _Scripted, ledger: Ledger, errors: list[str]
+) -> None:
+    """Run the pipeline through the scenario, and end it as the scenario does: once all is
+    quiet, or when the user hangs up."""
+    origin, left, backend = s.origin, s.left, s.backend
+    runner = WorkerRunner(handle_sigint=False)
+    await runner.add_workers(worker)
+    running = asyncio.ensure_future(runner.run())
+    ended = asyncio.ensure_future(s.stt.done if case.hangup is None else origin.started.wait())
+    # A provider can fail before signaling completion. Allow the entire script to
+    # play, plus the same startup/scheduling allowance as for pipeline shutdown.
+    timeout = case.drain_timeout
+    if case.hangup is None:
+        last_transcript_us = max(
+            (speech.end_us + speech.stt_delay_us for speech in case.speeches), default=0
+        )
+        timeout += to_seconds(last_transcript_us)
+    await asyncio.wait({running, ended}, timeout=timeout, return_when=asyncio.FIRST_COMPLETED)
+    if running.done():
+        errors.append("the pipeline ended before the scenario did")
+        ended.cancel()
+        running.result()
+    elif not ended.done():
+        errors.append(f"the scripted input did not complete within {timeout:g} s")
+        ended.cancel()
+        left.set()
+        await worker.cancel()
+    elif case.hangup is None:
+        await asyncio.sleep(case.drain_delay)
+        user, witness, model, voice, output = s.user, s.witness, s.model, s.voice, s.output
+
+        def busy() -> bool:
+            return bool(
+                not user.done
+                or tap.user_speaking
+                or witness.in_flight
+                or model.generating
+                or voice.synthesizing
+                or output.playing
             )
 
-        worker.add_event_handler("on_pipeline_error", pipeline_error)
+        # Pipecat's EndFrame cancels a function call still running: wait until all is quiet.
+        try:
+            await asyncio.wait_for(quiet(busy), timeout=case.drain_timeout)
+        except asyncio.TimeoutError:
+            errors.append(f"the bot was still busy {case.drain_timeout} s after the scenario")
+        await worker.queue_frame(EndFrame())
+    else:
+        # The user leaves. A Pipecat application cancels its pipeline when the client
+        # disconnects, which is what the transports' examples do.
+        assert origin.t0_us is not None
+        await sleep_until(origin.t0_us, to_us(case.hangup))
+        left.set()
+        ledger.append("world", "user.hangup")
+        await worker.cancel()
+    try:
+        await asyncio.wait_for(running, timeout=case.drain_timeout)
+    except asyncio.TimeoutError:
+        errors.append(f"the pipeline did not end within {case.drain_timeout} s")
+    try:
+        await asyncio.wait_for(backend.settle_in_flight(), timeout=case.drain_timeout)
+    except asyncio.TimeoutError:
+        errors.append("backend writes did not settle before the drain timeout")
+    if case.hangup is not None:
+        await asyncio.sleep(case.drain_delay)
+
+
+def _close(
+    case: Case,
+    plan: pipelines.Plan,
+    context: LLMContext,
+    s: _Scripted,
+    ledger: Ledger,
+    errors: list[str],
+) -> None:
+    """Close the voice, check the turn strategies held, and record the final history."""
+    s.voice.close_all()
+    timeouts = (case.user_speech_timeout, case.user_turn_stop_timeout)
+    # The header states the turn strategies the run began with.
+    try:
+        now = pipelines.turns(plan.user, *timeouts)
+        changed = ", ".join(f"{k} is {v}" for k, v in now.items() if plan.options[k] != v)
+    except ValueError as exc:
+        changed = str(exc)
+    if changed:
+        errors.append(f"the pipeline changed its turn strategies during the run: {changed}")
+    ledger.append(
+        "harness",
+        "history.final",
+        read_from="LLMContext.get_messages",
+        items=summarize(context.get_messages(), s.model.error_results, s.model.interrupted),
+    )
+
+
+async def _run(case: Case, seed: int) -> RunResult:
+    if not callable(case.bot):
+        raise ValueError(  # noqa: TRY004 - a case that is refused, as check_case refuses one
+            "bot is a function that is handed the model service and returns the context; "
+            f"got an object of {type(case.bot).__name__}"
+        )
+    check_case(case)
+    random.seed(seed)
+    loop = asyncio.get_running_loop()
+    virtual = isinstance(loop, VirtualTimeLoop)
+    if virtual:
+        ledger = Ledger(now_us)
+    else:  # a real-clock control run: times are from the start of the run
+        began_us = now_us()
+        ledger = Ledger(lambda: now_us() - began_us)
+    errors = [
+        f"{name} reads the wall clock and could not be given the virtual one"
+        for name in (patch_report().unpatched if virtual else ())
+    ]
+    s = _scripted(case, ledger, errors, virtual)
+    token = backends.install(s.backend)
+    reported: list[str] = []  # errors the pipeline reported about itself
+    try:
+        context, plan, header = _built(case, s)
+        worker, tap = _worker(plan, s, ledger, errors, reported, virtual)
         ledger.append(
             "harness",
             "run.start",
@@ -371,89 +492,20 @@ async def _run(case: Case, seed: int) -> RunResult:
             scenario=header,
             contracts=case.contracts,
         )
-        runner = WorkerRunner(handle_sigint=False)
-        await runner.add_workers(worker)
-        running = asyncio.ensure_future(runner.run())
-        ended = asyncio.ensure_future(stt.done if case.hangup is None else origin.started.wait())
-        # A provider can fail before signaling completion. Allow the entire script to
-        # play, plus the same startup/scheduling allowance as for pipeline shutdown.
-        timeout = case.drain_timeout
-        if case.hangup is None:
-            last_transcript_us = max((s.end_us + s.stt_delay_us for s in case.speeches), default=0)
-            timeout += to_seconds(last_transcript_us)
-        await asyncio.wait({running, ended}, timeout=timeout, return_when=asyncio.FIRST_COMPLETED)
-        if running.done():
-            errors.append("the pipeline ended before the scenario did")
-            ended.cancel()
-            running.result()
-        elif not ended.done():
-            errors.append(f"the scripted input did not complete within {timeout:g} s")
-            ended.cancel()
-            left.set()
-            await worker.cancel()
-        elif case.hangup is None:
-            await asyncio.sleep(case.drain_delay)
-
-            def busy() -> bool:
-                return bool(
-                    not user.done
-                    or tap.user_speaking
-                    or witness.in_flight
-                    or model.generating
-                    or voice.synthesizing
-                    or output.playing
-                )
-
-            try:
-                await asyncio.wait_for(_quiet(busy), timeout=case.drain_timeout)
-            except asyncio.TimeoutError:
-                errors.append(f"the bot was still busy {case.drain_timeout} s after the scenario")
-            await worker.queue_frame(EndFrame())
-        else:
-            # The user leaves. A Pipecat application cancels its pipeline when the client
-            # disconnects, which is what the transports' examples do.
-            assert origin.t0_us is not None
-            await sleep_until(origin.t0_us, to_us(case.hangup))
-            left.set()
-            ledger.append("world", "user.hangup")
-            await worker.cancel()
-        try:
-            await asyncio.wait_for(running, timeout=case.drain_timeout)
-        except asyncio.TimeoutError:
-            errors.append(f"the pipeline did not end within {case.drain_timeout} s")
-        try:
-            await asyncio.wait_for(backend.settle_in_flight(), timeout=case.drain_timeout)
-        except asyncio.TimeoutError:
-            errors.append("backend writes did not settle before the drain timeout")
-        if case.hangup is not None:
-            await asyncio.sleep(case.drain_delay)
-        voice.close_all()
-        # The header states the turn strategies the run began with.
-        try:
-            now = pipelines.turns(plan.user, *timeouts)
-            changed = ", ".join(f"{k} is {v}" for k, v in now.items() if plan.options[k] != v)
-        except ValueError as exc:
-            changed = str(exc)
-        if changed:
-            errors.append(f"the pipeline changed its turn strategies during the run: {changed}")
-        ledger.append(
-            "harness",
-            "history.final",
-            read_from="LLMContext.get_messages",
-            items=summarize(context.get_messages(), model.error_results, model.interrupted),
-        )
+        await _play(case, worker, tap, s, ledger, errors)
+        _close(case, plan, context, s, ledger, errors)
     finally:
-        await backend.cancel_in_flight()
+        await s.backend.cancel_in_flight()
         backends.uninstall(token)
     errors += left_the_clock(loop)
     ledger.append(
         "harness",
         "run.end",
-        stamp_errors=output.stamp_errors,
+        stamp_errors=s.output.stamp_errors,
         executor_calls=loop.executor_calls if isinstance(loop, VirtualTimeLoop) else None,
         underruns=0,
         harness_errors=errors,
-        framework_warnings=reported,
+        framework_warnings=len(reported),
     )
     return RunResult(
         case.name, seed, ledger, ledger_hash(ledger.events), validity(ledger.events), errors

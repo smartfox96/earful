@@ -426,14 +426,14 @@ MUTANTS = [
     ),
     Mutant(
         "policy: M1's memory may run two seconds ahead by default",
-        "src/earful/core/checker/policy.py",
+        "src/earful/core/checker/contracts.py",
         "    ahead_us: int = 1_000_000\n",
         "    ahead_us: int = 2_000_000\n",
         first="policy_defaults_are_those_the_contracts_page_states",
     ),
     Mutant(
         "policy: L2's stop bound is a microsecond longer by default",
-        "src/earful/core/checker/policy.py",
+        "src/earful/core/checker/contracts.py",
         "    stop_bound_us: int = 100_000\n",
         "    stop_bound_us: int = 100_001\n",
         first="policy_defaults_are_those_the_contracts_page_states",
@@ -1525,11 +1525,8 @@ MUTANTS = [
     Mutant(
         "cli: a crash of the scenario's code in a run is not caught",
         "src/earful/cli.py",
-        (
-            "        with _running(args.scenario):\n"
-            "            result = adapter.run(source, data=case, seed=args.seed)\n"
-        ),
-        ("        if True:\n            result = adapter.run(source, data=case, seed=args.seed)\n"),
+        ("        with _running(args.scenario), warnings.catch_warnings():\n"),
+        ("        with warnings.catch_warnings():\n"),
         first="own_code_raises_during_a_run",
     ),
     Mutant(
@@ -1596,11 +1593,11 @@ MUTANTS = [
         "validator: vad report for any speech",
         "src/earful/core/schema.py",
         (
-            '            elif (k == "user.vad_start" and d["speech"] not in opens) or (\n'
-            '                k == "user.vad_end" and d["speech"] not in closes\n'
-            "            ):\n"
+            '    elif (k == "user.vad_start" and d["speech"] not in walk.opens) or (\n'
+            '        k == "user.vad_end" and d["speech"] not in walk.closes\n'
+            "    ):\n"
         ),
-        "            elif False:\n",
+        "    elif False:\n",
         first="test_validator_rejects",
     ),
     Mutant(
@@ -1693,11 +1690,11 @@ MUTANTS = [
         "src/earful/core/search.py",
         (
             "            if one.label in under:\n"
-            "                move_speeches(one.case, under[one.label], one.label)\n"
+            "                self.move_speeches(one.case, under[one.label], one.label)\n"
         ),
         (
             "            if False:\n"
-            "                move_speeches(one.case, under[one.label], one.label)\n"
+            "                self.move_speeches(one.case, under[one.label], one.label)\n"
         ),
         first="test_pairs_put_faults_on_two_writes_and_move_speeches_under_each_fault",
     ),
@@ -1718,8 +1715,8 @@ MUTANTS = [
     Mutant(
         "search: speeches are not moved under a profile",
         "src/earful/core/search.py",
-        '            move_speeches(profile, produced, f"profile {number}")\n',
-        "            pass\n",
+        '                self.move_speeches(profile, produced, f"profile {number}")\n',
+        "                pass\n",
         first="test_profiles_redraw_every_delay_from_the_seed_and_move_speeches_under_each",
     ),
     Mutant(
@@ -1894,21 +1891,15 @@ MUTANTS = [
     Mutant(
         "validator: a caller may give up twice",
         "src/earful/core/schema.py",
-        '            if d["request"] not in effect_requests or d["request"] in gave_up:\n',
-        '            if d["request"] not in effect_requests:\n',
+        '    if d["request"] not in effect_requests or d["request"] in gave_up:\n',
+        '    if d["request"] not in effect_requests:\n',
         first="test_validator_rejects_a_faulted_write_that_cannot_have_happened",
     ),
     Mutant(
         "validator: a rejection is not an outcome",
         "src/earful/core/schema.py",
-        (
-            '        elif k in ("effect.committed", "effect.deduplicated", "effect.failed"):\n'
-            '            if d["request"] not in effect_requests or d["request"] in effect_outcomes:\n'
-        ),
-        (
-            '        elif k in ("effect.committed", "effect.deduplicated", "effect.failed"):\n'
-            '            if d["request"] not in effect_requests or (k != "effect.failed" and d["request"] in effect_outcomes):\n'
-        ),
+        '    if d["request"] not in effect_requests or d["request"] in effect_outcomes:\n',
+        '    if d["request"] not in effect_requests or (k != "effect.failed" and d["request"] in effect_outcomes):\n',
         first="test_validator_rejects_a_faulted_write_that_cannot_have_happened",
     ),
     Mutant(
@@ -2158,7 +2149,7 @@ MUTANTS = [
     Mutant(
         "search: the hangup is not moved",
         "src/earful/core/search.py",
-        ("        if cases.HANGUP not in kinds:\n            return\n"),
+        ("        if cases.HANGUP not in self.kinds:\n            return\n"),
         ("        if True:\n            return\n"),
         first="test_a_search_moves_the_hangup_to_every_transition_after_the_last_speech",
     ),
@@ -2173,16 +2164,16 @@ MUTANTS = [
         "search: the hangup is not moved under a fault",
         "src/earful/core/search.py",
         (
-            "                move_speeches(one.case, under[one.label], one.label)\n"
-            "                move_hangup(one.case, under[one.label], one.label)\n"
+            "                self.move_speeches(one.case, under[one.label], one.label)\n"
+            "                self.move_hangup(one.case, under[one.label], one.label)\n"
         ),
-        "                move_speeches(one.case, under[one.label], one.label)\n",
+        "                self.move_speeches(one.case, under[one.label], one.label)\n",
         first="test_pairs_move_the_hangup_with_each_fault_in_place",
     ),
     Mutant(
         "search: the hangup is always moved",
         "src/earful/core/search.py",
-        ("        if cases.HANGUP not in kinds:\n            return\n"),
+        ("        if cases.HANGUP not in self.kinds:\n            return\n"),
         ("        if False:\n            return\n"),
         first="test_exploring_runs_every_candidate_and_reports_what_broke_and_what_was_reached",
     ),
@@ -2817,14 +2808,14 @@ MUTANTS = [
     Mutant(
         "search: speeches are not moved under a stretched delay",
         "src/earful/core/search.py",
-        "                move_speeches(longer, produced, label, coarse=True)\n",
+        "                self.move_speeches(longer, produced, label, coarse=True)\n",
         "                pass\n",
         first="slow_write_and_a_speech",
     ),
     Mutant(
         "search: the hangup is not moved under a stretched delay",
         "src/earful/core/search.py",
-        "                move_hangup(longer, produced, label, coarse=True)\n",
+        "                self.move_hangup(longer, produced, label, coarse=True)\n",
         "                pass\n",
         first="slow_write_and_a_hangup",
     ),
@@ -3093,8 +3084,8 @@ MUTANTS = [
     Mutant(
         "api: a case's data is not what is run",
         "src/earful/scripted/api.py",
-        '        return self.run_case(found.build(data), seed=data["seed"])\n',
-        '        return self.run_case(found.make(), seed=data["seed"])\n',
+        "            result = self.run_case(found.build(data), seed=seeded(data, seed))\n",
+        "            result = self.run_case(found.make(), seed=seeded(data, seed))\n",
         first="run_from_its_data",
     ),
     Mutant(
@@ -3155,16 +3146,16 @@ MUTANTS = [
     ),
     Mutant(
         "report: a rule the checker names is not one a test can allow",
-        "src/earful/core/checker/report.py",
-        '    "A1": ("rule", "in-flight"),\n',
-        '    "A1": ("rule",),\n',
+        "src/earful/core/checker/contracts.py",
+        '            rules=("rule", "in-flight"),\n',
+        '            rules=("rule",),\n',
         first="rules_that_can_break_are_those_the_checker_names",
     ),
     Mutant(
         "report: a rule a test can allow is not one the pages list",
-        "src/earful/core/checker/report.py",
-        '    "L2": ("rule a", "rule b"),\n',
-        '    "L2": ("rule a", "rule b", "rule c"),\n',
+        "src/earful/core/checker/contracts.py",
+        '            rules=("rule a", "rule b"),\n',
+        '            rules=("rule a", "rule b", "rule c"),\n',
         first="rules_a_test_can_allow_are_listed",
     ),
     Mutant(
@@ -3478,8 +3469,8 @@ MUTANTS = [
     Mutant(
         "search: what a search is about to run is said once it has run",
         "src/earful/core/search.py",
-        "    if planned is not None:\n        planned(plan)\n    # The runs that read the boundaries are made whatever the budget: there is no search without.\n    dropped = {id(c) for c in fresh[plan.covered :]}\n    todo = [c for c in todo if id(c) not in dropped]\n    outcomes = runner.many([c.case for c in todo], each)\n",
-        "    dropped = {id(c) for c in fresh[plan.covered :]}\n    todo = [c for c in todo if id(c) not in dropped]\n    outcomes = runner.many([c.case for c in todo], each)\n    if planned is not None:\n        planned(plan)\n",
+        '    if planned is not None:\n        planned(plan)\n    # The runs that read the boundaries are made whatever the budget: there is no search without.\n    dropped = {id(c) for c in fresh[plan.covered :]}\n    todo = [c for c in todo if id(c) not in dropped]\n    with runner.counting("cases"):\n        outcomes = runner.many([c.case for c in todo], placer.each)\n',
+        '    dropped = {id(c) for c in fresh[plan.covered :]}\n    todo = [c for c in todo if id(c) not in dropped]\n    with runner.counting("cases"):\n        outcomes = runner.many([c.case for c in todo], placer.each)\n    if planned is not None:\n        planned(plan)\n',
         first="says_what_it_is_about_to_run",
     ),
     Mutant(
@@ -3583,15 +3574,15 @@ MUTANTS = [
     Mutant(
         "search: a speech is taken to be part of the run it is put against",
         "src/earful/core/search.py",
-        "                place(on, handles, alone, base, coarse, apart=True)\n",
-        "                place(on, handles, alone, base, coarse)\n",
+        "                self.place(on, handles, alone, base, coarse, apart=True)\n",
+        "                self.place(on, handles, alone, base, coarse)\n",
         first="written_on_a_transition_is_moved",
     ),
     Mutant(
         "search: a hangup is taken to be part of the run it is put against",
         "src/earful/core/search.py",
-        "            place(on, [hangup_handle(on, stays)], stays, base, coarse, apart=True)\n",
-        "            place(on, [hangup_handle(on, stays)], stays, base, coarse)\n",
+        "            self.place(on, [hangup_handle(on, stays)], stays, base, coarse, apart=True)\n",
+        "            self.place(on, [hangup_handle(on, stays)], stays, base, coarse)\n",
         first="written_on_a_transition_is_moved",
     ),
     Mutant(
@@ -3696,8 +3687,8 @@ MUTANTS = [
     Mutant(
         "cli: what a run may break is checked once it has run",
         "src/earful/cli.py",
-        "    allow, require = _asked(args)\n    case = _case(args.case)\n    adapter, source = _scenario(args.scenario)\n    try:\n        with _running(args.scenario):\n",
-        "    case = _case(args.case)\n    adapter, source = _scenario(args.scenario)\n    allow, require = _asked(args)\n    try:\n        with _running(args.scenario):\n",
+        "    allow, require = _asked(args)\n    case = _case(args.case)\n    adapter, source = _scenario(args.scenario)\n    try:\n        with _running(args.scenario), warnings",
+        "    case = _case(args.case)\n    adapter, source = _scenario(args.scenario)\n    allow, require = _asked(args)\n    try:\n        with _running(args.scenario), warnings",
         first="does_not_exist_is_refused_before_anything_runs",
     ),
     Mutant(
@@ -3892,22 +3883,15 @@ MUTANTS = [
     Mutant(
         "plugin: the workers the command line gave are not used",
         "src/earful/pytest_plugin.py",
-        '            options.setdefault("workers", self.workers)\n',
+        "            workers = self.workers  # what the command line says\n",
         "            pass\n",
         first="workers_the_command_line_gave",
     ),
     Mutant(
-        "plugin: a scenario built inline is given worker processes",
-        "src/earful/pytest_plugin.py",
-        "        if self.spread or reference is None:\n",
-        "        if self.spread:\n",
-        first="worker_per_processor_if_it_can_be_imported",
-    ),
-    Mutant(
         "plugin: a test run spread by xdist starts workers of its own",
         "src/earful/pytest_plugin.py",
-        "        if self.spread or reference is None:\n",
-        "        if reference is None:\n",
+        "        if workers is None and self.spread:\n",
+        "        if False:\n",
         first="xdist_has_spread_over_the_processors",
     ),
     Mutant(
@@ -3918,18 +3902,11 @@ MUTANTS = [
         first="told_what_the_command_line_and_xdist_say",
     ),
     Mutant(
-        "plugin: a search nobody gave a number for fails where workers cannot be started",
-        "src/earful/pytest_plugin.py",
-        "                found = adapter.explore(source, workers=0, **options)\n",
-        "                raise\n",
-        first="cannot_be_started_a_search_nobody_gave_a_number_for",
-    ),
-    Mutant(
-        "plugin: a number of workers someone gave is set aside where they cannot be started",
-        "src/earful/pytest_plugin.py",
-        '        if "workers" in options or self.workers is not None:\n',
-        "        if False:\n",
-        first="cannot_be_started_a_search_nobody_gave_a_number_for",
+        "api: a search nobody gave a number for fails where workers cannot be started",
+        "src/earful/scripted/api.py",
+        "                with contextlib.suppress(WorkersUnavailable):\n",
+        "                with contextlib.suppress():\n",
+        first="worker_per_processor_where_it_can",
     ),
     Mutant(
         "plugin: the workers option takes anything",
@@ -4275,14 +4252,14 @@ MUTANTS = [
         "src/earful/core/search.py",
         "    if not given:\n        return os.cpu_count() or 1\n",
         "    if True:\n        return os.cpu_count() or 1\n",
-        first="as_many_as_the_environment_says or environment_says_how_many_workers",
+        first="as_many_as_the_environment_says",
     ),
     Mutant(
         "search: a number of workers below none is taken",
         "src/earful/core/search.py",
         '    if workers < 0:\n        raise ValueError(f"{WORKERS_VARIABLE} is a number',
         '    if False:\n        raise ValueError(f"{WORKERS_VARIABLE} is a number',
-        first="as_many_as_the_environment_says or environment_says_how_many_workers",
+        first="as_many_as_the_environment_says",
     ),
     Mutant(
         "cli: a search takes every processor whatever the environment says",
@@ -4292,11 +4269,11 @@ MUTANTS = [
         first="as_many_as_the_environment_says",
     ),
     Mutant(
-        "plugin: one worker process is started where this process would do",
-        "src/earful/pytest_plugin.py",
-        "        return workers if workers > 1 else 0  # one worker is no faster than this process\n",
+        "api: one worker process is started where this process would do",
+        "src/earful/scripted/api.py",
+        "        return workers if workers > 1 else 0\n",
         "        return workers\n",
-        first="worker_per_processor_if_it_can_be_imported",
+        first="worker_per_processor_where_it_can",
     ),
     # earful init: the first test written for an agent.
     Mutant(
@@ -4357,9 +4334,9 @@ MUTANTS = [
     ),
     Mutant(
         "scaffold: only the tool the model calls is an effect",
-        "src/earful/livekit/scaffold.py",
-        "                for tool in names\n",
-        "                for tool in names[:1]\n",
+        "src/earful/scripted/scaffold.py",
+        "            for name in names\n",
+        "            for name in names[:1]\n",
         first="writes_a_test_from_the_agents_tools",
     ),
     Mutant(
@@ -4378,30 +4355,30 @@ MUTANTS = [
     ),
     Mutant(
         "scaffold: an argument that has a default is given a value",
-        "src/earful/livekit/scaffold.py",
+        "src/earful/scripted/scaffold.py",
         '            for name in schema.get("required", [])\n',
         "            for name in properties\n",
         first="a_value_for_each_argument_the_tool_requires",
     ),
     Mutant(
         "scaffold: a whole number is given a text",
-        "src/earful/livekit/scaffold.py",
+        "src/earful/scripted/scaffold.py",
         '_PLAIN = {"integer": 1, ',
         '_PLAIN = {"integer": "example", ',
         first="a_value_for_each_argument_the_tool_requires",
     ),
     Mutant(
         "scaffold: a value outside those allowed is given",
-        "src/earful/livekit/scaffold.py",
+        "src/earful/scripted/scaffold.py",
         '    if schema.get("enum"):\n',
         "    if False:\n",
         first="a_value_for_each_argument_the_tool_requires",
     ),
     Mutant(
         "scaffold: the model claims an intent no effect has",
-        "src/earful/livekit/scaffold.py",
-        '        intent = _literal(called.replace("_", "-"))\n',
-        "        intent = _literal(called)\n",
+        "src/earful/scripted/scaffold.py",
+        '    intent = literal(called.replace("_", "-"))\n',
+        "    intent = literal(called)\n",
         first="a_value_for_each_argument_the_tool_requires or init_writes_runs_as_it_is",
     ),
     Mutant(
@@ -4442,15 +4419,15 @@ MUTANTS = [
     Mutant(
         "pipecat: an error the framework reports makes the run invalid",
         "src/earful/pipecat/harness.py",
-        "            if frame.exception is not None or frame.fatal:\n",
-        "            if True:\n",
+        "        if frame.exception is not None or frame.fatal:\n",
+        "        if True:\n",
         first="slower_than_pipecat_waits_is_judged",
     ),
     Mutant(
         "pipecat: a random id reaches the ledger",
         "src/earful/pipecat/harness.py",
-        '                error=_UNSTABLE.sub("#", frame.error),\n',
-        "                error=frame.error,\n",
+        '            error=_UNSTABLE.sub("#", frame.error),\n',
+        "            error=frame.error,\n",
         first="slower_than_pipecat_waits_is_judged",
     ),
     Mutant(
@@ -4477,8 +4454,8 @@ MUTANTS = [
     Mutant(
         "pipecat: a case's own pipeline is not run",
         "src/earful/pipecat/harness.py",
-        "        build = case.pipeline or pipelines.standard(*timeouts)\n",
-        "        build = pipelines.standard(*timeouts)\n",
+        "    build = case.pipeline or pipelines.standard(*timeouts)\n",
+        "    build = pipelines.standard(*timeouts)\n",
         first="runs_its_own_processors",
     ),
     Mutant(
@@ -4596,8 +4573,8 @@ MUTANTS = [
     Mutant(
         "pipecat: turn strategies changed during a run go unnoticed",
         "src/earful/pipecat/harness.py",
-        "        if changed:\n",
-        "        if False:\n",
+        "    if changed:\n",
+        "    if False:\n",
         first="strategies_changed_during_the_run",
     ),
     Mutant(
@@ -4799,7 +4776,7 @@ MUTANTS = [
     Mutant(
         "pipecat: a pending turn is mistaken for an idle pipeline",
         "src/earful/pipecat/harness.py",
-        "                    or tap.user_speaking\n",
+        "                or tap.user_speaking\n",
         "",
         first="waits_for_the_final_turn_and_slow_tool",
     ),
@@ -4917,14 +4894,14 @@ MUTANTS = [
     ),
     Mutant(
         "scaffold: the model gives up after one failed call",
-        "src/earful/livekit/scaffold.py",
+        "src/earful/scripted/scaffold.py",
         '"        tool_failed() & (lambda context: len(context.tool_results) >= 2),",',
         '"        tool_failed(),",',
         first="fails_on_a_write_the_model_repeats_without_a_key",
     ),
     Mutant(
         "scaffold: the test of one run requires no contract",
-        "src/earful/livekit/scaffold.py",
+        "src/earful/scripted/scaffold.py",
         'f"    earful.run({scenario}).assert_contracts(require=REQUIRED)",',
         'f"    earful.run({scenario}).assert_contracts()",',
         first="init_writes_runs_as_it_is",
@@ -4938,21 +4915,21 @@ MUTANTS = [
     ),
     Mutant(
         "scaffold: a model inside an argument is given a text",
-        "src/earful/livekit/scaffold.py",
+        "src/earful/scripted/scaffold.py",
         '    if "$ref" in schema:\n',
         "    if False:\n",
         first="a_model_a_date_and_an_identifier",
     ),
     Mutant(
         "scaffold: a date is given any text",
-        "src/earful/livekit/scaffold.py",
+        "src/earful/scripted/scaffold.py",
         'return _FORMATS.get(schema.get("format", ""), "example")',
         'return "example"',
         first="a_model_a_date_and_an_identifier",
     ),
     Mutant(
         "scaffold: a list that needs an item is left empty",
-        "src/earful/livekit/scaffold.py",
+        "src/earful/scripted/scaffold.py",
         '        return [item] * schema.get("minItems", 0)\n',
         "        return []\n",
         first="a_model_a_date_and_an_identifier",
@@ -5247,8 +5224,8 @@ MUTANTS = [
     Mutant(
         "search: a run made to find where to put things that cannot be judged is not noted",
         "src/earful/core/search.py",
-        "            if ledger is None:\n                unread.setdefault(",
-        "            if False:\n                unread.setdefault(",
+        "            if ledger is None:\n                self.unread.setdefault(",
+        "            if False:\n                self.unread.setdefault(",
         first="find_where_to_put",
     ),
     Mutant(
@@ -5275,8 +5252,8 @@ MUTANTS = [
     Mutant(
         "search: a run made to find where to put things under a fault is not named by it",
         "src/earful/core/search.py",
-        "    with_faults = read([(one.label, one.case) for one in faulted])\n",
-        '    with_faults = read([("", one.case) for one in faulted])\n',
+        "        with_faults = self.read([(one.label, one.case) for one in faulted])\n",
+        '        with_faults = self.read([("", one.case) for one in faulted])\n',
         first="named_by_the_fault",
     ),
     Mutant(
@@ -5478,8 +5455,8 @@ MUTANTS = [
     Mutant(
         "pipecat: a private name is read only when it is used",
         "src/earful/pipecat/harness.py",
-        "            model.private(name)\n",
-        "            pass\n",
+        "        model.private(name)\n",
+        "        pass\n",
         first="private_name_elsewhere",
     ),
     Mutant(
@@ -5527,8 +5504,8 @@ MUTANTS = [
     Mutant(
         "pipecat: the header leaves out the starting history",
         "src/earful/pipecat/harness.py",
-        '        if history:\n            header["history"] = history\n',
-        '        if False:\n            header["history"] = history\n',
+        '    if history:\n        header["history"] = history\n',
+        '    if False:\n        header["history"] = history\n',
         first="starts_with_history",
     ),
     Mutant(
@@ -5609,10 +5586,10 @@ MUTANTS = [
         first="requires_a_contract_of_the_case",
     ),
     Mutant(
-        "search: evidence lost has no details",
-        "src/earful/core/search.py",
-        "                if predicate.rule in (finding.rule, finding.code)\n",
-        "                if predicate.rule == finding.rule\n",
+        "predicate: evidence lost has no details",
+        "src/earful/core/predicate.py",
+        "        if predicate.rule in (finding.rule, finding.code)\n",
+        "        if predicate.rule == finding.rule\n",
         first="loses_is_a_rule",
     ),
     Mutant(
@@ -5768,5 +5745,166 @@ MUTANTS = [
         "    hi = one if one.hi_us >= other.hi_us else other\n",
         "    hi = one\n",
         first="past_the_end_of_its_window",
+    ),
+    Mutant(
+        "pipecat scaffold: a class is taken for a bot",
+        "src/earful/pipecat/scaffold.py",
+        "    if inspect.isclass(target) or not callable(target):\n",
+        "    if not callable(target):\n",
+        first="cannot_read_a_bot_from",
+    ),
+    Mutant(
+        "pipecat scaffold: the schema of a function the context advertises is not read",
+        "src/earful/pipecat/scaffold.py",
+        "        if isinstance(schema, FunctionSchema):\n",
+        "        if False:\n",
+        first="writes_a_test_from_the_functions",
+    ),
+    Mutant(
+        "pipecat scaffold: a function registered by name alone is not found",
+        "src/earful/pipecat/scaffold.py",
+        "            found.setdefault(name, None)\n",
+        "            pass\n",
+        first="needs_more_than_its_model",
+    ),
+    Mutant(
+        "pipecat scaffold: a bot that needs more than its model is called without it",
+        "src/earful/pipecat/scaffold.py",
+        "        context = bot(reader, *positional, **named)\n",
+        "        context = bot(reader)\n",
+        first="needs_more_than_its_model",
+    ),
+    Mutant(
+        "pipecat scaffold: a call with arguments not known says nothing of it",
+        "src/earful/pipecat/scaffold.py",
+        "        if functions[called] is None:\n",
+        "        if False:\n",
+        first="needs_more_than_its_model",
+    ),
+    Mutant(
+        "cli: a bot function is given to the LiveKit scaffold",
+        "src/earful/cli.py",
+        "    bot = named is not None and not inspect.isclass(named) and callable(named)\n",
+        "    bot = False\n",
+        first="writes_a_test_from_the_functions",
+    ),
+    Mutant(
+        "cli: init calls a bot's functions tools",
+        "src/earful/cli.py",
+        "        print(f\"{made.noun:<11}{', '.join(made.tools)}\")\n",
+        "        print(f\"{'tools':<11}{', '.join(made.tools)}\")\n",
+        first="writes_a_test_from_the_functions",
+    ),
+    Mutant(
+        "pipecat: a processor that raises is an error the framework reports of itself",
+        "src/earful/pipecat/harness.py",
+        "        if frame.exception is not None or frame.fatal:\n",
+        "        if frame.fatal:\n",
+        first="processor_that_raises",
+    ),
+    Mutant(
+        "api: a seed other than the one a saved case holds is dropped",
+        "src/earful/scripted/api.py",
+        '    if seed is not None and seed != data["seed"]:\n',
+        "    if False:\n",
+        first="saved_case_runs_with_its_own_seed",
+    ),
+    Mutant(
+        "search: a reduction's runs are counted as the search's",
+        "src/earful/core/search.py",
+        '        return self.runner.runs - self.runner.by_purpose.get("reduce", 0)\n',
+        "        return self.runner.runs\n",
+        first="a_reduction_is_not_one_of_its_runs",
+    ),
+    Mutant(
+        "search: the runs that measure a window are not counted as such",
+        "src/earful/core/search.py",
+        '                with self.runner.counting("measure"):\n',
+        "                with contextlib.nullcontext():\n",
+        first="counts_its_runs_by_purpose",
+    ),
+    Mutant(
+        "search: the other changes that break a rule are joined with commas",
+        "src/earful/core/search.py",
+        "{'; '.join(others)}",
+        "{', '.join(others)}",
+        first="search_finds_the_break_keeps_it",
+    ),
+    Mutant(
+        "plugin: keep drops repeats",
+        "src/earful/pytest_plugin.py",
+        "        return adapter.keep(found, rule, directory, repeats=repeats)\n",
+        "        return adapter.keep(found, rule, directory)\n",
+        first="kept_under_the_tests_own_directory",
+    ),
+    Mutant(
+        "livekit: the session is drained with a tool or a reply still under way",
+        "src/earful/livekit/harness.py",
+        "        if busy():\n",
+        "        if False:\n",
+        first="still_running_when_the_scenario_is_over",
+    ),
+    Mutant(
+        "clock: a span's reads move the wall clock",
+        "src/earful/scripted/clock.py",
+        "                spans = _reading_without_a_step(_now_ns)\n",
+        "                spans = _now_ns\n",
+        first="span_reads_the_clock_without_moving_it",
+    ),
+    Mutant(
+        "cli: a failure that cannot be kept hides what the search found",
+        "src/earful/cli.py",
+        "        except ValueError as exc:  # what was found is still printed\n",
+        "        except KeyError as exc:  # what was found is still printed\n",
+        first="cannot_be_kept",
+    ),
+    Mutant(
+        "case: a fault on a write the run never makes goes unnamed",
+        "src/earful/core/case.py",
+        '        if declared["nth"] > made:\n',
+        "        if False:\n",
+        first="never_makes_is_named",
+    ),
+    Mutant(
+        "case: a model call's delay is counted against writes",
+        "src/earful/core/case.py",
+        '    "llm.ttft": ("llm.request", "model call"),\n',
+        "",
+        first="unapplied",
+    ),
+    Mutant(
+        "livekit: a declared fault is logged with its traceback",
+        "src/earful/livekit/harness.py",
+        "        if isinstance(raised, (BackendError, BackendTimeout)):  # a fault the scenario declared\n",
+        "        if False:\n",
+        first="declared_fault_is_logged_in_one_line",
+    ),
+    Mutant(
+        "api: a case made for another scenario is run with the one given",
+        "src/earful/scripted/api.py",
+        '    if data is None or reference is None or data.get("scenario") in (None, INLINE, reference):\n',
+        "    if True:\n",
+        first="made_for_another_scenario",
+    ),
+    Mutant(
+        "search: a wait below one microsecond is taken",
+        "src/earful/core/search.py",
+        "        if type(value) is not int or value < least:\n",
+        "        if type(value) is not int:\n",
+        first="wait_the_stretch_and_the_delay_limit",
+    ),
+    Mutant(
+        "api: a search drops the wait it is given",
+        "src/earful/scripted/api.py",
+        '            "wait_us": wait_us,\n            "stretch_us": stretch_us,\n        }\n        if workers == 0:',
+        '            "stretch_us": stretch_us,\n        }\n        if workers == 0:',
+        first="wait_the_stretch_and_the_delay_limit",
+    ),
+    Mutant(
+        "validator: a ledger of another format is said to be so once per event",
+        "src/earful/core/schema.py",
+        "    if len(named) == 1 and (other := named.pop()) != SCHEMA and isinstance(other, str):\n",
+        "    if False:\n",
+        first="another_format_is_said_to_be_so_once",
     ),
 ]

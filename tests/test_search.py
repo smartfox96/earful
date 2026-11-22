@@ -444,8 +444,11 @@ def test_a_search_requires_a_contract_of_the_case_as_given():
     head, required = str(caught.value).split("\n\n")
     tried = len(found.tried)
     summary = f"{tried} cases tried, {tried} judged, 0 contract rule(s) broken"
+    read, ran = found.runner.by_purpose["read"], found.runner.by_purpose["cases"]
+    assert ran < tried  # a case already run to read the boundaries is not run again
     assert head.splitlines() == [
         f"book_then_interrupt on livekit-agents 1.8.12: {summary}",
+        f"    {read + ran} run(s): {read} to find where to put things, {ran} for the cases",
         "    by contract: pass, fail, nothing to judge, evidence lost",
         *(f"    {name}  {0:>5} {0:>5} {tried:>5} {0:>5}" for name in ("A1", "A2", "A3")),
         *(f"    {name}  {tried:>5} {0:>5} {0:>5} {0:>5}" for name in ("M1", "M2", "L1", "L2")),
@@ -572,7 +575,9 @@ def test_a_search_that_could_judge_nothing_it_tried_fails_and_says_why_with_an_e
         found.assert_contracts()
     head, said = str(caught.value).split("\n\n")
     tried = len(found.tried)
-    assert head.endswith(f": {tried} cases tried, 0 judged, 0 contract rule(s) broken")
+    first, runs = head.splitlines()
+    assert first.endswith(f": {tried} cases tried, 0 judged, 0 contract rule(s) broken")
+    assert runs == f"    {tried + 2} run(s): 2 to find where to put things, {tried} for the cases"
     assert said.splitlines() == [
         f"not judged: {tried} of {tried} cases, which leaves the search with no result",
         f"    {late.cases} invalid: playout ran ahead of its audio 5 times",
@@ -607,7 +612,10 @@ def test_a_search_that_tried_no_case_fails():
     with pytest.raises(ContractFailure) as caught:
         clean.assert_contracts()
     head, said = str(caught.value).split("\n\n")
-    assert head.endswith(": 0 cases tried, 0 judged, 0 contract rule(s) broken")
+    assert head.endswith(
+        ": 0 cases tried, 0 judged, 0 contract rule(s) broken\n"
+        "    1 run(s): 1 to find where to put things"
+    )
     assert said == "no case was tried, which leaves the search with no result"
 
 
@@ -733,6 +741,33 @@ def test_evidence_a_case_loses_is_a_rule_of_its_own_with_its_cases_and_what_chan
     with pytest.raises(ContractFailure, match="A2/outside-backend  in"):
         found.assert_contracts()
     found.assert_contracts(allow=["A2/outside-backend", "A3/outside-backend"])
+
+
+def test_a_bundle_kept_for_evidence_lost_records_what_its_findings_say(tmp_path):
+    blind = _blind(ledger("1.8.12", "book_then_interrupt"))
+    lost = Predicate.parse("A2/outside-backend")
+    case = a_case(BOOK, WINDOW)
+    manifest = bundle.capture(tmp_path / "kept", case, held(lambda moved: blind, case), lost)
+    said = ["a tool for the intent was called but nothing reached the backend"]
+    assert manifest["original"]["findings"] == manifest["minimal"]["findings"] == said
+
+
+def test_unapplied_names_each_declaration_the_run_never_reached():
+    events = copy.deepcopy(ledger("1.8.12", "book_then_interrupt"))
+    calls = sum(e["kind"] == "llm.request" for e in events)
+    writes = sum(e["kind"] == "effect.requested" for e in events)
+    scenario = events[0]["data"]["scenario"]
+    scenario["delays"] = [
+        {"of": "llm.ttft", "nth": calls + 1, "us": 1},
+        {"of": "tts.ttfb", "nth": 1, "us": 1},
+        {"of": "backend.latency", "nth": writes, "us": 1},
+    ]
+    scenario["faults"] = [{"of": "backend.error", "nth": writes + 1, "us": None}]
+    assert cases.unapplied(events) == [
+        f"llm.ttft {calls + 1}: the run made {calls} model call(s)",
+        f"backend.error {writes + 1}: the run made {writes} write(s)",
+    ]
+    assert cases.unapplied(ledger("1.8.12", "book_then_interrupt")) == []
 
 
 def test_a_case_that_cannot_be_searched_is_refused_up_front():
@@ -1432,7 +1467,22 @@ def test_a_search_says_what_it_is_about_to_run_before_it_runs_it():
     assert found.runner.runs == plan.runs + plan.to_run and found.complete
     assert str(plan) == (
         f"{plan.cases} cases ({plan.placements} placements of a time, and the faults); "
-        f"{plan.to_run} to run, after {plan.runs} run(s) to find them"
+        f"{plan.to_run} to run, after {plan.runs} run(s) to find them. "
+        "Measuring where each failure starts and ends takes more runs"
+    )
+
+
+def test_a_search_counts_its_runs_by_purpose_and_a_reduction_is_not_one_of_its_runs():
+    found = explore(FAR, answers(INTERRUPTS), **NARROW)
+    predicate = found.predicates()[0]
+    found.windows(predicate)
+    made = found.runner.by_purpose
+    assert made["measure"] > 0 and found.runs == found.runner.runs == sum(made.values())
+    with found.runner.counting("reduce"):
+        shrink(found.breaking(predicate)[0].candidate.case, found.runner, predicate)
+    assert found.runner.runs > found.runs == sum(n for p, n in made.items() if p != "reduce")
+    assert (
+        found.summary()["runs"] == found.runs and "reduce" not in found.summary()["runs_by_purpose"]
     )
 
 
@@ -1443,7 +1493,7 @@ def test_a_search_stops_at_its_budget_and_its_result_says_it_is_incomplete():
     assert cut.runner.runs == budget and not cut.complete and cut.not_run == 5
     assert len(cut.tried) == len(whole.tried) - 5
     (plan,) = plans
-    assert str(plan).endswith(f". The budget of {budget} runs covers {plan.to_run - 5} of them")
+    assert f". The budget of {budget} runs covers {plan.to_run - 5} of them. " in str(plan)
     summary = cut.summary()
     assert (summary["complete"], summary["not_run"], summary["max_runs"]) == (False, 5, budget)
     with pytest.raises(ContractFailure) as caught:  # no rule broke, and that is not the result
@@ -1810,7 +1860,7 @@ def test_a_case_that_does_not_repeat_is_not_kept(tmp_path):
         unsteady.runs += 1
         events = copy.deepcopy(ledger("1.5.6", "book_then_interrupt"))
         said = next(e for e in events if e["source"] == "framework")
-        said["data"]["created_us"] += unsteady.runs  # a different ledger every run
+        said["data"]["unsteady"] = unsteady.runs  # a different ledger every run
         return events
 
     unsteady.runs = 0

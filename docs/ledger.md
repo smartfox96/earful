@@ -1,6 +1,6 @@
 # Ledger
 
-Schema: **`earful.ledger/1`**, 17 November 2026.
+Schema: **`earful.ledger/1`**.
 
 A ledger is the complete record of one run. It is the only input to the checker
 (`docs/contracts.md`), so anything a contract needs must be in it. One JSON object per
@@ -194,7 +194,7 @@ and releases PCM after `ttfb_us` from the first complete word (`started_us`, an 
 time). An unfinished trailing word waits for more text or an input flush. Cancellation
 drops that fragment and finalizes the words already synthesized.
 
-There is one utterance per nonempty TTS input segment, not per sentence or word, and at
+There is one utterance per nonempty TTS input segment, and at
 most one attributed utterance per model call. On Pipecat a model reply is one utterance,
 whatever the number of audio contexts it is spoken in, and `ttfb_us` is waited once,
 before its first audio. Its metadata can follow `playout.started`:
@@ -346,8 +346,7 @@ timeout and no outcome was lost, or had not committed when the scenario ended.
 ### framework
 
 `fw.*` events are the framework's public events, recorded as explanation. Their fields are
-adapter-defined. Each carries `created_us`, the framework's own timestamp for the event.
-They never decide a verdict.
+adapter-defined, and they never decide a verdict.
 
 ## Rules that span events
 
@@ -437,10 +436,6 @@ run seeds Python's `random` module with the case's seed, so an identifier the ap
 draws from it repeats. One drawn from `uuid.uuid4` differs on every run, and the hash with
 it.
 
-Earful 0.1.1 and earlier replaced such a value wherever it appeared. A ledger that holds
-one in application data therefore hashes differently now. None of the reference ledgers
-does.
-
 ## Reference ledgers
 
 `tests/golden/` holds one normalized ledger per case and supported release. Every
@@ -453,15 +448,13 @@ ledgers change; the diff it produces is reviewed like any other change.
 ## Comparing releases
 
 `compare_view` in `src/earful/core/ledger.py` drops what differs between releases for
-reasons unrelated to behaviour: the release itself (`framework` in `run.start`, and the
-run id derived from it) and the framework's `created_us`, which drifts by microseconds
-because each release reads the wall clock a different number of times per step.
-Everything else is kept. On `barge_in_mid_word`, the comparison views of 1.6.6 and 1.8.12
+reasons unrelated to behaviour: the release itself (`framework` in `run.start`) and the
+run id derived from it. Everything else is kept. On `barge_in_mid_word`, the comparison views of 1.6.6 and 1.8.12
 differ only in when the session closes.
 
 ## Versioning
 
-`earful.ledger/1` is the format of the first release. An optional field can be added to
+`earful.ledger/1` is the ledger format. An optional field can be added to
 it without a new major version: readers ignore fields they do not know, and a field that
 is absent means what it meant before the field existed. Such an addition raises
 `schema_minor` once a release has shipped without it. A new kind, a new required field, a
@@ -469,75 +462,6 @@ change to the type or meaning of an existing field, or a change to a rule that s
 events is a new major version, with its own schema file. A change that alters what a
 recorded ledger hashes to regenerates the reference ledgers.
 
-`schema_minor` 1 added four optional fields: `handoff` on `tool.returned`,
+Four optional fields are at `schema_minor` 1: `handoff` on `tool.returned`,
 `turn_end_delay_us` in the header's `session`, `word_timestamps` in its
 `providers.tts`, and `history` in its `scenario`.
-
-## Before `earful.ledger/1`
-
-The format was numbered 0 to 5 while it was being developed, and was reset to 1 for the
-first release. The sections below record what each of those development versions changed.
-Their numbers are not versions of the released format: "development version 1" below is
-not `earful.ledger/1`.
-
-### Changes in `earful.ledger/1` from development version 5
-
-- The scripted model delivers its text over the time it generates, and the scripted voice
-  speaks words as they arrive. `tts.synthesized` is recorded once per utterance when its
-  input ends or is cancelled, carries `started_us`, and can follow the `playout.started`
-  of its own audio.
-- `playout.paused` is also recorded when a streaming buffer runs empty while audible.
-- Events can carry `schema_minor`, and fields the schema does not name are accepted.
-- The scenario can state `effects`: tools that stand for one durable write.
-
-### Changes in development version 5
-
-- The scenario states when the user hangs up, in `hangup_us`.
-- One scripted-user event: `user.hangup`.
-- A write commits although its caller was cancelled. Before, cancelling the caller
-  cancelled the write. The event shapes are unchanged.
-
-### Changes in development version 4
-
-- The scenario states the faults it declares, in `faults`.
-- Two backend events: `effect.failed` and `effect.timed_out`.
-
-### Changes in development version 3
-
-- The scenario states the provider delays it declares, in `delays`.
-- Speeches closer together than the VAD's silence window are no longer refused. They are
-  one segment to the VAD, so `user.vad_start` and `user.vad_end` are recorded once per
-  segment, for its first and its last speech, and no longer once per speech.
-- A scripted tool call that names no call id is given one by the scripted model, unique
-  to the model call (`call-<model call>-<n>`). The reference cases no longer invent ids,
-  so their recorded call ids changed.
-
-### Changes in development version 2
-
-- `tts.synthesized` carries `word_samples`, one length per word, in place of a single
-  `samples_per_word`; the scenario declares `seconds_per_letter_us` in place of
-  `seconds_per_word_us`. The scripted voice no longer gives every word the same length.
-- `tool.returned` and `tool.raised` carry `expects_reply`.
-- The scenario names the tools the witness records, in `witnessed_tools`.
-- `tts.synthesized` carries `candidates`: every reply the text could be.
-- A final transcript is never empty; tool call ids are unique; a segment's pauses and
-  resumes alternate; a segment refers only to utterances and words that were synthesized.
-
-### Changes in development version 1
-
-Development version 0 was used for Gate 0 (`docs/history/gate0-feasibility.md`); commit `70bbc4c`
-reproduces it. These came with development version 1.
-
-- Added: a published JSON Schema; the run id; the framework release and clock in the
-  header; the scenario header; `user.origin`; tool events; `effect.requested` and
-  `effect.deduplicated`; sink commands; claims; provider delays; TTS attribution; word
-  completion times; validity counters and harness errors.
-- Changed: segments are numbered at their first frame, so a segment cleared before it
-  became audible has its own number. Pause and resume are recorded as commands
-  (`sink.*`) separately from their effect (`playout.*`), and a pause outlives the segment
-  it was issued during.
-- Time: same-instant timers were ordered by nudging their due times apart by a
-  nanosecond each, which moved events by up to a few microseconds, and the scripted
-  providers computed durations in floating point; either could move a threshold decision
-  by one VAD tick. Time is now integer microseconds throughout, and same-instant timers
-  fire in scheduling order.

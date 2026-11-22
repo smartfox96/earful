@@ -23,8 +23,7 @@ The user, the model and the voice are scripted, so a test shows a failure only i
 behaviour its script models. The quickstart finds a double booking because its scripted
 model tries a failed tool call again.
 
-For Pipecat, use Python 3.11 or later and install from this checkout with
-`pip install -e ".[pipecat]"`. The
+For Pipecat, use Python 3.11 or later and `pip install "earful[pipecat]"`. The
 [Pipecat quickstart](https://github.com/smartfox96/earful/blob/main/docs/pipecat.md)
 walks through running a greeting in pytest and inspecting its ledger from the command line.
 
@@ -38,8 +37,7 @@ The two files below are in
 pip install "earful[livekit]"
 ```
 
-The quotes keep the shell from reading the brackets, and `[livekit]` installs
-livekit-agents alongside in a release Earful is tested with.
+`[livekit]` installs livekit-agents alongside, in a release Earful is tested with.
 
 **1. An agent.** This one takes restaurant bookings. It is handed the service it books
 with and knows nothing of Earful. Save it as `agent.py`.
@@ -161,13 +159,22 @@ earful = <earful.pytest_plugin.Earful object at 0x...>
     def test_every_timing_and_fault_near_it(earful):
 >       earful.explore(booking).assert_contracts()
 E       earful.core.checker.report.ContractFailure: booking on livekit-agents 1.8.13: 736 cases tried, 736 judged, 1 contract rule(s) broken
+E           809 run(s): 6 to find where to put things, 732 for the cases, 71 to measure the failures
+E           by contract: pass, fail, nothing to judge, evidence lost
+E           A1      0     0   736     0
+E           A2    453   272    11     0
+E           A3    672     0    64     0
+E           M1    732     0     4     0
+E           M2    736     0     0     0
+E           L1    701     0    35     0
+E           L2      0     0   736     0
 E
-E       A2/rule  in 261 case(s)
+E       A2/rule  in 272 case(s)
 E           2 durable effects for 'book-table'; the scenario authorized 1
 E           changed: backend.timeout 1, commit first
-E           also by changing: backend.timeout 1, commit first + backend.latency 1, backend.timeout 1, commit first + backend.wait 1, backend.timeout 1, commit later, backend.timeout 1, commit later + backend.wait 1
-E           breaks with backend.latency 1 from 0.000 s (no case exists beyond it) to 5.061 s (passes beyond it)
-E           breaks with backend.wait 1 from 0.000 s (no case exists beyond it) to 4.699 s (passes beyond it)
+E           also by changing: backend.timeout 1, commit first + backend.latency 1; backend.timeout 1, commit first + backend.wait 1; backend.timeout 1, commit later; backend.timeout 1, commit later + backend.wait 1
+E           breaks with backend.latency 1 from 0.000 s (no case exists beyond it) to 6.000 s (passes beyond it)
+E           breaks with backend.wait 1 from 0.000 s (no case exists beyond it) to 32.768 s (still breaks where the search stopped)
 
 test_booking.py:57: ContractFailure
 ------------------------------------ earful ------------------------------------
@@ -181,7 +188,7 @@ FAILED test_booking.py::test_every_timing_and_fault_near_it - earful.core.che...
 ```
 
 Earful ran the conversation 736 times, each with one time moved or one backend fault
-added. In 261 of them the restaurant holds two bookings. The simplest is the first one
+added. In 272 of them the restaurant holds two bookings. The simplest is the first one
 listed: the reservation service takes the booking, the agent's tool stops waiting before
 it hears back, the model is told the tool failed and tries again.
 
@@ -264,9 +271,8 @@ Each contract is decided from the ledger alone ([`docs/contracts.md`](https://gi
 
 A verdict is pass or fail, or, when it cannot be judged, not exercised (nothing to judge)
 or unobservable (evidence lost), with a code that says why. A failed contract is evidence about one run
-against what the test declared. Whether it is a defect of the framework, of the
-application or of the test is a separate question, and `docs/contracts.md` says how to
-answer it.
+against what the test declared. `docs/contracts.md` says how to decide whether it is
+a defect of the framework, of the application or of the test.
 
 ## What it is not
 
@@ -278,8 +284,8 @@ network, a client buffer or what a caller heard. It does not record production c
 
 ## Two known defects, reproduced
 
-Both were found by the same search and are checked by the same contracts on every
-supported LiveKit release. Both also break the same rules when the reduced case is run on the
+The same search finds both, and the same contracts check them on every supported
+LiveKit release. Both also break the same rules when the reduced case is run on the
 real clock (`earful crosscheck`).
 
 | Issue | What happens | Fails on | Passes on |
@@ -308,6 +314,8 @@ and what CI runs for each.
 | --- | --- |
 | [`docs/testing.md`](https://github.com/smartfox96/earful/blob/main/docs/testing.md) | Writing a test: the scenario, the scripted model, side effects, pytest, the command line, the real clock |
 | [`docs/pipecat.md`](https://github.com/smartfox96/earful/blob/main/docs/pipecat.md) | Running a Pipecat scenario, registering tools and configuring turn detection |
+| [`docs/scripting.md`](https://github.com/smartfox96/earful/blob/main/docs/scripting.md) | Scripting the model so it behaves as a real one does: retries, replies that only call a tool, cancellations |
+| [`docs/adapters.md`](https://github.com/smartfox96/earful/blob/main/docs/adapters.md) | Writing an adapter for another framework |
 | [`docs/api.md`](https://github.com/smartfox96/earful/blob/main/docs/api.md) | Every public name, the `earful` command's options and the pytest plugin |
 | [`docs/troubleshooting.md`](https://github.com/smartfox96/earful/blob/main/docs/troubleshooting.md) | The messages Earful prints, with the cause of each and what to do |
 | [`docs/report.md`](https://github.com/smartfox96/earful/blob/main/docs/report.md) | The HTML report, lane by lane |
@@ -318,7 +326,6 @@ and what CI runs for each.
 | [`docs/limits.md`](https://github.com/smartfox96/earful/blob/main/docs/limits.md) | What Earful does not do and what it cannot see |
 | [`docs/glossary.md`](https://github.com/smartfox96/earful/blob/main/docs/glossary.md) | The terms the pages, the command and the reports use |
 | [`CHANGELOG.md`](https://github.com/smartfox96/earful/blob/main/CHANGELOG.md) | What changed in each release |
-| [`docs/history/`](https://github.com/smartfox96/earful/tree/main/docs/history) | What was measured at each stage of the first build, kept as written |
 
 ## Layout
 

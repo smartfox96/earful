@@ -361,7 +361,8 @@ def _unserved(tool_choice: Any, parallel: Any, calls: tuple[ToolCall, ...]) -> s
         return (
             f"the request allowed no tool call (tool_choice='none'), and the scripted model "
             f"called {names}. livekit-agents asks so once max_tool_steps rounds of tool calls "
-            "have run: script a reply without a call for that request"
+            "have run, and while the session closes: script a reply without a call for that "
+            "request"
         )
     if tool_choice == "required" and not names:
         return (

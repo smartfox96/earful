@@ -3,20 +3,21 @@ after every moment the system under test changes state, and check each run."""
 
 from __future__ import annotations
 
+import contextlib
 import os
 import random
 import re
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Iterator
 from dataclasses import asdict, dataclass, field
 from functools import partial
 from typing import Any
 
 from . import case as cases
 from .case import Variable
-from .checker import FAIL, UNOBSERVABLE, ContractFailure, check
+from .checker import ContractFailure, check
 from .checker.report import allowed
 from .ledger import ledger_hash
-from .predicate import Predicate, failures
+from .predicate import Predicate, details_of, failures
 
 Event = dict[str, Any]
 Run = Callable[[cases.Case], list[Event]]
@@ -112,13 +113,28 @@ Each = Callable[..., Iterable[Any]]
 
 
 class Runner:
-    """Runs each case once, however often it is asked for, and counts the runs."""
+    """Runs each case once, however often it is asked for, and counts the runs by purpose."""
 
     def __init__(self, run: Run) -> None:
         self.run = run
         self.runs = 0
+        self.purpose = "other"  # what the runs made now are for
+        self.by_purpose: dict[str, int] = {}
         self._seen: dict[str, Outcome] = {}
         self._ledgers: dict[str, list[Event] | None] = {}
+
+    @contextlib.contextmanager
+    def counting(self, purpose: str) -> Iterator[None]:
+        """Count the runs made inside the block as made for ``purpose``."""
+        before, self.purpose = self.purpose, purpose
+        try:
+            yield
+        finally:
+            self.purpose = before
+
+    def _counted(self) -> None:
+        self.runs += 1
+        self.by_purpose[self.purpose] = self.by_purpose.get(self.purpose, 0) + 1
 
     def outcome(self, case: cases.Case) -> Outcome:
         return self.many([case])[0]
@@ -132,7 +148,7 @@ class Runner:
         todo = {key: case for key, case in zip(keys, wanted) if key not in self._seen}
         for key, outcome in zip(todo, each(partial(evaluate, self.run), list(todo.values()))):
             self._seen[key] = outcome
-            self.runs += 1
+            self._counted()
         return [self._seen[key] for key in keys]
 
     def ledger(self, case: cases.Case) -> list[Event] | None:
@@ -146,7 +162,7 @@ class Runner:
         for key, (outcome, events) in zip(todo, attempts):
             self._ledgers[key] = events
             self._seen.setdefault(key, outcome)
-            self.runs += 1
+            self._counted()
         return [self._ledgers[key] for key in keys]
 
     def breaks(self, case: cases.Case, predicate: Predicate) -> bool:
@@ -543,7 +559,7 @@ class Plan:
         )
         if self.covered < self.to_run:
             said += f". The budget of {self.max_runs} runs covers {self.covered} of them"
-        return said
+        return said + ". Measuring where each failure starts and ends takes more runs"
 
 
 @dataclass(frozen=True)
@@ -587,6 +603,16 @@ def _end(end: str, unjudged: str | None) -> str:
     return f"a run beyond it could not be judged, {unjudged}" if unjudged else _ENDS[end]
 
 
+# What a search's runs were for, in the order its report lists them.
+_PURPOSES = {
+    "read": "to find where to put things",
+    "cases": "for the cases",
+    "measure": "to measure the failures",
+    "examples": "to read an example of each",
+    "other": "for other reads",
+}
+
+
 @dataclass
 class Exploration:
     case: cases.Case
@@ -610,8 +636,13 @@ class Exploration:
         """False if the budget was spent before every case was run and every window measured."""
         return not self.not_run and not self.unmeasured
 
+    @property
+    def runs(self) -> int:
+        """The runs this search made, without the reductions of failures kept from it."""
+        return self.runner.runs - self.runner.by_purpose.get("reduce", 0)
+
     def _spent(self) -> bool:
-        return self.max_runs is not None and self.runner.runs >= self.max_runs
+        return self.max_runs is not None and self.runs >= self.max_runs
 
     def predicates(self) -> list[Predicate]:
         """Every rule the case as given or some candidate broke."""
@@ -660,14 +691,15 @@ class Exploration:
                 left_out += 1
                 continue
             try:
-                found = window(
-                    self.runner,
-                    tried.candidate.case,
-                    variable,
-                    predicate,
-                    resolution_us=resolution_us,
-                    spent=self._spent,
-                )
+                with self.runner.counting("measure"):
+                    found = window(
+                        self.runner,
+                        tried.candidate.case,
+                        variable,
+                        predicate,
+                        resolution_us=resolution_us,
+                        spent=self._spent,
+                    )
             except Spent:
                 cut += 1
                 continue
@@ -794,15 +826,9 @@ class Exploration:
             else:
                 nearest = min(breaking, key=distance)
                 example, what = nearest.candidate.case, self._what(nearest.candidate)
-            ledger = self.runner.ledger(example)
-            results = check(ledger).results if ledger is not None else {}
-            details = tuple(
-                finding.detail
-                for verdict in (results[predicate.contract].verdicts if results else ())
-                if verdict.outcome == FAIL or verdict.outcome == UNOBSERVABLE
-                for finding in verdict.findings
-                if predicate.rule in (finding.rule, finding.code)
-            )
+            with self.runner.counting("examples"):
+                ledger = self.runner.ledger(example)
+            details = details_of(check(ledger), predicate) if ledger is not None else ()
             out.append(
                 Break(
                     predicate=predicate,
@@ -857,6 +883,9 @@ class Exploration:
                 f"{counts['ran']} judged, {len(found)} contract rule(s) broken"
             )
         ]
+        made = self.runner.by_purpose
+        purposes = [f"{made[p]} {why}" for p, why in _PURPOSES.items() if made.get(p)]
+        lines.append(f"    {self.runs} run(s): {', '.join(purposes)}")
         counted = self.by_contract()
         if counted:
             lines.append("    by contract: pass, fail, nothing to judge, evidence lost")
@@ -880,7 +909,7 @@ class Exploration:
             lines.append(f"    changed: {one.what}")
             others = [c for c in one.changed if c and c != one.what.partition(" at ")[0]]
             if others:
-                lines.append(f"    also by changing: {', '.join(others)}")
+                lines.append(f"    also by changing: {'; '.join(others)}")
             widths = [
                 f"    breaks with {w.variable} from {_seconds(w.lo_us)}"
                 f" ({_end(w.lo_end, w.lo_unjudged)}) to {_seconds(w.hi_us)}"
@@ -956,7 +985,8 @@ class Exploration:
             "candidates": len(self.tried),
             **counts,
             "impossible_placements": len(self.impossible),
-            "runs": self.runner.runs,
+            "runs": self.runs,
+            "runs_by_purpose": {p: n for p, n in self.runner.by_purpose.items() if p != "reduce"},
             "max_runs": self.max_runs,
             "complete": self.complete,
             "not_run": self.not_run,
@@ -1090,6 +1120,51 @@ def explore(
     Raises ``ValueError`` if ``case`` is not earful.case/1 or cannot be run as given, or for
     an unknown variable, fault, speech or moment."""
     kinds, fault_kinds = check_arguments(case, variables, faults)
+    wanted_speeches, wanted_moments = _wanted(case, speeches, moments, profiles, max_runs)
+    for name, value, least in (
+        ("delay_limit_us", delay_limit_us, 1),
+        ("wait_us", wait_us, 0),  # 0 gives up at once
+        ("stretch_us", stretch_us, 0),  # 0 makes nothing slow
+    ):
+        if type(value) is not int or value < least:
+            raise ValueError(f"{name} is a number of microseconds, at least {least}; got {value!r}")
+    runner = Runner(run)
+    runner.purpose = "read"
+    events = runner.ledger(case)
+    original = runner.outcome(case)
+    if events is None:
+        raise ValueError(f"the case as given cannot be searched: {original.reason}")
+    placer = _Placer(
+        case,
+        runner,
+        kinds,
+        tuple(offsets_us),
+        words=words,
+        delay_limit_us=delay_limit_us,
+        each=each,
+        wanted_speeches=wanted_speeches,
+        wanted_moments=wanted_moments,
+    )
+    delay_kinds = [k for k in kinds if k in cases.DELAY_KINDS]
+    placer.place(case, delay_handles(events, delay_kinds), events, "")
+    placer.move_speeches(case, events, "")
+    placer.move_hangup(case, events, "")
+    faulted, under = placer.under_faults(events, fault_kinds, wait_us)
+    if pairs:
+        placer.in_pairs(events, faulted, under, fault_kinds, wait_us, stretch_us)
+    placer.under_profiles(events, profiles)
+    return _run_found(placer, original, max_runs, planned)
+
+
+def _wanted(
+    case: cases.Case,
+    speeches: Iterable[int] | None,
+    moments: Iterable[str] | None,
+    profiles: int,
+    max_runs: int | None,
+) -> tuple[set[int] | None, set[str] | None]:
+    """The speeches and moments a search is limited to. Raises ``ValueError`` for an
+    unknown one, a budget below one run or a number of profiles that is not one."""
     if max_runs is not None and max_runs < 1:
         raise ValueError(f"max_runs is a number of runs, at least 1; got {max_runs}")
     if type(profiles) is not int or profiles < 0:
@@ -1106,38 +1181,54 @@ def explore(
         raise ValueError(
             f"no speech {', '.join(sorted(unknown))}: the case has {count}, numbered from 0"
         )
-    runner = Runner(run)
-    offsets = tuple(offsets_us)
-    delay_kinds = [k for k in kinds if k in cases.DELAY_KINDS]
-    speech_kinds = [k for k in kinds if k in cases.SPEECH_KINDS]
+    return wanted_speeches, wanted_moments
 
-    events = runner.ledger(case)
-    original = runner.outcome(case)
-    if events is None:
-        raise ValueError(f"the case as given cannot be searched: {original.reason}")
-    found: dict[str, Candidate] = {}
-    impossible: list[Placement] = []
-    unread: dict[str, Unread] = {}
 
-    def read(wanted: list[tuple[str, cases.Case]]) -> list[list[Event] | None]:
+class _Placer:
+    """Reads runs of a case and its variants, and collects a candidate for each place a
+    handle can be put beside a transition."""
+
+    def __init__(
+        self,
+        case: cases.Case,
+        runner: Runner,
+        kinds: tuple[str, ...],
+        offsets: tuple[int, ...],
+        *,
+        words: bool,
+        delay_limit_us: int,
+        each: Each,
+        wanted_speeches: set[int] | None,
+        wanted_moments: set[str] | None,
+    ) -> None:
+        self.case, self.runner, self.kinds, self.offsets = case, runner, kinds, offsets
+        self.words, self.delay_limit_us, self.each = words, delay_limit_us, each
+        self.wanted_speeches, self.wanted_moments = wanted_speeches, wanted_moments
+        self.speech_kinds = [k for k in kinds if k in cases.SPEECH_KINDS]
+        self.found: dict[str, Candidate] = {}
+        self.impossible: list[Placement] = []
+        self.unread: dict[str, Unread] = {}
+
+    def read(self, wanted: list[tuple[str, cases.Case]]) -> list[list[Event] | None]:
         """The ledgers of runs made to find where to put things, each named. One that cannot
         be judged is noted."""
-        produced = runner.ledgers([one for _name, one in wanted], each)
+        produced = self.runner.ledgers([one for _name, one in wanted], self.each)
         for (name, one), ledger in zip(wanted, produced):
             if ledger is None:
-                unread.setdefault(cases.canonical(one), Unread(name, runner.outcome(one)))
+                self.unread.setdefault(cases.canonical(one), Unread(name, self.runner.outcome(one)))
         return produced
 
-    def keep(candidate: Candidate) -> None:
+    def keep(self, candidate: Candidate) -> None:
         key = cases.canonical(candidate.case)
-        if key == cases.canonical(case):
+        if key == cases.canonical(self.case):
             return
-        if key in found:
-            found[key].placements += candidate.placements
+        if key in self.found:
+            self.found[key].placements += candidate.placements
         else:
-            found[key] = candidate
+            self.found[key] = candidate
 
     def place(
+        self,
         on: cases.Case,
         handles: list[Handle],
         against: list[Event],
@@ -1150,123 +1241,153 @@ def explore(
         tried, cannot = candidates(
             on,
             handles,
-            transitions(against, words=words and not coarse),
-            offsets_us=(0,) if coarse else offsets,
-            delay_limit_us=delay_limit_us,
+            transitions(against, words=self.words and not coarse),
+            offsets_us=(0,) if coarse else self.offsets,
+            delay_limit_us=self.delay_limit_us,
             base=base,
             apart=apart,
         )
-        impossible.extend(cannot)
+        self.impossible.extend(cannot)
         for candidate in tried:
-            keep(candidate)
+            self.keep(candidate)
 
     def move_speeches(
-        on: cases.Case, produced: list[Event], base: str, coarse: bool = False
+        self, on: cases.Case, produced: list[Event], base: str, coarse: bool = False
     ) -> None:
         """A speech races with the run it would interrupt: the one without it."""
+        wanted_speeches, wanted_moments = self.wanted_speeches, self.wanted_moments
         moved = [
             index
-            for index in (range(len(on["speeches"])) if speech_kinds else ())
+            for index in (range(len(on["speeches"])) if self.speech_kinds else ())
             if wanted_speeches is None or index in wanted_speeches
         ]
         of = base or "the case as given"
-        without = read([(f"{of}, without speech {i}", cases.without_speech(on, i)) for i in moved])
+        without = self.read(
+            [(f"{of}, without speech {i}", cases.without_speech(on, i)) for i in moved]
+        )
         for index, alone in zip(moved, without):
-            handles = speech_handles(on, index, produced, speech_kinds)
+            handles = speech_handles(on, index, produced, self.speech_kinds)
             if wanted_moments is not None:
                 handles = [h for h in handles if h.moment in wanted_moments]
             if alone is not None:  # else it is noted as not read
-                place(on, handles, alone, base, coarse, apart=True)
+                self.place(on, handles, alone, base, coarse, apart=True)
 
-    def move_hangup(on: cases.Case, produced: list[Event], base: str, coarse: bool = False) -> None:
+    def move_hangup(
+        self, on: cases.Case, produced: list[Event], base: str, coarse: bool = False
+    ) -> None:
         """A hangup cuts short the run in which the user stays."""
-        if cases.HANGUP not in kinds:
+        if cases.HANGUP not in self.kinds:
             return
         stays: list[Event] | None = produced
         if on["hangup_us"] is not None:
             of = base or "the case as given"
-            stays = read([(f"{of}, without the hangup", cases.without_hangup(on))])[0]
+            stays = self.read([(f"{of}, without the hangup", cases.without_hangup(on))])[0]
         if stays is not None:
-            place(on, [hangup_handle(on, stays)], stays, base, coarse, apart=True)
+            self.place(on, [hangup_handle(on, stays)], stays, base, coarse, apart=True)
 
-    place(case, delay_handles(events, delay_kinds), events, "")
-    move_speeches(case, events, "")
-    move_hangup(case, events, "")
-
-    faulted = faulted_versions(case, events, fault_kinds, wait_us)
-    for one in faulted:
-        keep(Candidate(one.case, None, None, base=one.label))
-    under: dict[str, list[Event]] = {}  # label -> the run with that fault in place
-    with_faults = read([(one.label, one.case) for one in faulted])
-    for one, produced in zip(faulted, with_faults):
-        if produced is None:
-            continue
-        under[one.label] = produced
-        gave_up = next(
-            (
-                e
-                for e in produced
-                if e["kind"] == "effect.timed_out" and e["data"]["request"] == one.nth
-            ),
-            None,
-        )
-        if gave_up is not None:
-            handle = Handle(
-                Variable(cases.WAIT, one.nth),
-                "gave_up",
-                gave_up["t_us"],
-                gave_up["data"]["after_us"],
+    def under_faults(
+        self, events: list[Event], fault_kinds: tuple[str, ...], wait_us: int
+    ) -> tuple[list[Faulted], dict[str, list[Event]]]:
+        """Each fault on each write, and the times its run makes worth moving: when the caller
+        gave up, and when the write commits. Returns the faulted cases and their runs."""
+        faulted = faulted_versions(self.case, events, fault_kinds, wait_us)
+        for one in faulted:
+            self.keep(Candidate(one.case, None, None, base=one.label))
+        under: dict[str, list[Event]] = {}  # label -> the run with that fault in place
+        with_faults = self.read([(one.label, one.case) for one in faulted])
+        for one, produced in zip(faulted, with_faults):
+            if produced is None:
+                continue
+            under[one.label] = produced
+            gave_up = next(
+                (
+                    e
+                    for e in produced
+                    if e["kind"] == "effect.timed_out" and e["data"]["request"] == one.nth
+                ),
+                None,
             )
-            place(one.case, [handle], produced, one.label)
-        if one.as_written:
-            commits = [
-                h
-                for h in delay_handles(produced, ["backend.latency"])
-                if h.variable.index == one.nth
-            ]
-            place(one.case, commits, produced, one.label)
+            if gave_up is not None:
+                handle = Handle(
+                    Variable(cases.WAIT, one.nth),
+                    "gave_up",
+                    gave_up["t_us"],
+                    gave_up["data"]["after_us"],
+                )
+                self.place(one.case, [handle], produced, one.label)
+            if one.as_written:
+                commits = [
+                    h
+                    for h in delay_handles(produced, ["backend.latency"])
+                    if h.variable.index == one.nth
+                ]
+                self.place(one.case, commits, produced, one.label)
+        return faulted, under
 
-    if pairs:
+    def in_pairs(
+        self,
+        events: list[Event],
+        faulted: list[Faulted],
+        under: dict[str, list[Event]],
+        fault_kinds: tuple[str, ...],
+        wait_us: int,
+        stretch_us: int,
+    ) -> None:
+        """Two changes at once: a time moved under a fault, two faults, and a time moved with
+        a slow model or backend."""
         for one in faulted:
             if one.label in under:
-                move_speeches(one.case, under[one.label], one.label)
-                move_hangup(one.case, under[one.label], one.label)
+                self.move_speeches(one.case, under[one.label], one.label)
+                self.move_hangup(one.case, under[one.label], one.label)
         for one in faulted:
             # A second fault goes on a later write of the run with the first: a retry is one.
             with_first = under.get(one.label, [])
             for two in faulted_versions(one.case, with_first, fault_kinds, wait_us, after=one.nth):
-                keep(Candidate(two.case, None, None, base=f"{one.label} + {two.label}"))
-        to = min(stretch_us, delay_limit_us)
+                self.keep(Candidate(two.case, None, None, base=f"{one.label} + {two.label}"))
+        to = min(stretch_us, self.delay_limit_us)
         slow: list[tuple[str, cases.Case]] = []
         for delay in delay_handles(events, STRETCHED):
-            longer = cases.with_value(case, delay.variable, to)
+            longer = cases.with_value(self.case, delay.variable, to)
             if delay.value_us < to and longer is not None:
                 label = f"{delay.variable}, stretched"
                 slow.append((label, longer))
-                keep(Candidate(longer, None, None, base=label))
-        slowed = read(slow)
+                self.keep(Candidate(longer, None, None, base=label))
+        slowed = self.read(slow)
         for (label, longer), produced in zip(slow, slowed):
             if produced is not None:
-                move_speeches(longer, produced, label, coarse=True)
-                move_hangup(longer, produced, label, coarse=True)
+                self.move_speeches(longer, produced, label, coarse=True)
+                self.move_hangup(longer, produced, label, coarse=True)
 
-    applied = delay_handles(events, cases.DELAY_KINDS)
-    redrawn: list[cases.Case] = []
-    for number in range(1, profiles + 1):
-        rng = random.Random(f"{case['seed']}:{number}")
-        profile = case
-        for handle in applied:
-            most = min(delay_limit_us, max(2 * handle.value_us, 1_000_000))
-            changed = cases.with_value(profile, handle.variable, rng.randrange(0, most + 1, 10_000))
-            profile = changed if changed is not None else profile
-        redrawn.append(profile)
-    named = [(f"profile {number}", profile) for number, profile in enumerate(redrawn, 1)]
-    for number, (profile, produced) in enumerate(zip(redrawn, read(named)), 1):
-        if produced is not None:
-            keep(Candidate(profile, None, None, base=f"profile {number}"))
-            move_speeches(profile, produced, f"profile {number}")
+    def under_profiles(self, events: list[Event], profiles: int) -> None:
+        """The speeches moved again under seeded redraws of every provider delay."""
+        case = self.case
+        applied = delay_handles(events, cases.DELAY_KINDS)
+        redrawn: list[cases.Case] = []
+        for number in range(1, profiles + 1):
+            rng = random.Random(f"{case['seed']}:{number}")
+            profile = case
+            for handle in applied:
+                most = min(self.delay_limit_us, max(2 * handle.value_us, 1_000_000))
+                drawn = rng.randrange(0, most + 1, 10_000)
+                changed = cases.with_value(profile, handle.variable, drawn)
+                profile = changed if changed is not None else profile
+            redrawn.append(profile)
+        named = [(f"profile {number}", profile) for number, profile in enumerate(redrawn, 1)]
+        for number, (profile, produced) in enumerate(zip(redrawn, self.read(named)), 1):
+            if produced is not None:
+                self.keep(Candidate(profile, None, None, base=f"profile {number}"))
+                self.move_speeches(profile, produced, f"profile {number}")
 
-    todo = list(found.values())
+
+def _run_found(
+    placer: _Placer,
+    original: Outcome,
+    max_runs: int | None,
+    planned: Callable[[Plan], None] | None,
+) -> Exploration:
+    """Run the candidates the budget leaves room for, after saying what is about to run."""
+    runner = placer.runner
+    todo = list(placer.found.values())
     fresh = [c for c in todo if not runner.seen(c.case)]
     plan = Plan(
         placements=sum(len(c.placements) for c in todo),
@@ -1280,18 +1401,20 @@ def explore(
     # The runs that read the boundaries are made whatever the budget: there is no search without.
     dropped = {id(c) for c in fresh[plan.covered :]}
     todo = [c for c in todo if id(c) not in dropped]
-    outcomes = runner.many([c.case for c in todo], each)
+    with runner.counting("cases"):
+        outcomes = runner.many([c.case for c in todo], placer.each)
+    runner.purpose = "other"
     tried = [Tried(c, o) for c, o in zip(todo, outcomes)]
     return Exploration(
-        case,
+        placer.case,
         original,
         tried,
-        impossible,
-        offsets,
+        placer.impossible,
+        placer.offsets,
         runner,
         max_runs,
         not_run=len(dropped),
-        unread=list(unread.values()),
+        unread=list(placer.unread.values()),
     )
 
 

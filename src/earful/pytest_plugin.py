@@ -7,7 +7,7 @@ import contextlib
 import json
 import re
 import shutil
-from collections.abc import Generator
+from collections.abc import Callable, Generator, Iterable
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -19,7 +19,7 @@ from .core.ledger import write_jsonl
 
 if TYPE_CHECKING:
     from .core.predicate import Predicate
-    from .core.search import Exploration
+    from .core.search import Exploration, Plan
     from .livekit.harness import RunResult as LiveKitResult
     from .livekit.scenario import Scenario as LiveKitScenario
     from .livekit.scenario import Source as LiveKitSource
@@ -74,7 +74,7 @@ class Earful:
         self.searches: list[Exploration] = []
 
     def run(
-        self, scenario: Source, *, data: dict[str, Any] | None = None, seed: int = 0
+        self, scenario: Source, *, data: dict[str, Any] | None = None, seed: int | None = None
     ) -> LiveKitResult | PipecatResult:
         """Run a scenario with its framework adapter."""
         adapter, source = _adapters.select(scenario)
@@ -87,32 +87,64 @@ class Earful:
         self.runs.append(result)
         return result
 
-    def explore(self, scenario: Source, **options: Any) -> Exploration:
-        """Search a scenario. Where neither the call nor the
-        command line gives ``workers``, an importable scenario gets one per processor."""
+    def explore(
+        self,
+        scenario: Source,
+        *,
+        data: dict[str, Any] | None = None,
+        seed: int | None = None,
+        workers: int | None = None,
+        variables: Iterable[str] | None = None,
+        faults: Iterable[str] | None = None,
+        pairs: bool = False,
+        profiles: int = 0,
+        speeches: Iterable[int] | None = None,
+        moments: Iterable[str] | None = None,
+        words: bool = True,
+        max_runs: int | None = None,
+        planned: Callable[[Plan], None] | None = None,
+        delay_limit_us: int | None = None,
+        wait_us: int | None = None,
+        stretch_us: int | None = None,
+    ) -> Exploration:
+        """Search a scenario with the adapter's ``explore``; what is left out is its default.
+        Where neither ``workers`` nor the command line says how many, the adapter chooses,
+        unless pytest-xdist spread the test run, which searches in-process."""
         adapter, source = _adapters.select(scenario)
-
-        if "workers" in options or self.workers is not None:
-            options.setdefault("workers", self.workers)
-            found = adapter.explore(source, **options)
-        else:
-            try:
-                found = adapter.explore(source, workers=self._suited(source.reference), **options)
-            except adapter.WorkersUnavailable:
-                found = adapter.explore(source, workers=0, **options)
+        options: dict[str, Any] = {
+            "data": data,
+            "seed": seed,
+            "pairs": pairs,
+            "profiles": profiles,
+            "speeches": speeches,
+            "moments": moments,
+            "words": words,
+            "max_runs": max_runs,
+            "planned": planned,
+        }
+        given = {
+            "variables": variables,
+            "faults": faults,
+            "delay_limit_us": delay_limit_us,
+            "wait_us": wait_us,
+            "stretch_us": stretch_us,
+        }
+        options.update({name: value for name, value in given.items() if value is not None})
+        if workers is None:
+            workers = self.workers  # what the command line says
+        if workers is None and self.spread:
+            workers = 0  # pytest-xdist already runs a test on each processor
+        found = adapter.explore(source, workers=workers, **options)
         self.searches.append(found)
         return found
 
-    def _suited(self, reference: str | None) -> int:
-        from .core.search import default_workers
-
-        if self.spread or reference is None:
-            return 0
-        workers = default_workers()
-        return workers if workers > 1 else 0  # one worker is no faster than this process
-
     def keep(
-        self, found: Exploration, rule: Predicate | str, directory: Path | str | None = None
+        self,
+        found: Exploration,
+        rule: Predicate | str,
+        directory: Path | str | None = None,
+        *,
+        repeats: int = 3,
     ) -> bundle.Bundle:
         """Keep a failure as a bundle. The default directory is
         under this test's evidence directory, named after the rule."""
@@ -122,7 +154,7 @@ class Earful:
         adapter, _ = _adapters.select(reference)
         if directory is None:
             directory = self.directory / ("bundle." + _slug(str(rule)))
-        return adapter.keep(found, rule, directory)
+        return adapter.keep(found, rule, directory, repeats=repeats)
 
     def replay(self, directory: Path | str, *, repeats: int = 3) -> bundle.Replay:
         """Run a bundle's reduced case with its recorded framework."""

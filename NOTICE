@@ -7,7 +7,7 @@ This product includes software adapted from LiveKit Agents
 (https://github.com/livekit/agents), Copyright 2023 LiveKit, Inc.,
 licensed under the Apache License, Version 2.0:
 
-  - src/earful/livekit/clock.py is adapted from tests/virtual_time.py
+  - src/earful/scripted/clock.py is adapted from tests/virtual_time.py
     (the virtual-time event loop and the wall-clock patch).
   - The playout timing model in src/earful/livekit/sink.py follows
     tests/fake_io.py.

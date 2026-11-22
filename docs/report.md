@@ -155,10 +155,9 @@ way: it is never evidence, and its page is for reading beside the virtual run's.
   nothing about a network, a client buffer or what a caller heard.
 - The user, the model and the voice are scripted providers. The backend is a fake. The
   report describes one run against them.
-- A verdict is a statement about that run against the declared contract. Whether a
-  failure is a defect of the framework is a separate question (`docs/contracts.md`,
-  section 7).
+- A verdict is a statement about that run against the declared contract. Section 7 of
+  `docs/contracts.md` says how to decide whether a failure is a defect of the framework.
 - The framework lane is explanation. Nothing in it decides a verdict.
 - A mark's position is the event's `t_us`. Events that share an instant are ordered by
   `seq`, which the event table shows.
-- Chromium is the browser the page was checked in.
+- The page is tested in Chromium only.

@@ -117,7 +117,7 @@ on its own.
   run: the scripted user, the framework's own events, the sink and the backend.
   `manifest.json` holds the frozen rule, the windows and the environment it was made in.
 - Recorded ledger hash on 1.5.6:
-  `c6ed2fc01fa15fd680f22a004f5eb01b3850199c50846934bf7c968b4afc4d6a`. A replay on 1.5.6
+  `d6513a9d30cf8e6233db8321c9d742ab4501cf8ad1ab7460bde844506cc57c60`. A replay on 1.5.6
   gives this hash. CI checks that on Linux and macOS.
 - Tests: `tests/test_historical_cases.py`, `tests/test_search_live.py`. CI runs both and
   replays the bundle on all six releases.
@@ -132,4 +132,4 @@ on its own.
   and the backend are the same scripted ones.
 - The case produces the behaviour the issue describes. It does not use the reporter's
   agent.
-- Six releases were tested. 1.5.7 is the first of them that passes.
+- The case runs on the six supported releases. 1.5.7 is the first of them that passes.

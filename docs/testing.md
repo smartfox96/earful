@@ -74,8 +74,8 @@ The `Case` class lists them with their defaults.
 
 The model is scripted. A reply depends only on the context the framework shows the
 model, so the same context gets the same reply in every run, and a reply changes only
-when the framework presents something different. That is what the memory contracts
-measure.
+when the framework presents something different. The memory contracts measure what
+the framework presents.
 
 `ScriptedModel` writes the model as ordered rules. The first rule whose condition holds
 gives the reply. `otherwise` gives the reply when none does. A context that no rule
@@ -135,7 +135,7 @@ def policy(items: list[dict]) -> Reply:
 
 ## 3. Side effects
 
-Contracts A1 to A3 are about durable effects: a booking, an order, a refund. Earful
+Contracts A1 to A3 are about durable effects, such as a booking. Earful
 records them in its own backend, separately from what any tool returns, and a search
 makes that backend slow, failing or lossy. The agent's writes have to reach it. There are
 two ways, and neither changes how the agent is constructed.
@@ -274,11 +274,20 @@ broke a rule, and says what was changed to reach the failure and how wide it is:
 
 ```
 inline_booking on livekit-agents 1.8.13: 857 cases tried, 857 judged, 1 contract rule(s) broken
+    898 run(s): 6 to find where to put things, 853 for the cases, 39 to measure the failures
+    by contract: pass, fail, nothing to judge, evidence lost
+    A1      0     0   857     0
+    A2    846     0    11     0
+    A3    674    89    94     0
+    M1    853     0     4     0
+    M2    857     0     0     0
+    L1    786     0    71     0
+    L2      0     0   857     0
 
 A3/rule  in 89 case(s)
     the claim was heard at 9780000 us; the first effect for 'book-table-1' was never committed
     changed: backend.error 1
-    also by changing: backend.drop 1, backend.drop 1 + backend.wait 1, backend.timeout 1, commit first + backend.latency 1
+    also by changing: backend.drop 1; backend.drop 1 + backend.wait 1; backend.timeout 1, commit first + backend.latency 1
     breaks with backend.wait 1 from 0.000 s (no case exists beyond it) to 32.768 s (still breaks where the search stopped)
     breaks with backend.latency 1 from 6.781 s (passes beyond it) to 39.558 s (still breaks where the search stopped)
 ```
@@ -317,20 +326,23 @@ A scenario is given in one of three forms.
 | A function that returns a `Case`, defined in a test or as a lambda | No | No |
 | A function at the top level of a module, passed as the function or as `"module:function"` | Yes | Yes |
 
-`explore` runs every form in the process that calls it unless workers are asked for. A
-worker process and a saved bundle both build the scenario again from its name, so both
-need a scenario that can be imported. `explore(case, workers=4)` and `keep(...)` refuse one that cannot,
-before anything runs, and say what to change. A search also checks what it is asked for
+`explore` without `workers` gives a scenario that can be imported one worker process per
+processor, and runs the other forms in the process that calls it. A worker process and a
+saved bundle both build the scenario again from its name, so both need a scenario that
+can be imported. `explore(case, workers=4)` and `keep(...)` refuse one that cannot, before
+anything runs, and say what to change. A search also checks what it is asked for
 (the case, the variables, the faults) before it starts a worker, and raises
 `WorkersUnavailable` where worker processes cannot be started at all.
 
-`explore(scenario, workers=N)` runs the cases in N worker processes. On a 15-core machine
+`explore(scenario, workers=N)` runs the cases in N worker processes, and `workers=0` in the
+process that calls it. On a 15-core machine
 the 857 cases of section 5 take 18 s in the process of the test and 5 s in 15 workers. The
 workers are started for the search and stopped when it ends, so each search runs the
 scenario's code as it is at that moment. Each worker is a fresh interpreter that imports
 the main module of the process that started it, so a script that searches with workers
-needs the `if __name__ == "__main__":` guard. Under pytest nothing is needed, and the
-`earful` fixture starts the workers by itself (section 8).
+needs the `if __name__ == "__main__":` guard. Where workers cannot be started, a search that
+names no number runs in the process that calls it. Under pytest nothing is needed
+(section 8).
 
 Passed as a function, a scenario is built anew for each run. Passed as a `Case`, it is
 copied for each run: its agent is built by its own factory each time, and its policy is
@@ -417,9 +429,8 @@ processes cannot be started. A number, on the command line or in the call, is al
 as given.
 
 `EARFUL_WORKERS=N` in the environment gives `auto`, and `earful search`, a number to use
-in place of one per processor. Set it where several test runs share a machine: each would
-otherwise start a worker for every processor, which makes the machine hot and nothing
-faster. `EARFUL_WORKERS=0` keeps every search in its own process.
+in place of one per processor. Set it where several test runs share a machine, since each
+otherwise starts a worker for every processor. `EARFUL_WORKERS=0` keeps every search in its own process.
 
 `earful.keep(found, "A3/rule")` without a directory writes the bundle under the test's
 evidence directory.
@@ -456,7 +467,7 @@ earful report failures/lk-1.8.13.booking.A3-rule -o report.html
 
 | Command | Does |
 | --- | --- |
-| `earful init AGENT` | Writes a first test for a livekit-agents agent, named as `module:Class`, into `test_<agent>.py` (`-o FILE` names another). The scripted model calls the agent's first tool with a value for each argument the tool requires, and once more if the call fails. Every tool is declared an effect, so no tool body runs. Both tests require A2, A3 and L1 to reach a verdict, and the search fails on a write the model repeats until the file declares that write's idempotency key. The file marks what to change. An agent that cannot be built without arguments is built with `None` for each. A tool it cannot write a call for, because no value it has is one the tool accepts, is refused. Adds `.earful/` to `.gitignore` |
+| `earful init AGENT` | Writes a first test for a livekit-agents agent, named as `module:Class`, into `test_<agent>.py` (`-o FILE` names another). The scripted model calls the agent's first tool with a value for each argument the tool requires, and once more if the call fails. Every tool is declared an effect, so no tool body runs. Both tests require A2, A3 and L1 to reach a verdict, and the search fails on a write the model repeats until the file declares that write's idempotency key. The file marks what to change. An agent that cannot be built without arguments is built with `None` for each. A tool it cannot write a call for, because no value it has is one the tool accepts, is refused. Named as `module:function`, a Pipecat bot gets the same test, written from the functions it registers and the tools its context advertises ([`pipecat.md`](pipecat.md#a-first-test-of-your-bot)). Adds `.earful/` to `.gitignore` |
 | `earful check LEDGER...` | Prints the verdicts for recorded ledgers. `--measures` adds what each verdict measured, `--json` prints one report per line |
 | `earful run SCENARIO` | Runs a scenario once and prints its verdicts. `--case FILE` runs a saved case, `--ledger FILE` writes the ledger |
 | `earful search SCENARIO` | Searches a scenario, in one worker process per processor unless `--workers` says otherwise. Where worker processes cannot be started, as in some sandboxes and containers, it says so and searches in its own process; with `--workers N` given it refuses. `--keep CONTRACT/RULE --out DIR` writes a bundle for a rule that broke, in a directory of `DIR` named after the framework release, the scenario's function and the rule: `lk-1.8.12.booking.A3-rule` on livekit-agents, `pc-1.16.0.booking.A3-rule` on pipecat-ai. `--variables`, `--faults`, `--pairs`, `--profiles`, `--no-words` and `--no-windows` narrow or widen the search. It prints how many cases it is about to run on standard error, and `--max-runs N` stops it after N runs: a search cut short is incomplete and exits 3 unless a rule broke. With `--no-windows` a rule that breaks only at single instants counts as broken, and the output names the rules that were not measured |

@@ -2,14 +2,29 @@
 
 from __future__ import annotations
 
+from pipecat.frames.frames import Frame
 from pipecat.processors.aggregators.llm_context import LLMContext
+from pipecat.processors.aggregators.llm_response_universal import (
+    LLMContextAggregatorPair,
+    LLMUserAggregatorParams,
+)
+from pipecat.processors.frame_processor import FrameDirection, FrameProcessor
 from pipecat.services.llm_service import FunctionCallParams, LLMService
+from pipecat.turns.user_start.transcription_user_turn_start_strategy import (
+    TranscriptionUserTurnStartStrategy,
+)
+from pipecat.turns.user_start.vad_user_turn_start_strategy import VADUserTurnStartStrategy
+from pipecat.turns.user_stop.speech_timeout_user_turn_stop_strategy import (
+    SpeechTimeoutUserTurnStopStrategy,
+)
+from pipecat.turns.user_turn_strategies import UserTurnStrategies
 
 from ..core.backend import effect
 from ..scripted.case import Intent
 from ..scripted.playbook import ScriptedModel, tool_succeeded, user_said
 from ..scripted.world import UserSpeech
 from .harness import Case
+from .pipeline import Ends
 
 MENU = (
     "Tonight we have a roasted squash soup to start. Then grilled sea bass with lemon "
@@ -70,8 +85,56 @@ def barge_in() -> Case:
     )
 
 
+class _PassesOn(FrameProcessor):
+    """A processor of the application between the model and the voice: it passes every frame."""
+
+    async def process_frame(self, frame: Frame, direction: FrameDirection) -> None:
+        await super().process_frame(frame, direction)
+        await self.push_frame(frame, direction)
+
+
+def _own_pipeline(ends: Ends) -> list[FrameProcessor]:
+    turns = UserTurnStrategies(
+        start=[VADUserTurnStartStrategy(), TranscriptionUserTurnStartStrategy()],
+        stop=[SpeechTimeoutUserTurnStopStrategy(user_speech_timeout=0.8)],
+    )
+    params = LLMUserAggregatorParams(user_turn_strategies=turns, empty_user_turn=None)
+    pair = LLMContextAggregatorPair(ends.context, user_params=params)
+    processors = [ends.input, ends.stt, pair.user(), ends.llm, _PassesOn(), ends.tts]
+    return [*processors, ends.output, pair.assistant()]
+
+
+def own_pipeline() -> Case:
+    """A pipeline of the application's own, with a second turn start strategy and a processor
+    between the model and the voice: the header names both."""
+    return Case(
+        name="own_pipeline",
+        bot=_no_functions,
+        speeches=[UserSpeech(start=0.5, end=1.0, transcript="Hello.")],
+        policy=ScriptedModel().otherwise(say="Good morning. How can I help you today?"),
+        pipeline=_own_pipeline,
+        user_speech_timeout=0.8,
+    )
+
+
+def hangs_up() -> Case:
+    """The user hangs up while the booking is confirmed: the hangup cancels the pipeline."""
+    return Case(
+        name="hangs_up",
+        bot=_takes_reservations,
+        speeches=[UserSpeech(start=0.5, end=2.5, transcript="A table for six tonight, please.")],
+        policy=ScriptedModel()
+        .when(tool_succeeded(), say="Your table for six is booked.", claims=[RESERVATION_INTENT])
+        .otherwise(say="One moment.", call=("create_reservation", {"party_size": 6})),
+        intents=[Intent(RESERVATION_INTENT, tools=("create_reservation",))],
+        hangup=5.0,
+    )
+
+
 CASES = {
     "greeting": greeting,
     "reserve_table": reserve_table,
     "barge_in": barge_in,
+    "own_pipeline": own_pipeline,
+    "hangs_up": hangs_up,
 }

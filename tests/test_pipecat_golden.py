@@ -62,10 +62,13 @@ def test_pipecat_only_a_release_with_no_reference_ledgers_at_all_skips_the_compa
     assert "no reference ledger of no_such_case" in str(missing.value)
 
 
-def test_pipecat_every_reference_case_has_a_ledger_of_the_supported_release_and_no_other():
-    tested = SUPPORT["pipecat-ai"].tested[-1]
+def test_pipecat_every_reference_case_has_a_ledger_of_each_tested_release_and_no_other():
     committed = sorted(path.name for path in GOLDEN.glob("pc-*"))
-    assert committed == sorted(f"pc-{tested}.{name}.ledger.normalized.jsonl" for name in CASES)
+    assert committed == sorted(
+        f"pc-{tested}.{name}.ledger.normalized.jsonl"
+        for tested in SUPPORT["pipecat-ai"].tested
+        for name in CASES
+    )
 
 
 def test_pipecat_a_run_waits_with_the_standard_wait_for_whatever_pipecat_installed(monkeypatch):
