@@ -3,10 +3,11 @@ after every moment the system under test changes state, and check each run."""
 
 from __future__ import annotations
 
+import contextlib
 import os
 import random
 import re
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Iterator
 from dataclasses import asdict, dataclass, field
 from functools import partial
 from typing import Any
@@ -112,13 +113,28 @@ Each = Callable[..., Iterable[Any]]
 
 
 class Runner:
-    """Runs each case once, however often it is asked for, and counts the runs."""
+    """Runs each case once, however often it is asked for, and counts the runs by purpose."""
 
     def __init__(self, run: Run) -> None:
         self.run = run
         self.runs = 0
+        self.purpose = "other"  # what the runs made now are for
+        self.by_purpose: dict[str, int] = {}
         self._seen: dict[str, Outcome] = {}
         self._ledgers: dict[str, list[Event] | None] = {}
+
+    @contextlib.contextmanager
+    def counting(self, purpose: str) -> Iterator[None]:
+        """Count the runs made inside the block as made for ``purpose``."""
+        before, self.purpose = self.purpose, purpose
+        try:
+            yield
+        finally:
+            self.purpose = before
+
+    def _counted(self) -> None:
+        self.runs += 1
+        self.by_purpose[self.purpose] = self.by_purpose.get(self.purpose, 0) + 1
 
     def outcome(self, case: cases.Case) -> Outcome:
         return self.many([case])[0]
@@ -132,7 +148,7 @@ class Runner:
         todo = {key: case for key, case in zip(keys, wanted) if key not in self._seen}
         for key, outcome in zip(todo, each(partial(evaluate, self.run), list(todo.values()))):
             self._seen[key] = outcome
-            self.runs += 1
+            self._counted()
         return [self._seen[key] for key in keys]
 
     def ledger(self, case: cases.Case) -> list[Event] | None:
@@ -146,7 +162,7 @@ class Runner:
         for key, (outcome, events) in zip(todo, attempts):
             self._ledgers[key] = events
             self._seen.setdefault(key, outcome)
-            self.runs += 1
+            self._counted()
         return [self._ledgers[key] for key in keys]
 
     def breaks(self, case: cases.Case, predicate: Predicate) -> bool:
@@ -543,7 +559,7 @@ class Plan:
         )
         if self.covered < self.to_run:
             said += f". The budget of {self.max_runs} runs covers {self.covered} of them"
-        return said
+        return said + ". Measuring where each failure starts and ends takes more runs"
 
 
 @dataclass(frozen=True)
@@ -587,6 +603,16 @@ def _end(end: str, unjudged: str | None) -> str:
     return f"a run beyond it could not be judged, {unjudged}" if unjudged else _ENDS[end]
 
 
+# What a search's runs were for, in the order its report lists them.
+_PURPOSES = {
+    "read": "to find where to put things",
+    "cases": "for the cases",
+    "measure": "to measure the failures",
+    "examples": "to read an example of each",
+    "other": "for other reads",
+}
+
+
 @dataclass
 class Exploration:
     case: cases.Case
@@ -610,8 +636,13 @@ class Exploration:
         """False if the budget was spent before every case was run and every window measured."""
         return not self.not_run and not self.unmeasured
 
+    @property
+    def runs(self) -> int:
+        """The runs this search made, without the reductions of failures kept from it."""
+        return self.runner.runs - self.runner.by_purpose.get("reduce", 0)
+
     def _spent(self) -> bool:
-        return self.max_runs is not None and self.runner.runs >= self.max_runs
+        return self.max_runs is not None and self.runs >= self.max_runs
 
     def predicates(self) -> list[Predicate]:
         """Every rule the case as given or some candidate broke."""
@@ -660,14 +691,15 @@ class Exploration:
                 left_out += 1
                 continue
             try:
-                found = window(
-                    self.runner,
-                    tried.candidate.case,
-                    variable,
-                    predicate,
-                    resolution_us=resolution_us,
-                    spent=self._spent,
-                )
+                with self.runner.counting("measure"):
+                    found = window(
+                        self.runner,
+                        tried.candidate.case,
+                        variable,
+                        predicate,
+                        resolution_us=resolution_us,
+                        spent=self._spent,
+                    )
             except Spent:
                 cut += 1
                 continue
@@ -794,7 +826,8 @@ class Exploration:
             else:
                 nearest = min(breaking, key=distance)
                 example, what = nearest.candidate.case, self._what(nearest.candidate)
-            ledger = self.runner.ledger(example)
+            with self.runner.counting("examples"):
+                ledger = self.runner.ledger(example)
             results = check(ledger).results if ledger is not None else {}
             details = tuple(
                 finding.detail
@@ -857,6 +890,9 @@ class Exploration:
                 f"{counts['ran']} judged, {len(found)} contract rule(s) broken"
             )
         ]
+        made = self.runner.by_purpose
+        purposes = [f"{made[p]} {why}" for p, why in _PURPOSES.items() if made.get(p)]
+        lines.append(f"    {self.runs} run(s): {', '.join(purposes)}")
         counted = self.by_contract()
         if counted:
             lines.append("    by contract: pass, fail, nothing to judge, evidence lost")
@@ -880,7 +916,7 @@ class Exploration:
             lines.append(f"    changed: {one.what}")
             others = [c for c in one.changed if c and c != one.what.partition(" at ")[0]]
             if others:
-                lines.append(f"    also by changing: {', '.join(others)}")
+                lines.append(f"    also by changing: {'; '.join(others)}")
             widths = [
                 f"    breaks with {w.variable} from {_seconds(w.lo_us)}"
                 f" ({_end(w.lo_end, w.lo_unjudged)}) to {_seconds(w.hi_us)}"
@@ -956,7 +992,8 @@ class Exploration:
             "candidates": len(self.tried),
             **counts,
             "impossible_placements": len(self.impossible),
-            "runs": self.runner.runs,
+            "runs": self.runs,
+            "runs_by_purpose": {p: n for p, n in self.runner.by_purpose.items() if p != "reduce"},
             "max_runs": self.max_runs,
             "complete": self.complete,
             "not_run": self.not_run,
@@ -1107,6 +1144,7 @@ def explore(
             f"no speech {', '.join(sorted(unknown))}: the case has {count}, numbered from 0"
         )
     runner = Runner(run)
+    runner.purpose = "read"
     offsets = tuple(offsets_us)
     delay_kinds = [k for k in kinds if k in cases.DELAY_KINDS]
     speech_kinds = [k for k in kinds if k in cases.SPEECH_KINDS]
@@ -1280,7 +1318,9 @@ def explore(
     # The runs that read the boundaries are made whatever the budget: there is no search without.
     dropped = {id(c) for c in fresh[plan.covered :]}
     todo = [c for c in todo if id(c) not in dropped]
-    outcomes = runner.many([c.case for c in todo], each)
+    with runner.counting("cases"):
+        outcomes = runner.many([c.case for c in todo], each)
+    runner.purpose = "other"
     tried = [Tried(c, o) for c, o in zip(todo, outcomes)]
     return Exploration(
         case,

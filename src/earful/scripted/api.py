@@ -40,6 +40,18 @@ class WorkersUnavailable(RuntimeError):
     """Worker processes could not be started, or one died before it ran a case."""
 
 
+def seeded(data: dict[str, Any] | None, seed: int | None) -> int:
+    """The seed of a run: ``seed``, or the case's own when a case is given."""
+    if data is None:
+        return 0 if seed is None else seed
+    if seed is not None and seed != data["seed"]:
+        raise ValueError(
+            f"the case holds seed {data['seed']} and seed={seed} was asked for; leave the seed "
+            "out to run the case as it was found, or change the case"
+        )
+    return int(data["seed"])
+
+
 def function(method: Callable[P, R], module: str) -> Callable[P, R]:
     """A bound method as a function of ``module``, which is how ``help()`` then shows it."""
 
@@ -72,22 +84,24 @@ class AdapterAPI(Generic[Case, RunResult]):
         source: str | Case | Callable[[], Case],
         *,
         data: dict[str, Any] | None = None,
-        seed: int = 0,
+        seed: int | None = None,
     ) -> RunResult:
         """Run a scenario once and return its ledger, with the verdicts on ``report``.
-        ``data`` is a case as data (earful.case/1), such as one a search found. Raises
-        ``InvalidRun`` if the run is not valid evidence, ``ValueError`` if either is refused."""
+        ``data`` is a case as data (earful.case/1), such as one a search found, and holds its
+        own seed. Raises ``InvalidRun`` if the run is not valid evidence, ``ValueError`` if
+        either is refused."""
         found = self.scenario.Scenario.of(source)
         if data is None:
-            return self.run_case(found.make(), seed=seed)
-        return self.run_case(found.build(data), seed=data["seed"])
+            return self.run_case(found.make(), seed=seeded(None, seed))
+        built = found.build(data)
+        return self.run_case(built, seed=seeded(data, seed))
 
     def explore(
         self,
         source: str | Case | Callable[[], Case],
         *,
         data: dict[str, Any] | None = None,
-        seed: int = 0,
+        seed: int | None = None,
         workers: int = 0,
         variables: Iterable[str] = search.DEFAULT_VARIABLES,
         faults: Iterable[str] = cases.FAULT_KINDS,
@@ -109,9 +123,10 @@ class AdapterAPI(Generic[Case, RunResult]):
             raise ValueError(f"workers is a number of processes, 0 for this one; got {workers}")
         if workers:
             self.scenario.importable(found.reference, "search in worker processes")
-        start = found.default(seed) if data is None else data
+        start = found.default(seeded(None, seed)) if data is None else data
         # Checked here too, before any worker process is started.
         variables, faults = search.check_arguments(start, variables, faults)
+        seeded(data, seed)
         options: dict[str, Any] = {
             "variables": variables,
             "faults": faults,
@@ -171,7 +186,7 @@ class AdapterAPI(Generic[Case, RunResult]):
         source: str | Case | Callable[[], Case],
         *,
         data: dict[str, Any] | None = None,
-        seed: int = 0,
+        seed: int | None = None,
         runs: int = 3,
         tolerance: crosscheck.Tolerance | None = None,
     ) -> crosscheck.CrossCheck:
@@ -183,7 +198,8 @@ class AdapterAPI(Generic[Case, RunResult]):
             raise ValueError(f"a cross-check makes at least one real-clock run; got {runs}")
 
         def built() -> tuple[Case, int]:
-            return (found.make(), seed) if data is None else (found.build(data), data["seed"])
+            made = found.make() if data is None else found.build(data)
+            return made, seeded(data, seed)
 
         scripted, with_seed = built()
         virtual = self.run_case(scripted, seed=with_seed).events

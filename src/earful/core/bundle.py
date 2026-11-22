@@ -93,9 +93,10 @@ def capture(
     if repeats < 1:
         raise ValueError(f"a bundle's case is run again at least once; got repeats={repeats}")
     runner = run if isinstance(run, Runner) else Runner(run)
-    shrunk = shrink(case, runner, predicate, author=author, max_runs=max_runs)
+    with runner.counting("reduce"):
+        shrunk = shrink(case, runner, predicate, author=author, max_runs=max_runs)
+        found_events = runner.ledger(case)
     not_kept = "a case that does not repeat is not kept as a bundle"
-    found_events = runner.ledger(case)
     if found_events is None or ledger_hash(found_events) != runner.outcome(case).hash:
         raise ValueError(
             f"the case as found did not give the ledger that broke {predicate} when it was "

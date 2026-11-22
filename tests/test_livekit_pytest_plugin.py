@@ -165,8 +165,10 @@ def test_a_search_uses_the_workers_the_command_line_gave_unless_it_names_its_own
     )
     helper = Earful(tmp_path, workers=4)
     assert helper.explore(IMPORTABLE, words=False) == "found"
-    helper.explore(IMPORTABLE, workers=0)
-    assert asked == [{"words": False, "workers": 4}, {"workers": 0}]
+    helper.explore(IMPORTABLE, workers=0, variables=["llm.ttft"])
+    assert [(o["workers"], o["words"]) for o in asked] == [(4, False), (0, True)]
+    # What the call leaves out is left to the adapter's defaults.
+    assert "variables" not in asked[0] and asked[1]["variables"] == ["llm.ttft"]
     assert helper.searches == ["found", "found"]
 
 
@@ -196,17 +198,11 @@ def test_a_search_nobody_gave_a_number_for_gets_a_worker_per_processor_if_it_can
     helper.explore(function())
     helper.explore(lambda: function())
     helper.explore(IMPORTABLE, workers=2)
-    assert asked == [
-        {"words": False, "workers": 6},
-        {"workers": 6},
-        {"workers": 0},
-        {"workers": 0},
-        {"workers": 2},
-    ]
+    assert [options["workers"] for options in asked] == [6, 6, 0, 0, 2]
     # One processor is this process.
     monkeypatch.setattr(os, "cpu_count", lambda: 1)
     helper.explore(IMPORTABLE)
-    assert asked[-1] == {"workers": 0}
+    assert asked[-1]["workers"] == 0
 
 
 def test_the_environment_says_how_many_workers_a_search_nobody_gave_a_number_for_gets(
@@ -239,7 +235,7 @@ def test_a_test_run_that_xdist_has_spread_over_the_processors_searches_in_its_ow
     )
     Earful(tmp_path, workers=None, spread=True).explore(IMPORTABLE)
     Earful(tmp_path, workers=3, spread=True).explore(IMPORTABLE)  # the command line said
-    assert asked == [{"workers": 0}, {"workers": 3}]
+    assert [options["workers"] for options in asked] == [0, 3]
 
 
 def test_where_workers_cannot_be_started_a_search_nobody_gave_a_number_for_runs_in_the_test(
@@ -274,6 +270,8 @@ def test_a_failure_is_kept_under_the_tests_own_directory_and_replays(tmp_path):
         faults=["backend.error"],
         words=False,
     )
+    with pytest.raises(ValueError, match="run again at least once; got repeats=0"):
+        helper.keep(found, "A3/rule", repeats=0)
     kept = helper.keep(found, "A3/rule")
     assert kept.directory == tmp_path / "evidence" / "bundle.A3-rule"
     assert helper.replay(kept.directory).reproduced

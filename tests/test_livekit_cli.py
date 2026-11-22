@@ -93,6 +93,18 @@ def test_run_exits_1_when_the_scenario_breaks_a_rule_as_it_does_from_a_saved_cas
     assert earful(capsys, "run", reference, "--case", saved, "--allow", "A3/rule")[0] == OK
 
 
+def test_a_saved_case_runs_with_its_own_seed_and_a_different_one_is_refused(capsys, tmp_path):
+    reference = "breaks:as_written_confirms_a_failed_booking"
+    saved = tmp_path / "seeded.case.json"
+    saved.write_text(json.dumps(scenario.default(reference, 7)))
+    status, out, _ = earful(capsys, "run", reference, "--case", saved)
+    assert status == OK and "(seed 7)" in out
+    assert earful(capsys, "run", reference, "--case", saved, "--seed", "7")[0] == OK
+    for command in ("run", "search", "crosscheck"):
+        status, _, err = earful(capsys, command, reference, "--case", saved, "--seed", "0")
+        assert status == REFUSED and "the case holds seed 7 and seed=0 was asked for" in err
+
+
 def test_a_scenario_or_a_case_that_does_not_exist_is_refused(capsys, tmp_path):
     status, _, err = earful(capsys, "run", "earful.livekit.cases:nope")
     assert status == REFUSED and "no scenario 'earful.livekit.cases:nope'" in err
@@ -330,6 +342,17 @@ def test_search_finds_the_break_keeps_it_and_the_kept_bundle_replays(capsys, tmp
     assert status == BROKEN
     assert out.startswith(f"book_then_interrupt on livekit-agents {lk.__version__}: ")
     assert "A3/rule  in " in out and "changed: backend." in out
+    (runs,) = re.findall(r"^    (\d+) run\(s\): (.*)$", out, re.MULTILINE)
+    spent = dict(reversed(part.split(" ", 1)) for part in runs[1].split(", "))
+    assert list(spent) == [
+        "to find where to put things",
+        "for the cases",
+        "to measure the failures",
+    ]
+    assert int(runs[0]) == sum(map(int, spent.values()))
+    # A label with a comma of its own stays one label.
+    (also,) = re.findall(r"^    also by changing: (.*)$", out, re.MULTILINE)
+    assert "backend.timeout 1, commit first + backend.latency 1" in also.split("; ")
     assert earful(capsys, "search", reference, *narrow, "--allow", "A3/rule")[0] == OK
 
     kept = ("--keep", "A3/rule", "--keep", "A2/rule", "--out", tmp_path)
@@ -337,6 +360,10 @@ def test_search_finds_the_break_keeps_it_and_the_kept_bundle_replays(capsys, tmp
     summary = json.loads(out)
     assert status == BROKEN and summary["scenario"] == reference
     assert list(summary["bundles"]) == ["A3/rule"]  # no case broke A2/rule: nothing to keep
+    # The reduction's runs are the bundle's, and the search's own count leaves them out.
+    assert summary["bundles"]["A3/rule"]["reduction"]["runs"] > 0
+    assert "reduce" not in summary["runs_by_purpose"]
+    assert summary["runs"] == sum(summary["runs_by_purpose"].values())
     # The kept rule is measured although --no-windows was given.
     assert summary["found"]["A3/rule"]["windows"]
     assert summary["found"]["A3/rule"]["instants_only"] is False
@@ -353,6 +380,13 @@ def test_search_finds_the_break_keeps_it_and_the_kept_bundle_replays(capsys, tmp
         capsys, "search", reference, *narrow, "--keep", "A2/rule", "--out", tmp_path
     )
     assert "not kept, since no case broke them: A2/rule" in out
+    shutil.rmtree(directory)
+    status, out, _ = earful(
+        capsys, "search", reference, *narrow, "--keep", "A3/rule", "--out", tmp_path
+    )
+    assert re.search(
+        rf"\nkept A3/rule in {re.escape(str(directory))}, reduced in \d+ more run\(s\)\n", out
+    )
 
 
 def test_a_search_asked_for_what_there_is_not_starts_no_worker(capsys, monkeypatch):
@@ -407,7 +441,8 @@ def test_a_search_that_could_judge_nothing_it_tried_exits_3_and_gives_the_reason
     status, out, _ = earful(capsys, "search", reference, "--workers", "0")
     assert status == NO_VERDICT
     assert out.endswith(
-        ": 1 cases tried, 0 judged, 0 contract rule(s) broken\n\n"
+        ": 1 cases tried, 0 judged, 0 contract rule(s) broken\n"
+        "    2 run(s): 2 to find where to put things\n\n"
         "not judged: 1 of 1 cases, which leaves the search with no result\n"
         "    1 refused: this adapter cannot fail a write\n"
         "        such as backend.error 1\n\n"
@@ -707,7 +742,8 @@ def test_a_search_says_how_many_cases_it_will_run_and_one_cut_short_by_its_budge
     assert status == NO_VERDICT
     (said,) = re.findall(
         r"^earful: (\d+) cases \(\d+ placements of a time, and the faults\); (\d+) to run, "
-        r"after 1 run\(s\) to find them\. The budget of 3 runs covers 2 of them$",
+        r"after 1 run\(s\) to find them\. The budget of 3 runs covers 2 of them\. "
+        r"Measuring where each failure starts and ends takes more runs$",
         err,
         re.MULTILINE,
     )

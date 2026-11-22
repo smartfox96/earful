@@ -62,7 +62,7 @@ def test_help_shows_each_public_function_as_a_function_of_the_adapter():
         assert pickle.loads(pickle.dumps(function)) is function
     assert str(inspect.signature(adapter.run)) == (
         "(source: 'str | Case | Callable[[], Case]', *, "
-        "data: 'dict[str, Any] | None' = None, seed: 'int' = 0) -> 'RunResult'"
+        "data: 'dict[str, Any] | None' = None, seed: 'int | None' = None) -> 'RunResult'"
     )
 
 
@@ -94,10 +94,9 @@ def test_the_readme_and_the_search_page_quote_the_cases_the_example_search_plans
         check=False,
         cwd=ROOT / "examples" / "booking",
     )
-    (planned,) = re.findall(
-        r"^(earful: (\d+) cases .* to find them)\. The budget", done.stderr, re.MULTILINE
-    )
+    (planned,) = re.findall(r"^(earful: (\d+) cases .*)$", done.stderr, re.MULTILINE)
     line, cases = planned
+    line = re.sub(r"\. The budget of 1 runs covers 0 of them", "", line)
     assert f"```\n{line}\n```" in (ROOT / "docs" / "search.md").read_text()
     assert f"booking on livekit-agents {release}: {cases} cases tried, {cases} judged" in README
     assert f"Earful ran the conversation {cases} times" in README

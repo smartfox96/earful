@@ -257,7 +257,8 @@ def _search(args: argparse.Namespace) -> int:
                 + ", ".join(unmeasured)
             )
         for rule, entry in kept.items():
-            print(f"\nkept {rule} in {entry['directory']}")
+            runs = entry["reduction"]["runs"]
+            print(f"\nkept {rule} in {entry['directory']}, reduced in {runs} more run(s)")
         missing = [str(p) for p in keep if str(p) not in kept]
         if missing:
             print(f"\nnot kept, since no case broke them: {', '.join(missing)}")
@@ -511,12 +512,15 @@ def _parser() -> argparse.ArgumentParser:
     def scenario(sub: Any) -> None:
         sub.add_argument("scenario", metavar="SCENARIO", help="module:function")
         sub.add_argument("--case", type=Path, metavar="FILE", help="a saved case (earful.case/1)")
-        sub.add_argument("--seed", type=int, default=0, help="seed of the run (default 0)")
+        sub.add_argument(
+            "--seed", type=int, help="seed of the run (default 0, or the one --case holds)"
+        )
 
     sub = command(
         "init",
         _init,
-        "Write a first test for a livekit-agents agent, from the agent's own tools.",
+        "Write a first test for a livekit-agents agent class or a Pipecat bot function, "
+        "from its own tools.",
     )
     sub.add_argument(
         "agent", metavar="AGENT", help="module:Class, such as myapp.agent:SupportAgent"
@@ -615,7 +619,9 @@ def _parser() -> argparse.ArgumentParser:
         "source", metavar="SCENARIO|BUNDLE_DIR", help="module:function, or a kept failure"
     )
     sub.add_argument("--case", type=Path, metavar="FILE", help="a saved case (earful.case/1)")
-    sub.add_argument("--seed", type=int, default=0, help="seed of the runs (default 0)")
+    sub.add_argument(
+        "--seed", type=int, help="seed of the runs (default 0, or the one the case holds)"
+    )
     sub.add_argument("--runs", type=int, default=3, metavar="N", help="real-clock runs (default 3)")
     sub.add_argument(
         "--tolerance-ms",

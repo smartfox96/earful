@@ -18,6 +18,17 @@ formats have versions of their own
 - `examples/pipecat_booking` is the booking example as a Pipecat bot, and
   [`docs/pipecat.md`](https://github.com/smartfox96/earful/blob/main/docs/pipecat.md)
   walks through what a search of it finds and how each result is dealt with.
+- A search's report says how many runs it made and what for: reading the boundaries, the
+  cases, measuring the failures, reading their examples. The plan it prints first says
+  that measuring takes more runs, and `earful search --keep` says how many runs each
+  reduction took. `summary()` gives `runs_by_purpose`, and its `runs` leaves out the
+  reductions of failures kept from the search.
+- A seed that differs from the one a saved case holds is refused by `run`, `explore`,
+  `cross_check` and the command line. It was ignored. `seed` now defaults to `None`.
+- "also by changing" separates the changes with semicolons, since a change's own label
+  can hold a comma.
+- The pytest fixture's `explore` takes the adapter's keywords by name, and its `keep`
+  takes `repeats`.
 - Two guides: [`docs/scripting.md`](https://github.com/smartfox96/earful/blob/main/docs/scripting.md),
   on scripting the model so it behaves as a real one does (retries, replies that only call
   a tool, cancellations), and [`docs/adapters.md`](https://github.com/smartfox96/earful/blob/main/docs/adapters.md),

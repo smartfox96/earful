@@ -258,7 +258,7 @@ says what it is about to run. `earful search` prints it on standard error, and
 `explore(..., planned=print)` hands it to a function. For the README's booking example:
 
 ```
-earful: 736 cases (733 placements of a time, and the faults); 732 to run, after 6 run(s) to find them
+earful: 736 cases (733 placements of a time, and the faults); 732 to run, after 6 run(s) to find them. Measuring where each failure starts and ends takes more runs
 ```
 
 `max_runs`, `--max-runs N` on the command line, is a budget. The runs that read the
@@ -267,8 +267,12 @@ and no further failure is measured. Such a search is not `complete`: its report 
 many cases were not run and how many failures were not measured, its assertion fails, and
 `earful search` exits 3 unless a rule broke. A budget is a stop for a search that turned
 out too large. To make a search smaller, narrow it: fewer variables, some speeches, no
-word ends. Reading the ledger of each broken rule's example afterwards takes one run more
-for each rule.
+word ends.
+
+The report then says how many runs the search made and what each was for: reading the
+boundaries, the cases, measuring the failures, and reading an example of each where its
+ledger was not already read. A failure kept as a bundle is reduced in runs of its own,
+which the bundle's manifest counts (`reduction.runs`) and `earful search --keep` prints.
 
 ### What a search reports
 

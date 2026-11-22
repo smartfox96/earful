@@ -3093,8 +3093,8 @@ MUTANTS = [
     Mutant(
         "api: a case's data is not what is run",
         "src/earful/scripted/api.py",
-        '        return self.run_case(found.build(data), seed=data["seed"])\n',
-        '        return self.run_case(found.make(), seed=data["seed"])\n',
+        "        built = found.build(data)\n",
+        "        built = found.make()\n",
         first="run_from_its_data",
     ),
     Mutant(
@@ -3478,8 +3478,8 @@ MUTANTS = [
     Mutant(
         "search: what a search is about to run is said once it has run",
         "src/earful/core/search.py",
-        "    if planned is not None:\n        planned(plan)\n    # The runs that read the boundaries are made whatever the budget: there is no search without.\n    dropped = {id(c) for c in fresh[plan.covered :]}\n    todo = [c for c in todo if id(c) not in dropped]\n    outcomes = runner.many([c.case for c in todo], each)\n",
-        "    dropped = {id(c) for c in fresh[plan.covered :]}\n    todo = [c for c in todo if id(c) not in dropped]\n    outcomes = runner.many([c.case for c in todo], each)\n    if planned is not None:\n        planned(plan)\n",
+        '    if planned is not None:\n        planned(plan)\n    # The runs that read the boundaries are made whatever the budget: there is no search without.\n    dropped = {id(c) for c in fresh[plan.covered :]}\n    todo = [c for c in todo if id(c) not in dropped]\n    with runner.counting("cases"):\n        outcomes = runner.many([c.case for c in todo], each)\n',
+        '    dropped = {id(c) for c in fresh[plan.covered :]}\n    todo = [c for c in todo if id(c) not in dropped]\n    with runner.counting("cases"):\n        outcomes = runner.many([c.case for c in todo], each)\n    if planned is not None:\n        planned(plan)\n',
         first="says_what_it_is_about_to_run",
     ),
     Mutant(
@@ -3892,7 +3892,7 @@ MUTANTS = [
     Mutant(
         "plugin: the workers the command line gave are not used",
         "src/earful/pytest_plugin.py",
-        '            options.setdefault("workers", self.workers)\n',
+        "            workers = self.workers\n",
         "            pass\n",
         first="workers_the_command_line_gave",
     ),
@@ -3927,8 +3927,8 @@ MUTANTS = [
     Mutant(
         "plugin: a number of workers someone gave is set aside where they cannot be started",
         "src/earful/pytest_plugin.py",
-        '        if "workers" in options or self.workers is not None:\n',
-        "        if False:\n",
+        "        if workers is not None:\n            found = adapter.explore(source, workers=workers, **options)\n",
+        "        if False:\n            found = adapter.explore(source, workers=workers, **options)\n",
         first="cannot_be_started_a_search_nobody_gave_a_number_for",
     ),
     Mutant(
@@ -5824,5 +5824,40 @@ MUTANTS = [
         "            if frame.exception is not None or frame.fatal:\n",
         "            if frame.fatal:\n",
         first="processor_that_raises",
+    ),
+    Mutant(
+        "api: a seed other than the one a saved case holds is dropped",
+        "src/earful/scripted/api.py",
+        '    if seed is not None and seed != data["seed"]:\n',
+        "    if False:\n",
+        first="saved_case_runs_with_its_own_seed",
+    ),
+    Mutant(
+        "search: a reduction's runs are counted as the search's",
+        "src/earful/core/search.py",
+        '        return self.runner.runs - self.runner.by_purpose.get("reduce", 0)\n',
+        "        return self.runner.runs\n",
+        first="a_reduction_is_not_one_of_its_runs",
+    ),
+    Mutant(
+        "search: the runs that measure a window are not counted as such",
+        "src/earful/core/search.py",
+        '                with self.runner.counting("measure"):\n',
+        "                with contextlib.nullcontext():\n",
+        first="counts_its_runs_by_purpose",
+    ),
+    Mutant(
+        "search: the other changes that break a rule are joined with commas",
+        "src/earful/core/search.py",
+        "{'; '.join(others)}",
+        "{', '.join(others)}",
+        first="search_finds_the_break_keeps_it",
+    ),
+    Mutant(
+        "plugin: keep drops repeats",
+        "src/earful/pytest_plugin.py",
+        "        return adapter.keep(found, rule, directory, repeats=repeats)\n",
+        "        return adapter.keep(found, rule, directory)\n",
+        first="kept_under_the_tests_own_directory",
     ),
 ]

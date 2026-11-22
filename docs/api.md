@@ -383,13 +383,13 @@ not async.
 ### `run`
 
 ```python
-def run(source, *, data=None, seed=0) -> RunResult: ...
+def run(source, *, data=None, seed=None) -> RunResult: ...
 ```
 
 Runs a scenario once on the virtual clock. `source` is a `Case`, a function that returns
-one, or a `module:function` reference. `data` is a case as data (`earful.case/1`), such
-as the example of a broken rule a search gives, and is run with the scenario's code and
-the seed it holds. It raises `InvalidRun` for a run that is not valid evidence, and
+one, or a `module:function` reference. `seed` is 0 when left out. `data` is a case as data
+(`earful.case/1`), such as the example of a broken rule a search gives, and is run with
+the scenario's code and the seed it holds: a different `seed` with it is refused. It raises `InvalidRun` for a run that is not valid evidence, and
 `ValueError` for a scenario or a case that is refused before it runs.
 
 ### `run_case`
@@ -446,7 +446,7 @@ def explore(
     source,
     *,
     data=None,
-    seed=0,
+    seed=None,
     workers=0,
     variables=(
         "speech.position",
@@ -473,7 +473,7 @@ Searches a scenario for the timings and faults at which it breaks a contract
 | Argument | Meaning |
 | --- | --- |
 | `data` | A case as data to search from, in place of the scenario as written |
-| `seed` | The seed of the scenario as written. A case given as `data` holds its own |
+| `seed` | The seed of the scenario as written, 0 when left out. A case given as `data` holds its own, and a different `seed` with it is refused |
 | `workers` | Worker processes to run the cases in. 0 runs them in this process. More needs a scenario that can be imported ([`testing.md`](testing.md#6-where-a-scenario-lives)) |
 | `variables` | The kinds of time to move. `'speech.end'` and `'speech.stt_delay'` can be added |
 | `faults` | The faults to add to each backend write |
@@ -497,7 +497,7 @@ which and what to do ([`troubleshooting.md`](troubleshooting.md#worker-processes
 ### `cross_check`
 
 ```python
-def cross_check(source, *, data=None, seed=0, runs=3, tolerance=None): ...
+def cross_check(source, *, data=None, seed=None, runs=3, tolerance=None): ...
 ```
 
 Runs the case once on the virtual clock and `runs` times on the real clock, and returns a
@@ -729,7 +729,7 @@ registers the bot's functions on its model service and returns its `LLMContext`.
 | Option | Meaning |
 | --- | --- |
 | `--case FILE` | Run a saved case (`earful.case/1`) |
-| `--seed N` | The seed. Default 0 |
+| `--seed N` | The seed. Default 0, or the one the case holds: a different one is refused |
 | `--ledger FILE` | Write the ledger there |
 | `--json` | The report as JSON |
 | `--allow CONTRACT/RULE` | A rule that may break. Repeatable |
@@ -742,7 +742,7 @@ registers the bot's functions on its model service and returns its `LLMContext`.
 | Option | Meaning |
 | --- | --- |
 | `--case FILE` | Search from a saved case |
-| `--seed N` | The seed. Default 0 |
+| `--seed N` | The seed. Default 0, or the one the case holds: a different one is refused |
 | `--variables A,B` | The kinds of time to move, or `none` |
 | `--faults A,B` | The faults to add to each backend write, or `none` |
 | `--pairs` | Also try two changes at once |
@@ -775,7 +775,7 @@ real one.
 | Option | Meaning |
 | --- | --- |
 | `--case FILE` | Run a saved case |
-| `--seed N` | The seed. Default 0 |
+| `--seed N` | The seed. Default 0, or the one the case holds: a different one is refused |
 | `--runs N` | Real-clock runs. Default 3 |
 | `--tolerance-ms MS` | How far an event may be from its virtual time. Default 100 |
 | `--words N` | Words a segment that was cut short may differ by. Default 1 |
@@ -807,14 +807,30 @@ The fixture chooses the adapter from the scenario it is given.
 
 ```python
 class Earful:
-    def run(self, scenario, *, data=None, seed=0): ...
-    def explore(self, scenario, **options): ...
-    def keep(self, found, rule, directory=None): ...
+    def run(self, scenario, *, data=None, seed=None): ...
+    def explore(
+        self,
+        scenario,
+        *,
+        data=None,
+        seed=None,
+        workers=None,
+        variables=None,
+        faults=None,
+        pairs=False,
+        profiles=0,
+        speeches=None,
+        moments=None,
+        words=True,
+        max_runs=None,
+        planned=None,
+    ): ...
+    def keep(self, found, rule, directory=None, *, repeats=3): ...
     def replay(self, directory, *, repeats=3): ...
 ```
 
-`run`, `explore` and `replay` take what the adapter's functions take and return what they
-return. `explore` without `workers` uses one worker for each processor where the scenario
-can be imported. `keep` without a directory writes the bundle under the test's evidence
-directory. When the test fails, the fixture writes the ledger and the report of each run
+Each takes what the adapter's function of that name takes and returns what it returns.
+`explore` without `variables` or `faults` uses the adapter's defaults, and without
+`workers` uses one worker for each processor where the scenario can be imported. `keep`
+without a directory writes the bundle under the test's evidence directory. When the test fails, the fixture writes the ledger and the report of each run
 and of each broken rule's example there.
