@@ -42,8 +42,10 @@ across the handoff ([`contracts.md`](contracts.md#m2-turn-integrity), rule d).
 
 ## pipecat-ai
 
-One release is supported. It is pinned and recorded the same way
-(`scripts/make_pipecat_env.sh`).
+The newest two minor series are supported, each tested on one release, pinned and
+recorded the same way (`scripts/make_pipecat_env.sh`). pipecat-ai ships a minor about
+every two weeks; when the canary below finds one the extra does not accept, it is added
+and the oldest series is dropped.
 
 | pipecat-ai | Dependencies as of | Lock file |
 | --- | --- | --- |
@@ -234,3 +236,6 @@ ledgers, and reads bundles. It runs nothing. Python 3.10 or later.
   from the VAD, whatever the environment configures.
 - A tool whose calls cannot be recorded, such as one inside a toolset. The run is invalid
   and names the tool.
+- livekit-agents 2.0. It runs the session in a compiled core with its own runtime and
+  threads, which Earful's virtual clock does not reach, and the `livekit` extra accepts
+  releases below 1.9.

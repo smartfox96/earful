@@ -191,8 +191,8 @@ other work on the machine shows as drift
 | Systems | Linux and macOS. Windows is not tested |
 
 A release inside an extra's range that is not in the table is accepted with a warning.
-A release outside the range is refused. One pipecat-ai release is supported at a time
-([`compatibility.md`](compatibility.md)).
+A release outside the range is refused. Of pipecat-ai the newest two minor series are
+supported ([`compatibility.md`](compatibility.md)).
 
 A search of your own agent on a release that has one of the two known defects can meet
 it. [`compatibility.md`](compatibility.md#livekit-agents) says which releases have which.

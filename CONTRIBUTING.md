@@ -156,24 +156,27 @@ A release in a new minor series also moves the upper bound of the `livekit` extr
 it. Until then `earful.livekit` refuses to import on that series. The canary's `beyond`
 job fails from the day such a release is on PyPI.
 
-## Moving to a pipecat-ai release
+## Adding a pipecat-ai release
 
-One pipecat-ai release is supported at a time, so a new one takes the place of the old.
+The newest two minor series of pipecat-ai are supported, each by one tested release. A
+release in a new series is added and the oldest series is dropped; a later release in a
+supported series takes the place of the one tested.
 
 1. `EARFUL_LOCK=write scripts/make_pipecat_env.sh <version> <date>`, with a date a few
    days after the release. This builds `.venvs/pc-<version>` and writes
-   `compat/pc-<version>.lock.txt`. Delete the old lock file.
-2. Put the release and the date where the old ones are: the defaults of
+   `compat/pc-<version>.lock.txt`. Delete the lock file of the release it replaces.
+2. Put the release and the date beside the others, or where the replaced ones are: the defaults of
    `scripts/make_pipecat_env.sh`, `scripts/make_lint_env.sh`, `scripts/check_all.sh`, the
    `pipecat` and `docs` jobs of `.github/workflows/ci.yml`, `docs/compatibility.md`, the
    README, this page, `tests/test_ci.py` and `SUPPORT` in
    `src/earful/scripted/releases.py`. A release in a new minor series also moves the
-   `pipecat` extra, in `SUPPORT` and in `pyproject.toml`. Tests fail while these disagree.
+   `pipecat` extra, in `SUPPORT` and in `pyproject.toml`: its lowest release is that of the
+   older supported series. Tests fail while these disagree.
 3. `scripts/ran_every_test.sh --without livekit .venvs/pc-<version>/bin/python` runs
    every test that does not need livekit-agents and fails if one is skipped.
    `scripts/lint.sh` checks the adapter's types against the new release.
 4. `scripts/check_all.sh --update` records the five Pipecat reference ledgers under the
-   new release's name. Delete the old release's, and read the new ones against them
+   new release's name. Delete those of the release it replaces, and read the new ones against them
    (`python scripts/ledger_diff.py`). A difference in behaviour, in a ledger or in a test
    that had to change, belongs in the pull request.
 
