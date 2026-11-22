@@ -493,6 +493,88 @@ def test_pipecat_documented_example_runs_from_pytest_and_the_installed_cli(tmp_p
     assert " judged, 0 contract rule(s) broken" in searched  # a search of no case would fail
 
 
+def test_pipecat_the_skill_for_coding_agents_uses_only_what_the_pipecat_adapter_has():
+    """Its section for Pipecat is parsed: imports, keyword arguments and names in code type."""
+    import ast
+    import importlib
+
+    import earful
+
+    skill = (Path(__file__).resolve().parents[1] / "skills" / "earful" / "SKILL.md").read_text()
+    section = skill.partition("\n## A Pipecat bot\n")[2].partition("\n## ")[0]
+    assert section, "the skill has a section for Pipecat"
+    (block,) = re.findall(r"```python\n(.*?)```", section, flags=re.DOTALL)
+    spans = re.findall(r"`([^`\n]+)`", re.sub(r"```.*?```", "", section, flags=re.DOTALL))
+    trees = [ast.parse(block)]
+    for span in spans:
+        try:
+            trees.append(ast.parse(span))
+        except SyntaxError:
+            continue  # prose in code type: a command, a rule's name, a fragment
+    known = {}
+    for node in ast.walk(trees[0]):
+        if isinstance(node, ast.ImportFrom) and (node.module or "").startswith("earful"):
+            module = importlib.import_module(node.module)
+            for alias in node.names:
+                assert hasattr(module, alias.name), f"{node.module} has no {alias.name}"
+                known[alias.name] = getattr(module, alias.name)
+    known.setdefault("Effect", pc.Effect)
+    methods = {"when": pc.ScriptedModel.when, "otherwise": pc.ScriptedModel.otherwise}
+    checked = 0
+    for tree in trees:
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call):
+                continue
+            if isinstance(node.func, ast.Name) and node.func.id in known:
+                target = known[node.func.id]
+            elif isinstance(node.func, ast.Attribute) and node.func.attr in methods:
+                target = methods[node.func.attr]
+            elif isinstance(node.func, ast.Attribute) and node.func.attr == "assert_contracts":
+                target = pc.RunResult.assert_contracts
+            else:
+                continue
+            takes = inspect.signature(target).parameters
+            for keyword in node.keywords:
+                assert keyword.arg in takes, f"{ast.unparse(node.func)} takes no {keyword.arg}"
+                checked += 1
+    assert checked >= 8
+    fields = set(inspect.signature(pc.Case).parameters)
+    ends = {f"ends.{name}" for name in inspect.signature(pc.Ends).parameters}
+    for span in spans:
+        name = span.rstrip("=")
+        if re.fullmatch(r"[A-Za-z_]+", name):
+            assert name in fields or hasattr(pc, name) or hasattr(earful, name), name
+        elif span.startswith("ends."):
+            assert span in ends, span
+
+
+MYBOT = """
+from pipecat.services.llm_service import FunctionCallParams
+
+
+def register_functions(llm, reservations):
+    async def create_reservation(params: FunctionCallParams) -> None:
+        receipt = await reservations.create(params.arguments["party_size"])
+        await params.result_callback(f"Booked: {receipt}.")
+
+    llm.register_function("create_reservation", create_reservation)
+"""
+
+
+def test_pipecat_the_test_the_skill_shows_a_coding_assistant_runs_as_written(pytester):
+    skill = (Path(__file__).resolve().parents[1] / "skills" / "earful" / "SKILL.md").read_text()
+    section = skill.partition("\n## A Pipecat bot\n")[2].partition("\n## ")[0]
+    (shown,) = re.findall(r"```python\n(.*?)```", section, flags=re.DOTALL)
+    (pytester.path / "mybot").mkdir()
+    (pytester.path / "mybot" / "__init__.py").write_text("")
+    (pytester.path / "mybot" / "bot.py").write_text(MYBOT)
+    pytester.makepyfile(test_booking=shown)
+    result = pytester.runpytest_inprocess(
+        "-p", "no:cacheprovider", "-p", "no:asyncio", "-k", "as_written"
+    )
+    result.assert_outcomes(passed=1, deselected=1)
+
+
 def test_pipecat_documented_pipeline_runs_as_written(pytester):
     page = PAGE.read_text()
     _first, shown, *_others = re.findall(r"```python\n(.*?)```", page, flags=re.DOTALL)

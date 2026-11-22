@@ -1,13 +1,15 @@
 ---
 name: earful
-description: Write and debug Earful tests for a LiveKit Agents voice agent (Python). Use when asked to test a voice agent's timing, interruptions, tool calls or bookings, to write a test with ScriptedModel, Case or effect(), or to read an Earful failure. Earful is new; do not guess its API, use what is written here.
+description: Write and debug Earful tests for a voice agent built on LiveKit Agents or Pipecat (Python). Use when asked to test a voice agent's timing, interruptions, tool calls or bookings, to write a test with ScriptedModel, Case or effect(), or to read an Earful failure. Earful is new; do not guess its API, use what is written here.
 ---
 
-# Earful tests for a LiveKit voice agent
+# Earful tests for a voice agent
 
-Earful runs the real `AgentSession` on a virtual clock against a scripted user, model,
-voice and backend, checks seven contracts on what happened, and searches nearby timings
-and backend faults for a run that breaks one. No network, no API keys, no audio devices.
+Earful runs the real framework on a virtual clock against a scripted user, model, voice
+and backend, checks seven contracts on what happened, and searches nearby timings and
+backend faults for a run that breaks one. No network, no API keys, no audio devices.
+On LiveKit it runs the real `AgentSession`; on Pipecat, the bot's pipeline. A Pipecat bot
+is written as the LiveKit agent is, with the differences in "A Pipecat bot" below.
 
 Install: `pip install "earful[livekit]"`. Add `.earful/` to `.gitignore`.
 
@@ -82,6 +84,80 @@ to be declared.
 
 `Effect("intent", key=lambda args: f"refund-{args['order']}")` sends an idempotency
 key; with `Case(backend_mode="keyed")` the backend then honours it.
+
+## A Pipecat bot
+
+Install: `pip install "earful[pipecat]"`, on Python 3.11 or later.
+
+```python
+from pipecat.processors.aggregators.llm_context import LLMContext
+
+from earful import effect
+from earful.pipecat import Case, Intent, ScriptedModel, UserSpeech, tool_succeeded, user_ever_said
+
+from mybot.bot import register_functions  # how the application sets up its model service
+
+
+class FakeReservations:  # stands in for the service a function books with
+    async def create(self, party_size: int) -> str:
+        return await effect("book-table", {"party_size": party_size})
+
+
+def bot(llm):
+    register_functions(llm, FakeReservations())  # llm.register_function(...), as the bot does
+    return LLMContext()  # a fresh context for each run
+
+
+model = (
+    ScriptedModel()
+    .when(tool_succeeded(), say="Your table is booked.", claims=["book-table"])
+    .when(user_ever_said("table"), say="One moment.", call=("create_reservation", {"party_size": 4}))
+    .otherwise(say="How can I help?")
+)
+
+
+def booking() -> Case:
+    return Case(
+        name="booking",
+        bot=bot,
+        speeches=[UserSpeech(start=0.5, end=2.5, transcript="A table for four, please.")],
+        policy=model,
+        intents=[Intent("book-table")],
+    )
+
+
+def test_as_written(earful):
+    earful.run(booking).assert_contracts()
+
+
+def test_every_timing_and_fault_near_it(earful):
+    earful.explore(booking).assert_contracts()
+```
+
+1. **`bot(llm)` registers the bot's functions** on the model service Earful hands it, as
+   the application does, and returns a fresh `LLMContext()`. Register every function
+   there: one registered later, by a function or a processor, makes the run invalid.
+   `effects={"create_reservation": Effect("book-table")}` stands in for a function's body,
+   as on LiveKit.
+2. **Your own processors** go in `pipeline=`, a function `pipeline(ends)` that returns
+   the processors in order: `ends.input`, `ends.stt`, a user context aggregator built on
+   `ends.context`, `ends.llm`, yours, `ends.tts`, `ends.output`, and an assistant context
+   aggregator. Declare `user_speech_timeout` and `user_turn_stop_timeout` on the case as
+   that pipeline uses them.
+3. **Refused, in one line, before the run:** a real service or transport; a VAD analyzer,
+   a VAD processor or a turn model, which includes Pipecat's default stop strategy; turn
+   strategies other than a VAD start (a transcription start may sit beside it) and one
+   speech-timeout stop; a thread. Transport event handlers, observers and RTVI do not
+   run, so a bot that speaks first from its connect handler does not speak first here.
+4. **Two results a search of a Pipecat bot can find after a hangup.** M2 rule d: the user
+   hung up while the reply before a function call played, and the context has neither
+   the call nor its result. M1 rule 2: without `tts_word_timestamps=True` on the case,
+   Pipecat keeps none of a reply that was cut short. If the application keeps the
+   context as the record of the call, both are real: write the record from the function
+   instead. If it discards the context when the call ends, allow both by name:
+   `assert_contracts(allow=["M2/rule d", "M1/rule 2"])`.
+
+Guide: https://github.com/smartfox96/earful/blob/main/docs/pipecat.md
 
 ## Reading a failure
 

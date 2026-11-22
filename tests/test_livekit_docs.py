@@ -132,6 +132,9 @@ def test_the_skill_for_coding_agents_uses_only_what_exists():
 
     front, _, body = SKILL.removeprefix("---\n").partition("\n---\n")
     assert SKILL.startswith("---\nname: earful\n") and "\ndescription: " in "\n" + front
+    # The section for Pipecat is held to the Pipecat adapter by tests/test_pipecat.py.
+    before, _, rest = body.partition("\n## A Pipecat bot\n")
+    body = before + "\n## " + rest.partition("\n## ")[2]
 
     blocks = re.findall(r"```python\n(.*?)```", body, flags=re.DOTALL)
     spans = re.findall(r"`([^`\n]+)`", re.sub(r"```.*?```", "", body, flags=re.DOTALL))
