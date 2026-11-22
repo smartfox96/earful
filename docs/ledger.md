@@ -204,8 +204,8 @@ playout earlier than `started_us + ttfb_us`. Attribution considers replies avail
 
 `attribution` says which model reply a synthesized text belongs to. Only replies not yet
 synthesized are candidates. `unique`: exactly one reply has this text. `prefix`: none
-matches in full and exactly one starts with it. `ambiguous`: more than one fits. `none`:
-nothing fits. `call` is set exactly when attribution is `unique` or `prefix`.
+matches in full and exactly one starts with it, as text: a reply whose generation stopped
+early, inside a word or not. `ambiguous`: more than one fits. `none`: nothing fits. `call` is set exactly when attribution is `unique` or `prefix`.
 
 `candidates` lists every reply the text could be: one for `unique` and `prefix`, several
 for `ambiguous`, none for `none`. The scripted voice is handed a text with no reference

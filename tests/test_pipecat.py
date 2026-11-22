@@ -31,6 +31,7 @@ from earful.core import bundle, case, schema
 from earful.core.ledger import Ledger
 from earful.core.search import evaluate
 from earful.pipecat import scenario
+from earful.pipecat.cases import MENU
 from earful.pipecat.sink import ClockedOutput
 from earful.pipecat.tools import ToolWitness
 from earful.scripted.clock import now_us, run_virtual
@@ -657,6 +658,32 @@ def test_pipecat_a_user_who_speaks_over_a_reply_cuts_it_and_the_bot_remembers_wh
     assert replies == [("Tonight we have a roasted", True), ("Okay.", False)]
     outcomes = result.report.outcomes()
     assert outcomes["M1"] == outcomes["M2"] == outcomes["L1"] == outcomes["L2"] == "pass"
+
+
+@pytest.mark.parametrize(("stop_at", "cut"), [(4.2, "roaste"), (5.6, "se")])
+def test_pipecat_a_reply_cut_inside_a_word_while_it_is_generated_keeps_its_attribution(
+    stop_at, cut
+):
+    """On the interruption Pipecat gives the voice the sentence written so far."""
+    case = pc.Case(
+        "cut_while_generating",
+        lambda llm: LLMContext(),
+        [
+            pc.UserSpeech(0.5, 2.5, "Tell me about the menu."),
+            pc.UserSpeech(stop_at, stop_at + 1.0, "Stop."),
+        ],
+        pc.ScriptedModel()
+        .when(pc.user_said("Stop"), say="Okay, stopping.")
+        .otherwise(say=MENU, ttft=0.3, duration=6.0),
+        tts_word_timestamps=True,
+    )
+    result = pc.run(case)
+    cut_short = events(result, "tts.synthesized")[0]
+    assert (cut_short["call"], cut_short["attribution"]) == (1, "prefix")
+    assert cut_short["text"].split()[-1] == cut and MENU.startswith(cut_short["text"])
+    outcomes = result.report.outcomes()
+    assert outcomes["M1"] == outcomes["L1"] == "pass"
+    result.assert_contracts()
 
 
 def test_pipecat_a_reply_spoken_across_two_audio_contexts_is_one_utterance():

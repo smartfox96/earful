@@ -2,7 +2,7 @@
 
 import pytest
 
-from earful.scripted.model import Claim, Reply, ToolCall
+from earful.scripted.model import Claim, Reply, ReplyRegister, ToolCall
 from earful.scripted.playbook import (
     Context,
     NoRule,
@@ -181,3 +181,13 @@ def test_a_rule_that_could_not_be_reached_or_has_no_reply_is_refused():
         ScriptedModel().when(user_said("menu"))
     with pytest.raises(ValueError, match="not both"):
         ScriptedModel().when(user_said("menu"), Reply(text="Soup."), say="Soup.")
+
+
+def test_a_reply_whose_generation_stopped_inside_a_word_is_a_prefix():
+    register = ReplyRegister(replies={1: ["Tonight", "we", "have", "a", "roasted", "soup."]})
+    assert register.attribute("Tonight we have a roa") == (1, "prefix", [1])
+    assert ReplyRegister(replies={1: ["soup."]}).attribute("soup") == (1, "prefix", [1])
+    assert ReplyRegister(replies={1: ["roasted"]}).attribute("roasted soup") == (None, "none", [])
+    assert ReplyRegister(replies={1: ["a", "roasted"]}).attribute("roasted") == (None, "none", [])
+    two = ReplyRegister(replies={1: ["Okay,", "stopping."], 2: ["Okay."]})
+    assert two.attribute("Okay") == (None, "ambiguous", [1, 2])

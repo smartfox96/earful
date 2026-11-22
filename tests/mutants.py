@@ -5459,4 +5459,11 @@ MUTANTS = [
         "",
         first="could_not_be_judged_has_no_verdict",
     ),
+    Mutant(
+        "scripted model: a reply cut inside a word is attributed to none",
+        "src/earful/scripted/model.py",
+        '            ("prefix", lambda w: " ".join(w).startswith(said)),\n',
+        '            ("prefix", lambda w: len(w) > len(words) and w[: len(words)] == words),\n',
+        first="stopped_inside_a_word or cut_inside_a_word",
+    ),
 ]

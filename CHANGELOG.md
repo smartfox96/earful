@@ -74,6 +74,11 @@ formats have versions of their own
   `max_tool_steps` rounds of tool calls have run, no call under `"required"`, another
   tool than the one named, or two calls under `parallel_tool_calls=False`.
 - A search in which a case raised an exception fails.
+- A Pipecat reply cut while the model is still generating it keeps its attribution. On
+  the interruption Pipecat gives the voice the sentence written so far, which can end
+  inside a word, and the text was matched to the reply word by word: the utterance was
+  attributed to no reply, and M1 and L1 had no verdict while the assertion passed. A
+  synthesized text is now matched to the reply it starts as text.
 - A replay is clean only when the bundle's contract passed in every run. A run in which
   that contract had nothing to judge or could not judge leaves the replay not judged, and
   `earful replay` exits 3: before, a replay of an A2 bundle on a run where A2 was not
