@@ -409,12 +409,65 @@ async def _hang_up(
 
 
 class _WarningCollector(logging.Handler):
-    def __init__(self) -> None:
-        super().__init__(level=logging.WARNING)
+    """Counts livekit-agents' warnings whatever level its loggers are set to, and passes on
+    the records the application's handlers would have had."""
+
+    def __init__(self, logger: logging.Logger) -> None:
+        super().__init__()
         self.messages: list[str] = []
+        self._logger = logger
+        self._handlers, self._propagate = list(logger.handlers), logger.propagate
+        # Each level that hides a warning, restored by ``close``.
+        self._levels = {
+            one: one.level
+            for one in (logger, *_descendants(logger))
+            if one.level > logging.WARNING
+            or (one is logger and logger.getEffectiveLevel() > logging.WARNING)
+        }
+
+    def open(self) -> None:
+        for one in self._levels:
+            one.setLevel(logging.WARNING)
+        self._logger.handlers, self._logger.propagate = [self], False
+
+    def close(self) -> None:
+        self._logger.handlers, self._logger.propagate = self._handlers, self._propagate
+        for one, level in self._levels.items():
+            one.setLevel(level)
+        super().close()
 
     def emit(self, record: logging.LogRecord) -> None:
-        self.messages.append(f"{record.name}: {record.getMessage()}")
+        if record.levelno >= logging.WARNING:
+            self.messages.append(f"{record.name}: {record.getMessage()}")
+        if record.levelno < self._shown(record.name):
+            return
+        # As propagation would, with this handler found, so Python's last resort is not used.
+        handlers, above = self._handlers, self._logger.parent if self._propagate else None
+        while True:
+            for handler in handlers:
+                if record.levelno >= handler.level:
+                    handler.handle(record)
+            if above is None:
+                return
+            handlers, above = above.handlers, above.parent if above.propagate else None
+
+    def _shown(self, name: str) -> int:
+        """The least level the logger ``name`` let through before the run."""
+        one: logging.Logger | None = logging.getLogger(name)
+        while one is not None:
+            level = self._levels.get(one, one.level)
+            if level:
+                return level
+            one = one.parent
+        return logging.WARNING
+
+
+def _descendants(logger: logging.Logger) -> list[logging.Logger]:
+    prefix = logger.name + "."
+    found = logging.Logger.manager.loggerDict.items()
+    return [
+        one for name, one in found if name.startswith(prefix) and isinstance(one, logging.Logger)
+    ]
 
 
 async def _run(case: Case, seed: int) -> RunResult:
@@ -448,9 +501,8 @@ async def _run(case: Case, seed: int) -> RunResult:
         },
     )
     witness = tools.ToolWitness(ledger, case.effects)
-    warnings = _WarningCollector()
-    lk_logger = logging.getLogger("livekit.agents")
-    lk_logger.addHandler(warnings)
+    warnings = _WarningCollector(logging.getLogger("livekit.agents"))
+    warnings.open()
     witness_token = tools.install(witness)
     backend_token = backends.install(backend)
     errors_token = record_errors_in(harness_errors)
@@ -459,7 +511,7 @@ async def _run(case: Case, seed: int) -> RunResult:
             case, seed, ledger, harness_errors, declared_us, witness, backend, virtual=virtual
         )
     finally:
-        lk_logger.removeHandler(warnings)
+        warnings.close()
         stop_recording_errors(errors_token)
         backends.uninstall(backend_token)
         tools.uninstall(witness_token)

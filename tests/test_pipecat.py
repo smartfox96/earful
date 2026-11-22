@@ -621,6 +621,43 @@ def test_pipecat_a_scripted_call_no_registered_function_can_take_makes_the_run_i
     assert refused.value.reasons == [f"harness error: call 1: the scripted model called {why}"]
 
 
+def test_pipecat_a_function_registered_after_bot_returns_makes_the_run_invalid():
+    """The header is written before the run, so it could not name the function."""
+
+    def bot(llm):
+        async def confirm(params):
+            await params.result_callback("confirmed")
+
+        async def look_up(params):
+            llm.register_function("confirm", confirm)
+            await params.result_callback("found")
+
+        llm.register_function("look_up", look_up)
+        return LLMContext()
+
+    model = (
+        pc.ScriptedModel()
+        .when(pc.tool_returned("confirm"), say="Confirmed.")
+        .when(pc.tool_returned("look_up"), call=("confirm", {}))
+        .otherwise(call=("look_up", {}))
+    )
+    case = pc.Case("late", bot, [pc.UserSpeech(0.5, 1.5, "Look it up.")], model)
+    late = r"the bot registered 'confirm' after bot\(\) returned, so the run's header does not list"
+    with pytest.raises(pc.InvalidRun, match=late):
+        pc.run(case)
+
+
+def test_pipecat_a_release_that_keeps_a_private_name_elsewhere_is_refused_before_the_run(
+    monkeypatch,
+):
+    from earful.pipecat import harness
+
+    monkeypatch.setattr(harness, "PRIVATE", (*harness.PRIVATE, "_renamed_later"))
+    keeps = r"keeps LLMService._renamed_later where Earful cannot read it, so the functions"
+    with pytest.raises(ValueError, match=keeps):
+        pc.run(greeting())
+
+
 def test_pipecat_a_function_registered_by_name_alone_takes_whatever_arguments_the_script_gives():
     model = (
         pc.ScriptedModel()

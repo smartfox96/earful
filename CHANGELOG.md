@@ -74,6 +74,16 @@ formats have versions of their own
   `max_tool_steps` rounds of tool calls have run, no call under `"required"`, another
   tool than the one named, or two calls under `parallel_tool_calls=False`.
 - A search in which a case raised an exception fails.
+- A thread started with `_thread.start_new_thread` leaves the virtual clock, as a
+  `threading.Thread` does, and makes the run invalid. A word that reaches the output
+  with more audio than it has, which only a repeat gives, is a stamp error.
+- On LiveKit `framework_warnings` counts every warning livekit-agents logs, whatever
+  level the application sets on its loggers, so the ledger no longer depends on that
+  level. The application's own handlers are passed only the records they would have had.
+- On Pipecat a function the bot registers after `bot()` returns makes the run invalid:
+  the header, written before the run, could not list it. A pipecat-ai release that keeps
+  one of the private names the scripted model reads elsewhere is refused in one line
+  before the run, where it raised `AttributeError`.
 - A Pipecat reply cut while the model is still generating it keeps its attribution. On
   the interruption Pipecat gives the voice the sentence written so far, which can end
   inside a word, and the text was matched to the reply word by word: the utterance was

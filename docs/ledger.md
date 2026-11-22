@@ -387,8 +387,9 @@ definition; it reads only the ledger and returns every reason a run is not valid
 - the ledger does not validate;
 - `clock` is not `virtual`;
 - `stamp_errors` is not zero: audio reached the sink altered. A sample names no word that
-  was synthesized, the audio is at another sample rate than the voice's, or a word other
-  than the last one written arrived with part of its audio missing;
+  was synthesized, the audio is at another sample rate than the voice's, a word other
+  than the last one written arrived with part of its audio missing, or a word arrived
+  with more audio than it has, which only a repeat gives;
 - `executor_calls` is not zero: work left the virtual clock for a thread;
 - `underruns` is not zero: playout ran ahead of the audio it had been given, so word
   times are unreliable. On Pipecat it is always zero: the output plays each write from
@@ -403,7 +404,9 @@ definition; it reads only the ledger and returns every reason a run is not valid
 
 `framework_warnings` is recorded but does not invalidate a run: a warning is the
 framework describing its own behaviour, and the contracts judge that behaviour from the
-ledger. An exception raised inside one of Earful's scripted providers or its output does
+ledger. On LiveKit it counts every warning livekit-agents logs, whatever level the
+application sets on its loggers, so the ledger does not depend on that level; the
+application's own handlers are passed only the records they would have had. An exception raised inside one of Earful's scripted providers or its output does
 invalidate it. The framework would treat it as a provider that failed and carry on, so it
 is recorded in `harness_errors`, as `the scripted voice raised KeyError: ...`.
 

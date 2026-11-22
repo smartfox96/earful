@@ -171,7 +171,7 @@ any of the following is invalid (`docs/ledger.md`, Validity):
 | Work | Reported as |
 | --- | --- |
 | `loop.run_in_executor`, `asyncio.to_thread` | `executor_calls` |
-| A `threading.Thread` started from the run | `threads started` |
+| A `threading.Thread` started from the run, or a thread started with `_thread.start_new_thread` | `threads started` |
 | A callback handed to the loop from another thread with `call_soon_threadsafe`, which is how a thread, a thread pool or a native library returns a result | `wake-ups from another thread` |
 | A socket, a pipe or any other descriptor the loop waits on | `file descriptors watched` |
 | A child process started through asyncio | `child processes started` |

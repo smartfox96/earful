@@ -420,7 +420,7 @@ nothing patched. Such a run is never valid evidence, and `cross_check` is the us
 | `stamp_errors` | LiveKit | Audio samples that reached the output altered |
 | `executor_calls` | LiveKit | Pieces of work the run handed to a thread pool |
 | `underruns` | LiveKit | Times playout ran ahead of its audio |
-| `framework_warnings` | LiveKit | The warnings livekit-agents logged during the run |
+| `framework_warnings` | LiveKit | The warnings livekit-agents logged during the run, whatever level its loggers are set to |
 
 ```python
 class RunResult:

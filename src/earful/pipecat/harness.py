@@ -49,7 +49,15 @@ from ..scripted.world import UserSpeech, WorldOrigin, sleep_until
 from . import pipeline as pipelines
 from .clock import VirtualClock, wait_for_of_python_3_12
 from .pipeline import Ends
-from .providers import SAMPLE_RATE, ScriptedLLM, ScriptedSTT, ScriptedUser, StampedTTS, summarize
+from .providers import (
+    PRIVATE,
+    SAMPLE_RATE,
+    ScriptedLLM,
+    ScriptedSTT,
+    ScriptedUser,
+    StampedTTS,
+    summarize,
+)
 from .sink import ClockedOutput
 from .tools import ToolWitness
 
@@ -303,8 +311,11 @@ async def _run(case: Case, seed: int) -> RunResult:
         timeouts = (case.user_speech_timeout, case.user_turn_stop_timeout)
         build = case.pipeline or pipelines.standard(*timeouts)
         plan = pipelines.inspect(build(ends), ends, *timeouts, own=case.pipeline is not None)
+        for name in PRIVATE:  # read again during the run, so a release without one is refused now
+            model.private(name)
         model.witness_tools(context.tools)
         header = _header(case, witness.names, plan.options)
+        model.listed = frozenset(witness.names)
         assistant = plan.assistant
 
         def committed(_aggregator: Any, message: Any) -> None:
