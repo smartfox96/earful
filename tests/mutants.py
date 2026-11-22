@@ -2756,17 +2756,10 @@ MUTANTS = [
         first="reference_is_in_doubt_only_if",
     ),
     Mutant(
-        "L2: audio that starts at the interruption point was under way at it",
-        "src/earful/core/checker/l2.py",
-        "            run = next((r for r in runs if r[0][0][0] < point <= r[0][-1][1]), None)\n",
-        "            run = next((r for r in runs if r[0][0][0] <= point <= r[0][-1][1]), None)\n",
-        first="starts_at_the_interruption_point",
-    ),
-    Mutant(
         "L2: a reply that stops at the interruption point was not audible at it",
         "src/earful/core/checker/l2.py",
-        "            run = next((r for r in runs if r[0][0][0] < point <= r[0][-1][1]), None)\n",
-        "            run = next((r for r in runs if r[0][0][0] < point < r[0][-1][1]), None)\n",
+        "            run = next((r for r in runs if r[0][0][0] <= point <= r[0][-1][1]), None)\n",
+        "            run = next((r for r in runs if r[0][0][0] <= point < r[0][-1][1]), None)\n",
         first="stops_at_the_interruption_point",
     ),
     Mutant(
@@ -5731,5 +5724,12 @@ MUTANTS = [
         '        why = f" ({\', \'.join(result.codes)})" if result.codes else ""\n',
         '        why = ""\n',
         first="could_not_be_judged_has_no_verdict",
+    ),
+    Mutant(
+        "L2: a reply that starts at the interruption point is not under way",
+        "src/earful/core/checker/l2.py",
+        "            run = next((r for r in runs if r[0][0][0] <= point <= r[0][-1][1]), None)\n",
+        "            run = next((r for r in runs if r[0][0][0] < point <= r[0][-1][1]), None)\n",
+        first="held_to_the_bound",
     ),
 ]

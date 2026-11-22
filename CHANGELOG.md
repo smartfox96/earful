@@ -95,6 +95,9 @@ formats have versions of their own
   interruption, or a reply held back, was judged. A search prints each contract's counts
   of pass, fail, nothing to judge and evidence lost, and a replay prints the code. The
   report format is `earful.report/2`: a finding carries `code`.
+- L2 rule a holds a reply that starts at the interruption point itself to the stop bound.
+  Where the floor window opens at that instant, as it does for every speech on Pipecat,
+  such a reply was judged by neither rule and could play on over the user.
 - A replay is clean only when the bundle's contract passed in every run. A run in which
   that contract had nothing to judge or could not judge leaves the replay not judged, and
   `earful replay` exits 3: before, a replay of an A2 bundle on a run where A2 was not

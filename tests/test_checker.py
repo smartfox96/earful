@@ -1845,15 +1845,28 @@ def test_l2_a_reply_that_stops_at_the_interruption_point_was_audible_at_it(
     assert report.results["L2"].verdicts[1].measures.get("audible_after_point_us") == after_us
 
 
-@pytest.mark.parametrize("before_us, broken", [(0, ["rule b"]), (1, ["rule a", "rule b"])])
-def test_l2_audio_that_starts_at_the_interruption_point_starts_and_was_not_under_way(
-    barge, before_us, broken
+@pytest.mark.parametrize("before_us", [0, 1])
+def test_l2_audio_that_starts_at_or_before_the_interruption_point_is_held_to_the_bound(
+    barge, before_us
 ):
-    """Reply 2 starts at 7.0 s. A third speech reaches its interruption point then, or 1 us on."""
+    """Reply 2 starts at 7.0 s. A third speech reaches its interruption point then, or 1 us on,
+    and its floor opened earlier, so the start is inside it as well."""
     report = check(_spoke_again(barge, 6_500_000 + before_us))
     last = report.results["L2"].verdicts[2]
     assert report.valid and last.measures["interruption_point_us"] == 7_000_000 + before_us
-    assert [f.rule for f in last.findings] == broken
+    assert [f.rule for f in last.findings] == ["rule a", "rule b"]
+
+
+def test_l2_a_reply_that_starts_where_the_floor_opens_at_the_point_is_held_to_the_bound(barge):
+    """The VAD reports the third speech at its interruption point, 7.0 s, as reply 2 starts.
+    The start is excused, and reply 2, which plays on to 7.72 s, must stop within the bound."""
+    events = _spoke_again(barge, 6_500_000)
+    of(events, "user.vad_start", 2)["t_us"] = 7_000_000
+    last = check(_by_time(events)).results["L2"].verdicts[2]
+    measures = last.measures
+    assert measures["floor_opened_us"] == measures["interruption_point_us"] == 7_000_000
+    assert [f.rule for f in last.findings] == ["rule a"]
+    assert measures["audible_after_point_us"] == 720_000  # its audio began inside the floor
 
 
 @pytest.mark.parametrize("length_us, point_us", [(500_000, 5_500_000), (499_999, None)])

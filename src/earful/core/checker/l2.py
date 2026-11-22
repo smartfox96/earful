@@ -65,9 +65,10 @@ def check(view: View, policy: policies.L2) -> ContractResult:
         }
 
         # Rule a: under way at the interruption point -> silent by that point plus the bound.
+        # A reply that starts at the point itself may start there, and is held to the bound.
         run = None
         if point is not None:
-            run = next((r for r in runs if r[0][0][0] < point <= r[0][-1][1]), None)
+            run = next((r for r in runs if r[0][0][0] <= point <= r[0][-1][1]), None)
         if policy.interruptions_allowed and point is not None:
             # What was heard of it from the point on: a gap that outlasts the floor ends it.
             heard = [b for a, b in run[0] if a < closed and b >= point] if run else []
