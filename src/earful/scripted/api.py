@@ -232,8 +232,6 @@ class AdapterAPI(Generic[Case, RunResult]):
     def _suited(self, reference: str | None) -> int:
         """Workers for a search that names no number: one per processor for a scenario that
         can be imported, and none where one worker would be no faster than this process."""
-        if reference is None:
-            return 0
         try:
             self.scenario.importable(reference, "search in worker processes")
         except ValueError:

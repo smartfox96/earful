@@ -3888,13 +3888,6 @@ MUTANTS = [
         first="workers_the_command_line_gave",
     ),
     Mutant(
-        "api: a scenario built inline is given worker processes",
-        "src/earful/scripted/api.py",
-        "        if reference is None:\n            return 0\n",
-        "        if False:\n            return 0\n",
-        first="worker_per_processor_where_it_can",
-    ),
-    Mutant(
         "plugin: a test run spread by xdist starts workers of its own",
         "src/earful/pytest_plugin.py",
         "        if workers is None and self.spread:\n",
