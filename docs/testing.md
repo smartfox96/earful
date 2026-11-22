@@ -274,11 +274,20 @@ broke a rule, and says what was changed to reach the failure and how wide it is:
 
 ```
 inline_booking on livekit-agents 1.8.13: 857 cases tried, 857 judged, 1 contract rule(s) broken
+    898 run(s): 6 to find where to put things, 853 for the cases, 39 to measure the failures
+    by contract: pass, fail, nothing to judge, evidence lost
+    A1      0     0   857     0
+    A2    846     0    11     0
+    A3    674    89    94     0
+    M1    853     0     4     0
+    M2    857     0     0     0
+    L1    786     0    71     0
+    L2      0     0   857     0
 
 A3/rule  in 89 case(s)
     the claim was heard at 9780000 us; the first effect for 'book-table-1' was never committed
     changed: backend.error 1
-    also by changing: backend.drop 1, backend.drop 1 + backend.wait 1, backend.timeout 1, commit first + backend.latency 1
+    also by changing: backend.drop 1; backend.drop 1 + backend.wait 1; backend.timeout 1, commit first + backend.latency 1
     breaks with backend.wait 1 from 0.000 s (no case exists beyond it) to 32.768 s (still breaks where the search stopped)
     breaks with backend.latency 1 from 6.781 s (passes beyond it) to 39.558 s (still breaks where the search stopped)
 ```

@@ -407,18 +407,32 @@ The conversation as written passes. The search fails with three rules:
 
 ```text
 ContractFailure: booking on pipecat-ai 1.16.0: 753 cases tried, 753 judged, 3 contract rule(s) broken
+    886 run(s): 6 to find where to put things, 749 for the cases, 129 to measure the failures, 2 to read an example of each
+    by contract: pass, fail, nothing to judge, evidence lost
+    A1      0     0   753     0
+    A2    465   278    10     0
+    A3    687     0    66     0
+    M1    748     3     2     0
+    M2    727    26     0     0
+    L1    717     0    36     0
+    L2      0     0   753     0
 
 A2/rule  in 278 case(s)
     2 durable effects for 'book-table'; the scenario authorized 1
     changed: backend.timeout 1, commit first
+    also by changing: backend.timeout 1, commit first + backend.latency 1; backend.timeout 1, commit first + backend.wait 1; backend.timeout 1, commit later; backend.timeout 1, commit later + backend.wait 1
+    breaks with backend.latency 1 from 0.000 s (no case exists beyond it) to 32.958 s (still breaks where the search stopped)
+    breaks with backend.wait 1 from 0.000 s (no case exists beyond it) to 29.099 s (a run beyond it could not be judged, invalid: harness error: the bot was still busy 30.0 s after the scenario)
 
 M1/rule 2  in 3 case(s)
     final history: 5 word(s) were played but only 0 are remembered: 1080000 us of played audio is forgotten
     changed: user.hangup 0 at 6.540 s (not declared as written)
+    breaks with user.hangup 0 from 6.540 s (passes beyond it) to 6.899 s (passes beyond it)
 
 M2/rule d  in 26 case(s)
     create_reservation (call-1-1) finished before this context, which holds 0 call item(s) and 0 result item(s) for it
     changed: user.hangup 0 at 3.600 s (not declared as written)
+    breaks with user.hangup 0 from 3.600 s (passes beyond it) to 4.959 s (passes beyond it)
 ```
 
 **A2 is the application's.** The service committed a booking and told the bot it had

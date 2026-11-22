@@ -81,6 +81,23 @@ def test_a_case_built_in_a_test_runs_and_its_contracts_are_asserted():
     assert result.events is result.ledger.events
 
 
+def test_a_tool_still_running_when_the_scenario_is_over_is_waited_for():
+    """A draining session would ask the model to answer the timed-out booking without a tool.
+    On livekit-agents 1.5 and 1.6 the agent looks idle during a tool this long."""
+    tries_again = (
+        ScriptedModel()
+        .when(tool_succeeded(), say="Your table is booked.", claims=[BOOKING_INTENT])
+        .when(tool_returned(), BOOK)
+        .when(user_ever_said("table"), BOOK)
+        .otherwise(say="How can I help?")
+    )
+    slow = booking(tries_again, drain_delay=1.0, faults=[Fault("backend.timeout", 1, 20.0)])
+    result = run(slow)
+    called = [e["data"]["name"] for e in result.events if e["kind"] == "tool.called"]
+    assert called == ["create_reservation", "create_reservation"]
+    assert result.report.valid
+
+
 def test_a_broken_contract_fails_the_test_and_says_which_rule_and_why():
     failing = booking(CONFIRMS_ANYTHING, faults=[Fault("backend.error", 1)])
     result = run(failing)

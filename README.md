@@ -161,13 +161,22 @@ earful = <earful.pytest_plugin.Earful object at 0x...>
     def test_every_timing_and_fault_near_it(earful):
 >       earful.explore(booking).assert_contracts()
 E       earful.core.checker.report.ContractFailure: booking on livekit-agents 1.8.13: 736 cases tried, 736 judged, 1 contract rule(s) broken
+E           809 run(s): 6 to find where to put things, 732 for the cases, 71 to measure the failures
+E           by contract: pass, fail, nothing to judge, evidence lost
+E           A1      0     0   736     0
+E           A2    453   272    11     0
+E           A3    672     0    64     0
+E           M1    732     0     4     0
+E           M2    736     0     0     0
+E           L1    701     0    35     0
+E           L2      0     0   736     0
 E
-E       A2/rule  in 261 case(s)
+E       A2/rule  in 272 case(s)
 E           2 durable effects for 'book-table'; the scenario authorized 1
 E           changed: backend.timeout 1, commit first
-E           also by changing: backend.timeout 1, commit first + backend.latency 1, backend.timeout 1, commit first + backend.wait 1, backend.timeout 1, commit later, backend.timeout 1, commit later + backend.wait 1
-E           breaks with backend.latency 1 from 0.000 s (no case exists beyond it) to 5.061 s (passes beyond it)
-E           breaks with backend.wait 1 from 0.000 s (no case exists beyond it) to 4.699 s (passes beyond it)
+E           also by changing: backend.timeout 1, commit first + backend.latency 1; backend.timeout 1, commit first + backend.wait 1; backend.timeout 1, commit later; backend.timeout 1, commit later + backend.wait 1
+E           breaks with backend.latency 1 from 0.000 s (no case exists beyond it) to 6.000 s (passes beyond it)
+E           breaks with backend.wait 1 from 0.000 s (no case exists beyond it) to 32.768 s (still breaks where the search stopped)
 
 test_booking.py:57: ContractFailure
 ------------------------------------ earful ------------------------------------
@@ -181,7 +190,7 @@ FAILED test_booking.py::test_every_timing_and_fault_near_it - earful.core.che...
 ```
 
 Earful ran the conversation 736 times, each with one time moved or one backend fault
-added. In 261 of them the restaurant holds two bookings. The simplest is the first one
+added. In 272 of them the restaurant holds two bookings. The simplest is the first one
 listed: the reservation service takes the booking, the agent's tool stops waiting before
 it hears back, the model is told the tool failed and tries again.
 

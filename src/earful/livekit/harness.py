@@ -30,6 +30,7 @@ from ..scripted.clock import (
     left_the_clock,
     now_us,
     patch_report,
+    quiet,
     run_real,
     run_virtual,
 )
@@ -630,6 +631,15 @@ async def _play(
     if case.hangup is None:
         await stt.done
         await asyncio.sleep(case.drain_delay)
+
+        def busy() -> bool:
+            return witness.running or session.agent_state in ("thinking", "speaking")
+
+        # A draining session asks the model with tool_choice='none': not over a running tool.
+        # One that never returns is judged as such, and the session is drained over it.
+        if busy():
+            with contextlib.suppress(asyncio.TimeoutError):
+                await asyncio.wait_for(quiet(busy), timeout=case.drain_timeout)
         with contextlib.suppress(RuntimeError, asyncio.TimeoutError):
             await asyncio.wait_for(session.drain(), timeout=case.drain_timeout)
     else:

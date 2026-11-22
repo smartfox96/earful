@@ -5860,4 +5860,11 @@ MUTANTS = [
         "        return adapter.keep(found, rule, directory)\n",
         first="kept_under_the_tests_own_directory",
     ),
+    Mutant(
+        "livekit: the session is drained with a tool or a reply still under way",
+        "src/earful/livekit/harness.py",
+        "        if busy():\n",
+        "        if False:\n",
+        first="still_running_when_the_scenario_is_over",
+    ),
 ]

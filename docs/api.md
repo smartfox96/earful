@@ -97,8 +97,8 @@ and every run calls it first.
 | `preemptive_generation` | `True` | Whether the session starts a reply before the user's turn ends: its preemptive generation option `enabled` |
 | `min_endpointing_delay` | `0.5` | The session's endpointing `min_delay` |
 | `max_endpointing_delay` | `6.0` | The session's endpointing `max_delay` |
-| `drain_delay` | `5.0` | How long the run goes on after the last transcript, or after a hangup, before it is wound up |
-| `drain_timeout` | `30.0` | How long the session then has to finish before it is cut off |
+| `drain_delay` | `5.0` | How long the run goes on after the last transcript, or after a hangup, before it is wound up. Without a hangup it then waits for the agent to fall quiet, up to `drain_timeout`: no tool running, no reply generated or played |
+| `drain_timeout` | `30.0` | How long the agent then has to fall quiet, and the session to finish, before it is cut off |
 | `sink` | `ClockedSink` | The class of the audio output. A subclass models a faulty output |
 | `session_kwargs` | `{}` | Further `AgentSession` options, of those [`compatibility.md`](compatibility.md#the-options-earful-models-on-livekit) lists. Any other is refused |
 

@@ -325,7 +325,7 @@ def test_the_readme_shows_the_example_as_it_is_in_the_repository():
         assert f"```python\n{source}```" in README, f"the README does not show {name} as it is"
     assert 'idempotency_key=f"table-for-{party_size}"' in README
     for line in (
-        "A2/rule  in 261 case(s)",
+        "A2/rule  in 272 case(s)",
         "2 durable effects for 'book-table'; the scenario authorized 1",
         "changed: backend.timeout 1, commit first",
         "search 1 (booking) breaks A2/rule: backend.timeout 1, commit first",

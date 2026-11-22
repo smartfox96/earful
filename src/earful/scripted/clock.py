@@ -600,3 +600,15 @@ def now_us() -> int:
     if isinstance(loop, VirtualTimeLoop):
         return loop.time_us()
     return round(loop.time() * _TICKS_PER_SECOND)  # real-clock control runs
+
+
+QUIET_FOR_US = 1_000_000
+
+
+async def quiet(busy: Callable[[], bool]) -> None:
+    """Wait until ``busy()`` has been false for a second, read every tenth of a second."""
+    since = now_us()
+    while now_us() - since < QUIET_FOR_US:
+        await asyncio.sleep(0.1)
+        if busy():
+            since = now_us()

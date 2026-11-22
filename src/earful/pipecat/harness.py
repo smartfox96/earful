@@ -41,6 +41,7 @@ from ..scripted.clock import (
     left_the_clock,
     now_us,
     patch_report,
+    quiet,
     run_real,
     run_virtual,
 )
@@ -224,22 +225,10 @@ def _header(case: Case, tools: set[str], options: dict[str, Any]) -> dict[str, A
     }
 
 
-QUIET_FOR_US = 1_000_000
 # On the real clock a sleep ends late. An output with this much audio buffered plays on.
 REAL_CLOCK_LATE_US = 20_000
 # Pipecat names an audio context by a random id and a processor by a count kept per process.
 _UNSTABLE = re.compile(r"[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}|(?<=#)\d+")
-
-
-async def _quiet(busy: Callable[[], bool]) -> None:
-    """Wait until nothing has been busy for a second: no tool running, no reply being
-    generated or synthesized, nothing playing. Pipecat's EndFrame cancels a function call
-    that is still running, so a scenario must not end the pipeline over one."""
-    since = now_us()
-    while now_us() - since < QUIET_FOR_US:
-        await asyncio.sleep(0.1)
-        if busy():
-            since = now_us()
 
 
 async def _run(case: Case, seed: int) -> RunResult:
@@ -404,8 +393,9 @@ async def _run(case: Case, seed: int) -> RunResult:
                     or output.playing
                 )
 
+            # Pipecat's EndFrame cancels a function call still running: wait until all is quiet.
             try:
-                await asyncio.wait_for(_quiet(busy), timeout=case.drain_timeout)
+                await asyncio.wait_for(quiet(busy), timeout=case.drain_timeout)
             except asyncio.TimeoutError:
                 errors.append(f"the bot was still busy {case.drain_timeout} s after the scenario")
             await worker.queue_frame(EndFrame())

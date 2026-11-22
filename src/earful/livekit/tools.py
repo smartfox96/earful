@@ -93,6 +93,11 @@ class ToolWitness:
         self._invocations = 0
         self._running: dict[int, asyncio.Task[Any] | None] = {}
 
+    @property
+    def running(self) -> bool:
+        """Whether a tool is running."""
+        return bool(self._running)
+
     async def cancel_running(self) -> None:
         """Cancel every tool still running, in the order they were called."""
         tasks = [task for _tool, task in sorted(self._running.items()) if task is not None]

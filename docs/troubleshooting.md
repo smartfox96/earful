@@ -241,11 +241,13 @@ The script is wrong. Correct the name or the arguments in the rule that makes th
 ### The scripted model called a tool where the request allowed none
 
 ```text
-invalid: harness error: call 4: the request allowed no tool call (tool_choice='none'), and the scripted model called ['look_up_hours']. livekit-agents asks so once max_tool_steps rounds of tool calls have run: script a reply without a call for that request
+invalid: harness error: call 4: the request allowed no tool call (tool_choice='none'), and the scripted model called ['look_up_hours']. livekit-agents asks so once max_tool_steps rounds of tool calls have run, and while the session closes: script a reply without a call for that request
 ```
 
 A real model answers such a request in words. Give the model a rule that answers without
-a call once the tool has run, or raise `max_tool_steps` in `session_kwargs`.
+a call once the tool has run, or raise `max_tool_steps` in `session_kwargs`. The session
+closes once the agent is quiet, or after `drain_timeout` if it never is, so a request made
+while it closes means a tool ran longer than that.
 
 ### The scripted model has no rule for a context
 
@@ -387,6 +389,7 @@ valid first.
 
 ```text
 booking on livekit-agents 1.8.13: 1 cases tried, 0 judged, 0 contract rule(s) broken
+    ...
 
 not judged: 1 of 1 cases, which leaves the search with no result
 ```
@@ -421,6 +424,7 @@ A search with some cases not judged and others judged passes, unless one of them
 
 ```text
 booking on livekit-agents 1.8.13: 60 cases tried, 58 judged, 0 contract rule(s) broken
+    ...
 
 not judged: 2 of 60 cases; the search fails, since 2 raised
     2 error: RuntimeError: boom
