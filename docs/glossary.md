@@ -82,7 +82,7 @@ last column links to where the term is explained.
 | --- | --- | --- |
 | window | A stretch of values of one variable over which every run breaks the predicate | [`search.md`](search.md#4-windows) |
 | `passes` | An end of a window beyond which a run does not break the rule. An edge of the failure | [`search.md`](search.md#4-windows) |
-| `blocked` | An end beyond which no case exists or none could be judged | [`search.md`](search.md#4-windows) |
+| `blocked` | An end beyond which no case exists or none could be judged. Where a run could not be judged, the window says why | [`search.md`](search.md#4-windows) |
 | `reach` | An end at which the search gave up. The failure may hold further | [`search.md`](search.md#4-windows) |
 | instant | A window with no width and a passing run a microsecond either side. It turns on the order of two same-instant events and is not counted | [`search.md`](search.md#4-windows) |
 
@@ -106,7 +106,7 @@ last column links to where the term is explained.
 | `minimal` | The reduced case | [`search.md`](search.md#6-the-bundle-earfulbundle1) |
 | replay | Running a bundle's reduced case again on the installed release | [`search.md`](search.md#6-the-bundle-earfulbundle1) |
 | reproduced | Every run of a replay was judged and broke the rule | [`search.md`](search.md#6-the-bundle-earfulbundle1) |
-| clean | Every run of a replay was judged and none broke the rule. A test of a fix asserts this | [`search.md`](search.md#6-the-bundle-earfulbundle1) |
+| clean | Every run of a replay was judged and the rule's contract passed in each. A test of a fix asserts this | [`search.md`](search.md#6-the-bundle-earfulbundle1) |
 | repeatable | Every run of a replay gave the same ledger | [`search.md`](search.md#6-the-bundle-earfulbundle1) |
 | identical | The ledger of a replay is the one the bundle recorded | [`search.md`](search.md#6-the-bundle-earfulbundle1) |
 | `scenario_digest` | SHA-256 of the source of the module that defines the scenario's function. A replay compares it to say whether that file changed | [`search.md`](search.md#6-the-bundle-earfulbundle1) |

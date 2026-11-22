@@ -12,7 +12,7 @@ import pytest
 pytest.importorskip("livekit.agents")
 
 import livekit.agents as lk
-from test_cli import BOOKED_TWICE, BUNDLES, CLEAN, KEPT_3702, earful
+from test_cli import BOOKED_TWICE, BUNDLES, CLEAN, GOLDEN, KEPT_3702, earful
 
 from earful import __version__
 from earful.cli import BROKEN, NO_VERDICT, OK, REFUSED, main
@@ -23,6 +23,7 @@ from earful.livekit import scenario
 
 VERSION = tuple(int(part) for part in lk.__version__.split(".")[:3])
 HAS_3702 = VERSION < (1, 6, 6)
+ELSEWHERE = GOLDEN / "lk-1.5.6.speak_over_new_turn.ledger.normalized.jsonl"
 
 
 def test_a_rule_or_a_contract_that_does_not_exist_is_refused_before_anything_runs(
@@ -409,7 +410,10 @@ def test_a_search_that_could_judge_nothing_it_tried_exits_3_and_gives_the_reason
         ": 1 cases tried, 0 judged, 0 contract rule(s) broken\n\n"
         "not judged: 1 of 1 cases, which leaves the search with no result\n"
         "    1 refused: this adapter cannot fail a write\n"
-        "        such as backend.error 1\n"
+        "        such as backend.error 1\n\n"
+        "not read: 1 run(s) made to find where to put things could not be judged, so the "
+        "cases they would place were not tried\n"
+        "    backend.error 1: refused: this adapter cannot fail a write\n"
     )
     status, out, _ = earful(capsys, "search", reference, "--workers", "0", "--json")
     assert status == NO_VERDICT and json.loads(out)["not_judged"][0]["cases"] == 1
@@ -437,10 +441,20 @@ def test_a_search_in_which_a_case_raised_exits_3_and_says_that_this_is_why(capsy
         ": 2 cases tried, 1 judged, 0 contract rule(s) broken\n\n"
         "not judged: 1 of 2 cases; the search fails, since 1 raised\n"
         "    1 error: RuntimeError: the reservation service is down\n"
-        "        such as backend.drop 1\n"
+        "        such as backend.drop 1\n\n"
+        "not read: 1 run(s) made to find where to put things could not be judged, so the "
+        "cases they would place were not tried; the search fails\n"
+        "    backend.drop 1: error: RuntimeError: the reservation service is down\n"
     )
     status, out, _ = earful(capsys, "search", reference, "--workers", "0", "--json")
     assert status == NO_VERDICT and json.loads(out)["error"] == 1
+    assert json.loads(out)["not_read"] == [
+        {
+            "run": "backend.drop 1",
+            "why": "error",
+            "reason": "RuntimeError: the reservation service is down",
+        }
+    ]
 
 
 def test_where_workers_cannot_be_started_the_search_runs_in_this_process_unless_told_a_number(
@@ -493,12 +507,26 @@ def test_replay_that_could_not_be_judged_has_no_verdict_whatever_was_expected(ca
     stand_in(clean)
     status, out, _ = earful(capsys, "replay", KEPT_3702, "--expect", "clean")
     assert status == OK and "breaks the rule       no\n" in out and "invalid" not in out
+    assert "  A2 gave               pass\n" in out and "other rules" not in out
     stand_in(clean)
     outcome = json.loads(earful(capsys, "replay", KEPT_3702, "--json")[1])
     assert (outcome["judged"], outcome["reproduced"], outcome["clean"]) == (True, False, True)
     stand_in(broken)
     status, out, _ = earful(capsys, "replay", KEPT_3702, "--expect", "clean")
     assert status == BROKEN and "breaks the rule       yes\n" in out
+
+    stand_in(read_jsonl(ELSEWHERE))  # A2 has nothing to judge, and L2 rule b breaks
+    status, out, _ = earful(capsys, "replay", KEPT_3702, "--expect", "clean")
+    assert status == NO_VERDICT and "breaks the rule       not judged\n" in out
+    assert "  A2 gave               not_exercised\n  other rules broken    L2/rule b\n" in out
+    stand_in(read_jsonl(ELSEWHERE))
+    outcome = json.loads(earful(capsys, "replay", KEPT_3702, "--json")[1])
+    assert (outcome["judged"], outcome["clean"]) == (False, False)
+    assert outcome["contract_outcomes"] == ["not_exercised"] * 3
+    assert outcome["other_rules_broken"] == ["L2/rule b"]
+    stand_in(clean[:-1], clean, clean)
+    out = earful(capsys, "replay", KEPT_3702)[1]
+    assert "  A2 gave               not valid evidence, pass, pass\n" in out
 
     stand_in(broken, clean, clean)  # runs that differ show nothing either
     status, out, _ = earful(capsys, "replay", KEPT_3702, "--expect", "clean")

@@ -20,6 +20,8 @@ formats have versions of their own
   walks through what a search of it finds and how each result is dealt with.
 - `earful.pipecat.cases` holds three reference scenarios, `greeting`, `reserve_table` and
   `barge_in`, as `earful.livekit.cases` holds LiveKit's.
+- `Case.allow_interruptions` and `Case.preemptive_generation` on LiveKit, for what the
+  deprecated session options of those names used to set.
 - `earful.scripted`, the package both adapters share: the virtual clock, the scripted
   user, model and voice, and a scenario's intents, delays and faults. `earful.livekit`
   exports the names it did before, and `earful.livekit.clock` and
@@ -58,7 +60,46 @@ formats have versions of their own
   lists the reads that are virtual and those that are not.
 - A scripted model call to a tool the agent does not offer, or with an argument the tool
   does not take, makes the run invalid.
+- A LiveKit run takes only the session and agent options it models, and refuses any
+  other in one line before it starts
+  ([`docs/compatibility.md`](https://github.com/smartfox96/earful/blob/main/docs/compatibility.md#the-options-earful-models-on-livekit)).
+  `session_kwargs` was passed through as it was: a deprecated option such as
+  `allow_interruptions` was recorded in the header and ignored by livekit-agents. An
+  agent with its own STT, model, voice or VAD is refused, and so is an agent whose
+  endpointing or interruption options differ from the case's, which the header states.
+  An agent that becomes active during the run is held to the same, and makes the run
+  invalid if it breaks it. Set the option through the `Case` field the message names.
+- On LiveKit a scripted reply that breaks what the request allowed makes the run
+  invalid: a tool call under `tool_choice="none"`, which livekit-agents sends once
+  `max_tool_steps` rounds of tool calls have run, no call under `"required"`, another
+  tool than the one named, or two calls under `parallel_tool_calls=False`.
 - A search in which a case raised an exception fails.
+- A thread started with `_thread.start_new_thread` leaves the virtual clock, as a
+  `threading.Thread` does, and makes the run invalid. A word that reaches the output
+  with more audio than it has, which only a repeat gives, is a stamp error.
+- On LiveKit `framework_warnings` counts every warning livekit-agents logs, whatever
+  level the application sets on its loggers, so the ledger no longer depends on that
+  level. The application's own handlers are passed only the records they would have had.
+- On Pipecat a function the bot registers after `bot()` returns makes the run invalid:
+  the header, written before the run, could not list it. A pipecat-ai release that keeps
+  one of the private names the scripted model reads elsewhere is refused in one line
+  before the run, where it raised `AttributeError`.
+- A Pipecat reply cut while the model is still generating it keeps its attribution. On
+  the interruption Pipecat gives the voice the sentence written so far, which can end
+  inside a word, and the text was matched to the reply word by word: the utterance was
+  attributed to no reply, and M1 and L1 had no verdict while the assertion passed. A
+  synthesized text is now matched to the reply it starts as text.
+- A replay is clean only when the bundle's contract passed in every run. A run in which
+  that contract had nothing to judge or could not judge leaves the replay not judged, and
+  `earful replay` exits 3: before, a replay of an A2 bundle on a run where A2 was not
+  exercised and another rule broke was clean. The replay prints the contract's outcome
+  and any other rule that broke. Loading a bundle refuses a manifest whose rule no
+  contract has, or whose recorded ledger does not break it.
+- A search fails when a run it makes to find where to put things raises or is not valid
+  evidence, such as the case without a speech it is about to move: the cases that run
+  would place were skipped and nothing said so. A search fails when it tried no case. An
+  index in `speeches`, a name in `moments` or a number of `profiles` that does not exist
+  is refused. A window end at a run that could not be judged says why.
 - A mistake in a scenario (a reference that is not a scenario, a speech that ends before
   it starts, an unknown backend mode or fault) is refused in one line with exit status 2.
 - Under pytest, a test's `.earful/<test>/` directory is cleared when the test starts.

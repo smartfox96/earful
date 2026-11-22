@@ -367,7 +367,7 @@ def test_a_scenario_that_contradicts_itself_is_refused_before_it_runs():
     def make(**kwargs):
         return _one_turn("bad", lambda: lk.Agent(instructions="t"), _barge_in_policy, **kwargs)
 
-    with pytest.raises(ValueError, match="use the Case fields"):
+    with pytest.raises(ValueError, match="use Case.min_interruption_duration"):
         run_case(make(session_kwargs={"min_interruption_duration": 0.1}))
     with pytest.raises(ValueError, match="unknown contracts"):
         run_case(make(contracts={"M9": {}}))

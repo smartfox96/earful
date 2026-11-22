@@ -152,7 +152,9 @@ of where a search puts things: a moved speech reaches a context the scripted mod
 rule for, and that run is not valid. A search with some of these still has a result. A run
 that raises is an error in the scenario's code or in Earful, and no search is expected to
 have one. One such case fails the search's assertion, and `earful search` exits 3. So does
-a search that could judge none of the cases it tried.
+a search that tried no case or could judge none of the cases it tried, and one in which a
+run made to find where to put things raised or was not valid evidence (section 3, What a
+search reports).
 
 A refusal is the adapter declining a case before anything runs: data that is not
 `earful.case/1`, a setting it does not have, a scenario that contradicts itself. It
@@ -289,6 +291,18 @@ for each rule.
           such as speech.position 1 at 2.500 s (as written 20.000 s), to put interrupt at llm.done
   ```
 
+- **What was not read.** The runs made to find where to put things that could not be
+  judged: the case without a speech, the case without the hangup, the case under a fault,
+  with a delay stretched or under a profile. The cases such a run would place were never
+  made, so they are in no count above. One that raised or was not valid evidence fails
+  the search. A refused one is said and does not. A run that is also a case, such as one
+  under a fault, is listed here and among the cases not judged.
+
+  ```
+  not read: 1 run(s) made to find where to put things could not be judged, so the cases they would place were not tried; the search fails
+      the case as given, without speech 1: invalid: harness error: policy raised on call 1: NoRule: ...
+  ```
+
 ## 4. Windows
 
 A failing candidate shows that a failure exists near a boundary. A **window** measures
@@ -302,7 +316,7 @@ millisecond is located again to the microsecond. Each end says why the search st
 | End | Meaning |
 | --- | --- |
 | `passes` | A run just beyond it does not break the rule. This is an edge of the failure |
-| `blocked` | No case exists beyond it (a delay at zero, a speech against another), or none could be judged. The failure holds as far as the scenario can go |
+| `blocked` | No case exists beyond it (a delay at zero, a speech against another), or none could be judged. The failure holds as far as the scenario can go. Where a run beyond could not be judged, the text says why, and so do the window's `lo_unjudged` and `hi_unjudged` |
 | `reach` | The search gave up, 30 s out by default. The failure may hold further |
 
 A window with no width, located to the microsecond, with a passing run on each side is an
@@ -426,16 +440,23 @@ earful: failures/lk-1.8.13.booking.A2-rule/minimal.case.json is not the case the
 `case_digest` was added in `schema_minor` 1. A bundle written before it is still read. Its
 case files cannot be checked, and a replay says so.
 
-The files are checked against the manifest, and nothing checks the manifest. The checks
-find a file that was edited, damaged or left out. They do not make a bundle from an
-unknown source safe to replay.
+The files are checked against the manifest. The manifest's predicate must be a rule some
+contract has, and the recorded ledger of the reduced case must break it under the
+contracts this Earful judges by; a bundle that does not show the failure it names is
+refused. Nothing else checks the manifest. The checks find a file that was edited,
+damaged or left out. They do not make a bundle from an unknown source safe to replay.
 
 **Replaying** runs the reduced case again, three times by default, and says:
 
-- **judged**: every run was valid evidence (`docs/ledger.md`, Validity). A replay with a
-  run that was not shows nothing about the rule, and `invalid` gives the reasons.
+- **judged**: every run was valid evidence (`docs/ledger.md`, Validity) and gave the
+  predicate's contract a pass or a fail. A replay with a run that was not, or in which the
+  contract had nothing to judge or could not judge, shows nothing about the rule.
+  `invalid` gives the reasons a run was not valid evidence.
 - **reproduced**: every run was judged and broke the frozen predicate.
-- **clean**: every run was judged and none broke it.
+- **clean**: every run was judged and the predicate's contract passed in each.
+- **outcomes**: the contract's outcome in each run, printed as `A2 gave pass`.
+- **others**: the rules of any contract that some run broke other than the frozen one.
+  They do not change whether the replay is clean, and the replay prints them.
 - **repeatable**: every run gave the same ledger.
 - **identical**: that ledger is the one recorded. Expected only on the release, and with
   the Earful version and scenario code, the bundle was made with.
@@ -448,9 +469,9 @@ On the release it was found on, a bundle is reproduced, repeatable and identical
 platform. On a release that repaired the defect it is clean and repeatable. That pair is
 the regression test.
 
-A replay can be neither reproduced nor clean: a run was not valid evidence, or some runs
-broke the rule and others did not. "Not reproduced" therefore does not mean the defect is
-gone. A test of a fix asserts `clean`, and `earful replay --expect clean` exits 0 only for
+A replay can be neither reproduced nor clean: a run was not valid evidence, the contract
+had nothing to judge in a run, it failed by another of its rules, or some runs broke the
+rule and others did not. "Not reproduced" therefore does not mean the defect is gone. A test of a fix asserts `clean`, and `earful replay --expect clean` exits 0 only for
 a clean replay. A replay that was not judged, or whose runs differ, exits 3 whatever was
 expected. A replay makes at least one run: `repeats` below 1 is a `ValueError`.
 

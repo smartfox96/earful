@@ -318,11 +318,15 @@ class ScriptedLLM(lk_llm.LLM[NoReturn]):
         chat_ctx: lk_llm.ChatContext,
         tools: Any = None,
         conn_options: APIConnectOptions = DEFAULT_API_CONNECT_OPTIONS,
+        parallel_tool_calls: Any = None,
+        tool_choice: Any = None,
         **kwargs: Any,
     ) -> lk_llm.LLMStream:
-        return _ScriptedLLMStream(
+        stream = _ScriptedLLMStream(
             self, chat_ctx=chat_ctx, tools=tools or [], conn_options=conn_options
         )
+        stream.asked = (tool_choice, parallel_tool_calls)
+        return stream
 
 
 def _unfit(tools: list[Any], calls: tuple[ToolCall, ...]) -> list[str]:
@@ -344,7 +348,34 @@ def _unfit(tools: list[Any], calls: tuple[ToolCall, ...]) -> list[str]:
     return [wrong for wrong in out if wrong is not None]
 
 
+def _unserved(tool_choice: Any, parallel: Any, calls: tuple[ToolCall, ...]) -> str | None:
+    """How the scripted reply breaks what the request allowed, which a real model keeps to."""
+    names = [call.name for call in calls]
+    if tool_choice == "none" and names:
+        return (
+            f"the request allowed no tool call (tool_choice='none'), and the scripted model "
+            f"called {names}. livekit-agents asks so once max_tool_steps rounds of tool calls "
+            "have run: script a reply without a call for that request"
+        )
+    if tool_choice == "required" and not names:
+        return (
+            "the request required a tool call (tool_choice='required'), and the scripted "
+            "model made none"
+        )
+    if isinstance(tool_choice, dict):
+        wanted = tool_choice.get("function", {}).get("name")
+        if not names or any(name != wanted for name in names):
+            return (
+                f"the request asked for a call of {wanted!r}, and the scripted model called {names}"
+            )
+    if parallel is False and len(names) > 1:
+        return f"the request allowed one tool call at a time, and the scripted model called {names}"
+    return None
+
+
 class _ScriptedLLMStream(lk_llm.LLMStream):
+    asked: tuple[Any, Any] = (None, None)  # tool_choice and parallel_tool_calls
+
     @scripted("model")
     async def _run(self) -> None:
         model = self._llm
@@ -364,6 +395,9 @@ class _ScriptedLLMStream(lk_llm.LLMStream):
             model._errors.append(f"policy raised on call {call}: {type(exc).__name__}: {exc}")
             raise
         model._errors += [f"call {call}: {wrong}" for wrong in _unfit(self.tools, reply.tool_calls)]
+        unserved = _unserved(*self.asked, reply.tool_calls)
+        if unserved is not None:
+            model._errors.append(f"call {call}: {unserved}")
         words = _words(reply.text)
         claims = []
         for claim in reply.claims:

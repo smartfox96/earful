@@ -31,6 +31,7 @@ from earful.core import bundle, case, schema
 from earful.core.ledger import Ledger
 from earful.core.search import evaluate
 from earful.pipecat import scenario
+from earful.pipecat.cases import MENU
 from earful.pipecat.sink import ClockedOutput
 from earful.pipecat.tools import ToolWitness
 from earful.scripted.clock import now_us, run_virtual
@@ -477,18 +478,19 @@ def test_pipecat_documented_example_runs_from_pytest_and_the_installed_cli(tmp_p
     ledger = tmp_path / "greeting.jsonl"
     command("earful", "run", "test_greeting:greeting", "--ledger", str(ledger))
     assert "pipecat-ai" in command("earful", "report", str(ledger))
-    command(
+    searched = command(
         "earful",
         "search",
         "test_greeting:greeting",
         "--workers",
         "0",
         "--variables",
-        "none",
+        "user.hangup",
         "--faults",
         "none",
         "--no-words",
     )
+    assert " judged, 0 contract rule(s) broken" in searched  # a search of no case would fail
 
 
 def test_pipecat_documented_pipeline_runs_as_written(pytester):
@@ -619,6 +621,43 @@ def test_pipecat_a_scripted_call_no_registered_function_can_take_makes_the_run_i
     assert refused.value.reasons == [f"harness error: call 1: the scripted model called {why}"]
 
 
+def test_pipecat_a_function_registered_after_bot_returns_makes_the_run_invalid():
+    """The header is written before the run, so it could not name the function."""
+
+    def bot(llm):
+        async def confirm(params):
+            await params.result_callback("confirmed")
+
+        async def look_up(params):
+            llm.register_function("confirm", confirm)
+            await params.result_callback("found")
+
+        llm.register_function("look_up", look_up)
+        return LLMContext()
+
+    model = (
+        pc.ScriptedModel()
+        .when(pc.tool_returned("confirm"), say="Confirmed.")
+        .when(pc.tool_returned("look_up"), call=("confirm", {}))
+        .otherwise(call=("look_up", {}))
+    )
+    case = pc.Case("late", bot, [pc.UserSpeech(0.5, 1.5, "Look it up.")], model)
+    late = r"the bot registered 'confirm' after bot\(\) returned, so the run's header does not list"
+    with pytest.raises(pc.InvalidRun, match=late):
+        pc.run(case)
+
+
+def test_pipecat_a_release_that_keeps_a_private_name_elsewhere_is_refused_before_the_run(
+    monkeypatch,
+):
+    from earful.pipecat import harness
+
+    monkeypatch.setattr(harness, "PRIVATE", (*harness.PRIVATE, "_renamed_later"))
+    keeps = r"keeps LLMService._renamed_later where Earful cannot read it, so the functions"
+    with pytest.raises(ValueError, match=keeps):
+        pc.run(greeting())
+
+
 def test_pipecat_a_function_registered_by_name_alone_takes_whatever_arguments_the_script_gives():
     model = (
         pc.ScriptedModel()
@@ -656,6 +695,32 @@ def test_pipecat_a_user_who_speaks_over_a_reply_cuts_it_and_the_bot_remembers_wh
     assert replies == [("Tonight we have a roasted", True), ("Okay.", False)]
     outcomes = result.report.outcomes()
     assert outcomes["M1"] == outcomes["M2"] == outcomes["L1"] == outcomes["L2"] == "pass"
+
+
+@pytest.mark.parametrize(("stop_at", "cut"), [(4.2, "roaste"), (5.6, "se")])
+def test_pipecat_a_reply_cut_inside_a_word_while_it_is_generated_keeps_its_attribution(
+    stop_at, cut
+):
+    """On the interruption Pipecat gives the voice the sentence written so far."""
+    case = pc.Case(
+        "cut_while_generating",
+        lambda llm: LLMContext(),
+        [
+            pc.UserSpeech(0.5, 2.5, "Tell me about the menu."),
+            pc.UserSpeech(stop_at, stop_at + 1.0, "Stop."),
+        ],
+        pc.ScriptedModel()
+        .when(pc.user_said("Stop"), say="Okay, stopping.")
+        .otherwise(say=MENU, ttft=0.3, duration=6.0),
+        tts_word_timestamps=True,
+    )
+    result = pc.run(case)
+    cut_short = events(result, "tts.synthesized")[0]
+    assert (cut_short["call"], cut_short["attribution"]) == (1, "prefix")
+    assert cut_short["text"].split()[-1] == cut and MENU.startswith(cut_short["text"])
+    outcomes = result.report.outcomes()
+    assert outcomes["M1"] == outcomes["L1"] == "pass"
+    result.assert_contracts()
 
 
 def test_pipecat_a_reply_spoken_across_two_audio_contexts_is_one_utterance():

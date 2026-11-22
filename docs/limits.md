@@ -41,6 +41,11 @@ a defect of the framework, of the application or of the test is decided by a per
 - Realtime speech-to-speech models, and any pipeline other than STT, LLM and TTS.
 - A room or a network transport.
 - A hangup in the middle of a speech. The user can leave once their last speech is over.
+- On LiveKit: an `AgentSession` or `Agent` option outside the table in
+  [`compatibility.md`](compatibility.md#the-options-earful-models-on-livekit), such as an
+  agent with its own STT, VAD, model or voice, or a turn detector other than the
+  framework's default on the VAD. A run refuses each in one line before it starts, and a
+  run whose agent hands over to an agent that breaks the table is invalid.
 - On Pipecat: a real service or transport, a `vad_analyzer`, a `VADProcessor`, a turn
   model, turn strategies other than the three the page below names, context
   summarization, and frames queued from outside the pipeline. The pipeline worker is
@@ -61,6 +66,11 @@ Some things are not seen, and the run stays valid:
 - `datetime.now()`, and a clock function taken from the `time` module before the run.
   They return real time, so code that measures a wait with one sees no time pass.
 - A thread that was running before the run began, until it wakes the loop.
+
+On Python 3.11 a Pipecat run uses `asyncio.wait_for` as Python 3.12 has it. A Pipecat bot
+deployed on 3.11 uses the one from `wait_for2`, which pipecat-ai installs there, and tasks
+due at one instant can run in another order than in the run
+([`compatibility.md`](compatibility.md#what-ci-runs-for-pipecat)).
 
 [`compatibility.md`](compatibility.md#the-virtual-clock) lists every read that is virtual
 and every read that is not.

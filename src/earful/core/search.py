@@ -365,6 +365,9 @@ class Window:
     lo_end: str
     hi_end: str
     resolution_us: int
+    # Why the run beyond a blocked end could not be judged, where one exists.
+    lo_unjudged: str | None = None
+    hi_unjudged: str | None = None
 
     @property
     def width_us(self) -> int:
@@ -389,11 +392,17 @@ class Window:
             "hi_end": self.hi_end,
             "resolution_us": self.resolution_us,
             "instant": self.instant,
+            **({"lo_unjudged": self.lo_unjudged} if self.lo_unjudged else {}),
+            **({"hi_unjudged": self.hi_unjudged} if self.hi_unjudged else {}),
         }
 
 
 class Spent(Exception):
     """The budget of runs was used up while a window was being measured."""
+
+
+# Where a window ends, why probing stopped there, and why the run beyond was not judged.
+_End = tuple[int, str, str | None]
 
 
 def window(
@@ -414,43 +423,51 @@ def window(
     if at is None or not runner.breaks(case, predicate):
         raise ValueError(f"the case does not break {predicate} with {variable} declared")
 
-    def breaks(to: int) -> bool | None:
-        """None where there is no case, or no run that can be judged."""
+    def breaks(to: int) -> bool | str | None:
+        """None where there is no case, and why where its run cannot be judged."""
         moved = cases.with_value(case, variable, to)
         if moved is None:
             return None
         if spent is not None and not runner.seen(moved) and spent():
             raise Spent
         outcome = runner.outcome(moved)
-        return predicate in outcome.failures if outcome.ran else None
+        if not outcome.ran:
+            return f"{outcome.why_not}: {outcome.reason}"
+        return predicate in outcome.failures
 
-    def end(direction: int, resolution: int, reach: int) -> tuple[int, str]:
-        """The farthest breaking value in one direction, and why the search stopped."""
+    def end(direction: int, resolution: int, reach: int) -> _End:
+        """The farthest breaking value in one direction, why the search stopped, and why the
+        run beyond could not be judged."""
         good, step = at, resolution
         while True:
             probe = at + direction * step
             result = breaks(probe)
-            if not result:
-                bad, why = probe, "passes" if result is False else "blocked"
+            if result is not True:
+                bad, stopped = probe, result
                 break
             good = probe
             if step >= reach:
-                return good, "reach"
+                return good, "reach", None
             step *= 2
         while abs(bad - good) > resolution:
             middle = (good + bad) // 2
             result = breaks(middle)
-            if result:
+            if result is True:
                 good = middle
             else:
-                bad, why = middle, "passes" if result is False else "blocked"
-        return good, why
+                bad, stopped = middle, result
+        if stopped is False:
+            return good, "passes", None
+        return good, "blocked", stopped
 
-    (lo, lo_end), (hi, hi_end) = end(-1, resolution_us, reach_us), end(1, resolution_us, reach_us)
+    def ends(resolution: int, reach: int) -> tuple[_End, _End]:
+        return end(-1, resolution, reach), end(1, resolution, reach)
+
+    (lo, lo_end, lo_why), (hi, hi_end, hi_why) = ends(resolution_us, reach_us)
     if lo == hi and resolution_us > 1:
-        (lo, lo_end), (hi, hi_end) = end(-1, 1, resolution_us), end(1, 1, resolution_us)
+        (lo, lo_end, lo_why), (hi, hi_end, hi_why) = ends(1, resolution_us)
         resolution_us = 1
-    return Window(variable, lo, hi, lo_end, hi_end, resolution_us)
+    return Window(variable, lo, hi, lo_end, hi_end, resolution_us, lo_why, hi_why)
 
 
 @dataclass
@@ -512,6 +529,19 @@ class NotJudged:
     example: str  # what that case changed, and where that put it
 
 
+@dataclass(frozen=True)
+class Unread:
+    """A run the search made to find where to put things, which could not be judged."""
+
+    run: str  # which, such as "the case as given, without speech 1"
+    outcome: Outcome
+
+    @property
+    def fails(self) -> bool:
+        """A run that raised or is invalid hides the cases it would have placed."""
+        return self.outcome.why_not in ("error", "invalid")
+
+
 def _seconds(us: int) -> str:
     return f"{us / 1_000_000:.3f} s"
 
@@ -521,6 +551,10 @@ _ENDS = {
     "blocked": "no case exists beyond it",
     "reach": "still breaks where the search stopped",
 }
+
+
+def _end(end: str, unjudged: str | None) -> str:
+    return f"a run beyond it could not be judged, {unjudged}" if unjudged else _ENDS[end]
 
 
 @dataclass
@@ -534,6 +568,7 @@ class Exploration:
     max_runs: int | None = None  # the budget of runs, if the search was given one
     not_run: int = 0  # cases the budget left untried
     cut: dict[Predicate, int] = field(default_factory=dict)  # values it left unmeasured
+    unread: list[Unread] = field(default_factory=list)  # runs that read where to put things
 
     @property
     def unmeasured(self) -> int:
@@ -646,8 +681,16 @@ class Exploration:
 
     @property
     def nothing_judged(self) -> bool:
-        """Whether the search tried cases and could judge none of them."""
-        return bool(self.tried) and not any(t.outcome.ran for t in self.tried)
+        """Whether the search judged no case: it tried none, or could judge none it tried."""
+        if not self.tried:
+            return not self.not_run  # cases the budget left untried make it incomplete instead
+        return not any(t.outcome.ran for t in self.tried)
+
+    @property
+    def unreadable(self) -> int:
+        """How many runs made to find where to put things raised or were invalid. The cases
+        each would have placed were never tried, so no healthy search has one."""
+        return sum(one.fails for one in self.unread)
 
     @property
     def errored(self) -> int:
@@ -777,8 +820,9 @@ class Exploration:
             if others:
                 lines.append(f"    also by changing: {', '.join(others)}")
             widths = [
-                f"    breaks with {w.variable} from {_seconds(w.lo_us)} ({_ENDS[w.lo_end]})"
-                f" to {_seconds(w.hi_us)} ({_ENDS[w.hi_end]})"
+                f"    breaks with {w.variable} from {_seconds(w.lo_us)}"
+                f" ({_end(w.lo_end, w.lo_unjudged)}) to {_seconds(w.hi_us)}"
+                f" ({_end(w.hi_end, w.hi_unjudged)})"
                 for w in one.windows
             ]
             lines += list(dict.fromkeys(widths))  # the same window under two faults is one line
@@ -797,6 +841,18 @@ class Exploration:
             for group in skipped:
                 lines.append(f"    {group.cases} {group.why}: {group.reason}")
                 lines.append(f"        such as {group.example}")
+        elif not self.tried and not self.not_run:
+            lines += ["", "no case was tried, which leaves the search with no result"]
+        if self.unread:
+            fails = "; the search fails" if self.unreadable else ""
+            said = (
+                f"not read: {len(self.unread)} run(s) made to find where to put things could "
+                f"not be judged, so the cases they would place were not tried{fails}"
+            )
+            lines += ["", said]
+            lines += [
+                f"    {one.run}: {one.outcome.why_not}: {one.outcome.reason}" for one in self.unread
+            ]
         if unjudged:
             lines += ["", "required, with no pass or fail in the case as given:"]
             lines += [f"    {contract} {why}" for contract, why in unjudged.items()]
@@ -811,17 +867,24 @@ class Exploration:
         self, *, allow: Iterable[Predicate | str] | str = (), require: Iterable[str] | str = ()
     ) -> None:
         """Raise ``ContractFailure`` if the search found a rule broken, if a case it tried
-        raised, if it could judge none of them, if its budget of runs cut it short, or if the
-        case as given has no pass or fail for a contract in ``require``. Rules that break only
-        at single instants, or are named in ``allow`` as ``CONTRACT/RULE``, are not counted."""
+        raised, if it tried none or could judge none of them, if a run made to find where to
+        put things raised or was invalid, if its budget of runs cut it short, or if the case
+        as given has no pass or fail for a contract in ``require``. Rules that break only at
+        single instants, or are named in ``allow`` as ``CONTRACT/RULE``, are not counted."""
         __tracebackhide__ = True  # pytest then shows the test's own line, not this one
         allowing, unjudged = allowed(allow), self.unjudged(require)
         found = self.breaks()
         counted = [
             one for one in found if not one.instants_only and str(one.predicate) not in allowing
         ]
-        if counted or unjudged or self.nothing_judged or self.errored or not self.complete:
+        if counted or unjudged or self.no_verdict:
             raise ContractFailure(self.describe(found, unjudged))
+
+    @property
+    def no_verdict(self) -> bool:
+        """Whether the search cannot pass whatever it found: it judged no case, a case raised,
+        a run made to find where to put things raised or was invalid, or the budget ran out."""
+        return bool(self.nothing_judged or self.errored or self.unreadable or not self.complete)
 
     def summary(self) -> dict[str, Any]:
         counts = {"ran": 0, "refused": 0, "error": 0, "invalid": 0}
@@ -847,6 +910,10 @@ class Exploration:
             },
             "errors": sorted({t.outcome.error for t in self.tried if t.outcome.error}),
             "not_judged": [asdict(group) for group in self.not_judged()],
+            "not_read": [
+                {"run": one.run, "why": one.outcome.why_not, "reason": one.outcome.reason}
+                for one in self.unread
+            ],
         }
 
 
@@ -957,14 +1024,27 @@ def explore(
     speeches again under that many seeded redraws of the provider delays. ``planned`` is
     told what is about to run. Once ``max_runs`` runs are made no further case is run and
     no further window measured, and the result is not ``complete``.
-    Raises ``ValueError`` if ``case`` is not earful.case/1 or cannot be run as given."""
+    Raises ``ValueError`` if ``case`` is not earful.case/1 or cannot be run as given, or for
+    an unknown variable, fault, speech or moment."""
     kinds, fault_kinds = check_arguments(case, variables, faults)
     if max_runs is not None and max_runs < 1:
         raise ValueError(f"max_runs is a number of runs, at least 1; got {max_runs}")
+    if type(profiles) is not int or profiles < 0:
+        raise ValueError(f"profiles is a number of profiles, 0 for none; got {profiles!r}")
+    wanted_moments = None if moments is None else set(moments)
+    known = sorted({moment for moved in _MOVED_BY.values() for moment in moved})
+    unknown = sorted(map(repr, (wanted_moments or set()) - set(known)))
+    if unknown:
+        raise ValueError(f"unknown moments {', '.join(unknown)}; choose from {known}")
+    wanted_speeches = None if speeches is None else set(speeches)
+    count = len(case["speeches"])
+    unknown = [repr(s) for s in wanted_speeches or () if type(s) is not int or not 0 <= s < count]
+    if unknown:
+        raise ValueError(
+            f"no speech {', '.join(sorted(unknown))}: the case has {count}, numbered from 0"
+        )
     runner = Runner(run)
     offsets = tuple(offsets_us)
-    wanted_moments = None if moments is None else set(moments)
-    wanted_speeches = None if speeches is None else set(speeches)
     delay_kinds = [k for k in kinds if k in cases.DELAY_KINDS]
     speech_kinds = [k for k in kinds if k in cases.SPEECH_KINDS]
 
@@ -974,6 +1054,16 @@ def explore(
         raise ValueError(f"the case as given cannot be searched: {original.reason}")
     found: dict[str, Candidate] = {}
     impossible: list[Placement] = []
+    unread: dict[str, Unread] = {}
+
+    def read(wanted: list[tuple[str, cases.Case]]) -> list[list[Event] | None]:
+        """The ledgers of runs made to find where to put things, each named. One that cannot
+        be judged is noted."""
+        produced = runner.ledgers([one for _name, one in wanted], each)
+        for (name, one), ledger in zip(wanted, produced):
+            if ledger is None:
+                unread.setdefault(cases.canonical(one), Unread(name, runner.outcome(one)))
+        return produced
 
     def keep(candidate: Candidate) -> None:
         key = cases.canonical(candidate.case)
@@ -1016,19 +1106,23 @@ def explore(
             for index in (range(len(on["speeches"])) if speech_kinds else ())
             if wanted_speeches is None or index in wanted_speeches
         ]
-        without = runner.ledgers([cases.without_speech(on, index) for index in moved], each)
+        of = base or "the case as given"
+        without = read([(f"{of}, without speech {i}", cases.without_speech(on, i)) for i in moved])
         for index, alone in zip(moved, without):
             handles = speech_handles(on, index, produced, speech_kinds)
             if wanted_moments is not None:
                 handles = [h for h in handles if h.moment in wanted_moments]
-            if alone is not None:  # else the scenario cannot run without this speech
+            if alone is not None:  # else it is noted as not read
                 place(on, handles, alone, base, coarse, apart=True)
 
     def move_hangup(on: cases.Case, produced: list[Event], base: str, coarse: bool = False) -> None:
         """A hangup cuts short the run in which the user stays."""
         if cases.HANGUP not in kinds:
             return
-        stays = produced if on["hangup_us"] is None else runner.ledger(cases.without_hangup(on))
+        stays: list[Event] | None = produced
+        if on["hangup_us"] is not None:
+            of = base or "the case as given"
+            stays = read([(f"{of}, without the hangup", cases.without_hangup(on))])[0]
         if stays is not None:
             place(on, [hangup_handle(on, stays)], stays, base, coarse, apart=True)
 
@@ -1040,7 +1134,7 @@ def explore(
     for one in faulted:
         keep(Candidate(one.case, None, None, base=one.label))
     under: dict[str, list[Event]] = {}  # label -> the run with that fault in place
-    with_faults = runner.ledgers([one.case for one in faulted], each)
+    with_faults = read([(one.label, one.case) for one in faulted])
     for one, produced in zip(faulted, with_faults):
         if produced is None:
             continue
@@ -1087,7 +1181,7 @@ def explore(
                 label = f"{delay.variable}, stretched"
                 slow.append((label, longer))
                 keep(Candidate(longer, None, None, base=label))
-        slowed = runner.ledgers([longer for _label, longer in slow], each)
+        slowed = read(slow)
         for (label, longer), produced in zip(slow, slowed):
             if produced is not None:
                 move_speeches(longer, produced, label, coarse=True)
@@ -1103,7 +1197,8 @@ def explore(
             changed = cases.with_value(profile, handle.variable, rng.randrange(0, most + 1, 10_000))
             profile = changed if changed is not None else profile
         redrawn.append(profile)
-    for number, (profile, produced) in enumerate(zip(redrawn, runner.ledgers(redrawn, each)), 1):
+    named = [(f"profile {number}", profile) for number, profile in enumerate(redrawn, 1)]
+    for number, (profile, produced) in enumerate(zip(redrawn, read(named)), 1):
         if produced is not None:
             keep(Candidate(profile, None, None, base=f"profile {number}"))
             move_speeches(profile, produced, f"profile {number}")
@@ -1125,7 +1220,15 @@ def explore(
     outcomes = runner.many([c.case for c in todo], each)
     tried = [Tried(c, o) for c, o in zip(todo, outcomes)]
     return Exploration(
-        case, original, tried, impossible, offsets, runner, max_runs, not_run=len(dropped)
+        case,
+        original,
+        tried,
+        impossible,
+        offsets,
+        runner,
+        max_runs,
+        not_run=len(dropped),
+        unread=list(unread.values()),
     )
 
 
@@ -1152,6 +1255,7 @@ __all__ = [
     "Spent",
     "Transition",
     "Tried",
+    "Unread",
     "Window",
     "anchors",
     "attempt",

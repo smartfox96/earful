@@ -216,6 +216,10 @@ def summarize(
     return items
 
 
+# The names pipecat-ai keeps private that the scripted model reads to witness functions.
+PRIVATE = ("_functions", "_cancel_tool_names", "_sync_registered_tool_handlers")
+
+
 class ScriptedLLM(LLMService):
     """The scripted model, as a Pipecat service. Records every context it is shown."""
 
@@ -252,17 +256,29 @@ class ScriptedLLM(LLMService):
         self._call_ids: set[str] = set()
         self._calls = 0
         self._witnessed: list[object] = []  # handlers the witness is already around
+        self.listed: frozenset[str] | None = None  # the functions the header names, once written
         self.generating = 0
         self.register = ReplyRegister()
+
+    def private(self, name: str) -> Any:
+        """One of the names in ``PRIVATE``. Raises ``ValueError`` on a release without it."""
+        try:
+            return getattr(self, name)
+        except AttributeError:
+            raise ValueError(
+                f"this pipecat-ai release keeps LLMService.{name} where Earful cannot read it, "
+                "so the functions the bot registers could not be witnessed"
+            ) from None
 
     def witness_tools(self, advertised: Any = None) -> None:
         """Put the witness around every function the application has registered, however
         it did so. ``advertised`` is a context's tools, whose handlers Pipecat registers
         when it first sees the context."""
+        functions, cancel = self.private("_functions"), self.private("_cancel_tool_names")
         if advertised is not None:
-            self._sync_registered_tool_handlers(advertised)
-        for name, item in self._functions.items():
-            if name in self._cancel_tool_names or item.handler in self._witnessed:
+            self.private("_sync_registered_tool_handlers")(advertised)
+        for name, item in functions.items():
+            if name in cancel or item.handler in self._witnessed:
                 continue  # Pipecat's own tool, or one already wrapped
             if isinstance(item.handler, DirectFunctionWrapper):
                 item.handler.function = self._witness.wrap(item.handler.function, direct=True)
@@ -270,9 +286,14 @@ class ScriptedLLM(LLMService):
             else:
                 item.handler = self._witness.wrap(item.handler)
                 self._witnessed.append(item.handler)
-        self._witness.names = {
-            name or "*" for name in self._functions if name not in self._cancel_tool_names
-        }
+        names = {name or "*" for name in functions if name not in cancel}
+        if self.listed is not None:
+            for name in sorted(names - self.listed - self._witness.names):
+                self._errors.append(
+                    f"the bot registered {name!r} after bot() returned, so the run's header "
+                    "does not list it: register every function in bot()"
+                )
+        self._witness.names = names
 
     async def process_frame(self, frame: Frame, direction: FrameDirection) -> None:
         await super().process_frame(frame, direction)

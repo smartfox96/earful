@@ -93,12 +93,14 @@ and every run calls it first.
 | `sink_can_pause` | `True` | Whether the audio output says it can pause |
 | `min_interruption_duration` | `0.5` | The session's interruption option of that name |
 | `false_interruption_timeout` | `2.0` | The session's interruption option of that name |
+| `allow_interruptions` | `True` | Whether the user can interrupt the agent: the session's interruption option `enabled` |
+| `preemptive_generation` | `True` | Whether the session starts a reply before the user's turn ends: its preemptive generation option `enabled` |
 | `min_endpointing_delay` | `0.5` | The session's endpointing `min_delay` |
 | `max_endpointing_delay` | `6.0` | The session's endpointing `max_delay` |
 | `drain_delay` | `5.0` | How long the run goes on after the last transcript, or after a hangup, before it is wound up |
 | `drain_timeout` | `30.0` | How long the session then has to finish before it is cut off |
 | `sink` | `ClockedSink` | The class of the audio output. A subclass models a faulty output |
-| `session_kwargs` | `{}` | Further `AgentSession` options. The options the fields above set are refused here |
+| `session_kwargs` | `{}` | Further `AgentSession` options, of those [`compatibility.md`](compatibility.md#the-options-earful-models-on-livekit) lists. Any other is refused |
 
 ### `Case` for Pipecat
 
@@ -418,7 +420,7 @@ nothing patched. Such a run is never valid evidence, and `cross_check` is the us
 | `stamp_errors` | LiveKit | Audio samples that reached the output altered |
 | `executor_calls` | LiveKit | Pieces of work the run handed to a thread pool |
 | `underruns` | LiveKit | Times playout ran ahead of its audio |
-| `framework_warnings` | LiveKit | The warnings livekit-agents logged during the run |
+| `framework_warnings` | LiveKit | The warnings livekit-agents logged during the run, whatever level its loggers are set to |
 
 ```python
 class RunResult:
@@ -476,9 +478,9 @@ Searches a scenario for the timings and faults at which it breaks a contract
 | `variables` | The kinds of time to move. `'speech.end'` and `'speech.stt_delay'` can be added |
 | `faults` | The faults to add to each backend write |
 | `pairs` | Also try two changes at once |
-| `profiles` | How many seeded redraws of the provider delays to move the speeches under |
-| `speeches` | The indices of the speeches to move. `None` moves every one |
-| `moments` | The handles of a speech to place: `'vad_start'`, `'interrupt'`, `'transcript'`, `'vad_end'`, `'turn_end'`. `None` places every one |
+| `profiles` | How many seeded redraws of the provider delays to move the speeches under, 0 or more |
+| `speeches` | The indices of the speeches to move, from 0. `None` moves every one. An index the case does not have raises `ValueError` |
+| `moments` | The handles of a speech to place: `'vad_start'`, `'interrupt'`, `'transcript'`, `'vad_end'`, `'turn_end'`. `None` places every one. Any other name raises `ValueError` |
 | `words` | Whether the end of each played word is a boundary |
 | `max_runs` | A budget of runs. A search it stops is not `complete` |
 | `planned` | A function that is handed the search's plan before the cases run. `print` shows it |
@@ -584,7 +586,7 @@ What `explore` returns.
 | Attribute | Meaning |
 | --- | --- |
 | `case` | The case the search started from, as data |
-| `assert_contracts` | A method: raises `ContractFailure` if a rule broke, a case raised, no case could be judged, the budget cut the search short, or the case as given has no pass or fail for a contract in `require`. Takes `allow` and `require` as a `RunResult` does |
+| `assert_contracts` | A method: raises `ContractFailure` if a rule broke, if the search has `no_verdict`, or if the case as given has no pass or fail for a contract in `require`. Takes `allow` and `require` as a `RunResult` does |
 | `breaks` | A method: each broken rule as a `Break` |
 | `describe` | A method: what the search found, as text |
 | `predicates` | A method: every rule some case broke |
@@ -593,8 +595,11 @@ What `explore` returns.
 | `summary` | A method: the counts as plain data |
 | `not_judged` | A method: why cases could not be judged, grouped by reason |
 | `complete` | False if `max_runs` was spent first |
-| `nothing_judged` | Whether the search tried cases and could judge none |
+| `nothing_judged` | Whether the search judged no case: it tried none, or could judge none it tried |
 | `errored` | How many of the cases tried raised |
+| `unread` | The runs made to find where to put things that could not be judged, each with its `run` (which one) and its `outcome` |
+| `unreadable` | How many of those raised or were not valid evidence |
+| `no_verdict` | Whether the search cannot pass whatever it found: `nothing_judged`, `errored`, `unreadable`, or not `complete` |
 
 A `Break` has the `predicate`, how many `candidates` break it, whether it breaks
 `everywhere`, what was `changed`, its `windows`, an `example` case as data with `what`
@@ -611,9 +616,12 @@ the `minimal` and `original` cases, and `ledger(which)`.
 
 | Attribute | Meaning |
 | --- | --- |
-| `judged` | Every run was valid evidence |
+| `judged` | Every run was valid evidence and gave the rule's contract a pass or a fail |
 | `reproduced` | Every run was judged and broke the rule |
-| `clean` | Every run was judged and none broke it |
+| `clean` | Every run was judged and the rule's contract passed in each |
+| `outcomes` | The contract's outcome in each run, `None` for a run that was not valid evidence |
+| `others` | The other rules some run broke, as `CONTRACT/RULE` |
+| `broke` | How many runs broke the rule |
 | `repeatable` | Every run gave the same ledger |
 | `identical` | That ledger is the one the bundle recorded |
 | `scenario_changed` | Whether the scenario's module differs from when the bundle was kept. `None` if that is not known |

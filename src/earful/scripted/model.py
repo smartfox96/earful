@@ -51,8 +51,9 @@ class ReplyRegister:
         self, text: str, *, eligible: set[int] | None = None
     ) -> tuple[int | None, str, list[int]]:
         """Which unsynthesized reply a text belongs to, how it matched, and every candidate.
-        A ``prefix`` match is a reply whose generation stopped early."""
+        A ``prefix`` match is a reply whose generation stopped early, inside a word or not."""
         words = _words(text)
+        said = " ".join(words)
         open_ = [
             c
             for c in self.replies
@@ -60,7 +61,7 @@ class ReplyRegister:
         ]
         kinds: tuple[tuple[str, Callable[[list[str]], bool]], ...] = (
             ("unique", lambda w: w == words),
-            ("prefix", lambda w: len(w) > len(words) and w[: len(words)] == words),
+            ("prefix", lambda w: " ".join(w).startswith(said)),
         )
         for kind, fits in kinds:
             hits = sorted(c for c in open_ if words and fits(self.replies[c]))

@@ -129,14 +129,25 @@ name the model calls the tool by. The message lists the names the agent or the b
 Pipecat an empty list means `bot` registered no function on the model service it was
 handed.
 
-### A session option the case already sets
+### A session or agent option Earful does not model
 
 ```text
-earful: session_kwargs may not set ['min_endpointing_delay']: use the Case fields
+earful: session_kwargs may not set 'min_endpointing_delay': use Case.min_endpointing_delay
 ```
 
-LiveKit. The VAD, the STT, the model, the voice and the turn options come from the
-`Case` fields, and the run's header states them.
+```text
+earful: session_kwargs 'mcp_servers' reaches an MCP server over the network
+```
+
+```text
+earful: BookingAgent sets endpointing min_delay=0.8 and the case gives the session 0.5: set Case.min_endpointing_delay to the agent's value
+```
+
+LiveKit. A run takes only the options it models, and the run's header states them. Set
+the option through the `Case` field the message names. An option that is refused with a
+reason cannot be run: run the agent without it.
+[`compatibility.md`](compatibility.md#the-options-earful-models-on-livekit) lists every
+option and what Earful does with it.
 
 ### A rule or a contract that does not exist
 
@@ -201,6 +212,15 @@ invalid: harness error: call 1: the scripted model called 'create_reservation' w
 ```
 
 The script is wrong. Correct the name or the arguments in the rule that makes the call.
+
+### The scripted model called a tool where the request allowed none
+
+```text
+invalid: harness error: call 4: the request allowed no tool call (tool_choice='none'), and the scripted model called ['look_up_hours']. livekit-agents asks so once max_tool_steps rounds of tool calls have run: script a reply without a call for that request
+```
+
+A real model answers such a request in words. Give the model a rule that answers without
+a call once the tool has run, or raise `max_tool_steps` in `session_kwargs`.
 
 ### The scripted model has no rule for a context
 
@@ -350,6 +370,28 @@ Every case the search tried was refused, raised or gave an invalid run. The line
 follow give each reason with its count and an example. The assertion fails and the
 command exits 3, since such a search shows nothing about the contracts.
 
+```text
+no case was tried, which leaves the search with no result
+```
+
+The search was asked for nothing it could move: no variable, no fault, or speeches and
+moments the case does not reach. Widen it.
+
+### A run made to find where to put things could not be judged
+
+```text
+not read: 1 run(s) made to find where to put things could not be judged, so the cases they would place were not tried; the search fails
+    the case as given, without speech 1: invalid: harness error: policy raised on call 1: NoRule: ...
+```
+
+Before it moves a speech, a search runs the case without that speech, and before it
+moves the hangup, the case without the hangup. It also runs the case under each fault,
+and with each delay stretched. The cases each such run would place are made from its
+ledger, so when the run is invalid or raises, none of them is tried, and the search
+fails. Most often the scripted model has no rule for the context the run reaches: give
+it one, or an `otherwise()`. To leave a speech out, pass `speeches=` with the others; to
+leave a fault out, pass `faults=` without it.
+
 A search with some cases not judged and others judged passes, unless one of them raised:
 
 ```text
@@ -475,8 +517,29 @@ describe the code as it is now.
 
 ### The replay is neither reproduced nor clean
 
-`earful replay --expect clean` exits 3 when a run was not valid evidence or the runs
-differ. Read the `invalid:` lines it prints. A test of a fix asserts `clean`.
+```text
+  breaks the rule       not judged
+  A2 gave               not_exercised
+  other rules broken    L2/rule b
+```
+
+`earful replay` exits 3, whatever `--expect` says, when a run was not valid evidence,
+when the rule's contract had nothing to judge or could not judge in a run, or when the
+runs differ. Read the `invalid:` lines it prints and the contract's outcome. A contract
+with nothing to judge means the reduced case no longer reaches what the rule is about:
+the scenario's code changed, or the release behaves another way before that point. A
+test of a fix asserts `clean`, which needs a pass.
+
+### A bundle that does not show the failure it names
+
+```text
+earful: failures/lk-1.8.13.booking.A2-rule/minimal.ledger.jsonl does not break A2/rule under earful.contracts/2: the bundle does not show the failure it names
+```
+
+The recorded ledger of the reduced case does not break the rule the manifest names. The
+manifest was edited, or the bundle was kept under an earlier version of the contracts
+whose rule judged that ledger otherwise; the message then names both versions. Keep the
+failure again with this Earful.
 
 ## `earful init`
 

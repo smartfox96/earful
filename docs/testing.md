@@ -361,9 +361,11 @@ def test_the_double_booking_stays_fixed():
     assert replay("failures/double-booking").clean
 ```
 
-`clean` says that every run was judged and none broke the rule. Assert `clean`, and never
-`not reproduced`: a replay whose runs were not valid evidence is not reproduced either,
-and it is not clean. `judged` says whether every run was valid evidence.
+`clean` says that every run was judged and the rule's contract passed in each. Assert
+`clean`, and never `not reproduced`: a replay whose runs were not valid evidence, or in
+which the contract had nothing to judge, is not reproduced either, and it is not clean.
+`judged` says whether every run was valid evidence and gave the contract a pass or a
+fail.
 
 `scenario_changed` says whether the module that defines the scenario's function differs
 from when the bundle was kept. It covers that one file. An agent or a service stand-in
@@ -456,7 +458,7 @@ earful report failures/lk-1.8.13.booking.A3-rule -o report.html
 | `earful check LEDGER...` | Prints the verdicts for recorded ledgers. `--measures` adds what each verdict measured, `--json` prints one report per line |
 | `earful run SCENARIO` | Runs a scenario once and prints its verdicts. `--case FILE` runs a saved case, `--ledger FILE` writes the ledger |
 | `earful search SCENARIO` | Searches a scenario, in one worker process per processor unless `--workers` says otherwise. Where worker processes cannot be started, as in some sandboxes and containers, it says so and searches in its own process; with `--workers N` given it refuses. `--keep CONTRACT/RULE --out DIR` writes a bundle for a rule that broke, in a directory of `DIR` named after the framework release, the scenario's function and the rule: `lk-1.8.12.booking.A3-rule` on livekit-agents, `pc-1.16.0.booking.A3-rule` on pipecat-ai. `--variables`, `--faults`, `--pairs`, `--profiles`, `--no-words` and `--no-windows` narrow or widen the search. It prints how many cases it is about to run on standard error, and `--max-runs N` stops it after N runs: a search cut short is incomplete and exits 3 unless a rule broke. With `--no-windows` a rule that breaks only at single instants counts as broken, and the output names the rules that were not measured |
-| `earful replay BUNDLE_DIR` | Checks every file of a bundle against its manifest, then runs its reduced case again. `--expect reproduced` exits 0 if every run broke the rule, `--expect clean` if none did, and 1 otherwise. A replay with a run that was not valid evidence, or with runs that differ, exits 3 whatever is expected. `--repeats N` sets the number of runs |
+| `earful replay BUNDLE_DIR` | Checks every file of a bundle against its manifest, then runs its reduced case again. `--expect reproduced` exits 0 if every run broke the rule, `--expect clean` if its contract passed in every run, and 1 otherwise. A replay with a run that was not valid evidence or gave the contract no pass or fail, or with runs that differ, exits 3 whatever is expected. `--repeats N` sets the number of runs |
 | `earful crosscheck SCENARIO` or `BUNDLE_DIR` | Runs a case once on the virtual clock and `--runs` times on the real clock, and says whether the real-clock runs agree with the virtual one (section 10). `--tolerance-ms` and `--words` set how far they may differ, `--out DIR` writes every run's ledger |
 | `earful report LEDGER` or `BUNDLE_DIR` | With `-o FILE.html`, draws the run as one HTML page: a timeline, the verdicts and every event (`docs/report.md`). Without it, writes the same out as text. `--format` names one or the other |
 

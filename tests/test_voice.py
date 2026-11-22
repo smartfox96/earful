@@ -11,8 +11,8 @@ from earful.scripted.voice import (
     StampReader,
     StampTable,
     encode,
+    words_altered,
     words_heard,
-    words_missing_audio,
 )
 
 
@@ -109,11 +109,22 @@ def test_a_word_is_played_once_its_last_sample_is_heard():
     assert words_heard(runs, 0, table) == ([], [], None, 0)
 
 
-def test_only_the_last_word_written_may_have_less_than_its_audio():
+def test_only_the_last_word_written_may_have_less_than_its_audio_and_none_more():
     table = _table(100, 100, 100)
-    assert words_missing_audio([[1, 100], [0, 10], [2, 100], [3, 100]], table) == 0
-    assert words_missing_audio([[1, 100], [2, 100], [3, 99]], table) == 0  # synthesis was cut
-    assert words_missing_audio([[1, 100], [2, 99], [3, 100]], table) == 1
-    assert words_missing_audio([[1, 99], [2, 99], [3, 99]], table) == 2
-    assert words_missing_audio([[1, 60], [0, 10], [1, 40], [2, 100]], table) == 0  # in two parts
-    assert words_missing_audio([], table) == 0
+    assert words_altered([[1, 100], [0, 10], [2, 100], [3, 100]], table) == 0
+    assert words_altered([[1, 100], [2, 100], [3, 99]], table) == 0  # synthesis was cut
+    assert words_altered([[1, 100], [2, 99], [3, 100]], table) == 1
+    assert words_altered([[1, 99], [2, 99], [3, 99]], table) == 2
+    assert words_altered([[1, 60], [0, 10], [1, 40], [2, 100]], table) == 0  # in two parts
+    assert words_altered([], table) == 0
+    assert words_altered([[1, 200], [2, 100]], table) == 1  # the first word's audio twice
+    assert words_altered([[1, 100], [2, 60], [0, 10], [2, 100], [3, 100]], table) == 1
+    assert words_altered([[1, 100], [2, 100], [3, 101]], table) == 1  # the last word too
+
+
+def test_a_word_whose_audio_is_written_twice_is_read_back_as_more_than_its_audio():
+    table = _table(100, 100, 100)
+    reader = StampReader(table)
+    runs = reader.read(table.audio(1) + table.audio(1) + table.audio(2)) + reader.end()
+    assert runs == [(1, 200), (2, 100)] and reader.errors == 0
+    assert words_altered(runs, table) == 1

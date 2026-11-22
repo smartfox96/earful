@@ -227,7 +227,8 @@ class AdapterAPI(Generic[Case, RunResult]):
 
     def replay(self, directory: Path | str | bundle.Bundle, *, repeats: int = 3) -> bundle.Replay:
         """Run a bundle's reduced case again: ``reproduced`` if every run breaks its rule, ``clean``
-        if none does. It imports and runs the bundle's scenario: replay only bundles you trust."""
+        if its contract passes in every run. It imports and runs the bundle's scenario: replay
+        only bundles you trust."""
         kept = directory if isinstance(directory, bundle.Bundle) else bundle.load(Path(directory))
         return bundle.replay(
             kept, self.scenario.run, repeats=repeats, fingerprint=self.scenario.fingerprint

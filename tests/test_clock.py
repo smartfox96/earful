@@ -1,5 +1,6 @@
 """The virtual clock, and the patch that makes pydantic models read it."""
 
+import _thread
 import asyncio
 import logging
 import random
@@ -177,6 +178,19 @@ def test_a_child_process_started_through_a_shell_is_counted():
 
     code, (left,) = run_virtual(main)
     assert code == 0 and "child processes started: 1" in left
+
+
+def test_a_thread_started_without_threading_is_counted_once_and_a_thread_once():
+    async def main():
+        done = threading.Event()
+        _thread.start_new_thread(done.set, ())
+        ran = done.wait(5)
+        worker = threading.Thread(target=lambda: None)
+        worker.start()
+        worker.join()
+        return ran, left_the_clock(asyncio.get_running_loop())
+
+    assert run_virtual(main) == (True, ["work left the virtual clock (threads started: 2)"])
 
 
 def test_work_handed_to_a_thread_pool_is_counted_as_before():

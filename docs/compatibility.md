@@ -57,6 +57,55 @@ a 1.16 release other than 1.16.0, and refuses to import on a release outside the
 The adapter uses Pipecat's VAD turn-start and speech-timeout turn-stop strategies.
 [Writing a Pipecat scenario](pipecat.md)
 
+## The options Earful models on LiveKit
+
+A run refuses, in one line before it starts, an option it does not model. The list is
+closed: on a release whose `AgentSession` or `Agent` takes an option that is not below,
+`tests/test_livekit_options.py` fails, and the nightly canary runs it on the newest
+release.
+
+`AgentSession` options. Earful sets those of the first six rows, `session_kwargs` may hold
+those of the seventh, and every other option is refused.
+
+| Option | What Earful does | In the header |
+| --- | --- | --- |
+| `vad`, `stt`, `llm`, `tts` | Earful's scripted providers | `providers` |
+| `turn_handling` | Built from the `Case` fields of the next three rows | `session` |
+| `min_endpointing_delay`, `max_endpointing_delay` | The `Case` fields of those names | `session.min_endpointing_delay_us`, `session.max_endpointing_delay_us` |
+| `min_interruption_duration`, `false_interruption_timeout` | The `Case` fields of those names | `session.min_interruption_duration_us`, `session.false_interruption_timeout_us` |
+| `allow_interruptions`, `preemptive_generation` | The `Case` fields of those names | `session.extra_options`, when false |
+| `turn_detection` | The framework's default on the scripted VAD | `session.turn_detection`, null |
+| `tools`, `max_tool_steps`, `userdata`, `min_consecutive_speech_delay`, `user_away_timeout`, `session_close_transcript_timeout`, `transcription_timeout`, `tts_text_transforms` | Passed as they are | `session.extra_options` |
+| `aec_warmup_duration` | Refused, and off: it has the framework ignore the user while echo cancellation warms up, and a run has no echo | |
+| `use_tts_aligned_transcript` | Refused: the scripted voice gives no word timings | |
+| `mcp_servers` | Refused: it reaches a server over the network | |
+| `video_sampler` | Refused: a run has no video | |
+| `ivr_detection` | Refused: a phone menu is not modelled | |
+| `conn_options` | Refused: retries and timeouts of the providers are not modelled | |
+| `loop` | Refused: the loop is Earful's virtual clock | |
+| `stt_context_options`, `keyterms_options` | Refused: hints for a real speech-to-text | |
+| `tool_handling` | Refused: asynchronous tools are not modelled | |
+| `expressive` | Refused: it needs a real voice | |
+| `discard_audio_if_uninterruptible`, `min_interruption_words`, `resume_false_interruption`, `agent_false_interruption_timeout` | Refused: deprecated, and ignored by livekit-agents once `turn_handling` is given, as Earful gives it | |
+
+`Agent` options. An agent that becomes active during a run, by a handover or as a task,
+is held to the same rules, and one that breaks them makes the run invalid.
+
+| Option | What Earful does |
+| --- | --- |
+| `instructions`, `id`, `chat_ctx`, `tools`, `min_consecutive_speech_delay` | Run as written. Each tool is witnessed |
+| `allow_interruptions`, and `enabled` of the interruption and of preemptive generation in `turn_handling` | Run as written. L2 holds the agent to its policy `interruptions_allowed` |
+| `min_endpointing_delay`, `max_endpointing_delay`, and `min_duration` and `false_interruption_timeout` of the interruption in `turn_handling` | Must equal the `Case` field the header states |
+| `turn_detection` | `None` or `"vad"`, which run as the session's default does |
+| Any other key of `turn_handling` | Must equal what the session holds, such as the endpointing mode `"fixed"` and the interruption mode `"vad"` |
+| `stt`, `vad`, `llm`, `tts` | Refused: the agent's own would replace Earful's scripted providers |
+| `mcp_servers`, `tool_handling`, `expressive`, `use_tts_aligned_transcript` | Refused, as on the session |
+
+The scripted model keeps to what a request allows. A reply that calls a tool under
+`tool_choice="none"`, which livekit-agents sends once `max_tool_steps` rounds of tool
+calls have run, calls none under `"required"`, calls another tool than the one named, or
+calls two tools at once under `parallel_tool_calls=False` is a harness error.
+
 ## What CI runs for LiveKit
 
 On every pull request, each row below runs every test, checks that each of the three
@@ -122,7 +171,7 @@ any of the following is invalid (`docs/ledger.md`, Validity):
 | Work | Reported as |
 | --- | --- |
 | `loop.run_in_executor`, `asyncio.to_thread` | `executor_calls` |
-| A `threading.Thread` started from the run | `threads started` |
+| A `threading.Thread` started from the run, or a thread started with `_thread.start_new_thread` | `threads started` |
 | A callback handed to the loop from another thread with `call_soon_threadsafe`, which is how a thread, a thread pool or a native library returns a result | `wake-ups from another thread` |
 | A socket, a pipe or any other descriptor the loop waits on | `file descriptors watched` |
 | A child process started through asyncio | `child processes started` |

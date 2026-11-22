@@ -535,7 +535,13 @@ def test_a_search_that_could_judge_nothing_it_tried_fails_and_says_why_with_an_e
         return invalid
 
     found = explore(
-        case, run, variables=["speech.position"], speeches=[1], moments=["interrupt"], words=False
+        case,
+        run,
+        variables=["speech.position"],
+        speeches=[1],
+        moments=["interrupt"],
+        words=False,
+        faults=[],
     )
     assert found.nothing_judged and found.summary()["ran"] == 0 and found.predicates() == []
     late, early = found.not_judged()  # runs that differ only in a number are one reason
@@ -576,11 +582,108 @@ def test_a_rule_the_case_breaks_as_given_is_found_where_no_case_tried_breaks_it(
     with pytest.raises(ContractFailure, match="A2/rule  in 0 case"):
         found.assert_contracts()
     alone = explore(case, answers(lambda moved: True), variables=[], faults=[])
-    assert alone.tried == [] and not alone.nothing_judged
+    assert alone.tried == [] and alone.nothing_judged
     with pytest.raises(ContractFailure, match="0 cases tried, 0 judged, 2 contract rule"):
         alone.assert_contracts()
+
+
+def test_a_search_that_tried_no_case_fails():
+    case = a_case(BOOK, WINDOW)
     clean = explore(case, answers(lambda moved: False), variables=[], faults=[])
-    clean.assert_contracts()  # nothing was tried, and the case as given was judged
+    assert clean.tried == [] and clean.nothing_judged and clean.no_verdict
+    with pytest.raises(ContractFailure) as caught:
+        clean.assert_contracts()
+    head, said = str(caught.value).split("\n\n")
+    assert head.endswith(": 0 cases tried, 0 judged, 0 contract rule(s) broken")
+    assert said == "no case was tried, which leaves the search with no result"
+
+
+def test_a_run_made_to_find_where_to_put_a_speech_that_is_not_valid_fails_the_search():
+    """Without the question the run is invalid, so the question is never moved."""
+    case = a_case(BOOK, speech(20_000_000, 21_000_000, WINDOW["transcript"]))
+
+    def run(moved):
+        events = ledger("1.8.12", "book_then_interrupt")
+        if [s["transcript"] for s in moved["speeches"]] == [BOOK["transcript"]]:
+            events[-1]["data"]["underruns"] = 3
+        return events
+
+    found = explore(case, run, variables=["speech.position"], words=False, faults=[])
+    (lost,) = found.unread
+    assert (lost.run, lost.outcome.why_not) == ("the case as given, without speech 1", "invalid")
+    assert found.unreadable == 1 and found.no_verdict
+    assert found.tried and not found.nothing_judged and found.errored == 0
+    assert {t.candidate.variable for t in found.tried} == {Variable("speech.position", 0)}
+    assert found.summary()["not_read"] == [
+        {
+            "run": "the case as given, without speech 1",
+            "why": "invalid",
+            "reason": "playout ran ahead of its audio 3 times",
+        }
+    ]
+    with pytest.raises(ContractFailure) as caught:
+        found.assert_contracts()
+    assert str(caught.value).endswith(
+        "\n\nnot read: 1 run(s) made to find where to put things could not be judged, so the "
+        "cases they would place were not tried; the search fails\n"
+        "    the case as given, without speech 1: invalid: playout ran ahead of its audio 3 times"
+    )
+
+
+@pytest.mark.parametrize(
+    ("raised", "fails"), [(RuntimeError("boom"), True), (CaseRefused("no hangup here"), False)]
+)
+def test_a_run_made_to_find_where_to_put_the_hangup_that_raises_fails_the_search(raised, fails):
+    """A refused run is said and does not fail the search, as a refused case does not."""
+    case = a_case(BOOK, WINDOW, hangup_us=30_000_000)
+
+    def run(moved):
+        if moved["hangup_us"] is None:
+            raise raised
+        return ledger("1.8.12", "book_then_interrupt")
+
+    found = explore(
+        case, run, variables=["speech.position", cases.HANGUP], speeches=[1], words=False, faults=[]
+    )
+    (lost,) = found.unread
+    assert lost.run == "the case as given, without the hangup" and lost.fails is fails
+    assert found.unreadable == fails and found.no_verdict is fails and found.errored == 0
+    assert all(t.candidate.variable.kind != cases.HANGUP for t in found.tried)
+    why = "error: RuntimeError: boom" if fails else "refused: no hangup here"
+    assert found.describe().endswith(
+        "were not tried" + "; the search fails" * fails + f"\n    {lost.run}: {why}"
+    )
+    if not fails:
+        found.assert_contracts()
+
+
+def test_a_run_made_to_find_where_to_put_things_under_a_fault_is_named_by_the_fault():
+    case = a_case(BOOK, WINDOW)
+
+    def run(moved):
+        if moved["faults"]:
+            raise RuntimeError("the reservation service is down")
+        return ledger("1.8.12", "book_then_interrupt")
+
+    found = explore(case, run, variables=[], faults=["backend.error"])
+    assert [(one.run, one.outcome.why_not) for one in found.unread] == [
+        ("backend.error 1", "error")
+    ]
+
+
+def test_speeches_moments_and_profiles_are_checked_before_anything_runs():
+    run = answers(lambda case: False)
+    with pytest.raises(ValueError, match=r"^no speech 'x', 2: the case has 2, numbered from 0$"):
+        explore(a_case(BOOK, WINDOW), run, speeches=[2, "x", 1])
+    with pytest.raises(ValueError, match=r"no speech -1: the case has 2"):
+        explore(a_case(BOOK, WINDOW), run, speeches=[-1])
+    moments = "'interrupt', 'transcript', 'turn_end', 'vad_end', 'vad_start'"
+    with pytest.raises(ValueError, match=rf"^unknown moments 'start'; choose from \[{moments}\]$"):
+        explore(a_case(BOOK, WINDOW), run, moments=["start", "interrupt"])
+    for profiles in (-1, 1.5, True):
+        with pytest.raises(ValueError, match="profiles is a number of profiles, 0 for none"):
+            explore(a_case(BOOK, WINDOW), run, profiles=profiles)
+    assert run.runs == 0
 
 
 def test_a_case_that_cannot_be_searched_is_refused_up_front():
@@ -1348,6 +1451,35 @@ def test_a_rule_with_a_value_the_budget_left_unmeasured_is_not_at_instants_only(
         found.assert_contracts()
 
 
+def test_an_end_of_a_window_at_a_run_that_could_not_be_judged_says_why():
+    """The question breaks the rule from 3 s on, and a run of it after 9 s is invalid."""
+    stand_in = answers(asked_about_the_window_between(3_000_000, 10**12))
+
+    def run(case):
+        events = stand_in(case)
+        if case["speeches"][-1]["start_us"] > 9_000_000:
+            events = copy.deepcopy(events)
+            events[-1]["data"]["underruns"] = 2
+        return events
+
+    found = window(Runner(run), a_case(BOOK, WINDOW), SECOND, A2)
+    invalid = "invalid: playout ran ahead of its audio 2 times"
+    assert (found.lo_end, found.lo_unjudged, found.lo_us) == ("passes", None, 3_000_000)
+    assert (found.hi_end, found.hi_unjudged, found.hi_us) == ("blocked", invalid, 9_000_000)
+    assert found.to_json()["hi_unjudged"] == invalid and "lo_unjudged" not in found.to_json()
+    searched = explore(
+        a_case(BOOK, WINDOW),
+        run,
+        variables=["speech.position"],
+        speeches=[1],
+        moments=["interrupt"],
+        words=False,
+        faults=[],
+    )
+    said = searched.describe([b for b in searched.breaks() if b.predicate == A2])
+    assert f"to 9.000 s (a run beyond it could not be judged, {invalid})" in said
+
+
 def test_each_end_of_a_window_says_why_the_search_stopped_there():
     """The stand-in fails everywhere, so neither end of the window is an edge of the failure."""
     always = window(
@@ -1710,6 +1842,8 @@ def in_manifest(**formats):
     )
 
 
+L2_RULE_B = {"contract": "L2", "rule": "rule b"}
+
 # What is done to a copy of the bundle, and what the refusal says after the directory.
 TAMPERED = {
     "a ledger that is no ledger": (
@@ -1756,6 +1890,14 @@ TAMPERED = {
         in_manifest(case="earful.case/2"),
         "/manifest.json names the case format earful.case/2; this Earful reads earful.case/1",
     ),
+    "a rule no contract has": (
+        lambda d: rewrite(d / "manifest.json", lambda m: m["predicate"].update(rule="rule z")),
+        "/manifest.json names A2/rule z, a rule no contract has",
+    ),
+    "a rule its ledger does not break": (
+        lambda d: rewrite(d / "manifest.json", lambda m: m["predicate"].update(L2_RULE_B)),
+        "/minimal.ledger.jsonl does not break L2/rule b under earful.contracts/2",
+    ),
 }
 
 
@@ -1789,6 +1931,13 @@ def test_a_bundle_kept_under_the_contracts_before_these_is_read(tmp_path):
     in_manifest(contracts="earful.contracts/1")(directory)
     assert bundle.load(directory).manifest["formats"]["contracts"] == "earful.contracts/1"
     assert bundle.FORMATS["contracts"] == "earful.contracts/2"
+    rewrite(directory / "manifest.json", lambda manifest: manifest["predicate"].update(L2_RULE_B))
+    with pytest.raises(
+        ValueError,
+        match=r"under earful.contracts/2, and the bundle was kept under "
+        r"earful.contracts/1: the bundle does not show the failure it names$",
+    ):
+        bundle.load(directory)
 
 
 def test_a_replay_is_reproduced_or_clean_only_if_every_run_was_judged(tmp_path):
@@ -1819,9 +1968,31 @@ def test_a_replay_is_reproduced_or_clean_only_if_every_run_was_judged(tmp_path):
     in_some = bundle.replay(kept, in_turn(failing, passing, failing))
     assert shows(in_some) == (True, False, False, False)
     assert shows(bundle.replay(kept, in_turn(passing), repeats=1)) == (True, False, True, True)
+    assert (broken.outcomes, broken.others, broken.broke) == (("fail",) * 3, ("M2/rule d",), 3)
+    assert (unjudged.outcomes, in_some.broke) == ((None,) * 3, 2)
     for repeats in (0, -1):
         with pytest.raises(ValueError, match=f"at least one run; got repeats={repeats}"):
             bundle.replay(kept, in_turn(), repeats=repeats)
+
+
+def test_a_replay_is_clean_only_if_the_contract_of_the_bundle_passed_in_every_run(tmp_path):
+    """A run in which A2 has nothing to judge shows nothing about A2, whatever else broke."""
+    kept = bundle.load(a_copy(tmp_path))
+    passing = ledger("1.8.12", "book_then_interrupt")
+    elsewhere = ledger("1.5.6", "speak_over_new_turn")  # A2 not exercised, L2 rule b broken
+
+    def in_turn(*ledgers):
+        runs = iter(ledgers)
+        return lambda case: next(runs)
+
+    nothing = bundle.replay(kept, in_turn(elsewhere, elsewhere, elsewhere))
+    assert (nothing.judged, nothing.reproduced, nothing.clean) == (False, False, False)
+    assert nothing.outcomes == ("not_exercised",) * 3 and nothing.others == ("L2/rule b",)
+    assert nothing.invalid == () and nothing.repeatable
+    mixed = bundle.replay(kept, in_turn(passing, elsewhere, passing))
+    assert (mixed.judged, mixed.clean, mixed.outcomes[1]) == (False, False, "not_exercised")
+    clean = bundle.replay(kept, in_turn(passing), repeats=1)
+    assert (clean.judged, clean.clean, clean.outcomes, clean.others) == (True, True, ("pass",), ())
 
 
 def test_a_bundle_written_before_manifests_recorded_its_cases_loads_and_says_so(tmp_path):

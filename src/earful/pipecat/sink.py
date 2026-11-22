@@ -21,7 +21,7 @@ from pipecat.transports.base_transport import TransportParams
 
 from ..core.ledger import Ledger
 from ..core.timebase import US_PER_SECOND, to_seconds
-from ..scripted.voice import StampReader, StampTable, words_heard, words_missing_audio
+from ..scripted.voice import StampReader, StampTable, words_altered, words_heard
 from .providers import SAMPLE_RATE
 
 
@@ -157,7 +157,7 @@ class ClockedOutput(BaseOutputTransport):
 
     def _finish(self, segment: _Segment, *, interrupted: bool) -> None:
         self._take(segment, self._reader.end())
-        self._altered += words_missing_audio(segment.runs, self._table)
+        self._altered += words_altered(segment.runs, self._table)
         played, ended, cut, cut_samples = words_heard(segment.runs, segment.heard, self._table)
         heard = [*played, *([] if cut is None else [cut])]
         self._ledger.append(

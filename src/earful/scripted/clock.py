@@ -3,6 +3,7 @@ Adapted from ``tests/virtual_time.py`` in livekit/agents (Apache-2.0, see NOTICE
 
 from __future__ import annotations
 
+import _thread
 import asyncio
 import contextlib
 import heapq
@@ -512,8 +513,26 @@ def _threads_counted() -> Iterator[None]:
             loop.leaves(_STARTED)
         real(thread)
 
-    with mock.patch.object(threading.Thread, "start", start):
+    def counted(raw: Callable[..., Any]) -> Callable[..., Any]:
+        def start_raw(*args: Any, **kwargs: Any) -> Any:
+            loop = _virtual_loop()
+            if loop is not None:
+                loop.leaves(_STARTED)
+            return raw(*args, **kwargs)
+
+        return start_raw
+
+    # threading keeps its own reference to these, so a Thread is not counted twice.
+    raw = [name for name in _RAW_STARTS if hasattr(_thread, name)]
+    with contextlib.ExitStack() as patched:
+        patched.enter_context(mock.patch.object(threading.Thread, "start", start))
+        for name in raw:
+            patched.enter_context(mock.patch.object(_thread, name, counted(getattr(_thread, name))))
         yield
+
+
+# The ways to start a thread without threading.Thread, on the Pythons Earful runs on.
+_RAW_STARTS = ("start_new_thread", "start_new", "start_joinable_thread")
 
 
 def left_the_clock(loop: asyncio.AbstractEventLoop) -> list[str]:

@@ -12,7 +12,7 @@ from livekit import rtc
 
 from ..core.ledger import Ledger
 from ..core.timebase import US_PER_SECOND, to_seconds
-from ..scripted.voice import StampReader, StampTable, words_heard, words_missing_audio
+from ..scripted.voice import StampReader, StampTable, words_altered, words_heard
 from ._compat import io
 from .providers import scripted, scripted_call
 
@@ -80,7 +80,7 @@ class ClockedSink(io.AudioOutput):
         self._finish_handle: asyncio.TimerHandle | None = None
         self._reader = StampReader(table)
         self._resampled = 0
-        self._short = 0  # words that reached the sink with part of their audio missing
+        self._short = 0  # words that reached the sink with part of their audio missing or repeated
         self.underruns = 0
 
     @property
@@ -189,7 +189,7 @@ class ClockedSink(io.AudioOutput):
         else:
             position_us, position_samples = pushed_us, segment.pushed_samples
         self._take(segment, self._reader.end())
-        self._short += words_missing_audio(segment.runs, self._table)
+        self._short += words_altered(segment.runs, self._table)
         played, done, cut, cut_samples = self._words_at(segment, position_samples)
         self._ledger.append(
             "sink",

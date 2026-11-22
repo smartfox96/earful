@@ -222,15 +222,16 @@ def words_heard(
     )
 
 
-def words_missing_audio(runs: Sequence[Sequence[int]], table: StampTable) -> int:
-    """How many words of ``runs`` were written with less than their audio, other than the
-    last one written. Only the last word of a stream can stop short: synthesis was cut."""
+def words_altered(runs: Sequence[Sequence[int]], table: StampTable) -> int:
+    """How many words of ``runs`` were written with other than their audio: more of it, which
+    only a repeat gives, or less, other than the last one written, whose synthesis was cut."""
     written: dict[int, int] = {}
     for stamp, count in runs:
         if stamp:
             written[stamp] = written.get(stamp, 0) + count
     short = [stamp for stamp, got in written.items() if got < table.words[stamp]["samples"]]
-    return len(short) - (1 if short and short[-1] == list(written)[-1] else 0)
+    repeated = sum(got > table.words[stamp]["samples"] for stamp, got in written.items())
+    return repeated + len(short) - (1 if short and short[-1] == list(written)[-1] else 0)
 
 
 def letters(word: str) -> int:
