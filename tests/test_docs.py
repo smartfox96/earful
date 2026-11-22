@@ -687,6 +687,12 @@ def _links(text):
     return re.findall(r"\]\((?!https?://)([^)#\s]*)(?:#([^)\s]+))?\)", text)
 
 
+def test_the_readme_lists_every_page_of_the_documentation():
+    readme = (ROOT / "README.md").read_text()
+    listed = set(re.findall(r"\| \[`docs/([a-z_]+\.md)`\]", readme))
+    assert listed == {page.name for page in (ROOT / "docs").glob("*.md")}
+
+
 def test_every_link_between_the_pages_leads_to_a_heading_that_exists():
     pages = sorted((ROOT / "docs").glob("*.md"))
     assert {"api.md", "glossary.md", "limits.md", "troubleshooting.md"} <= {p.name for p in pages}

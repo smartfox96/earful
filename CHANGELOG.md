@@ -18,6 +18,10 @@ formats have versions of their own
 - `examples/pipecat_booking` is the booking example as a Pipecat bot, and
   [`docs/pipecat.md`](https://github.com/smartfox96/earful/blob/main/docs/pipecat.md)
   walks through what a search of it finds and how each result is dealt with.
+- Two guides: [`docs/scripting.md`](https://github.com/smartfox96/earful/blob/main/docs/scripting.md),
+  on scripting the model so it behaves as a real one does (retries, replies that only call
+  a tool, cancellations), and [`docs/adapters.md`](https://github.com/smartfox96/earful/blob/main/docs/adapters.md),
+  on writing an adapter for another framework.
 - `earful init mybot.bot:booking_bot` writes a first test for a Pipecat bot, from the
   functions it registers and the tools its context advertises, as it does for a LiveKit
   agent's tools.

@@ -257,3 +257,36 @@ def test_the_compatibility_page_lists_the_options_the_code_does():
     named = options.AGENT_RUN | options.AGENT_TURNS | options.AGENT_REFUSED.keys()
     keys_of_turn_handling = {"enabled", "min_duration", "false_interruption_timeout"}
     assert named <= _names(agent) <= named | keys_of_turn_handling
+
+
+def test_the_page_on_scripting_the_model_runs_as_written():
+    """Each block builds its model, and each model answers the conversation it is shown for."""
+    from earful.livekit import ScriptedModel
+
+    page = (ROOT / "docs" / "scripting.md").read_text()
+    blocks = re.findall(r"```python\n(.*?)```", page, flags=re.DOTALL)
+    assert len(blocks) == 3
+    built = []
+    for block in blocks:
+        names: dict = {}
+        exec(compile(block, "scripting.md", "exec"), names)  # noqa: S102
+        assert isinstance(names["model"], ScriptedModel)
+        built.append(names)
+
+    def said(model, *items):
+        return model(list(items))
+
+    user = {"type": "message", "role": "user", "text": "A table for four tonight, please."}
+    failed = {"type": "function_call_output", "call_id": "c1", "name": "create_reservation"}
+    first, retries, cancels = (names["model"] for names in built)
+    assert said(first, user).tool_calls[0].name == "create_reservation"
+    error = {**failed, "output": "timed out", "is_error": True}
+    assert said(retries, user, error).tool_calls  # it tries once more
+    again = {**error, "call_id": "c2"}
+    assert not said(retries, user, error, again).tool_calls  # and then gives up
+    cancel = {"type": "message", "role": "user", "text": "Actually, cancel that."}
+    assert (
+        said(cancels, user, cancel).text == "Understood."
+        and not said(cancels, user, cancel).tool_calls
+    )
+    assert built[2]["speeches"][1].retires == ("book-table",)

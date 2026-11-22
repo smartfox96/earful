@@ -308,6 +308,8 @@ and what CI runs for each.
 | --- | --- |
 | [`docs/testing.md`](https://github.com/smartfox96/earful/blob/main/docs/testing.md) | Writing a test: the scenario, the scripted model, side effects, pytest, the command line, the real clock |
 | [`docs/pipecat.md`](https://github.com/smartfox96/earful/blob/main/docs/pipecat.md) | Running a Pipecat scenario, registering tools and configuring turn detection |
+| [`docs/scripting.md`](https://github.com/smartfox96/earful/blob/main/docs/scripting.md) | Scripting the model so it behaves as a real one does: retries, replies that only call a tool, cancellations |
+| [`docs/adapters.md`](https://github.com/smartfox96/earful/blob/main/docs/adapters.md) | Writing an adapter for another framework |
 | [`docs/api.md`](https://github.com/smartfox96/earful/blob/main/docs/api.md) | Every public name, the `earful` command's options and the pytest plugin |
 | [`docs/troubleshooting.md`](https://github.com/smartfox96/earful/blob/main/docs/troubleshooting.md) | The messages Earful prints, with the cause of each and what to do |
 | [`docs/report.md`](https://github.com/smartfox96/earful/blob/main/docs/report.md) | The HTML report, lane by lane |
