@@ -116,18 +116,22 @@ and no reply generated or played, so the session closes over a tool only after
 
 ## What CI runs for LiveKit
 
-On every pull request, each row below runs every test, checks that each of the three
-reference scenarios gives the committed ledger byte for byte in 100 runs in one process
-and 20 in fresh processes, runs the two historical cases, and replays both kept failures.
+The full tier of CI runs every cell below: each night on `main`, on request, and on the
+commit of each release. A cell runs every test, checks that each of the three reference
+scenarios gives the committed ledger byte for byte in 100 runs in one process and 20 in
+fresh processes, runs the two historical cases, and replays both kept failures. A pull
+request runs the cells its changed paths select (`CONTRIBUTING.md`, "What CI runs"): a
+change to the LiveKit adapter or to the core runs every release on Linux with Python 3.13,
+the middle four without the slow tests.
 
-| livekit-agents | Linux, Python 3.13 | macOS, Python 3.13 | Linux, other Pythons |
-| --- | --- | --- | --- |
-| 1.5.6 | every change | every change | 3.11 |
-| 1.5.7 | every change | nightly | |
-| 1.6.5 | every change | nightly | |
-| 1.6.6 | every change | nightly | 3.10 |
-| 1.8.12 | every change | nightly | |
-| 1.8.13 | every change | every change | 3.12, 3.14 |
+| livekit-agents | Python 3.13 | Other Pythons, on Linux |
+| --- | --- | --- |
+| 1.5.6 | Linux, macOS | 3.11 |
+| 1.5.7 | Linux, macOS | |
+| 1.6.5 | Linux, macOS | |
+| 1.6.6 | Linux, macOS | 3.10 |
+| 1.8.12 | Linux, macOS | |
+| 1.8.13 | Linux, macOS | 3.12, 3.14 |
 
 Python 3.10 to 3.14 are each tested with one release. Windows is not tested.
 
@@ -136,16 +140,19 @@ recorded on one machine is what every other must reproduce.
 
 A separate job builds the wheel, installs it alone in a fresh environment outside the
 repository, without livekit-agents, and uses it (`scripts/wheel_smoke.sh`): the package
-imports and checks a ledger with nothing but its own dependencies.
+imports and checks a ledger with nothing but its own dependencies. In the full tier
+another runs every test that needs no framework with Earful alone, on Python 3.10 and the
+oldest jsonschema the package accepts, 4.18.0 (`scripts/make_bare_env.sh`).
 
 ## What CI runs for Pipecat
 
-On every pull request, each row below builds the pinned environment without
+The full tier runs every row below. A row builds the pinned environment without
 livekit-agents and runs every test that does not need it: the Pipecat tests and the
-tests of the core. A row fails if any of those is skipped
+tests of the core. It fails if any of those is skipped
 (`scripts/ran_every_test.sh --without livekit`). Each row also runs the five Pipecat
 reference cases 120 times and compares them with the committed ledgers
-(`scripts/repeat.py`).
+(`scripts/repeat.py`). A pull request that changes the Pipecat adapter or the core runs
+the two rows on Linux from the checkout.
 
 | pipecat-ai | Python | System | Earful installed from |
 | --- | --- | --- | --- |

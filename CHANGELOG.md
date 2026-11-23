@@ -8,6 +8,12 @@ formats have versions of their own
 
 ## [Unreleased]
 
+### Fixed
+
+- `run_virtual` no longer needs pydantic: it reads pydantic models only where the
+  application has imported pydantic, so the virtual clock and the backend work with
+  `pip install earful` alone.
+
 ## [0.2.0] - 2026-11-22
 
 ### Frameworks

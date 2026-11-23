@@ -569,6 +569,7 @@ def test_where_workers_cannot_be_started_the_search_runs_in_this_process_unless_
         raise PermissionError(13, "Permission denied")
 
     monkeypatch.setattr(scenario, "pool", refused)
+    monkeypatch.delenv("EARFUL_WORKERS", raising=False)  # the default, one per processor
     narrow = ("--variables", "none", "--faults", "backend.error", "--no-words")
     reference = "breaks:as_written_reads_the_error"
     status, out, err = earful(capsys, "search", reference, *narrow)

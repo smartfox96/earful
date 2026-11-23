@@ -119,7 +119,11 @@ def _edit_header(edit):
             lambda ev: _first(ev, "playout.paused").update(kind="playout.resumed"),
             "pauses while playing and resumes while paused",
         ),
-        (lambda ev: _data(ev, "user.transcript_final").update(text=""), "should be non-empty"),
+        # The schema's own words differ between jsonschema releases: the place is checked.
+        (
+            lambda ev: _data(ev, "user.transcript_final").update(text=""),
+            "(user.transcript_final): data/text: ''",
+        ),
         (
             lambda ev: _first(ev, "llm.response")["data"]["tool_calls"].append(
                 dict(_first(ev, "llm.response")["data"]["tool_calls"][0])

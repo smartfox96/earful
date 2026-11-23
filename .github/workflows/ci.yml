@@ -1,19 +1,26 @@
 name: ci
 
-# A push to main is skipped if the same files already passed as a pull request
-# (scripts/ci_tested.sh). Closing a pull request starts a run only to replace the one in progress.
+# The jobs are in checks.yml. Its last job, "ci / result", is the check main requires.
+# A pull request runs what its paths select, and everything with the label "full ci".
+# Each night, and on request, everything runs on main.
 on:
   push:
     branches: [main]
   pull_request:
-    types: [opened, synchronize, reopened, closed]
+    types: [opened, synchronize, reopened, edited, labeled, closed]
   schedule:
-    - cron: "17 4 * * *" # nightly: catches dependency drift under the pinned releases
+    - cron: "17 4 * * *"
   workflow_dispatch:
 
-# A pull request is named by its number: the event that closes it carries another ref.
+# The runs of a pull request share a group: a push, a new base, the label "full ci" or
+# closing it cancels the run in progress. An edit of its text, another label and every run
+# on main have a group of their own and cancel nothing.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}
+  group: >-
+    ci-${{ github.event_name == 'pull_request'
+    && !(github.event.action == 'edited' && !github.event.changes.base)
+    && !(github.event.action == 'labeled' && github.event.label.name != 'full ci')
+    && format('pull-request-{0}', github.event.pull_request.number) || github.run_id }}
   cancel-in-progress: true
 
 permissions:
@@ -24,285 +31,48 @@ defaults:
   run:
     shell: bash
 
-env:
-  UV_VERSION: "0.13.9"
-
 jobs:
-  changes:
-    name: what changed
-    if: github.event.action != 'closed'
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
+  # Skipped, it leaves one check named "ci" and none named "ci / result".
+  ci:
+    name: ci
+    if: >-
+      github.event.action != 'closed'
+      && (github.event.action != 'edited' || github.event.changes.base)
+      && (github.event.action != 'labeled' || github.event.label.name == 'full ci')
+    uses: ./.github/workflows/checks.yml
+    with:
+      tier: >-
+        ${{ (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+        || contains(github.event.pull_request.labels.*.name, 'full ci'))
+        && 'full' || 'pull-request' }}
     permissions:
       contents: read
-      pull-requests: read # scripts/ci_tested.sh asks which pull request a commit came from
+      pull-requests: read # the scope asks which pull request a commit on main came from
       actions: read # and whether ci passed on it
-    outputs:
-      code: ${{ steps.scope.outputs.code }}
-      docs: ${{ steps.scope.outputs.docs }}
-      mutants: ${{ steps.scope.outputs.mutants }}
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          fetch-depth: 0
-          persist-credentials: false
-      - name: Decide from the event and the changed paths (scripts/ci_scope.sh)
-        id: scope
-        env:
-          EVENT: ${{ github.event_name }}
-          BEFORE: ${{ github.event.before }}
-          GH_TOKEN: ${{ github.token }}
-        # No pipe: if the script fails, the step fails and no output is set.
-        run: |
-          scripts/ci_scope.sh --event "$EVENT" "$BEFORE" > "$RUNNER_TEMP/scope"
-          cat "$RUNNER_TEMP/scope"
-          cat "$RUNNER_TEMP/scope" >> "$GITHUB_OUTPUT"
 
-  # A change to prose alone runs only the tests that read it.
-  docs:
-    name: docs match the code
-    needs: changes
-    if: needs.changes.outputs.code != 'true' && needs.changes.outputs.docs == 'true'
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
-        with:
-          version: ${{ env.UV_VERSION }}
-      - name: Build one pinned environment for each framework
-        run: |
-          scripts/make_env.sh 1.8.13 2026-11-20
-          scripts/make_pipecat_env.sh
-      - name: Tests that read docs/ and the top-level Markdown
-        run: |
-          .venvs/lk-1.8.13/bin/python -m pytest -q tests/test_docs.py
-          .venvs/lk-1.8.13/bin/python -m pytest -q tests/test_livekit_docs.py
-          scripts/ran_every_test.sh .venvs/pc-1.16.0/bin/python tests/test_pipecat.py
-          scripts/ran_every_test.sh .venvs/pc-1.16.0/bin/python tests/test_pipecat_examples.py
-
-  lint:
-    name: format, lint, types
-    needs: changes
-    if: needs.changes.outputs.code == 'true'
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
-        with:
-          version: ${{ env.UV_VERSION }}
-      - name: ruff format, ruff check, mypy, mutants apply (scripts/lint.sh)
-        run: scripts/lint.sh
-
-  wheel:
-    name: wheel installs clean
-    needs: changes
-    if: needs.changes.outputs.code == 'true'
+  nightly:
+    name: a failed night opens an issue
+    needs: ci
+    if: always() && github.event_name == 'schedule' && needs.ci.result != 'success'
     runs-on: ubuntu-latest
     timeout-minutes: 5
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
-        with:
-          version: ${{ env.UV_VERSION }}
-      - name: Build the wheel, install it outside the repository and use it (scripts/wheel_smoke.sh)
-        run: scripts/wheel_smoke.sh
-
-  quickstart:
-    name: quickstart from the wheel
-    needs: changes
-    if: needs.changes.outputs.code == 'true'
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
-        with:
-          version: ${{ env.UV_VERSION }}
-      - name: Install the wheel with livekit-agents and follow the README (scripts/quickstart_check.sh)
-        run: scripts/quickstart_check.sh
-
-  pipecat:
-    name: pc ${{ matrix.pc.version }} / ${{ matrix.cell.os }} / py${{ matrix.cell.python }} / ${{ matrix.cell.from }}
-    needs: changes
-    if: needs.changes.outputs.code == 'true'
-    runs-on: ${{ matrix.cell.os }}
-    timeout-minutes: 15
-    strategy:
-      fail-fast: false
-      matrix:
-        pc:
-          - { version: "1.16.0", as_of: "2026-11-18" }
-        # Every Python the adapter supports, macOS once, and the built wheel once.
-        cell:
-          - { os: ubuntu-latest, python: "3.11", from: checkout }
-          - { os: ubuntu-latest, python: "3.12", from: wheel }
-          - { os: ubuntu-latest, python: "3.13", from: checkout }
-          - { os: macos-latest, python: "3.13", from: checkout }
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
-        with:
-          version: ${{ env.UV_VERSION }}
-      - name: Build the wheel
-        if: matrix.cell.from == 'wheel'
-        run: uv build --wheel --out-dir dist
-      - name: Build pinned environment, and compare it with its lock file on Python 3.13
-        env:
-          EARFUL_PYTHON: ${{ matrix.cell.python }}
-          EARFUL_DIST: ${{ matrix.cell.from == 'wheel' && 'dist' || '' }}
-          EARFUL_LOCK: ${{ matrix.cell.python == '3.13' && 'check' || '' }}
-        run: scripts/make_pipecat_env.sh ${{ matrix.pc.version }} ${{ matrix.pc.as_of }}
-      - name: LiveKit is absent, and the package is the one this cell installs
-        env:
-          FROM: ${{ matrix.cell.from }}
-        run: |
-          .venvs/pc-${{ matrix.pc.version }}/bin/python - <<'PY'
-          import importlib.util
-          import os
-
-          import earful
-
-          assert importlib.util.find_spec("livekit") is None, "livekit is installed"
-          installed = "site-packages" in earful.__file__
-          assert installed == (os.environ["FROM"] == "wheel"), earful.__file__
-          PY
-      - name: Every test that needs no LiveKit runs, and none is skipped (scripts/ran_every_test.sh)
-        run: scripts/ran_every_test.sh --without livekit .venvs/pc-${{ matrix.pc.version }}/bin/python
-      - name: Repeatability (every case, 100 in-process + 20 subprocess) and committed-hash check
-        run: >-
-          .venvs/pc-${{ matrix.pc.version }}/bin/python scripts/repeat.py
-          --check tests/golden --out evidence
-      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: evidence-pc-${{ matrix.pc.version }}-${{ matrix.cell.os }}-py${{ matrix.cell.python }}-${{ matrix.cell.from }}
-          path: evidence/
-
-  determinism:
-    name: lk ${{ matrix.lk.version }} / ${{ matrix.os }} / py${{ matrix.python }}
-    needs: changes
-    if: needs.changes.outputs.code == 'true'
-    runs-on: ${{ matrix.os }}
-    timeout-minutes: 30
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, macos-latest]
-        python: ["3.13"]
-        lk:
-          - { version: "1.5.6", as_of: "2026-04-30" }
-          - { version: "1.5.7", as_of: "2026-05-06" }
-          - { version: "1.6.5", as_of: "2026-07-20" }
-          - { version: "1.6.6", as_of: "2026-07-20" }
-          - { version: "1.8.12", as_of: "2026-11-14" }
-          - { version: "1.8.13", as_of: "2026-11-20" }
-        # macOS runs only the oldest and newest release, except nightly and on request:
-        # there the os named below matches no job, so nothing is excluded.
-        exclude:
-          - os: ${{ (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && 'every release' || 'macos-latest' }}
-            lk: { version: "1.5.7", as_of: "2026-05-06" }
-          - os: ${{ (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && 'every release' || 'macos-latest' }}
-            lk: { version: "1.6.5", as_of: "2026-07-20" }
-          - os: ${{ (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && 'every release' || 'macos-latest' }}
-            lk: { version: "1.6.6", as_of: "2026-07-20" }
-          - os: ${{ (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && 'every release' || 'macos-latest' }}
-            lk: { version: "1.8.12", as_of: "2026-11-14" }
-        # Every other supported Python, once each.
-        include:
-          - os: ubuntu-latest
-            python: "3.10"
-            lk: { version: "1.6.6", as_of: "2026-07-20" }
-          - os: ubuntu-latest
-            python: "3.11"
-            lk: { version: "1.5.6", as_of: "2026-04-30" }
-          - os: ubuntu-latest
-            python: "3.12"
-            lk: { version: "1.8.13", as_of: "2026-11-20" }
-          - os: ubuntu-latest
-            python: "3.14"
-            lk: { version: "1.8.13", as_of: "2026-11-20" }
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
-        with:
-          version: ${{ env.UV_VERSION }}
-      - name: Build pinned environment, and compare it with its lock file on Python 3.13
-        env:
-          EARFUL_PYTHON: ${{ matrix.python }}
-          EARFUL_LOCK: ${{ matrix.python == '3.13' && 'check' || '' }}
-        run: scripts/make_env.sh ${{ matrix.lk.version }} ${{ matrix.lk.as_of }}
-      - name: Tests
-        run: .venvs/lk-${{ matrix.lk.version }}/bin/python -m pytest -q
-      - name: Repeatability (every case, 100 in-process + 20 subprocess) and committed-hash check
-        run: >-
-          .venvs/lk-${{ matrix.lk.version }}/bin/python scripts/repeat.py
-          --check tests/golden --out evidence
-      - name: Historical cases (#3702, #5509)
-        run: |
-          .venvs/lk-${{ matrix.lk.version }}/bin/python scripts/spike_3702.py evidence
-          .venvs/lk-${{ matrix.lk.version }}/bin/python scripts/spike_5509.py evidence
-      - name: Reduced historical cases, replayed
-        run: |
-          for kept in tests/bundles/*/; do
-            .venvs/lk-${{ matrix.lk.version }}/bin/earful replay "$kept"
-          done
-      - name: Negative control (real clock must change the hash)
-        if: matrix.os == 'ubuntu-latest' && matrix.python == '3.13' && matrix.lk.version == '1.8.13'
-        run: .venvs/lk-${{ matrix.lk.version }}/bin/python scripts/realtime_control.py 2
-      - name: The example reports the README links to still build (scripts/site.sh)
-        if: matrix.os == 'ubuntu-latest' && matrix.python == '3.13' && matrix.lk.version == '1.8.13'
-        run: scripts/site.sh "$RUNNER_TEMP/site"
-      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: evidence-${{ matrix.lk.version }}-${{ matrix.os }}-py${{ matrix.python }}
-          path: evidence/
-
-  # A change to src/ or tests/ runs every deliberate break, in the mutation workflow's jobs.
-  mutants:
-    name: deliberate breaks
-    needs: changes
-    if: needs.changes.outputs.mutants == 'true'
-    uses: ./.github/workflows/mutation.yml
     permissions:
-      contents: read
-
-  # The check main requires. A job the scope asks for must have passed, and none may have
-  # failed or been cancelled (scripts/ci_result.sh).
-  result:
-    name: ci result
-    needs: [changes, docs, lint, wheel, quickstart, pipecat, determinism, mutants]
-    if: always() && github.event.action != 'closed'
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
+      issues: write
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - name: Every job did what the scope asked of it (scripts/ci_result.sh)
+      - name: Open an issue that names the run, or add the run to the one open
         env:
-          CODE: ${{ needs.changes.outputs.code }}
-          DOCS: ${{ needs.changes.outputs.docs }}
-          MUTANTS: ${{ needs.changes.outputs.mutants }}
-          RESULTS: >-
-            changes=${{ needs.changes.result }}
-            docs=${{ needs.docs.result }}
-            lint=${{ needs.lint.result }}
-            wheel=${{ needs.wheel.result }}
-            quickstart=${{ needs.quickstart.result }}
-            pipecat=${{ needs.pipecat.result }}
-            determinism=${{ needs.determinism.result }}
-            mutants=${{ needs.mutants.result }}
-        run: scripts/ci_result.sh
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RUN: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          title="The nightly run of ci failed"
+          open="$(gh issue list --state open --search "\"$title\" in:title" \
+            --json number --jq '.[0].number // empty')"
+          body="$RUN names the jobs that failed. A pull request runs the jobs its paths select,
+          so main can hold a change that fails a job it left out. A release runs every job,
+          so none can be made until this passes."
+          if [ -n "$open" ]; then
+            gh issue comment "$open" --body "Failed again: $RUN"
+          else
+            gh issue create --title "$title" --body "$body"
+          fi

@@ -1,7 +1,9 @@
 """The scripts CI decides with do what they say, and the workflows are wired to them."""
 
+import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 import zipfile
@@ -73,77 +75,42 @@ def _script(name, *args, cwd, **env):
     )
 
 
-def _scope(repo, *args, **env):
-    """What ``scripts/ci_scope.sh`` printed, as a dict, and its exit status."""
-    done = _script("ci_scope.sh", *args, cwd=repo, **env)
-    return dict(line.split("=") for line in done.stdout.splitlines()), done.returncode
+def _jobs(workflow):
+    """The text of each job of ``workflow``, by its key."""
+    parts = re.split(r"^  ([a-z_]+):\n", workflow.partition("\njobs:\n")[2], flags=re.MULTILINE)
+    return dict(zip(parts[1::2], parts[2::2], strict=True))
 
 
-NOTHING = {"code": "false", "docs": "false", "mutants": "false"}
-PROSE = {"code": "false", "docs": "true", "mutants": "false"}
-CODE = {"code": "true", "docs": "false", "mutants": "false"}
-BEHAVIOUR = {"code": "true", "docs": "false", "mutants": "true"}  # the deliberate breaks run
-NIGHTLY = {"code": "true", "docs": "true", "mutants": "false"}
-EVERYTHING = {"code": "true", "docs": "true", "mutants": "true"}
+CHECKS = WORKFLOWS["checks.yml"]
 
 
-@pytest.mark.parametrize(
-    ("path", "expected"),
-    [
-        ("docs/pipecat.md", PROSE),  # read by tests/test_pipecat.py
-        ("docs/img/report-booking.png", PROSE),
-        ("README.md", PROSE),  # read by tests/test_docs.py
-        ("CHANGELOG.md", PROSE),
-        ("SECURITY.md", PROSE),
-        ("src/earful/cli.py", BEHAVIOUR),
-        ("tests/test_docs.py", BEHAVIOUR),
-        ("scripts/mutate.py", BEHAVIOUR),
-        ("scripts/make_lint_env.sh", BEHAVIOUR),  # the environment the breaks run in
-        (".github/workflows/mutation.yml", BEHAVIOUR),
-        ("scripts/lint.sh", CODE),
-        ("skills/earful/SKILL.md", CODE),  # Markdown that tests/test_examples.py runs
-        ("examples/booking/agent.py", CODE),
-        (".github/workflows/ci.yml", CODE),
-        (".github/workflows/canary.yml", CODE),  # every workflow is read by tests/test_ci.py
-        ("scripts/canary.sh", CODE),
-        (".github/ISSUE_TEMPLATE/bug.yml", CODE),  # read by tests/test_docs.py
-        (".pre-commit-config.yaml", CODE),
-        ("compat/pc-1.16.0.lock.txt", CODE),
-        ("pyproject.toml", CODE),
-        ("LICENSE", CODE),  # the build reads it
-    ],
-)
-def test_a_changed_path_runs_the_jobs_whose_tests_read_it(repo, path, expected):
-    base = _git(repo, "rev-parse", "HEAD")
-    head = _commit(repo, {path: "changed\n"})
-    assert _scope(repo, base, head) == (expected, 0)
+def _ci_scope(repo, *args, **env):
+    """Run ``scripts/ci_scope.py`` in ``repo``, as the scope job does."""
+    return subprocess.run(
+        [sys.executable, str(SCRIPTS / "ci_scope.py"), *args],
+        cwd=repo,
+        env={**os.environ, **_GIT, "GITHUB_STEP_SUMMARY": "", **env},
+        capture_output=True,
+        text=True,
+        check=False,  # the tests assert on the exit status
+    )
 
 
-def test_the_scope_of_several_paths_is_the_union(repo):
-    base = _git(repo, "rev-parse", "HEAD")
-    assert _scope(repo, base, _commit(repo, {})) == (NOTHING, 0)
-    head = _commit(repo, {"docs/page.md": "new\n", "pyproject.toml": "[project]\n"})
-    assert _scope(repo, base, head) == (NIGHTLY, 0)
-    head = _commit(repo, {"src/earful/cli.py": "a = 2\n"})
-    assert _scope(repo, base, head) == (EVERYTHING, 0)
+def _scope(repo, **env):
+    """What the scope job hands the other jobs, as a dict, and its exit status."""
+    done = _ci_scope(repo, "--github", **{"TIER": "pull-request", **env})
+    return dict(line.split("=", 1) for line in done.stdout.splitlines()), done.returncode
 
 
-def test_a_deleted_or_moved_file_counts_where_it_was(repo):
-    base = _git(repo, "rev-parse", "HEAD")
-    assert _scope(repo, base, _commit(repo, {"src/earful/cli.py": None})) == (BEHAVIOUR, 0)
-    _git(repo, "reset", "-q", "--hard", base)
-    _git(repo, "mv", "src/earful/cli.py", "docs/cli.py")
-    assert _scope(repo, base, _commit(repo, {})) == (EVERYTHING, 0)
+def _due(repo, **env):
+    outputs, status = _scope(repo, **env)
+    assert status == 0, outputs
+    return json.loads(outputs["due"])
 
 
-@pytest.mark.parametrize("base", ["", _NO_COMMIT, "no-such-branch"])
-def test_a_base_that_cannot_be_read_runs_everything(repo, base):
-    assert _scope(repo, base, "HEAD") == (EVERYTHING, 0)
-
-
-def test_a_diff_that_fails_fails_the_scope_and_prints_nothing(repo):
-    scope, status = _scope(repo, "HEAD", _NO_COMMIT)
-    assert status != 0 and scope == {}
+CORE_JOBS = ["lint", "wheel", "quickstart", "livekit", "pipecat", "control", "breaks"]
+EVERY_JOB = ["lint", "wheel", "quickstart", "report", "livekit", "pipecat", "bare"]
+EVERY_JOB += ["control", "breaks"]
 
 
 def test_a_pull_request_is_scoped_by_what_its_merge_brings_to_the_base(repo):
@@ -152,32 +119,323 @@ def test_a_pull_request_is_scoped_by_what_its_merge_brings_to_the_base(repo):
     _git(repo, "checkout", "-q", "main")
     _commit(repo, {"src/earful/cli.py": "a = 3  # on main meanwhile\n"})
     _git(repo, "merge", "-q", "--no-ff", "-m", "merge", "topic")
-    assert _scope(repo, "--event", "pull_request") == (PROSE, 0)
+    assert _due(repo, EVENT="pull_request") == ["prose"]
 
 
-def test_a_nightly_or_manual_run_checks_everything(repo):
-    assert _scope(repo, "--event", "workflow_dispatch") == (EVERYTHING, 0)
-    # The deliberate breaks have their own nightly run, 30 minutes after this one.
-    assert _scope(repo, "--event", "schedule") == (NIGHTLY, 0)
-    assert '    - cron: "17 4 * * *"' in CI
-    assert '    - cron: "47 4 * * *"' in WORKFLOWS["mutation.yml"]
+def test_a_new_base_is_checked_only_once_github_merged_the_pull_request_with_it(repo):
+    _git(repo, "checkout", "-q", "-b", "topic")
+    _commit(repo, {"docs/page.md": "from the branch\n"})
+    _git(repo, "checkout", "-q", "main")
+    _git(repo, "merge", "-q", "--no-ff", "-m", "merge", "topic")
+    base = _git(repo, "rev-parse", "HEAD^1")
+    assert _due(repo, EVENT="pull_request", ACTION="edited", BASE_SHA=base) == ["prose"]
+    outputs, status = _scope(repo, EVENT="pull_request", ACTION="edited", BASE_SHA="f" * 40)
+    assert status != 0 and outputs == {}
+    refused = _ci_scope(repo, "--github", TIER="pull-request", EVENT="pull_request")
+    assert refused.returncode == 0  # an event that is not an edit is not compared
 
 
-def test_an_event_has_to_be_named(repo):
-    scope, status = _scope(repo, "--event")
-    assert status != 0 and scope == {}
+def test_the_full_tier_runs_everything_whatever_changed(repo):
+    for event in ("schedule", "workflow_dispatch", "push", "pull_request"):
+        assert _due(repo, TIER="full", EVENT=event) == EVERY_JOB
+
+
+@pytest.mark.parametrize(
+    "env",
+    [{"TIER": "nightly", "EVENT": "push"}, {"TIER": "", "EVENT": "push"}, {"EVENT": "schedule"}],
+)
+def test_a_tier_or_an_event_the_scope_does_not_know_is_refused(repo, env):
+    outputs, status = _scope(repo, **env)
+    assert status != 0 and outputs == {}
+
+
+def test_a_base_that_cannot_be_read_runs_everything(repo):
+    # The first commit has no parent to compare a pull request's merge with.
+    assert _due(repo, EVENT="pull_request") == EVERY_JOB
+
+
+def test_a_diff_that_fails_fails_the_scope_and_prints_nothing(repo):
+    done = _ci_scope(repo, "--explain", "HEAD", _NO_COMMIT)
+    assert done.returncode != 0 and done.stdout == ""
+
+
+def test_the_explanation_names_each_path_its_rule_and_what_it_runs(repo):
+    base = _git(repo, "rev-parse", "HEAD")
+    _commit(repo, {"tests/test_lk.py": 'import pytest\n\npytest.importorskip("livekit.agents")\n'})
+    head = _commit(repo, {"docs/page.md": "new\n"})
+    done = _ci_scope(repo, "--explain", base, head)
+    assert done.returncode == 0, done.stderr
+    lines = done.stdout.splitlines()
+    assert lines[:4] == [
+        "Tier: pull-request.",
+        "2 changed paths:",
+        "  docs/page.md      prose  (docs/**)",
+        "  tests/test_lk.py  livekit  (tests/*.py)",
+    ]
+    assert "Runs:" in lines and "Left to the full tier:" in lines
+
+
+def test_a_deleted_file_counts_as_what_it_held(repo):
+    _commit(repo, {"tests/test_pc.py": 'import pytest\n\npytest.importorskip("pipecat")\n'})
+    base = _git(repo, "rev-parse", "HEAD")
+    head = _commit(repo, {"tests/test_pc.py": None})
+    done = _ci_scope(repo, "--explain", base, head)
+    assert "  tests/test_pc.py  pipecat  (tests/*.py)\n" in done.stdout
+
+
+def _run_block(text, step):
+    """The shell script of the step named ``step``, as the runner would be handed it."""
+    after = text.partition(f"- name: {step}\n")[2]
+    assert after, f"no step is named {step}"
+    before_run, _, body = after.partition("run: |\n")
+    assert "- name:" not in before_run and "- uses:" not in before_run
+    lines = body.splitlines()
+    indent = len(lines[0]) - len(lines[0].lstrip())
+    block = []
+    for line in lines:
+        if line.strip() and len(line) - len(line.lstrip()) < indent:
+            break
+        block.append(line[indent:])
+    return "\n".join(block) + "\n"
+
+
+# How a runner starts bash: with ``shell: bash`` named, and as it does when none is named.
+_SHELLS = [["bash", "--noprofile", "--norc", "-eo", "pipefail"], ["bash", "-e"]]
+_SCOPE_STEP = "Decide from the tier, the event and the changed paths (scripts/ci_scope.py)"
+
+
+@pytest.mark.parametrize("shell", _SHELLS, ids=["shell named", "no shell named"])
+@pytest.mark.parametrize("scope_script", ["exit(3)", "print('lint=true'); exit(3)"])
+def test_the_scope_step_fails_and_sets_no_output_when_its_script_fails(
+    tmp_path, shell, scope_script
+):
+    step = _run_block(_jobs(CHECKS)["scope"], _SCOPE_STEP)
+    (tmp_path / "scripts").mkdir()
+    (tmp_path / "scripts/ci_scope.py").write_text(f"{scope_script}\n")
+    (tmp_path / "step.sh").write_text(step)
+    output = tmp_path / "output"
+    output.touch()
+    env = {**os.environ, "RUNNER_TEMP": str(tmp_path), "GITHUB_OUTPUT": str(output)}
+    done = subprocess.run([*shell, "step.sh"], cwd=tmp_path, env=env, check=False)
+    assert done.returncode != 0
+    assert output.read_text() == ""
+
+
+def test_the_scope_step_hands_the_scope_to_the_jobs(tmp_path, repo):
+    step = _run_block(_jobs(CHECKS)["scope"], _SCOPE_STEP)
+    (tmp_path / "step.sh").write_text(step)
+    output = tmp_path / "output"
+    env = {
+        **os.environ,
+        "TIER": "full",
+        "EVENT": "schedule",
+        "RUNNER_TEMP": str(tmp_path),
+        "GITHUB_OUTPUT": str(output),
+        "GITHUB_STEP_SUMMARY": "",
+    }
+    shell = [*_SHELLS[0], str(tmp_path / "step.sh")]
+    work = tmp_path / "checkout"
+    shutil.copytree(repo, work)
+    (work / "scripts").symlink_to(SCRIPTS)
+    subprocess.run(shell, cwd=work, env=env, check=True)
+    handed = dict(line.split("=", 1) for line in output.read_text().splitlines())
+    assert json.loads(handed["due"]) == EVERY_JOB and json.loads(handed["explained"])
+    assert "      TIER: ${{ inputs.tier }}\n" in _jobs(CHECKS)["scope"]
+
+
+def test_every_workflow_runs_its_steps_with_pipefail():
+    for name, text in WORKFLOWS.items():
+        assert "\ndefaults:\n  run:\n    shell: bash\n" in text, name
+        assert not re.search(r"^\s+shell:(?! bash$)", text, re.MULTILINE), name
+
+
+_TOKEN = re.compile(r"\s*(?:('[^']*')|(\d+)|(==|!=|&&|\|\||!|\(|\)|,)|([A-Za-z_][\w.*-]*))")
+
+
+class _Expression:
+    """Evaluates the part of GitHub's expression language that ci.yml uses: literals,
+    contexts, ==, !=, !, &&, ||, format() and contains()."""
+
+    def __init__(self, text, context):
+        found = list(_TOKEN.finditer(text.strip()))
+        assert sum(len(m.group()) for m in found) == len(text.strip()), text  # all of it read
+        self.tokens = [next(t for t in m.groups() if t) for m in found]
+        self.context, self.at = context, 0
+
+    def value(self):
+        found = self._or()
+        assert self.at == len(self.tokens), self.tokens[self.at :]
+        return found
+
+    def _take(self, token=None):
+        got = self.tokens[self.at]
+        assert token is None or got == token, (got, token)
+        self.at += 1
+        return got
+
+    def _peek(self):
+        return self.tokens[self.at] if self.at < len(self.tokens) else None
+
+    def _or(self):
+        left = self._and()
+        while self._peek() == "||":
+            self._take()
+            right = self._and()
+            left = left or right
+        return left
+
+    def _and(self):
+        left = self._equal()
+        while self._peek() == "&&":
+            self._take()
+            right = self._equal()
+            left = left and right
+        return left
+
+    def _equal(self):
+        left = self._not()
+        while self._peek() in ("==", "!="):
+            same = self._take() == "=="
+            right = self._not()
+            left = (left == right) == same
+        return left
+
+    def _not(self):
+        if self._peek() == "!":
+            self._take()
+            return not self._not()
+        return self._primary()
+
+    def _primary(self):
+        token = self._take()
+        if token == "(":
+            inner = self._or()
+            self._take(")")
+            return inner
+        if token.startswith("'"):
+            return token[1:-1]
+        if token.isdigit():
+            return int(token)
+        if self._peek() == "(":
+            self._take()
+            args = [self._or()]
+            while self._peek() == ",":
+                self._take()
+                args.append(self._or())
+            self._take(")")
+            if token == "format":
+                return args[0].format(*args[1:])
+            assert token == "contains", token
+            return args[1] in (args[0] or [])
+        return self._lookup(token)
+
+    def _lookup(self, path):
+        found = self.context
+        for part in path.split("."):
+            if part == "*":
+                continue  # the parts after it are read from each item of the list
+            if isinstance(found, list):
+                found = [item.get(part) for item in found]
+            else:
+                found = found.get(part) if isinstance(found, dict) else None
+        return found
+
+
+def _block(text, key):
+    """The value of ``key``, indented as given, with a folded scalar joined into one line."""
+    deeper = re.escape(" " * (len(key) - len(key.lstrip()) + 2))
+    pattern = rf"^{re.escape(key)}: (?:>-\n((?:{deeper}.*\n)+)|(.*)\n)"
+    found = re.search(pattern, text, re.MULTILINE)
+    assert found, key
+    if found.group(1):
+        return " ".join(line.strip() for line in found.group(1).splitlines())
+    return found.group(2)
+
+
+def _evaluate(text, context):
+    """``text`` with each ${{ }} replaced by its value; a condition without one is evaluated."""
+    if "${{" not in text:
+        return _Expression(text, context).value()
+    return re.sub(r"\$\{\{(.*?)\}\}", lambda m: str(_Expression(m.group(1), context).value()), text)
+
+
+def _pull_request(action, labels=(), **event):
+    pull = {"number": 7, "labels": [{"name": name} for name in labels]}
+    return {
+        "event_name": "pull_request",
+        "run_id": 99,
+        "event": {"action": action, "pull_request": pull, **event},
+    }
+
+
+_EVENTS = {
+    "a push to main": ({"event_name": "push", "run_id": 99, "event": {}}, "ci-99", "pull-request"),
+    "the night": ({"event_name": "schedule", "run_id": 99, "event": {}}, "ci-99", "full"),
+    "a request": ({"event_name": "workflow_dispatch", "run_id": 99, "event": {}}, "ci-99", "full"),
+    "a pull request opened": (_pull_request("opened"), "ci-pull-request-7", "pull-request"),
+    "a push to it": (_pull_request("synchronize"), "ci-pull-request-7", "pull-request"),
+    "with the label": (_pull_request("synchronize", ["full ci"]), "ci-pull-request-7", "full"),
+    "a new base": (
+        _pull_request("edited", changes={"base": {"ref": {"from": "topic"}}}),
+        "ci-pull-request-7",
+        "pull-request",
+    ),
+    "the label put on": (
+        _pull_request("labeled", ["full ci"], label={"name": "full ci"}),
+        "ci-pull-request-7",
+        "full",
+    ),
+    "a new title": (_pull_request("edited", changes={"title": {"from": "x"}}), "ci-99", None),
+    "another label": (_pull_request("labeled", ["bug"], label={"name": "bug"}), "ci-99", None),
+    "closing it": (_pull_request("closed"), "ci-pull-request-7", None),
+}
+
+
+@pytest.mark.parametrize("name", _EVENTS)
+def test_each_event_runs_the_tier_it_asks_for_in_a_group_that_cancels_what_it_replaces(name):
+    github, group, tier = _EVENTS[name]
+    context = {"github": github}
+    assert _evaluate(_block(CI, "  group"), context) == group
+    assert _block(CI, "  cancel-in-progress") == "true"
+    job = _jobs(CI)["ci"]
+    runs = _evaluate(_block(job, "    if"), context)
+    assert bool(runs) == (tier is not None)
+    if tier:
+        assert _evaluate(_block(job, "      tier"), context) == tier
+
+
+def test_ci_starts_on_each_event_of_a_pull_request_that_changes_what_it_checks():
+    assert "    types: [opened, synchronize, reopened, edited, labeled, closed]\n" in CI
+    assert '    - cron: "17 4 * * *"\n' in CI and "\n  workflow_dispatch:\n" in CI
+    job = _jobs(CI)["ci"]
+    assert "    name: ci\n" in job and "    uses: ./.github/workflows/checks.yml\n" in job
+    # The check main requires is the called workflow's last job, "ci / result": a skipped
+    # caller leaves a check named "ci" alone, and never a skipped "ci / result".
+    assert "\n  result:\n    name: result\n" in CHECKS
+    assert set(_jobs(CI)) == {"ci", "nightly"}
+    assert "\n  workflow_call:\n" in CHECKS and not re.search(
+        r"^  (push|pull_request|schedule):", CHECKS, re.MULTILINE
+    )
+
+
+def test_a_failed_night_opens_an_issue_or_adds_to_the_one_open():
+    job = _jobs(CI)["nightly"]
+    assert (
+        "    if: always() && github.event_name == 'schedule' && needs.ci.result != 'success'\n"
+        in job
+    )
+    assert "    permissions:\n      issues: write\n" in job
+    script = _run_block(job, "Open an issue that names the run, or add the run to the one open")
+    assert 'gh issue comment "$open"' in script and 'gh issue create --title "$title"' in script
+    assert [name for name, text in _jobs(CI).items() if "issues: write" in text] == ["nightly"]
 
 
 _GH = """#!/usr/bin/env bash
-# Stands in for gh: answers the calls of scripts/ci_tested.sh and scripts/ci_passed.sh.
+# Stands in for gh: answers the calls of scripts/ci_tested.sh.
 echo "$*" >>"$STUB_LOG"
 case "$2" in
   */commits/*/pulls) [ "${STUB_PR_HEAD-}" != fail ] || exit 1; echo "${STUB_PR_HEAD-}" ;;
   */git/commits/*) echo "$STUB_HEAD_TREE" ;;
-  */actions/workflows/ci.yml/runs*branch=main*)
-    [ "${STUB_MAIN_RUNS-}" != fail ] || exit 1
-    printf '%s' "${STUB_MAIN_RUNS-}"
-    ;;
   */actions/workflows/ci.yml/runs*) echo "$STUB_PASSED" ;;
   *) exit 2 ;;
 esac
@@ -236,213 +494,15 @@ def test_a_push_of_tested_files_runs_nothing_and_any_other_push_is_scoped(repo, 
     before = _git(repo, "rev-parse", "HEAD")
     _commit(repo, {"src/earful/cli.py": "a = 4\n"})
     tested = {**gh, "STUB_HEAD_TREE": _git(repo, "rev-parse", "HEAD^{tree}")}
-    assert _scope(repo, "--event", "push", before, **tested) == (NOTHING, 0)
-    assert _scope(repo, "--event", "push", before, **gh) == (BEHAVIOUR, 0)
-    assert _scope(repo, "--event", "push", _NO_COMMIT, **gh) == (EVERYTHING, 0)
-    assert _scope(repo, "--event", "push", **gh) == (EVERYTHING, 0)
-
-
-def _passed(repo, env):
-    return _script("ci_passed.sh", _git(repo, "rev-parse", "HEAD"), cwd=repo, **env)
-
-
-@pytest.mark.parametrize("event", ["push", "schedule", "workflow_dispatch"])
-def test_a_release_is_allowed_when_a_run_of_ci_on_main_passed_on_the_commit(repo, gh, event):
-    runs = f"pull_request\n{event}\n"
-    done = _passed(repo, {**gh, "STUB_PR_HEAD": "", "STUB_MAIN_RUNS": runs})
-    assert done.returncode == 0, done.stderr
-    asked = Path(gh["STUB_LOG"]).read_text().splitlines()[-1]
-    head = _git(repo, "rev-parse", "HEAD")
-    assert f"/ci.yml/runs?head_sha={head}&branch=main&status=success&" in asked
-    assert asked.endswith(" --jq .workflow_runs[].event")
-
-
-def test_a_release_is_allowed_for_files_that_passed_as_a_pull_request(repo, gh):
-    # Whatever became of the run on main: a later push cancels one still in progress.
-    done = _passed(repo, gh)
-    assert done.returncode == 0, done.stderr
-    assert "branch=main" not in Path(gh["STUB_LOG"]).read_text()
-
-
-@pytest.mark.parametrize(
-    "runs",
-    [
-        "",  # no run on main passed
-        "pull_request\npull_request\n",  # ci passed only for pull requests
-        "fail",  # gh could not ask
-        '{"message": "Not Found"}\n',  # an answer that names no run
-        "pushed\n",
-    ],
-)
-def test_a_release_is_refused_unless_ci_passed_on_the_commit(repo, gh, runs):
-    done = _passed(repo, {**gh, "STUB_PASSED": "0", "STUB_MAIN_RUNS": runs})
-    assert done.returncode == 1 and done.stdout == ""
-    assert _git(repo, "rev-parse", "HEAD") in done.stderr
-    assert ("GitHub did not say" in done.stderr) == (runs == "fail")
-    unnamed = _passed(repo, {**gh, "GITHUB_REPOSITORY": "", "STUB_MAIN_RUNS": "push\n"})
-    assert unnamed.returncode == 1 and "no repository is named" in unnamed.stderr
-
-
-def _jobs(workflow):
-    """The text of each job of ``workflow``, by its key."""
-    parts = re.split(r"^  ([a-z_]+):\n", workflow.partition("\njobs:\n")[2], flags=re.MULTILINE)
-    return dict(zip(parts[1::2], parts[2::2], strict=True))
-
-
-def _run_block(text, step):
-    """The shell script of the step named ``step``, as the runner would be handed it."""
-    after = text.partition(f"- name: {step}\n")[2]
-    assert after, f"no step is named {step}"
-    before_run, _, body = after.partition("run: |\n")
-    assert "- name:" not in before_run and "- uses:" not in before_run
-    lines = body.splitlines()
-    indent = len(lines[0]) - len(lines[0].lstrip())
-    block = []
-    for line in lines:
-        if line.strip() and len(line) - len(line.lstrip()) < indent:
-            break
-        block.append(line[indent:])
-    return "\n".join(block) + "\n"
-
-
-# How a runner starts bash: with ``shell: bash`` named, and as it does when none is named.
-_SHELLS = [["bash", "--noprofile", "--norc", "-eo", "pipefail"], ["bash", "-e"]]
-
-
-@pytest.mark.parametrize("shell", _SHELLS, ids=["shell named", "no shell named"])
-@pytest.mark.parametrize("scope_script", ["exit 3", "echo code=true; exit 3"])
-def test_the_scope_step_fails_and_sets_no_output_when_its_script_fails(
-    tmp_path, shell, scope_script
-):
-    step = _run_block(
-        _jobs(CI)["changes"], "Decide from the event and the changed paths (scripts/ci_scope.sh)"
-    )
-    (tmp_path / "scripts").mkdir()
-    (tmp_path / "scripts/ci_scope.sh").write_text(f"#!/usr/bin/env bash\n{scope_script}\n")
-    (tmp_path / "scripts/ci_scope.sh").chmod(0o755)
-    (tmp_path / "step.sh").write_text(step)
-    output = tmp_path / "output"
-    output.touch()
-    env = {
-        "EVENT": "push",
-        "BEFORE": "",
-        "RUNNER_TEMP": str(tmp_path),
-        "GITHUB_OUTPUT": str(output),
-    }
-    environment = {**os.environ, **env}
-    done = subprocess.run([*shell, "step.sh"], cwd=tmp_path, env=environment, check=False)
-    assert done.returncode != 0
-    assert output.read_text() == ""
-
-
-def test_the_scope_step_hands_the_scope_to_the_jobs(tmp_path, repo):
-    jobs = _jobs(CI)
-    step = _run_block(
-        jobs["changes"], "Decide from the event and the changed paths (scripts/ci_scope.sh)"
-    )
-    (repo / "scripts").symlink_to(SCRIPTS)
-    (tmp_path / "step.sh").write_text(step)
-    output = tmp_path / "output"
-    env = {
-        "EVENT": "schedule",
-        "BEFORE": "",
-        "RUNNER_TEMP": str(tmp_path),
-        "GITHUB_OUTPUT": str(output),
-    }
-    shell = [*_SHELLS[0], str(tmp_path / "step.sh")]
-    subprocess.run(shell, cwd=repo, env={**os.environ, **env}, check=True)
-    assert output.read_text() == "code=true\ndocs=true\nmutants=false\n"
-    for name in ("code", "docs", "mutants"):
-        assert f"{name}: ${{{{ steps.scope.outputs.{name} }}}}" in jobs["changes"]
-        assert f"{name.upper()}: ${{{{ needs.changes.outputs.{name} }}}}" in jobs["result"]
-
-
-_ALL = ("changes", "docs", "lint", "wheel", "quickstart", "pipecat", "determinism", "mutants")
-
-
-def _result(scope, /, **results):
-    """The exit status of ``scripts/ci_result.sh``; a job not named was skipped."""
-    pairs = " ".join(f"{job}={results.pop(job, 'skipped')}" for job in _ALL)
-    pairs += "".join(f" {job}={result}" for job, result in results.items())
-    given = {name.upper(): value for name, value in scope.items()}
-    done = _script("ci_result.sh", cwd=ROOT, RESULTS=pairs, **given)
-    assert done.returncode in (0, 1), done.stderr
-    return done.returncode
-
-
-_RAN = dict.fromkeys(
-    ("changes", "lint", "wheel", "quickstart", "pipecat", "determinism"), "success"
-)
-
-
-def test_the_result_passes_when_every_job_the_scope_asks_for_passed():
-    assert _result(CODE, **_RAN) == 0
-    assert _result(NIGHTLY, **_RAN) == 0
-    assert _result(BEHAVIOUR, **_RAN, mutants="success") == 0
-    assert _result(EVERYTHING, **_RAN, mutants="success") == 0
-    assert _result(PROSE, changes="success", docs="success") == 0
-    assert _result(NOTHING, changes="success") == 0
-
-
-@pytest.mark.parametrize(
-    ("scope", "results"),
-    [
-        ({"code": "", "docs": "", "mutants": ""}, {"changes": "success"}),  # no output was set
-        ({**CODE, "docs": ""}, _RAN),
-        ({**CODE, "code": "yes"}, _RAN),
-        ({"code": "true", "docs": "false"}, _RAN),  # mutants is not given at all
-        (CODE, {**_RAN, "lint": "skipped"}),
-        (CODE, {**_RAN, "determinism": "failure"}),
-        (CODE, {**_RAN, "pipecat": "cancelled"}),
-        (CODE, {**_RAN, "wheel": ""}),
-        (BEHAVIOUR, _RAN),  # the deliberate breaks did not run
-        (BEHAVIOUR, {**_RAN, "mutants": "failure"}),
-        (PROSE, {"changes": "success"}),  # the docs job did not run
-        (NOTHING, {"changes": "success", "lint": "failure"}),
-        (NOTHING, {}),  # the scope job itself was skipped
-        (NOTHING, {"changes": "failure"}),
-        (CODE, {**_RAN, "another": "success"}),  # a job the script has no rule for
-    ],
-)
-def test_the_result_fails_otherwise(scope, results):
-    assert _result(scope, **results) == 1
-
-
-def test_the_result_fails_when_a_job_is_missing_from_what_it_is_given():
-    pairs = " ".join(f"{job}=success" for job in _ALL if job != "determinism")
-    done = _script(
-        "ci_result.sh", cwd=ROOT, CODE="true", DOCS="false", MUTANTS="true", RESULTS=pairs
-    )
-    assert done.returncode == 1 and "determinism" in done.stderr
-
-
-def test_the_required_check_waits_for_every_job_of_the_workflow():
-    jobs = _jobs(CI)
-    assert "    name: ci result\n" in jobs["result"]
-    assert "    if: always() && github.event.action != 'closed'\n" in jobs["result"]
-    others = sorted(set(jobs) - {"result"})
-    (needs,) = re.findall(r"^    needs: \[(.*)\]$", jobs["result"], re.MULTILINE)
-    assert sorted(needs.split(", ")) == others
-    given = re.findall(r"^ {12}([a-z_]+)=\$\{\{ needs\.([a-z_]+)\.result \}\}$", CI, re.MULTILINE)
-    assert sorted(given) == [(job, job) for job in others]
-    script = (SCRIPTS / "ci_result.sh").read_text()
-    (known,) = re.findall(r'^JOBS="(.*)"$', script, re.MULTILINE)
-    assert sorted(known.split()) == others == sorted(_ALL)
-    # Every job but the first waits for the scope, so none starts before it is known.
-    for name in others:
-        if name != "changes":
-            assert "    needs: changes\n" in jobs[name], name
-
-
-def test_every_workflow_runs_its_steps_with_pipefail():
-    for name, text in WORKFLOWS.items():
-        assert "\ndefaults:\n  run:\n    shell: bash\n" in text, name
-        assert not re.search(r"^\s+shell:(?! bash$)", text, re.MULTILINE), name
+    assert _due(repo, EVENT="push", BEFORE=before, **tested) == []
+    assert _due(repo, EVENT="push", BEFORE=before, **gh) == CORE_JOBS
+    assert _due(repo, EVENT="push", BEFORE=_NO_COMMIT, **gh) == EVERY_JOB
+    assert _due(repo, EVENT="push", **gh) == EVERY_JOB
 
 
 @pytest.mark.parametrize("issue", ["3702", "5509"])
 def test_ci_runs_the_script_of_each_historical_case(issue):
-    assert f"scripts/spike_{issue}.py evidence\n" in _jobs(CI)["determinism"]
+    assert f"scripts/spike_{issue}.py evidence\n" in _jobs(CHECKS)["livekit"]
 
 
 def test_a_change_to_prose_alone_runs_every_test_file_that_reads_prose():
@@ -456,8 +516,8 @@ def test_a_change_to_prose_alone_runs_every_test_file_that_reads_prose():
         for path in (ROOT / "tests").glob("test_*.py")
         if reads.search(path.read_text()) and path != Path(__file__).resolve()
     }
-    ran = set(re.findall(r" tests/(test_\w+\.py)$", _jobs(CI)["docs"], re.MULTILINE))
-    assert readers == ran, "the docs job of ci.yml has to run each test file that reads prose"
+    ran = set(re.findall(r" tests/(test_\w+\.py)$", _jobs(CHECKS)["prose"], re.MULTILINE))
+    assert readers == ran, "the prose job of checks.yml has to run each test file that reads prose"
 
 
 def _executable(path, text):
@@ -530,10 +590,21 @@ def test_a_resolve_date_means_the_same_day_on_every_machine():
         assert "--exclude-newer" not in text, f"{name} has a date that belongs in a script"
 
 
+def test_every_install_names_a_date_and_the_build_backend_is_pinned():
+    # The canary alone installs what PyPI holds tonight.
+    for path in sorted(SCRIPTS.glob("*.sh")):
+        for line in re.findall(r"^.*uv pip install .*$", path.read_text(), re.MULTILINE):
+            assert ("--exclude-newer " in line) == (path.name != "canary.sh"), (
+                f"{path.name}: {line}"
+            )
+    project = (ROOT / "pyproject.toml").read_text()
+    assert re.search(r'^requires = \["hatchling==\d+\.\d+\.\d+"\]$', project, re.MULTILINE)
+
+
 def test_ci_compares_the_environments_it_builds_on_python_3_13_with_their_lock_files():
-    jobs = _jobs(CI)
-    assert "EARFUL_LOCK: ${{ matrix.python == '3.13' && 'check' || '' }}\n" in jobs["determinism"]
-    assert "EARFUL_LOCK: ${{ matrix.cell.python == '3.13' && 'check' || '' }}\n" in jobs["pipecat"]
+    jobs = _jobs(CHECKS)
+    for name in ("livekit", "pipecat"):
+        assert "EARFUL_LOCK: ${{ matrix.cell.python == '3.13' && 'check' || '' }}\n" in jobs[name]
     for name in ("make_env.sh", "make_pipecat_env.sh"):
         script = (SCRIPTS / name).read_text()
         assert re.search(r'^\S*scripts/env_lock\.sh"? "\$env_dir" ', script, re.MULTILINE), name
@@ -590,13 +661,18 @@ def test_a_file_that_skips_itself_for_the_framework_named_absent_is_left_out(tmp
         assert done.returncode == 1 and "skipped 1: here every test" in done.stderr, name
     done = run("--without", "a framework")
     assert done.returncode == 2 and "takes the name of a module" in done.stderr
+    # Several frameworks can be absent at once.
+    (tmp_path / "test_other.py").write_text(_wants("no_other_framework"))
+    done = run("--without", "no_such_framework", "--without", "no_other_framework")
+    assert done.returncode == 0, done.stdout + done.stderr
+    assert done.stdout.endswith("2 files need no_such_framework or no_other_framework\n")
 
 
 def test_the_reference_ledgers_of_both_frameworks_are_repeated_and_compared():
     repeated = "bin/python scripts/repeat.py\n          --check tests/golden --out evidence\n"
-    jobs = _jobs(CI)
-    assert ".venvs/lk-${{ matrix.lk.version }}/" + repeated in jobs["determinism"]
-    assert ".venvs/pc-${{ matrix.pc.version }}/" + repeated in jobs["pipecat"]
+    jobs = _jobs(CHECKS)
+    assert ".venvs/lk-${{ matrix.cell.version }}/" + repeated in jobs["livekit"]
+    assert ".venvs/pc-${{ matrix.cell.version }}/" + repeated in jobs["pipecat"]
     everything = (SCRIPTS / "check_all.sh").read_text()
     pipecat = ".venvs/pc-1.16.0/bin/python scripts/repeat.py"
     for command in (
@@ -612,26 +688,38 @@ def test_the_reference_ledgers_of_both_frameworks_are_repeated_and_compared():
 
 
 def test_where_livekit_is_absent_every_other_test_runs_and_a_skip_fails_the_job():
-    jobs = _jobs(CI)
-    ran = "scripts/ran_every_test.sh --without livekit .venvs/pc-{}/bin/python\n"
-    assert ran.format("${{ matrix.pc.version }}") in jobs["pipecat"]
-    assert ran.format("1.16.0") in (SCRIPTS / "check_all.sh").read_text()
+    jobs = _jobs(CHECKS)
+    ran = "scripts/ran_every_test.sh --without livekit\n"
+    assert (
+        ran + "          .venvs/pc-${{ matrix.cell.version }}/bin/python -n auto\n"
+        in jobs["pipecat"]
+    )
+    every = "scripts/ran_every_test.sh --without livekit .venvs/pc-1.16.0/bin/python\n"
+    assert every in (SCRIPTS / "check_all.sh").read_text()
     # A change to prose alone runs the one Pipecat file that reads docs/.
     assert (
         "scripts/ran_every_test.sh .venvs/pc-1.16.0/bin/python tests/test_pipecat.py\n"
-        in (jobs["docs"])
+        in (jobs["prose"])
     )
+    # And with no framework, none of the files that need one.
+    bare = "scripts/ran_every_test.sh --without livekit --without pipecat --without pydantic\n"
+    assert bare + "          .venvs/bare/bin/python -n auto\n" in jobs["bare"]
+    assert "        run: scripts/make_bare_env.sh\n" in jobs["bare"]
 
 
-def test_the_deliberate_breaks_run_for_a_pull_request_that_changes_behaviour():
-    jobs = _jobs(CI)
-    assert "    if: needs.changes.outputs.mutants == 'true'\n" in jobs["mutants"]
-    assert "    uses: ./.github/workflows/mutation.yml\n" in jobs["mutants"]
-    mutation = WORKFLOWS["mutation.yml"]
-    assert "\n  workflow_call:\n" in mutation and "\n  workflow_dispatch:\n" in mutation
-    # One environment for the breaks, here and in CI: the one scripts/lint.sh builds.
-    assert "run: scripts/make_lint_env.sh\n" in mutation
-    assert ".venvs/lint/bin/python scripts/mutate.py\n" in mutation
+def test_the_breaks_run_once_unbroken_and_in_parts_each_of_its_own_breaks():
+    jobs = _jobs(CHECKS)
+    since = '${SINCE:+--since "$SINCE"}'
+    assert f".venvs/lint/bin/python scripts/mutate.py --control {since}\n" in jobs["control"]
+    part = f'.venvs/lint/bin/python scripts/mutate.py --part "$PART" {since}\n'
+    assert part in jobs["breaks"]
+    for name in ("control", "breaks"):
+        # One environment for the breaks, here and in CI: the one scripts/lint.sh builds.
+        assert "        run: scripts/make_lint_env.sh\n" in jobs[name], name
+        assert "          fetch-depth: 0 " in jobs[name], name  # --since reads the history
+        assert "          SINCE: ${{ needs.scope.outputs.since }}\n" in jobs[name], name
+    assert "        part: ${{ fromJSON(needs.scope.outputs.breaks) }}\n" in jobs["breaks"]
+    assert "          PART: ${{ matrix.part.part }}/${{ matrix.part.of }}\n" in jobs["breaks"]
     assert ".venvs/lint/bin/python scripts/mutate.py " in (SCRIPTS / "mutate.py").read_text()
     assert "scripts/make_lint_env.sh || exit 1\n" in (SCRIPTS / "lint.sh").read_text()
 
@@ -706,17 +794,18 @@ def _needs(job):
     return needs.strip("[]").split(", ")
 
 
-def test_a_tag_is_released_only_from_main_and_only_when_ci_passed_on_its_commit():
+def test_a_tag_is_released_only_from_main_and_only_after_the_full_tier_passed_on_it():
     assert '\non:\n  push:\n    tags: ["v*"]\n\npermissions:\n  contents: read\n' in RELEASE
     jobs = _jobs(RELEASE)
-    assert list(jobs) == ["allowed", "build", "check", "publish", "notes"]
+    assert list(jobs) == ["allowed", "ci", "build", "check", "publish", "notes"]
     allowed = jobs["allowed"]
-    assert "          fetch-depth: 0 " in allowed  # ci_tested.sh reads the commit's tree
+    assert "          fetch-depth: 0 " in allowed  # whether main holds the tagged commit
     assert "git merge-base --is-ancestor HEAD origin/main" in allowed
     assert '        run: scripts/changelog_section.sh "${GITHUB_REF_NAME#v}"\n' in allowed
-    assert '        run: scripts/ci_passed.sh "$(git rev-parse HEAD)"\n' in allowed
-    assert "      pull-requests: read " in allowed and "      actions: read " in allowed
-    assert _needs(jobs["build"]) == ["allowed"]
+    ci = jobs["ci"]
+    assert "    uses: ./.github/workflows/checks.yml\n    with:\n      tier: full\n" in ci
+    assert _needs(ci) == ["allowed"]
+    assert _needs(jobs["build"]) == ["allowed", "ci"]
     assert _needs(jobs["notes"]) == ["publish"]
     notes = _run_block(
         jobs["notes"],
