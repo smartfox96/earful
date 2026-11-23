@@ -980,3 +980,16 @@ def test_a_kept_loss_of_evidence_replays_as_one(capsys, tmp_path):
     status, out, _ = earful(capsys, "replay", directory, "--expect", "reproduced")
     if status != OK or "breaks the rule" in out:
         raise KnownDefect(f"exit {status}: {out.strip().splitlines()[-1]}")
+
+
+@pytest.mark.slow
+@pytest.mark.xfail(
+    strict=True, raises=KnownDefect, reason="Earful: a search's first line counts an allowed rule"
+)
+def test_a_searchs_first_line_counts_only_the_rules_that_fail_it(capsys):
+    reference = "breaks:as_written_confirms_a_failed_booking"
+    status, out, _ = earful(capsys, "search", reference, *NARROW, "--allow", "A3/rule")
+    first = out.splitlines()[0]
+    assert status == OK and "A3/rule  in " in out
+    if "1 contract rule(s) broken" in first:
+        raise KnownDefect(first)

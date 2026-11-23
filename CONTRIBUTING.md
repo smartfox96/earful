@@ -258,6 +258,9 @@ what its runs showed. `tests/test_livekit_conformance.py` and
 A scenario declares its `defect` as a shape does.
 
 A defect of Earful goes in as a shape or a scenario with its `DEFECT` before it is fixed.
+One no application shows, in a command, a ledger or the clock, goes in the test file of
+that part as a strict expected failure that raises `KnownDefect` (`tests/shapes/corpus.py`)
+only where the defect shows, so any other failure fails the test.
 `scripts/ran_every_test.sh` counts a strict expected failure as a test that ran.
 
 ## Adding a livekit-agents release

@@ -276,8 +276,8 @@ def two_runs_on_two_threads():
         hashes[name] = run_case(_held_open(seconds), require_valid=False).hash
 
     threads = [
-        threading.Thread(target=run, args=("first", 0.6, 0.0)),
-        threading.Thread(target=run, args=("second", 1.5, 0.2)),
+        threading.Thread(target=run, args=("first", 2.0, 0.0)),  # each blocks for 2 s
+        threading.Thread(target=run, args=("second", 2.0, 0.2)),  # so the two overlap
     ]
     for thread in threads:
         thread.start()

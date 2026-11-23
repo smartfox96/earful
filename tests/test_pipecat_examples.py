@@ -4,11 +4,15 @@ from __future__ import annotations
 
 import re
 import shutil
+import sys
+import types
 from pathlib import Path
 
 import pytest
 
 pytest.importorskip("pipecat")
+
+from shapes.corpus import KnownDefect
 
 import earful.pipecat  # noqa: F401 - before pytest is run on a project, as in test_examples
 
@@ -86,3 +90,37 @@ def test_pipecat_the_page_shows_the_example_and_its_two_changes_as_they_are():
     assert f"confirmation = {FIXED}" in PAGE and ALLOWED in PAGE
     assert f"confirmation = {AS_SHIPPED}\n" in (EXAMPLE / "bot.py").read_text()
     assert SEARCHED in (EXAMPLE / "test_booking.py").read_text()
+
+
+def _registers_its_functions(llm, reservations):
+    """The application's set-up the skill's example imports from mybot.bot."""
+
+    async def create_reservation(params):
+        receipt = await reservations.create(params.arguments["party_size"])
+        await params.result_callback(f"Booked: {receipt}.")
+
+    llm.register_function("create_reservation", create_reservation)
+
+
+@pytest.mark.xfail(
+    strict=True,
+    raises=KnownDefect,
+    reason="Earful: the skill's Pipecat example fails its own search",
+)
+def test_the_skills_pipecat_example_passes_its_own_two_tests(monkeypatch):
+    from earful.pipecat import ContractFailure, explore, run
+
+    skill = (ROOT / "skills" / "earful" / "SKILL.md").read_text()
+    section = skill.split("## A Pipecat bot", 1)[1]
+    (block,) = re.findall(r"```python\n(.*?)```", section, flags=re.DOTALL)[:1]
+    bot = types.ModuleType("mybot.bot")
+    bot.register_functions = _registers_its_functions
+    monkeypatch.setitem(sys.modules, "mybot", types.ModuleType("mybot"))
+    monkeypatch.setitem(sys.modules, "mybot.bot", bot)
+    names: dict = {}
+    exec(compile(block, "SKILL.md", "exec"), names)  # noqa: S102
+    run(names["booking"]).assert_contracts()  # its first test
+    try:
+        explore(names["booking"], workers=0).assert_contracts()  # its second
+    except ContractFailure as exc:
+        raise KnownDefect(str(exc).splitlines()[0]) from exc

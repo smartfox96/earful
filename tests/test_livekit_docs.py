@@ -12,6 +12,7 @@ import pytest
 
 pytest.importorskip("livekit.agents")
 
+from shapes.corpus import KnownDefect
 from test_docs import (
     README,
     REPORT_DOC,
@@ -279,3 +280,43 @@ def test_the_page_on_scripting_the_model_runs_as_written():
         and not said(cancels, user, cancel).tool_calls
     )
     assert built[2]["speeches"][1].retires == ("book-table",)
+
+
+@pytest.mark.xfail(
+    strict=True, raises=KnownDefect, reason="Earful: the testing page's stand-in example is invalid"
+)
+def test_the_stand_in_service_of_the_testing_page_runs_as_written():
+    """Section 3's first block, with the model of the page's opening block."""
+    import livekit.agents as lk
+
+    from earful.livekit import ContractFailure, InvalidRun, UserSpeech, run
+
+    class BookingAgent(lk.Agent):  # the application's agent, handed its service
+        def __init__(self, reservations) -> None:
+            super().__init__(instructions="You take reservations for a restaurant.")
+            self._reservations = reservations
+
+        @lk.function_tool
+        async def create_reservation(self, party_size: int) -> str:
+            """Book a table.
+
+            Args:
+                party_size: Number of guests
+            """
+            return f"Booked. Confirmation {await self._reservations.create(party_size)}."
+
+    page = TESTING_DOC
+    opening, *_ = re.findall(r"```python\n(.*?)```", page, flags=re.DOTALL)
+    stand_in = re.search(
+        r"\*\*The agent is handed the service.*?```python\n(.*?)```", page, re.DOTALL
+    )
+    assert stand_in is not None
+    names: dict = {"BookingAgent": BookingAgent}
+    opening = opening.replace("from myapp.agent import BookingAgent", "")
+    exec(compile(opening.split("\ncase = Case(")[0], "testing.md", "exec"), names)  # noqa: S102
+    names["speeches"] = [UserSpeech(start=0.5, end=2.5, transcript="Book a table for six tonight.")]
+    exec(compile(stand_in.group(1), "testing.md", "exec"), names)  # noqa: S102
+    try:
+        run(names["case"]).assert_contracts()
+    except (InvalidRun, ContractFailure) as exc:
+        raise KnownDefect(str(exc).splitlines()[0]) from exc
