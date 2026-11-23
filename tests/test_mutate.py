@@ -191,12 +191,12 @@ def test_a_test_that_never_ends_is_stopped(tmp_path):
 
 def test_a_break_runs_its_tests_with_searches_in_their_own_process(tmp_path, monkeypatch):
     test = "import os\n\ndef test_workers():\n    assert os.environ['EARFUL_WORKERS'] == '{}'\n"
-    root = _project(tmp_path, {"test_workers.py": test.format("0")})
+    # Two files: one rewritten within a second at the same size would run its old bytecode.
+    root = _project(tmp_path, {"test_none.py": test.format("0"), "test_three.py": test.format("3")})
     monkeypatch.delenv("EARFUL_WORKERS", raising=False)
-    assert mutate._pytest(root, "tests/test_workers.py", timeout=60)[0] == 0
-    (root / "tests/test_workers.py").write_text(test.format("3"))
+    assert mutate._pytest(root, "tests/test_none.py", timeout=60)[0] == 0
     monkeypatch.setenv("EARFUL_WORKERS", "3")  # a number given is kept
-    assert mutate._pytest(root, "tests/test_workers.py", timeout=60)[0] == 0
+    assert mutate._pytest(root, "tests/test_three.py", timeout=60)[0] == 0
 
 
 def test_a_selection_that_matches_no_break_is_refused():
