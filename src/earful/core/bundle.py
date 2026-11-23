@@ -260,13 +260,13 @@ class Replay:
     codes: tuple[str, ...] = ()  # why the contract's verdicts were missing in some run
     broke: int = 0  # how many runs broke the bundle's rule
 
-    lost_predicate: bool = False
+    loss_judged: bool = False
+    other_losses: tuple[str, ...] = ()
 
     @property
     def judged(self) -> bool:
-        """Every run was valid evidence and gave the bundle's contract a pass or a fail. A
-        replay that was not judged shows nothing about the rule."""
-        if self.lost_predicate and self.reproduced:
+        """Every run gave a verdict on the contract or observed the loss the bundle names."""
+        if self.loss_judged:
             return True
         return all(outcome in (PASS, FAIL) for outcome in self.outcomes)
 
@@ -304,7 +304,7 @@ def replay(
     broke = [bundle.predicate in o.failures for o in outcomes]
     invalid = next((o.invalid for o in outcomes if o.invalid), ())
     contract = [o.outcomes.get(bundle.predicate.contract) for o in outcomes]
-    others = {str(p) for o in outcomes for p in o.failures if p != bundle.predicate}
+    others = {p for o in outcomes for p in o.failures if p != bundle.predicate}
     codes = (code for o in outcomes for code in o.missing.get(bundle.predicate.contract, ()))
     return Replay(
         reproduced=all(broke),
@@ -316,10 +316,12 @@ def replay(
         clean=all(outcome == PASS for outcome in contract),
         unverified=bundle.unverified,
         outcomes=tuple(contract),
-        others=tuple(sorted(others)),
+        others=tuple(sorted(str(p) for p in others if not p.lost)),
+        other_losses=tuple(sorted(str(p) for p in others if p.lost)),
         codes=tuple(dict.fromkeys(codes)),
         broke=sum(broke),
-        lost_predicate=bundle.predicate.lost,
+        loss_judged=bundle.predicate.lost
+        and all(matched or verdict in (PASS, FAIL) for matched, verdict in zip(broke, contract)),
     )
 
 

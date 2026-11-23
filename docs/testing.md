@@ -393,8 +393,7 @@ def test_the_double_booking_stays_fixed():
 `clean`, and never `not reproduced`: a replay whose runs were not valid evidence, or in
 which the contract had nothing to judge, is not reproduced either, and it is not clean.
 For a saved rule, `judged` means every replay gave its contract a pass or a fail.
-A bundle kept for a loss of evidence also counts as judged when every replay observes
-the saved loss.
+For a saved loss, each run can also answer by observing that loss.
 
 `scenario_changed` says whether the module that defines the scenario's function differs
 from when the bundle was kept. It covers that one file. An agent or a service stand-in

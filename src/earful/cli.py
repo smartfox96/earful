@@ -321,6 +321,7 @@ def _replay(args: argparse.Namespace) -> int:
         "contract_outcomes": list(result.outcomes),
         "contract_codes": list(result.codes),
         "other_rules_broken": list(result.others),
+        "other_evidence_lost": list(result.other_losses),
         "repeatable": result.repeatable,
         "identical_to_recorded": result.identical,
         "scenario_code_changed": result.scenario_changed,
@@ -349,6 +350,8 @@ def _replay(args: argparse.Namespace) -> int:
         print(f"  {contract:<22}{gave[0] if len(set(gave)) == 1 else ', '.join(gave)}{why}")
         if result.others:
             print(f"  other rules broken    {', '.join(result.others)}")
+        if result.other_losses:
+            print(f"  other evidence lost   {', '.join(result.other_losses)}")
         print(f"  every run the same    {'yes' if result.repeatable else 'no'}")
         print(f"  the ledger recorded   {'yes' if result.identical else 'no'}")
         changed = {None: "not known", True: "yes", False: "no"}[result.scenario_changed]

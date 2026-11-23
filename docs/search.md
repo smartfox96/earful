@@ -445,14 +445,13 @@ damaged or left out. They do not make a bundle from an unknown source safe to re
 **Replaying** runs the reduced case again, three times by default, and says:
 
 - **judged**: every run was valid evidence (`docs/ledger.md`, Validity) and gave the
-  predicate's contract a pass or a fail. A replay with a run that was not, or in which the
-  contract had nothing to judge or could not judge, shows nothing about the rule.
+  predicate's contract a pass or a fail, or observed the specific loss the bundle names.
   `invalid` gives the reasons a run was not valid evidence.
 - **reproduced**: every run was judged and broke the frozen predicate.
 - **clean**: every run was judged and the predicate's contract passed in each.
 - **outcomes**: the contract's outcome in each run, printed as `A2 gave pass`.
 - **others**: the rules of any contract that some run broke other than the frozen one.
-  They do not change whether the replay is clean, and the replay prints them.
+  The replay also lists other evidence lost under `other_losses`.
 - **repeatable**: every run gave the same ledger.
 - **identical**: that ledger is the one recorded. Expected only on the release, and with
   the Earful version and scenario code, the bundle was made with.

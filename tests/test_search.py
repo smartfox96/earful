@@ -2134,6 +2134,18 @@ def test_a_replay_is_clean_only_if_the_contract_of_the_bundle_passed_in_every_ru
     )
 
 
+@pytest.mark.parametrize("other_valid", [True, False])
+def test_a_saved_loss_observed_in_only_one_replay_is_judged_in_each_run(tmp_path, other_valid):
+    kept = bundle.load(a_copy(tmp_path))
+    kept.predicate = Predicate.parse("A2/outside-backend")
+    passing = ledger("1.8.12", "book_then_interrupt")
+    ledgers = iter((_blind(passing), passing if other_valid else passing[:-1]))
+    replayed = bundle.replay(kept, lambda case: next(ledgers), repeats=2)
+    assert replayed.judged is other_valid
+    assert replayed.broke == 1 and not replayed.reproduced and not replayed.repeatable
+    assert replayed.others == () and replayed.other_losses == ("A3/outside-backend",)
+
+
 def test_a_bundle_written_before_manifests_recorded_its_cases_loads_and_says_so(tmp_path):
     directory = a_copy(tmp_path)
 

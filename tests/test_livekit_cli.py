@@ -960,6 +960,8 @@ def test_a_kept_loss_of_evidence_replays_as_one(capsys, tmp_path):
     directory = _kept(capsys, LOST, "A2/outside-backend", tmp_path)
     status, out, _ = earful(capsys, "replay", directory, "--expect", "reproduced")
     assert status == OK and "loses the evidence    yes" in out
+    assert "other evidence lost   A3/outside-backend" in out
+    assert "other rules broken" not in out
 
 
 @pytest.mark.slow

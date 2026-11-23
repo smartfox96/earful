@@ -104,7 +104,7 @@ MUTANTS = [
     Mutant(
         "replay: lost evidence cannot be reproduced",
         "src/earful/core/bundle.py",
-        "if self.lost_predicate and self.reproduced:",
+        "if self.loss_judged:",
         "if False:",
         first="a_kept_loss_of_evidence_replays",
     ),
@@ -5539,9 +5539,16 @@ MUTANTS = [
     Mutant(
         "bundle: a replay keeps no other rule that broke",
         "src/earful/core/bundle.py",
-        "    others = {str(p) for o in outcomes for p in o.failures if p != bundle.predicate}\n",
-        "    others: set[str] = set()\n",
+        "    others = {p for o in outcomes for p in o.failures if p != bundle.predicate}\n",
+        "    others = set()\n",
         first="clean_only_if_the_contract_of_the_bundle_passed",
+    ),
+    Mutant(
+        "replay: a loss observed in some runs is unjudged",
+        "src/earful/core/bundle.py",
+        "and all(matched or verdict in (PASS, FAIL) for matched, verdict in zip(broke, contract))",
+        "and all(broke)",
+        first="test_a_saved_loss_observed_in_only_one_replay",
     ),
     Mutant(
         "bundle: a replay counts no run as breaking the rule",
