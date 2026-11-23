@@ -8,6 +8,8 @@ import pytest
 pytest.importorskip("livekit.agents")
 
 # Imported before pytester runs: the framework's extension modules cannot be imported twice.
+from shapes.corpus import KnownDefect
+
 import earful.livekit as adapter
 from earful.core.ledger import read_jsonl
 from earful.core.schema import validate
@@ -226,3 +228,29 @@ def test_a_run_that_is_not_valid_evidence_is_kept_as_evidence_too(tmp_path):
     (line, *_rest) = helper.evidence()
     assert line == "run 1 (barge_in_mid_word) breaks not valid evidence"
     assert (tmp_path / "run-1.barge_in_mid_word.ledger.jsonl").exists()
+
+
+COLLIDING = """
+import pytest
+
+
+@pytest.mark.parametrize("who", ["a/b", "a b", "a-b"])
+def test_booking(earful, who):
+    faults = [] if who == "a-b" else [Fault("backend.error", 1)]
+    earful.run(booking(faults=faults)).assert_contracts()
+"""
+
+
+@pytest.mark.xfail(
+    strict=True,
+    raises=KnownDefect,
+    reason="Earful: ids that differ in one character share evidence",
+)
+def test_tests_whose_ids_differ_in_one_character_keep_their_evidence_apart(pytester):
+    pytester.makepyfile(test_booking=PROJECT.partition("def test_as_written")[0] + COLLIDING)
+    result = pytester.runpytest_inprocess("-p", "no:cacheprovider", "-p", "no:asyncio")
+    result.assert_outcomes(passed=1, failed=2)
+    out = pytester.path / ".earful"
+    kept = sorted(p.name for p in out.iterdir()) if out.exists() else []
+    if len(kept) != 2:
+        raise KnownDefect(f"the two failing tests left {kept}")

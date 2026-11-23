@@ -4,6 +4,7 @@ import copy
 from pathlib import Path
 
 import pytest
+from shapes.corpus import KnownDefect
 
 from earful.core.ledger import SCHEMA, ledger_hash, normalize, read_jsonl, run_id
 from earful.core.schema import kinds, load_schema, validate, validity
@@ -304,3 +305,52 @@ def test_a_ledger_of_another_format_is_said_to_be_so_once(booking):
     ]
     mixed = [events[0], *booking[1:]]  # one event of another format is said of it alone
     assert len(validate(mixed)) == 1 and validate(mixed)[0].startswith("event 0 (run.start)")
+
+
+def _one(events, kind, n=0):
+    return [e for e in events if e["kind"] == kind][n]
+
+
+def _numbered(events):
+    return [{**e, "seq": n} for n, e in enumerate(events)]
+
+
+def _committed_twice(events):
+    request, commit = _one(events, "effect.requested"), _one(events, "effect.committed")
+    again = [copy.deepcopy(request), copy.deepcopy(commit)]
+    for e in again:
+        e["data"]["request"] = 2  # a second write, given the first one's receipt
+    at = events.index(commit) + 1
+    return _numbered(events[:at] + again + events[at:])
+
+
+def _called_by_nobody(events):
+    _one(events, "tool.called")["data"]["call_id"] = "nope"
+    return events
+
+
+def _a_stamp_played_four_times(events):
+    _one(events, "playout.finished", 1)["data"]["words_played"] = [19, 19, 19, 19]
+    return events
+
+
+DAMAGED = {
+    "two commits with one receipt": _committed_twice,
+    "a tool call no model asked for": _called_by_nobody,
+    "words played that repeat one stamp": _a_stamp_played_four_times,
+    "no final history": lambda ev: _numbered([e for e in ev if e["kind"] != "history.final"]),
+    "seq and t_us as floats": lambda ev: [
+        {**e, "seq": float(e["seq"]), "t_us": float(e["t_us"])} for e in ev
+    ],
+}
+
+
+@pytest.mark.parametrize("damage", DAMAGED)
+@pytest.mark.xfail(
+    strict=True, raises=KnownDefect, reason="Earful: the validator accepts a ledger no run writes"
+)
+def test_the_validator_refuses_a_ledger_no_run_could_have_written(damage):
+    events = read_jsonl(GOLDEN / "lk-1.8.12.book_then_interrupt.ledger.normalized.jsonl")
+    assert validity(events) == []
+    if validity(DAMAGED[damage](events)) == []:
+        raise KnownDefect(f"{damage}: accepted")

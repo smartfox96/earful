@@ -3,12 +3,14 @@
 import asyncio
 import contextlib
 import dataclasses
+import enum
 
 import pytest
 
 pytest.importorskip("livekit.agents")
 
 import livekit.agents as lk
+from shapes.corpus import KnownDefect
 
 from earful.core.backend import (
     effect,
@@ -196,6 +198,18 @@ def test_values_json_cannot_hold_are_named_not_printed():
     assert tools.model_text("ok") == "ok" and tools.model_text({"a": 1}) == "{'a': 1}"
     assert tools.model_text(Opaque()) is None
     assert tools.model_text(None) == ""  # a tool that returns nothing is shown as empty text
+
+
+@pytest.mark.xfail(
+    strict=True, raises=KnownDefect, reason="Earful: an enumeration is recorded by its type"
+)
+def test_an_argument_from_an_enumeration_is_recorded_by_its_value():
+    class Size(enum.Enum):
+        LARGE = "large"
+
+    recorded = tools.json_value({"size": Size.LARGE})
+    if recorded != {"size": "large"}:
+        raise KnownDefect(f"recorded as {recorded}")
 
 
 def test_an_agent_is_taken_out_of_what_a_tool_returns_and_the_rest_is_shown():

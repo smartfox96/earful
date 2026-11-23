@@ -7,9 +7,10 @@ import sys
 from pathlib import Path
 
 import pytest
+from shapes.corpus import KnownDefect
 
 from earful.cli import BROKEN, NO_VERDICT, OK, REFUSED, main
-from earful.core.ledger import read_jsonl, write_jsonl
+from earful.core.ledger import read_jsonl, run_id, write_jsonl
 
 HERE = Path(__file__).parent
 GOLDEN, BUNDLES = HERE / "golden", HERE / "bundles"
@@ -68,6 +69,52 @@ def test_check_as_json_is_one_report_per_line(capsys):
 def test_check_with_measures_prints_what_each_verdict_measured(capsys):
     _, out, _ = earful(capsys, "check", CLEAN, "--measures")
     assert '"committed": 1' in out
+
+
+@pytest.mark.xfail(
+    strict=True, raises=KnownDefect, reason="Earful: check exits 0 when evidence was lost"
+)
+def test_check_exits_3_when_a_contract_lost_its_evidence_unless_that_is_allowed(capsys, tmp_path):
+    """The booking tool's write never reached the backend: A2 and A3 cannot be judged."""
+    events = [e for e in read_jsonl(CLEAN) if not e["kind"].startswith("effect.")]
+    run = run_id(events[0]["data"])
+    lost = tmp_path / "lost.jsonl"
+    write_jsonl([{**e, "seq": n, "run": run} for n, e in enumerate(events)], lost)
+    status, out, _ = earful(capsys, "check", lost)
+    assert "A2  unobservable" in out and "A3  unobservable" in out
+    if status != NO_VERDICT:
+        raise KnownDefect(f"exit {status}")
+    allowed = ("--allow", "A2/outside-backend", "--allow", "A3/outside-backend")
+    assert earful(capsys, "check", lost, *allowed)[0] == OK
+
+
+@pytest.mark.xfail(
+    strict=True, raises=KnownDefect, reason="Earful: a directory given for a file raises"
+)
+def test_a_directory_given_for_the_report_is_refused_in_one_line(capsys, tmp_path):
+    try:
+        status, _, err = earful(capsys, "report", CLEAN, "-o", tmp_path)
+    except IsADirectoryError as exc:
+        raise KnownDefect(str(exc)) from exc
+    assert status == REFUSED and len(err.strip().splitlines()) == 1
+
+
+@pytest.mark.parametrize(
+    "field, value", [("t_us", None), ("t_us", [1]), ("seq", {"a": 1}), ("kind", {}), ("source", [])]
+)
+@pytest.mark.xfail(
+    strict=True, raises=KnownDefect, reason="Earful: a damaged ledger raises in the text report"
+)
+def test_the_text_report_of_a_damaged_ledger_ends_in_a_status(capsys, tmp_path, field, value):
+    events = read_jsonl(CLEAN)
+    next(e for e in events if e["kind"] == "llm.request")[field] = value
+    damaged = tmp_path / "damaged.jsonl"
+    write_jsonl(events, damaged)
+    try:
+        status = earful(capsys, "report", damaged, "--format", "text")[0]
+    except TypeError as exc:
+        raise KnownDefect(str(exc)) from exc
+    assert status in (REFUSED, NO_VERDICT)
 
 
 def test_what_cannot_be_read_or_is_not_a_ledger_is_refused_with_status_2(capsys, tmp_path):
@@ -217,3 +264,32 @@ def test_the_command_runs_as_a_module_and_says_its_version():
         [sys.executable, "-m", "earful", "--version"], capture_output=True, text=True, check=False
     )
     assert done.returncode == 0 and done.stdout.startswith("earful ")
+
+
+@pytest.mark.xfail(
+    strict=True, raises=KnownDefect, reason="Earful: a header whose schema is a list raises"
+)
+def test_a_line_whose_schema_is_a_list_is_refused_in_one_line(capsys, tmp_path):
+    damaged = tmp_path / "damaged.jsonl"
+    damaged.write_text('{"schema": []}\n')
+    try:
+        status, _, err = earful(capsys, "check", damaged)
+    except TypeError as exc:
+        raise KnownDefect(str(exc)) from exc
+    assert status == REFUSED and len(err.strip().splitlines()) == 1
+
+
+@pytest.mark.parametrize("mark", ["", "\ufeff"], ids=["utf-8", "utf-8 with a byte order mark"])
+@pytest.mark.xfail(
+    strict=True, raises=KnownDefect, reason="Earful: a ledger in UTF-8 is not read as one"
+)
+def test_a_ledger_written_in_utf_8_is_read(capsys, tmp_path, mark):
+    events = read_jsonl(CLEAN)
+    final = next(e for e in events if e["kind"] == "user.transcript_final")
+    final["data"]["text"] = final["data"]["text"].replace("table", "tablé")
+    written = tmp_path / "utf8.jsonl"
+    text = "".join(json.dumps(e, ensure_ascii=False) + "\n" for e in events)
+    written.write_text(mark + text, encoding="utf-8")
+    status, _, err = earful(capsys, "check", written)
+    if status == REFUSED:
+        raise KnownDefect(err.strip())

@@ -1,8 +1,10 @@
 """The backend a run writes to: what commits, what its caller is told, and what is recorded."""
 
 import asyncio
+import datetime
 
 import pytest
+from shapes.corpus import KnownDefect
 
 from earful.core import backend as backends
 from earful.core.backend import BackendError, BackendTimeout, EffectBackend, current_tool, effect
@@ -211,3 +213,26 @@ def test_outside_a_run_there_is_no_backend_to_write_to():
     assert backends.active() is None
     with pytest.raises(RuntimeError, match="outside an Earful run"):
         asyncio.run(effect("order-1", {"dish": "soup"}))
+
+
+@pytest.mark.xfail(
+    strict=True, raises=KnownDefect, reason="Earful: a write refused for its payload takes a number"
+)
+def test_a_write_refused_for_its_payload_is_no_request_and_the_next_one_is_write_1():
+    async def main():
+        ledger = Ledger(now_us, run="run-0000000000000000")
+        token = backends.install(EffectBackend(ledger, faults={1: ("backend.error", None)}))
+        try:
+            with pytest.raises(TypeError):
+                await effect("book", {"when": datetime.datetime(2026, 1, 1)})
+            try:
+                await effect("book", {"n": 1})
+            except BackendError:
+                return "the fault applied"
+            return [e["data"]["request"] for e in ledger.events]
+        finally:
+            backends.uninstall(token)
+
+    said = run_virtual(main)
+    if said != "the fault applied":
+        raise KnownDefect(f"the good write was request {said[0]}, and committed")

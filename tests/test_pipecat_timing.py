@@ -7,6 +7,7 @@ import pytest
 pytest.importorskip("pipecat")
 
 from pipecat.processors.aggregators.llm_context import LLMContext
+from shapes.corpus import KnownDefect
 
 from earful import pipecat as pc
 from earful.core.search import anchors
@@ -72,6 +73,27 @@ def test_pipecat_speech_that_resumes_within_the_vads_silence_window_is_one_segme
     assert (_at(result, "user.vad_start"), _at(result, "user.vad_end")) == (started, ended)
     # Either way the turn is one: the second speech began before the first turn could end.
     assert _shown(result) == [["Tell me about the menu."]]
+
+
+@pytest.mark.xfail(
+    strict=True,
+    raises=KnownDefect,
+    reason="Earful: the scripted VAD reports a sound shorter than its start time",
+)
+def test_pipecat_a_sound_shorter_than_the_vads_start_time_is_not_speech():
+    """A 0.1 s sound during the reply, and a VAD that needs 0.2 s of speech."""
+    case = pc.Case(
+        "short sound",
+        lambda llm: LLMContext(),
+        [pc.UserSpeech(0.5, 1.0, "Hello"), pc.UserSpeech(2.6, 2.7, "")],
+        pc.ScriptedModel().otherwise(say="Good morning to you, how can I help you today?"),
+        vad_start_secs=0.2,
+        tts_word_timestamps=True,
+    )
+    started = _at(pc.run(case), "user.vad_start")
+    assert started[0] == 700_000
+    if started != [700_000]:
+        raise KnownDefect(f"the sound is reported as speech at {started[1]} us")
 
 
 # 0.7 and 0.35 s are not exact as floats, and neither is their sum with the 0.2 s before.

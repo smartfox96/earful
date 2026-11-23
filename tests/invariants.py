@@ -16,7 +16,8 @@ SHIFTED = "every time shifted"
 LONGER = "a declared delay longer"
 HISTORY = "a starting history"
 TWO_PARTS = "a reply voiced in two parts"
-NAMES = (SHIFTED, LONGER, HISTORY, TWO_PARTS)
+AGAIN = "the same case run again"
+NAMES = (SHIFTED, LONGER, HISTORY, TWO_PARTS, AGAIN)
 
 SHIFT = 1.25  # seconds added to every time the scenario declares
 LONGER_BY = 2.0  # seconds added to every model call and every backend write
@@ -38,20 +39,20 @@ def same_verdicts(original: Seen, varied: Seen) -> str | None:
     return f"{original} became {varied}"
 
 
-def no_fail_passes(original: Seen, varied: Seen) -> str | None:
-    """A contract that failed still fails, or lost its evidence: it never passes."""
-    if original.ended != "judged":
+def same_ledger(original: Seen, varied: Seen) -> str | None:
+    """The same case and seed give the same ledger, so the same verdicts."""
+    if original.hash == varied.hash:
         return None
-    if varied.ended != "judged":
-        return f"{original} became {varied}"
-    better = [
-        contract
-        for contract, outcome in original.outcomes.items()
-        if outcome == "fail" and varied.outcomes.get(contract) not in ("fail", "unobservable")
-    ]
-    if not better:
+    return f"another ledger: {original} became {varied}"
+
+
+def missed_stays_missed(original: Seen, varied: Seen) -> str | None:
+    """An L1 that failed fails with every call slower: a slower agent meets no missed deadline."""
+    if original.ended != "judged" or original.outcomes.get("L1") != "fail":
         return None
-    return ", ".join(f"{c} failed and became {varied.outcomes.get(c)}" for c in better)
+    if varied.ended == "judged" and varied.outcomes.get("L1") in ("fail", "unobservable"):
+        return None
+    return f"L1 failed and became {varied.outcomes.get('L1', varied.ended)}"
 
 
 def _shifted(case: Any, original: Seen) -> Any:
@@ -77,7 +78,8 @@ def _longer(case: Any, original: Seen) -> Any:
 
 
 SHIFT_EVERY_TIME = Variation(SHIFTED, _shifted, same_verdicts)
-LONGER_DELAYS = Variation(LONGER, _longer, no_fail_passes)
+LONGER_DELAYS = Variation(LONGER, _longer, missed_stays_missed)
+RUN_AGAIN = Variation(AGAIN, lambda case, original: case, same_ledger)
 
 
 def earlier_exchange(case: Any, original: Seen) -> tuple[str, str]:

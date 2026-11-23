@@ -6,6 +6,7 @@ import shutil
 from pathlib import Path
 
 import pytest
+from shapes.corpus import KnownDefect
 
 from earful.core import bundle
 from earful.core import case as cases
@@ -1737,6 +1738,37 @@ def test_a_settled_time_is_the_roundest_in_the_middle_half_of_its_window():
 
 
 @pytest.mark.slow
+@pytest.mark.xfail(
+    strict=True,
+    raises=KnownDefect,
+    reason="Earful: a reduced case keeps a change of value the failure does not need",
+)
+def test_a_reduced_case_keeps_no_difference_the_failure_can_do_without():
+    """It needs the fault and the question, and the question early or no thanks after it."""
+    author = a_case(BOOK, WINDOW, speech(8_000_000, 9_000_000, "Thanks."))
+    found = copy.deepcopy(author)
+    found["speeches"][1].update(start_us=3_200_000, end_us=4_200_000)
+    found["faults"] = [{"of": "backend.error", "nth": 1, "us": None}]
+    asked = WINDOW["transcript"]
+
+    def fails(case):
+        said = {s["transcript"]: s for s in case["speeches"]}
+        early = asked in said and said[asked]["start_us"] < 4_000_000
+        return bool(case["faults"]) and asked in said and (early or "Thanks." not in said)
+
+    runner = Runner(answers(fails))
+    rule = Predicate("A2", "rule")
+    shrunk = shrink(found, runner, rule, author=author)
+    left = differences(author, shrunk.case)
+    needless = []
+    for one in left:
+        undone = applied(author, [other for other in left if other is not one])
+        if not cases.validate(undone) and runner.breaks(undone, rule):
+            needless.append(one.label)
+    if needless:
+        raise KnownDefect(f"kept without need: {needless}")
+
+
 def test_shrinking_without_an_authors_scenario_removes_and_settles():
     shrunk = shrink(FOUND, answers(INTERRUPTS), A2)
     assert [s["transcript"] for s in shrunk.case["speeches"]] == [
