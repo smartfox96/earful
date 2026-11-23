@@ -245,8 +245,9 @@ installed release.
 
 The same files vary every shape as `tests/invariants.py` says: every time shifted, every
 model call and backend write declared longer, a starting history in the words of the run,
-a reply voiced in two parts. A variation leaves the verdicts as they are, except that a
-longer delay may change them as long as no contract that failed passes. `DEFECT_VARIED`
+a reply voiced in two parts. A variation leaves the verdicts as they are. Longer calls may
+change them, since a reply can move off or onto the user's turn, but an L1 that failed
+still fails: a slower agent meets no deadline it missed. `DEFECT_VARIED`
 says what a shape is still judged under a variation while Earful gets that wrong, and
 `NOT_VARIED` names a variation that does not fit the shape, with the reason.
 

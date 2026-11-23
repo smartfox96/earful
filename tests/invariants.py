@@ -38,20 +38,13 @@ def same_verdicts(original: Seen, varied: Seen) -> str | None:
     return f"{original} became {varied}"
 
 
-def no_fail_passes(original: Seen, varied: Seen) -> str | None:
-    """A contract that failed still fails, or lost its evidence: it never passes."""
-    if original.ended != "judged":
+def missed_stays_missed(original: Seen, varied: Seen) -> str | None:
+    """An L1 that failed fails with every call slower: a slower agent meets no missed deadline."""
+    if original.ended != "judged" or original.outcomes.get("L1") != "fail":
         return None
-    if varied.ended != "judged":
-        return f"{original} became {varied}"
-    better = [
-        contract
-        for contract, outcome in original.outcomes.items()
-        if outcome == "fail" and varied.outcomes.get(contract) not in ("fail", "unobservable")
-    ]
-    if not better:
+    if varied.ended == "judged" and varied.outcomes.get("L1") in ("fail", "unobservable"):
         return None
-    return ", ".join(f"{c} failed and became {varied.outcomes.get(c)}" for c in better)
+    return f"L1 failed and became {varied.outcomes.get('L1', varied.ended)}"
 
 
 def _shifted(case: Any, original: Seen) -> Any:
@@ -77,7 +70,7 @@ def _longer(case: Any, original: Seen) -> Any:
 
 
 SHIFT_EVERY_TIME = Variation(SHIFTED, _shifted, same_verdicts)
-LONGER_DELAYS = Variation(LONGER, _longer, no_fail_passes)
+LONGER_DELAYS = Variation(LONGER, _longer, missed_stays_missed)
 
 
 def earlier_exchange(case: Any, original: Seen) -> tuple[str, str]:

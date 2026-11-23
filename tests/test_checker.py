@@ -9,6 +9,7 @@ import re
 from pathlib import Path
 
 import pytest
+from shapes.corpus import KnownDefect
 
 from earful.core.checker import (
     FAIL,
@@ -229,6 +230,29 @@ def test_a_required_contract_that_fails_by_an_allowed_rule_was_judged(affected):
     assert cut.unjudged(["A2"]) == {}
     with pytest.raises(ContractFailure, match="not valid evidence"):
         cut.assert_contracts(require=["A2"])
+
+
+@pytest.mark.xfail(
+    strict=True,
+    raises=KnownDefect,
+    reason="Earful: a verdict that fails drops the codes of what it lost",
+)
+def test_a_verdict_that_fails_keeps_the_codes_of_the_evidence_it_lost(fixed):
+    for e in fixed:
+        if e["kind"] == "tool.returned":  # an object as the tool's value: no stable text
+            e["data"]["output"], e["data"]["text"] = {"unrepresentable": "Receipt"}, None
+    assert check(seal(copy.deepcopy(fixed))).lost() == ["M2/no-stable-text"]
+    for e in fixed:
+        if e["kind"] in ("llm.request", "history.final"):  # the call shown with other arguments
+            for item in e["data"]["items"]:
+                if item["type"] == "function_call":
+                    item["arguments"] = '{"party_size": 2}'
+    report = check(seal(fixed))
+    assert report.broken() == ["M2/rule f"]
+    if report.lost() != ["M2/no-stable-text"]:
+        raise KnownDefect("the lost code is dropped, so allowing rule f passes the run")
+    with pytest.raises(ContractFailure, match="lost the evidence for M2/no-stable-text"):
+        report.assert_contracts(allow=["M2/rule f"])
 
 
 def test_a_verdict_cites_the_events_and_witnesses_it_rests_on(affected):
@@ -2529,6 +2553,27 @@ def test_the_history_an_agent_started_with_is_left_out_of_every_context():
     assert {v.contract for v in unrecorded.failures} == {"M2", "L1"}
     recorded = check(_seeded(events, recorded=True))
     assert recorded.valid and recorded.outcomes() == check(events).outcomes()
+
+
+@pytest.mark.xfail(
+    strict=True,
+    raises=KnownDefect,
+    reason="Earful: a starting history is taken out of the run by its words",
+)
+def test_a_turn_the_final_history_holds_twice_is_found_behind_an_earlier_turn_of_its_words():
+    events = load("1.8.13", "book_then_interrupt")
+    final = of(events, "history.final")["data"]["items"]
+    at = next(n for n, item in enumerate(final) if item.get("role") == "user")
+    final.insert(at, dict(final[at]))  # the framework keeps the user's turn twice
+    assert rules(check(seal(copy.deepcopy(events))), "M2") == ["rule a", "rule b"]
+    earlier = {**final[at], "id": "item_earlier"}  # an earlier call's turn, in the same words
+    events[0]["data"]["scenario"]["history"] = [earlier]
+    for e in events:
+        if e["kind"] == "llm.request":  # the model is shown it, the final history is not
+            items = e["data"]["items"]
+            items.insert(next(n for n, i in enumerate(items) if i.get("role") != "system"), earlier)
+    if rules(check(seal(events)), "M2") != ["rule a", "rule b"]:
+        raise KnownDefect("the turn held twice passes")
 
 
 def test_each_item_of_the_starting_history_takes_out_the_first_like_it_in_order():
