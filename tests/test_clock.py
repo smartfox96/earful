@@ -3,6 +3,7 @@
 import _thread
 import asyncio
 import logging
+import math
 import random
 import socket
 import subprocess
@@ -11,6 +12,7 @@ import threading
 import time
 
 import pytest
+from shapes.corpus import KnownDefect
 
 from earful.core.timebase import to_seconds, to_us
 from earful.scripted.clock import (
@@ -305,3 +307,29 @@ def test_conversion_is_exact_for_decimal_seconds():
     # the subtraction a float clock would do is not exact; the integer one is
     assert 4.1 - 3.6 < 0.5
     assert to_seconds(to_us(4.1) - to_us(3.6)) == 0.5
+
+
+async def _no_deadline(how):
+    if how == "wait_for":
+        sleeping = asyncio.ensure_future(asyncio.sleep(0.1, "ok"))
+        try:
+            return await asyncio.wait_for(sleeping, timeout=math.inf)
+        finally:
+            sleeping.cancel()
+    asyncio.get_running_loop().call_later(math.inf, print).cancel()
+    return "ok"
+
+
+@pytest.mark.parametrize("how", ["wait_for", "call_later"])
+@pytest.mark.xfail(
+    strict=True,
+    raises=KnownDefect,
+    reason="Earful: an infinite timeout overflows the virtual clock",
+)
+def test_an_infinite_timeout_works_on_the_virtual_clock_as_on_a_real_one(how):
+    assert asyncio.run(_no_deadline(how)) == "ok"
+    try:
+        said = run_virtual(lambda: _no_deadline(how))
+    except OverflowError as exc:
+        raise KnownDefect(str(exc)) from exc
+    assert said == "ok"

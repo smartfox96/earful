@@ -1,6 +1,7 @@
 """The scripted model written as rules: how a context is read and which rule answers."""
 
 import pytest
+from shapes.corpus import KnownDefect
 
 from earful.scripted.model import Claim, Reply, ReplyRegister, ToolCall
 from earful.scripted.playbook import (
@@ -191,3 +192,16 @@ def test_a_reply_whose_generation_stopped_inside_a_word_is_a_prefix():
     assert ReplyRegister(replies={1: ["a", "roasted"]}).attribute("roasted") == (None, "none", [])
     two = ReplyRegister(replies={1: ["Okay,", "stopping."], 2: ["Okay."]})
     assert two.attribute("Okay") == (None, "ambiguous", [1, 2])
+
+
+@pytest.mark.xfail(
+    strict=True, raises=KnownDefect, reason="Earful: a call given as a list becomes two calls"
+)
+def test_a_call_given_as_a_list_is_one_call_or_refused():
+    try:
+        calls = reply(call=["book", {"n": 1}]).tool_calls
+    except (TypeError, ValueError):
+        return
+    if len(calls) != 1:
+        raise KnownDefect(f"{len(calls)} calls: {[c.name for c in calls]}")
+    assert calls[0].name == "book"

@@ -13,14 +13,16 @@ import pytest
 pytest.importorskip("livekit.agents")
 
 import livekit.agents as lk
+from shapes.corpus import KnownDefect
 from test_cli import BOOKED_TWICE, BUNDLES, CLEAN, GOLDEN, KEPT_3702, earful
 
 from earful import __version__
 from earful.cli import BROKEN, NO_VERDICT, OK, REFUSED, main
+from earful.core import bundle
 from earful.core import case as cases
 from earful.core.ledger import ledger_hash, read_jsonl
 from earful.core.schema import validate, validity
-from earful.livekit import scenario
+from earful.livekit import Case, Intent, ScriptedModel, UserSpeech, scenario, user_ever_said
 
 VERSION = tuple(int(part) for part in lk.__version__.split(".")[:3])
 HAS_3702 = VERSION < (1, 6, 6)
@@ -838,3 +840,143 @@ def test_crosscheck_of_what_cannot_be_run_is_refused_or_has_no_verdict(capsys, t
     assert earful(capsys, "crosscheck", "breaks:host", "--runs", "0")[0] == REFUSED
     status, out, _ = earful(capsys, "crosscheck", "breaks:host_with_no_rule_for_stop")
     assert status == NO_VERDICT and "nothing to compare with" in out and "NoRule" in out
+
+
+LOST = "shapes.livekit.books_outside_the_backend:case"
+NARROW = ("--variables", "none", "--no-words", "--workers", "0")
+
+
+@pytest.mark.xfail(
+    strict=True, raises=KnownDefect, reason="Earful: run exits 0 when evidence was lost"
+)
+def test_run_exits_3_when_a_contract_lost_its_evidence_unless_that_is_allowed(capsys):
+    status, out, _ = earful(capsys, "run", LOST)
+    assert "A2  unobservable" in out
+    if status != NO_VERDICT:
+        raise KnownDefect(f"exit {status}")
+    allowed = ("--allow", "A2/outside-backend", "--allow", "A3/outside-backend")
+    assert earful(capsys, "run", LOST, *allowed)[0] == OK
+
+
+class _EndsTheProcess(lk.Agent):
+    def __init__(self) -> None:
+        super().__init__(instructions="You take reservations.")
+
+    @lk.function_tool
+    async def create_reservation(self, party_size: int) -> str:
+        """Book a table."""
+        sys.exit(0)
+
+
+def ends_the_process() -> Case:
+    return Case(
+        name="ends_the_process",
+        agent=_EndsTheProcess,
+        speeches=[UserSpeech(start=0.5, end=2.5, transcript="A table for four tonight, please.")],
+        policy=ScriptedModel()
+        .when(
+            user_ever_said("table"),
+            say="Let me book that.",
+            call=("create_reservation", {"party_size": 4}),
+        )
+        .otherwise(say="How can I help?"),
+        intents=[Intent("book-table", tools=("create_reservation",))],
+    )
+
+
+@pytest.mark.xfail(
+    strict=True, raises=KnownDefect, reason="Earful: a tool's sys.exit(0) ends the command at 0"
+)
+def test_a_tool_that_ends_the_process_is_refused_in_one_line():
+    done = subprocess.run(
+        [sys.executable, "-m", "earful", "run", "test_livekit_cli:ends_the_process"],
+        cwd=Path(__file__).parent,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if done.returncode == OK:
+        raise KnownDefect(f"exit 0, printing {done.stdout!r}")
+    assert done.returncode == REFUSED and len(done.stderr.strip().splitlines()) == 1
+
+
+@pytest.mark.xfail(
+    strict=True, raises=KnownDefect, reason="Earful: a directory given for a file raises"
+)
+def test_a_directory_given_for_the_ledger_is_refused_in_one_line(capsys, tmp_path):
+    try:
+        status, _, err = earful(
+            capsys, "run", "earful.livekit.cases:barge_in_mid_word", "--ledger", tmp_path
+        )
+    except IsADirectoryError as exc:
+        raise KnownDefect(str(exc)) from exc
+    assert status == REFUSED and len(err.strip().splitlines()) == 1
+
+
+@pytest.mark.parametrize(
+    "unused",
+    [
+        "search --out without --keep",
+        "search --stretch-ms without --pairs",
+        pytest.param("crosscheck of a bundle with --case", marks=pytest.mark.slow),
+    ],
+)
+@pytest.mark.xfail(
+    strict=True, raises=KnownDefect, reason="Earful: an option that does nothing is accepted"
+)
+def test_an_option_that_does_nothing_with_the_others_given_is_refused(capsys, tmp_path, unused):
+    reference = "breaks:as_written_confirms_a_failed_booking"
+    argv = {
+        "search --out without --keep": ("search", reference, *NARROW, "--out", tmp_path),
+        "search --stretch-ms without --pairs": ("search", reference, *NARROW, "--stretch-ms", 100),
+        "crosscheck of a bundle with --case": (
+            "crosscheck",
+            KEPT_3702,
+            "--case",
+            KEPT_3702 / "minimal.case.json",
+            "--runs",
+            1,
+        ),
+    }[unused]
+    status = earful(capsys, *argv)[0]
+    if status != REFUSED:
+        raise KnownDefect(f"exit {status}")
+
+
+def _kept(capsys, reference, rule, out):
+    _, said, _ = earful(
+        capsys, "search", reference, *NARROW, "--keep", rule, "--out", out, "--no-windows", "--json"
+    )
+    return Path(json.loads(said)["bundles"][rule]["directory"])
+
+
+@pytest.mark.slow
+@pytest.mark.xfail(
+    strict=True,
+    raises=KnownDefect,
+    reason="Earful: a replay whose kept fault never applies is clean",
+)
+def test_a_replay_whose_kept_fault_never_applies_says_so_and_is_not_clean(capsys, tmp_path):
+    directory = _kept(capsys, "breaks:as_written_confirms_a_failed_booking", "A3/rule", tmp_path)
+    minimal = json.loads((directory / "minimal.case.json").read_text())
+    minimal["faults"] = [{**fault, "nth": 9} for fault in minimal["faults"]]  # a write never made
+    assert minimal["faults"]
+    (directory / "minimal.case.json").write_text(json.dumps(minimal, indent=2, sort_keys=True))
+    manifest = json.loads((directory / "manifest.json").read_text())
+    manifest["minimal"]["case_digest"] = bundle.case_digest(minimal)
+    (directory / "manifest.json").write_text(json.dumps(manifest, indent=2, sort_keys=True))
+    status, out, _ = earful(capsys, "replay", directory, "--expect", "clean")
+    if "unapplied" not in out:
+        raise KnownDefect(f"exit {status}, and the replay does not name the fault")
+    assert status != OK
+
+
+@pytest.mark.slow
+@pytest.mark.xfail(
+    strict=True, raises=KnownDefect, reason="Earful: a kept loss of evidence replays as a break"
+)
+def test_a_kept_loss_of_evidence_replays_as_one(capsys, tmp_path):
+    directory = _kept(capsys, LOST, "A2/outside-backend", tmp_path)
+    status, out, _ = earful(capsys, "replay", directory, "--expect", "reproduced")
+    if status != OK or "breaks the rule" in out:
+        raise KnownDefect(f"exit {status}: {out.strip().splitlines()[-1]}")

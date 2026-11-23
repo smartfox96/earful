@@ -34,6 +34,7 @@ from pipecat.frames.frames import (
 )
 from pipecat.processors.aggregators.llm_context import LLMContext
 from pipecat.processors.frame_processor import FrameDirection, FrameProcessor
+from shapes.corpus import KnownDefect
 
 from earful import pipecat as pc
 from earful.cli import main
@@ -1047,3 +1048,21 @@ def test_pipecat_help_shows_each_public_function_as_a_function_of_the_adapter():
         assert inspect.isfunction(function) and function.__doc__
         assert (function.__module__, function.__qualname__) == ("earful.pipecat.api", name)
     assert "source: 'str | Case | Callable[[], Case]'" in str(inspect.signature(pc.run))
+
+
+@pytest.mark.xfail(
+    strict=True,
+    raises=KnownDefect,
+    reason="Earful: Pipecat's debug log reaches the command's stderr",
+)
+def test_the_command_writes_none_of_pipecats_debug_log():
+    done = subprocess.run(
+        [sys.executable, "-m", "earful", "run", "earful.pipecat.cases:greeting"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert done.returncode == 0, done.stderr
+    debug = [line for line in done.stderr.splitlines() if "DEBUG" in line]
+    if debug:
+        raise KnownDefect(f"{len(debug)} DEBUG lines")

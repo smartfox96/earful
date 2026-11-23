@@ -5,10 +5,14 @@ import contextlib
 import dataclasses
 import datetime
 import gc
+import json
 import os
 import random
+import subprocess
+import sys
 import threading
 import time
+from pathlib import Path
 
 import pytest
 
@@ -16,6 +20,7 @@ pytest.importorskip("livekit.agents")
 
 import livekit.agents as lk
 from pydantic import BaseModel, Field, TypeAdapter
+from shapes.corpus import KnownDefect
 
 from earful.livekit.cases import CASES
 from earful.livekit.harness import Case, InvalidRun, run_case
@@ -233,3 +238,71 @@ def test_a_span_reads_the_clock_without_moving_it():
 
     before, after = run_virtual(main)
     assert round((after - before) * 1_000_000) == 1
+
+
+def _held_open(seconds):
+    class Holds(lk.Agent):
+        def __init__(self) -> None:
+            super().__init__(instructions="You look things up.")
+
+        @lk.function_tool
+        async def look_up(self) -> str:
+            """Look it up."""
+            time.sleep(seconds)  # noqa: ASYNC251 - blocks this run's thread in real time
+            return f"looked up at {time.time():.3f}"
+
+    return Case(
+        name="held_open",
+        agent=Holds,
+        speeches=[UserSpeech(start=0.5, end=1.5, transcript="Please look it up.")],
+        policy=lambda items: (
+            Reply(text="Done.")
+            if any(i["type"] == "function_call_output" for i in items)
+            else Reply(text="One moment.", tool_calls=(ToolCall("look_up", "{}"),))
+        ),
+    )
+
+
+def two_runs_on_two_threads():
+    """In a process of its own: the stand-ins a run installs may outlive it here."""
+    import json
+    import sys
+
+    real_time, real_start = time.time, threading.Thread.start
+    hashes = {"alone": run_case(_held_open(0), require_valid=False).hash}
+
+    def run(name, seconds, after):
+        time.sleep(after)
+        hashes[name] = run_case(_held_open(seconds), require_valid=False).hash
+
+    threads = [
+        threading.Thread(target=run, args=("first", 0.6, 0.0)),
+        threading.Thread(target=run, args=("second", 1.5, 0.2)),
+    ]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+    restored = time.time is real_time and threading.Thread.start is real_start
+    json.dump({"hashes": hashes, "restored": restored}, sys.stdout)
+
+
+@pytest.mark.slow
+@pytest.mark.xfail(
+    strict=True,
+    raises=KnownDefect,
+    reason="Earful: a second run on another thread reads the real clock",
+)
+def test_two_runs_on_two_threads_at_once_each_give_the_ledger_of_a_run_alone():
+    done = subprocess.run(
+        [sys.executable, "-c", "import test_livekit_clock as t; t.two_runs_on_two_threads()"],
+        cwd=Path(__file__).parent,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert done.returncode == 0, done.stderr
+    said = json.loads(done.stdout.strip().splitlines()[-1])
+    others = {h for h in said["hashes"].values() if h != said["hashes"]["alone"]}
+    if others or not said["restored"]:
+        raise KnownDefect(f"{len(others)} other ledger(s); stand-ins restored: {said['restored']}")
