@@ -99,17 +99,20 @@ script among them. `python3 scripts/ci_scope.py --table` prints these tables:
 | `src/earful/pipecat/**` | pipecat |
 | `examples/pipecat_booking/**` | pipecat |
 | `tests/golden/pc-*` | pipecat |
+| `tests/shapes/pipecat/**` | pipecat |
 | `src/earful/livekit/**` | livekit |
 | `examples/booking/**` | livekit |
 | `skills/**` | livekit |
 | `tests/golden/lk-*` | livekit |
 | `tests/bundles/**` | livekit |
+| `tests/shapes/livekit/**` | livekit |
 | `src/earful/scripted/clock.py` | clock |
 | `src/earful/core/html.py` | report |
 | `tests/mutants.py` | breaks |
 | `tests/mutants_seconds.json` | breaks |
 | `tests/conftest.py` | core |
 | `tests/*.py` | declared |
+| `tests/shapes/*.py` | declared |
 | `src/**` | core |
 | `pyproject.toml` | build |
 | `LICENSE` | build |
@@ -219,6 +222,41 @@ change alters how a report is drawn.
 them as shipped and with the fix, and `scripts/quickstart_check.sh` follows the steps from
 a built wheel. A change to the example, to a message the README quotes or to a command it
 uses fails one of them until the README is brought along.
+
+## Shapes, conformance and variations
+
+`tests/shapes/livekit/` and `tests/shapes/pipecat/` hold small applications, one per
+module, each written as an application of that framework would be. A module has a
+docstring saying what the application does, `case()`, and `SHOULD`: what a correct Earful
+reports about it, built with the helpers of `tests/shapes/corpus.py`.
+
+| `SHOULD` | The run |
+| --- | --- |
+| `judged(M2="pass", L1="pass")` | is judged with those outcomes, and no other contract fails. A contract can name the rules it breaks: `judged(L1="milestone 2")` |
+| `invalid(reason)`, `refused(message)`, `raises(error)` | ends that way, with a message that holds the text |
+| `ends_within(seconds)` | ends within that many real seconds. The shape runs in a process of its own, stopped then |
+
+While Earful gets a shape wrong, `DEFECT` says what it reports instead, and `DEFECT_ON`
+names the releases that shows on when it is not all of them. The shape's test is then a
+strict expected failure: it fails when Earful does anything other than `DEFECT` says, and
+on the day Earful gets the shape right, until `DEFECT` is removed.
+`tests/test_livekit_shapes.py` and `tests/test_pipecat_shapes.py` run every shape on the
+installed release.
+
+The same files vary every shape as `tests/invariants.py` says: every time shifted, every
+model call and backend write declared longer, a starting history in the words of the run,
+a reply voiced in two parts. A variation leaves the verdicts as they are, except that a
+longer delay may change them as long as no contract that failed passes. `DEFECT_VARIED`
+says what a shape is still judged under a variation while Earful gets that wrong, and
+`NOT_VARIED` names a variation that does not fit the shape, with the reason.
+
+`tests/conformance.py` lists what every adapter does, each behaviour with one check over
+what its runs showed. `tests/test_livekit_conformance.py` and
+`tests/test_pipecat_conformance.py` give a scenario of each, and fail while one is missing.
+A scenario declares its `defect` as a shape does.
+
+A defect of Earful goes in as a shape or a scenario with its `DEFECT` before it is fixed.
+`scripts/ran_every_test.sh` counts a strict expected failure as a test that ran.
 
 ## Adding a livekit-agents release
 

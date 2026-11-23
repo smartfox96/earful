@@ -6069,6 +6069,20 @@ MUTANTS = [
         "",
         first="result_fails_when_the_scope_failed",
     ),
+    Mutant(
+        "every test: an expected failure counts as a skip",
+        "scripts/ran_every_test.sh",
+        '    elif skip.get("type") == "pytest.xfail" and not skip.get("message", "").startswith("[NOTRUN]"):\n',
+        "    elif False:\n",
+        first="run_counts_only_when_every_test_ran",
+    ),
+    Mutant(
+        "every test: an expected failure that was not run counts as run",
+        "scripts/ran_every_test.sh",
+        ' and not skip.get("message", "").startswith("[NOTRUN]"):\n',
+        ":\n",
+        first="run_counts_only_when_every_test_ran",
+    ),
     # The runner of these breaks.
     Mutant(
         "breaks: a changed test file chooses none of the breaks that run it",

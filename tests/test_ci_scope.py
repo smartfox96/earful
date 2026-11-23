@@ -175,6 +175,15 @@ def test_each_test_file_selects_the_framework_it_needs():
         assert group == (said.pop() if said else "core"), path.name
 
 
+def test_a_shape_selects_its_framework_and_the_code_shapes_share_selects_both():
+    shapes = sorted((ROOT / "tests" / "shapes").rglob("*.py"))
+    assert len(shapes) > 4
+    for path in shapes:
+        name = path.relative_to(ROOT).as_posix()
+        framework = path.parent.name if path.parent.name in ("livekit", "pipecat") else "core"
+        assert ci_scope.group_of(name, _read())[1] == framework, name
+
+
 # A path of each rule, which no earlier rule takes.
 _EXAMPLES = {
     "docs/**": "docs/cases/one.md",
@@ -186,17 +195,20 @@ _EXAMPLES = {
     "src/earful/pipecat/**": "src/earful/pipecat/clock.py",
     "examples/pipecat_booking/**": "examples/pipecat_booking/test_bot.py",
     "tests/golden/pc-*": "tests/golden/pc-1.16.0.x.jsonl",
+    "tests/shapes/pipecat/**": "tests/shapes/pipecat/booking.py",
     "src/earful/livekit/**": "src/earful/livekit/_compat.py",
     "examples/booking/**": "examples/booking/test_booking.py",
     "skills/**": "skills/earful/SKILL.md",
     "tests/golden/lk-*": "tests/golden/lk-1.5.6.x.jsonl",
     "tests/bundles/**": "tests/bundles/b/minimal.ledger.jsonl",
+    "tests/shapes/livekit/**": "tests/shapes/livekit/booking.py",
     "src/earful/scripted/clock.py": "src/earful/scripted/clock.py",
     "src/earful/core/html.py": "src/earful/core/html.py",
     "tests/mutants.py": "tests/mutants.py",
     "tests/mutants_seconds.json": "tests/mutants_seconds.json",
     "tests/conftest.py": "tests/conftest.py",
     "tests/*.py": "tests/test_cli.py",
+    "tests/shapes/*.py": "tests/shapes/corpus.py",
     "src/**": "src/earful/core/schemas/ledger.json",
     "pyproject.toml": "pyproject.toml",
     "LICENSE": "LICENSE",
