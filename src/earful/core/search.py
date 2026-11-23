@@ -17,6 +17,7 @@ from .case import Variable
 from .checker import ContractFailure, check
 from .checker.report import allowed
 from .ledger import ledger_hash
+from .outcome import Decision, decide
 from .predicate import Predicate, details_of, failures
 
 Event = dict[str, Any]
@@ -96,7 +97,7 @@ def attempt(run: Run, case: cases.Case) -> tuple[Outcome, list[Event] | None]:
     from the run and is an error."""
     try:
         events = run(case)
-    except CaseRefused as exc:
+    except (SystemExit, OSError, CaseRefused) as exc:
         return Outcome(case, refused=str(exc)), None
     except Exception as exc:  # noqa: BLE001
         return Outcome(case, error=f"{type(exc).__name__}: {exc}"), None
@@ -866,8 +867,21 @@ class Exploration:
         side = f"{abs(offset) // 1000} ms {'before' if offset < 0 else 'after'}" if offset else "at"
         return f"{self._what(candidate)}, to put {first.handle.moment} {side} {beside}"
 
+    def decision(self, found: list[Break], unjudged: dict[str, str], allow: set[str]) -> Decision:
+        predicates = [one.predicate for one in found if not one.instants_only]
+        return decide(
+            (str(p) for p in predicates if not p.lost),
+            (str(p) for p in predicates if p.lost),
+            bool(unjudged) or self.no_verdict,
+            allow,
+        )
+
     def describe(
-        self, found: list[Break] | None = None, unjudged: dict[str, str] | None = None
+        self,
+        found: list[Break] | None = None,
+        unjudged: dict[str, str] | None = None,
+        *,
+        allow: set[str] | None = None,
     ) -> str:
         """What the search found, as text for a person. ``unjudged`` is what ``require`` asked
         of the case as given and did not get."""
@@ -877,10 +891,11 @@ class Exploration:
         on = f" on {framework.get('name')} {framework.get('version')}" if framework else ""
         counts = self.summary()
         of = f" of {counts['candidates'] + self.not_run}" if self.not_run else ""
+        decision = self.decision(found, unjudged or {}, allow or set())
         lines = [
             (
                 f"{header.get('case', 'the case')}{on}: {counts['candidates']}{of} cases tried, "
-                f"{counts['ran']} judged, {len(found)} contract rule(s) broken"
+                f"{counts['ran']} judged, {len(decision.broken)} contract rule(s) broken"
             )
         ]
         made = self.runner.by_purpose
@@ -965,11 +980,8 @@ class Exploration:
         __tracebackhide__ = True  # pytest then shows the test's own line, not this one
         allowing, unjudged = allowed(allow), self.unjudged(require)
         found = self.breaks()
-        counted = [
-            one for one in found if not one.instants_only and str(one.predicate) not in allowing
-        ]
-        if counted or unjudged or self.no_verdict:
-            raise ContractFailure(self.describe(found, unjudged))
+        if self.decision(found, unjudged, allowing).status:
+            raise ContractFailure(self.describe(found, unjudged, allow=allowing))
 
     @property
     def no_verdict(self) -> bool:

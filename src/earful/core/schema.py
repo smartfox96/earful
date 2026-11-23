@@ -72,7 +72,11 @@ def validate(events: list[Event]) -> list[str]:
     """Every way ``events`` departs from earful.ledger/1. An empty list means valid."""
     if not events:
         return ["ledger is empty"]
-    named = {event.get("schema") for event in events if isinstance(event, dict)}
+    named = {
+        event["schema"]
+        for event in events
+        if isinstance(event, dict) and isinstance(event.get("schema"), str)
+    }
     if len(named) == 1 and (other := named.pop()) != SCHEMA and isinstance(other, str):
         return [f"the ledger is {other}, and this version of Earful reads {SCHEMA}"]
 

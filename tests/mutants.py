@@ -17,6 +17,20 @@ class Mutant:
 
 
 MUTANTS = [
+    Mutant(
+        "checker: a failed verdict drops its lost evidence",
+        "src/earful/core/checker/report.py",
+        "for code, why in missing if CODES[code] == LOST",
+        "for code, why in []",
+        first="a_verdict_that_fails_keeps",
+    ),
+    Mutant(
+        "outcome: lost evidence passes",
+        "src/earful/core/outcome.py",
+        "self.lost or self.unjudged",
+        "self.unjudged",
+        first="check_exits_3_when or run_exits_3_when",
+    ),
     # The checker: ties, stand-ins, refusals and readings.
     Mutant(
         "M1: a stop as the audio ends is held to one reading",
@@ -1067,8 +1081,8 @@ MUTANTS = [
     Mutant(
         "search: any ValueError a run raises is taken for a refusal",
         "src/earful/core/search.py",
-        "    except CaseRefused as exc:\n",
-        "    except ValueError as exc:\n",
+        "(SystemExit, OSError, CaseRefused)",
+        "(SystemExit, OSError, ValueError)",
         first="one_bad_run_does_not_end_a_search or refused_only_if_the_adapter_refused_it",
     ),
     Mutant(
@@ -1234,8 +1248,8 @@ MUTANTS = [
     Mutant(
         "predicate: the rule is ignored",
         "src/earful/core/predicate.py",
-        "        Predicate(verdict.contract, finding.rule)\n",
-        "        Predicate(verdict.contract, 'rule')\n",
+        "Predicate.parse(name) for name",
+        'Predicate(name.split("/")[0], "rule") for name',
         first="test_a_predicate_names_a_contract_rule_and_no_instance",
     ),
     Mutant(
@@ -3097,9 +3111,9 @@ MUTANTS = [
     ),
     Mutant(
         "report: a rule that is allowed to break still fails the assertion",
-        "src/earful/core/checker/report.py",
-        "        broken = [rule for rule in self.broken() if rule not in allowing]\n",
-        "        broken = self.broken()\n",
+        "src/earful/core/outcome.py",
+        "set(broken) - allow",
+        "set(broken)",
         first="says_which_rule_and_why",
     ),
     Mutant(
@@ -3336,15 +3350,15 @@ MUTANTS = [
     Mutant(
         "search: a break at single instants fails the assertion",
         "src/earful/core/search.py",
-        "            one for one in found if not one.instants_only and str(one.predicate) not in allowing\n",
-        "            one for one in found if str(one.predicate) not in allowing\n",
+        " for one in found if not one.instants_only]",
+        " for one in found]",
         first="one_microsecond_is_an_instant",
     ),
     Mutant(
         "search: a rule that is allowed to break still fails the assertion",
         "src/earful/core/search.py",
-        "            one for one in found if not one.instants_only and str(one.predicate) not in allowing\n",
-        "            one for one in found if not one.instants_only\n",
+        "self.decision(found, unjudged, allowing).status",
+        "self.decision(found, unjudged, set()).status",
         first="lasts_30_ms or searched_in_the_process",
     ),
     Mutant(
@@ -3357,8 +3371,8 @@ MUTANTS = [
     Mutant(
         "search: a required contract with no pass or fail passes the assertion",
         "src/earful/core/search.py",
-        "        if counted or unjudged or self.no_verdict:\n",
-        "        if counted or self.no_verdict:\n",
+        "self.decision(found, unjudged, allowing).status",
+        "self.decision(found, {}, allowing).status",
         first="requires_a_contract_of_the_case_as_given",
     ),
     Mutant(
@@ -3391,9 +3405,9 @@ MUTANTS = [
     ),
     Mutant(
         "cli: a search with no verdict exits 0",
-        "src/earful/cli.py",
-        "    return NO_VERDICT if unjudged or found.no_verdict else OK\n",
-        "    return NO_VERDICT if unjudged else OK\n",
+        "src/earful/core/search.py",
+        "bool(unjudged) or self.no_verdict,",
+        "bool(unjudged),",
         first="search_in_which_a_case_raised_exits_3",
     ),
     Mutant(
@@ -3644,16 +3658,16 @@ MUTANTS = [
     # The command line and the pytest plugin.
     Mutant(
         "cli: a run that could not be judged exits 0",
-        "src/earful/cli.py",
-        "    unjudged = any(not report.valid or report.unjudged(require) for report in reports)\n",
-        "    unjudged = any(report.unjudged(require) for report in reports)\n",
+        "src/earful/core/outcome.py",
+        "not report.valid or bool(report.unjudged(require))",
+        "bool(report.unjudged(require))",
         first="exits_3_for",
     ),
     Mutant(
         "cli: a required contract with no pass or fail exits 0",
-        "src/earful/cli.py",
-        "    unjudged = any(not report.valid or report.unjudged(require) for report in reports)\n",
-        "    unjudged = any(not report.valid for report in reports)\n",
+        "src/earful/core/outcome.py",
+        "not report.valid or bool(report.unjudged(require))",
+        "not report.valid",
         first="required_contract_with_no_pass_or_fail_exits_3",
     ),
     Mutant(
@@ -3694,8 +3708,8 @@ MUTANTS = [
     Mutant(
         "cli: a rule that is allowed to break still fails the command",
         "src/earful/cli.py",
-        "    if any(rule not in allow for report in reports for rule in report.broken()):\n",
-        "    if any(report.broken() for report in reports):\n",
+        "reports_outcome(reports, allow, require)",
+        "reports_outcome(reports, set(), require)",
         first="allowed_to_break_does_not_fail_the_command",
     ),
     Mutant(
@@ -3715,8 +3729,8 @@ MUTANTS = [
     Mutant(
         "cli: a search that found a break exits 0",
         "src/earful/cli.py",
-        "        return BROKEN\n    return NO_VERDICT",
-        "        return OK\n    return NO_VERDICT",
+        "return found.decision(broken, unjudged, allow).status",
+        "return OK",
         first="keeps_it_and_the_kept_bundle_replays",
     ),
     Mutant(
@@ -3841,8 +3855,8 @@ MUTANTS = [
     Mutant(
         "ledger: a ledger file is read only from a Path",
         "src/earful/core/ledger.py",
-        '    text = Path(path).read_text(encoding="ascii")\n',
-        '    text = path.read_text(encoding="ascii")\n',
+        'Path(path).read_text(encoding="utf-8-sig")',
+        'path.read_text(encoding="utf-8-sig")',
         first="by_name_or_by_path",
     ),
     Mutant(
@@ -5574,8 +5588,8 @@ MUTANTS = [
     Mutant(
         "predicate: evidence lost is no failure",
         "src/earful/core/predicate.py",
-        "    return broken | {Predicate.parse(name) for name in report.lost()}\n",
-        "    return broken\n",
+        "(*report.broken(), *report.lost())",
+        "report.broken()",
         first="loses_is_a_rule",
     ),
     Mutant(

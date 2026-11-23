@@ -232,11 +232,6 @@ def test_a_required_contract_that_fails_by_an_allowed_rule_was_judged(affected):
         cut.assert_contracts(require=["A2"])
 
 
-@pytest.mark.xfail(
-    strict=True,
-    raises=KnownDefect,
-    reason="Earful: a verdict that fails drops the codes of what it lost",
-)
 def test_a_verdict_that_fails_keeps_the_codes_of_the_evidence_it_lost(fixed):
     for e in fixed:
         if e["kind"] == "tool.returned":  # an object as the tool's value: no stable text

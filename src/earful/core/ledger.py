@@ -150,7 +150,7 @@ def write_jsonl(
 
 def read_jsonl(path: str | os.PathLike[str]) -> list[dict[str, Any]]:
     """The events of a ledger file, in order."""
-    text = Path(path).read_text(encoding="ascii")
+    text = Path(path).read_text(encoding="utf-8-sig")
     return [json.loads(line) for line in text.splitlines() if line]
 
 

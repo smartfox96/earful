@@ -522,6 +522,8 @@ async def _run(case: Case, seed: int) -> RunResult:
         backends.uninstall(backend_token)
         tools.uninstall(witness_token)
 
+    if witness.refusal is not None:
+        raise ValueError(witness.refusal)
     executor_calls = loop.executor_calls if isinstance(loop, VirtualTimeLoop) else None
     harness_errors += left_the_clock(loop)
     ledger.append(

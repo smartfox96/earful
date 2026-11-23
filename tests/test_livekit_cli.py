@@ -846,9 +846,6 @@ LOST = "shapes.livekit.books_outside_the_backend:case"
 NARROW = ("--variables", "none", "--no-words", "--workers", "0")
 
 
-@pytest.mark.xfail(
-    strict=True, raises=KnownDefect, reason="Earful: run exits 0 when evidence was lost"
-)
 def test_run_exits_3_when_a_contract_lost_its_evidence_unless_that_is_allowed(capsys):
     status, out, _ = earful(capsys, "run", LOST)
     assert "A2  unobservable" in out
@@ -885,12 +882,6 @@ def ends_the_process() -> Case:
 
 
 # From livekit-agents 1.6 the exit leaves the tool; before, the framework takes it as an error.
-@pytest.mark.xfail(
-    VERSION >= (1, 6),
-    strict=True,
-    raises=KnownDefect,
-    reason="Earful: a tool's sys.exit(0) ends the command at 0, printing nothing",
-)
 def test_a_tool_that_calls_sys_exit_never_ends_the_command_in_silence():
     done = subprocess.run(
         [sys.executable, "-m", "earful", "run", "test_livekit_cli:ends_the_process"],
@@ -905,9 +896,6 @@ def test_a_tool_that_calls_sys_exit_never_ends_the_command_in_silence():
     assert refused or "framework  livekit-agents" in done.stdout
 
 
-@pytest.mark.xfail(
-    strict=True, raises=KnownDefect, reason="Earful: a directory given for a file raises"
-)
 def test_a_directory_given_for_the_ledger_is_refused_in_one_line(capsys, tmp_path):
     try:
         status, _, err = earful(
@@ -977,9 +965,6 @@ def test_a_replay_whose_kept_fault_never_applies_says_so_and_is_not_clean(capsys
 
 
 @pytest.mark.slow
-@pytest.mark.xfail(
-    strict=True, raises=KnownDefect, reason="Earful: a kept loss of evidence replays as a break"
-)
 def test_a_kept_loss_of_evidence_replays_as_one(capsys, tmp_path):
     directory = _kept(capsys, LOST, "A2/outside-backend", tmp_path)
     status, out, _ = earful(capsys, "replay", directory, "--expect", "reproduced")
@@ -988,9 +973,6 @@ def test_a_kept_loss_of_evidence_replays_as_one(capsys, tmp_path):
 
 
 @pytest.mark.slow
-@pytest.mark.xfail(
-    strict=True, raises=KnownDefect, reason="Earful: a search's first line counts an allowed rule"
-)
 def test_a_searchs_first_line_counts_only_the_rules_that_fail_it(capsys):
     reference = "breaks:as_written_confirms_a_failed_booking"
     status, out, _ = earful(capsys, "search", reference, *NARROW, "--allow", "A3/rule")

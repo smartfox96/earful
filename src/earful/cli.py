@@ -18,11 +18,12 @@ from pathlib import Path
 from typing import Any
 
 from . import __version__, _adapters
-from .core import bundle, crosscheck, html, timeline
+from .core import bundle, crosscheck, html, schema, timeline
 from .core import case as cases
 from .core.checker import CONTRACTS, Report, check
 from .core.checker.report import RULES, allowed, required
 from .core.ledger import read_jsonl, write_jsonl
+from .core.outcome import reports_outcome
 from .core.predicate import Predicate
 from .core.search import CaseRefused, default_workers
 
@@ -111,6 +112,8 @@ def _ledger(path: Path) -> list[dict[str, Any]]:
         raise Refused(f"{path} is not a ledger file: {exc}") from exc
     if not all(isinstance(event, dict) for event in events):
         raise Refused(f"{path} is not a ledger file: a line is not a JSON object")
+    if any(not isinstance(event.get("schema"), str) for event in events):
+        raise Refused(f"{path} is not a ledger file: schema must be a string")
     return events
 
 
@@ -130,11 +133,7 @@ def _case(path: Path | None) -> cases.Case | None:
 
 
 def _status(reports: Sequence[Report], allow: set[str], require: list[str]) -> int:
-    # A rule that broke outranks a run that could not be judged.
-    if any(rule not in allow for report in reports for rule in report.broken()):
-        return BROKEN
-    unjudged = any(not report.valid or report.unjudged(require) for report in reports)
-    return NO_VERDICT if unjudged else OK
+    return reports_outcome(reports, allow, require).status
 
 
 def _asked(args: argparse.Namespace) -> tuple[set[str], list[str]]:
@@ -263,7 +262,7 @@ def _search(args: argparse.Namespace) -> int:
         summary["not_kept"] = not_kept
         print(json.dumps(summary, indent=2))
     else:
-        print(found.describe(broken, unjudged))
+        print(found.describe(broken, unjudged, allow=allow))
         unmeasured = [str(one.predicate) for one in broken if one.predicate not in keep]
         if args.no_windows and unmeasured:
             print(
@@ -278,9 +277,7 @@ def _search(args: argparse.Namespace) -> int:
         missing = [str(p) for p in keep if str(p) not in kept and str(p) not in not_kept]
         if missing:
             print(f"\nnot kept, since no case broke them: {', '.join(missing)}")
-    if any(not one.instants_only and str(one.predicate) not in allow for one in broken):
-        return BROKEN
-    return NO_VERDICT if unjudged or found.no_verdict else OK
+    return found.decision(broken, unjudged, allow).status
 
 
 def _in_us(**given_ms: int | None) -> dict[str, int]:
@@ -337,7 +334,8 @@ def _replay(args: argparse.Namespace) -> int:
         gave = ["not valid evidence" if one is None else one for one in result.outcomes]
         print(f"{kept.predicate}, kept on {made.get('name')} {made.get('version')}")
         print(f"replayed {args.repeats} times on {on.get('name')} {on.get('version')}")
-        print(f"  breaks the rule       {breaks}")
+        label = "loses the evidence" if kept.predicate.lost else "breaks the rule"
+        print(f"  {label:<22}{breaks}")
         contract = f"{kept.predicate.contract} gave"
         why = f" ({', '.join(result.codes)})" if result.codes else ""
         print(f"  {contract:<22}{gave[0] if len(set(gave)) == 1 else ', '.join(gave)}{why}")
@@ -409,6 +407,8 @@ def _report(args: argparse.Namespace) -> int:
             raise Refused(f"cannot read the bundle in {args.source}: {exc.strerror}") from exc
     else:
         events = _ledger(args.source)
+    if errors := schema.validate(events):
+        raise Refused(f"{args.source}: {errors[0]}")
     as_page = args.format == "html" or (
         args.format is None
         and args.output is not None
@@ -707,7 +707,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         if args.run in (_init, _run, _search, _replay, _crosscheck):
             _scenario_path()
         return int(args.run(args))
-    except (Refused, ImportError) as exc:
+    except SystemExit as exc:
+        print(f"earful: scenario called sys.exit({exc.code!r})", file=sys.stderr)
+    except (Refused, ImportError, OSError) as exc:
         print(f"earful: {exc}", file=sys.stderr)
     except ValueError as exc:  # a scenario, a case or a bundle the core refuses
         print(f"earful: {exc}", file=sys.stderr)

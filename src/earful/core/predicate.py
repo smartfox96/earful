@@ -6,7 +6,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from .checker import FAIL, UNOBSERVABLE, Report
-from .checker.report import parse_rule
+from .checker.report import CODES, LOST, parse_rule
 
 
 @dataclass(frozen=True, order=True)
@@ -15,6 +15,10 @@ class Predicate:
 
     contract: str
     rule: str
+
+    @property
+    def lost(self) -> bool:
+        return CODES.get(self.rule) == LOST
 
     def holds(self, report: Report) -> bool:
         """Whether ``report`` has a failed verdict of this contract that names this rule."""
@@ -32,13 +36,7 @@ class Predicate:
 def failures(report: Report) -> set[Predicate]:
     """Every contract rule ``report`` says was broken, and every code of evidence it lost,
     which a run fails on as on a rule. Empty for an invalid run."""
-    broken = {
-        Predicate(verdict.contract, finding.rule)
-        for verdict in report.failures
-        if verdict.outcome == FAIL
-        for finding in verdict.findings
-    }
-    return broken | {Predicate.parse(name) for name in report.lost()}
+    return {Predicate.parse(name) for name in (*report.broken(), *report.lost())}
 
 
 def details_of(report: Report, predicate: Predicate) -> tuple[str, ...]:

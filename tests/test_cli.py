@@ -71,9 +71,6 @@ def test_check_with_measures_prints_what_each_verdict_measured(capsys):
     assert '"committed": 1' in out
 
 
-@pytest.mark.xfail(
-    strict=True, raises=KnownDefect, reason="Earful: check exits 0 when evidence was lost"
-)
 def test_check_exits_3_when_a_contract_lost_its_evidence_unless_that_is_allowed(capsys, tmp_path):
     """The booking tool's write never reached the backend: A2 and A3 cannot be judged."""
     events = [e for e in read_jsonl(CLEAN) if not e["kind"].startswith("effect.")]
@@ -88,9 +85,6 @@ def test_check_exits_3_when_a_contract_lost_its_evidence_unless_that_is_allowed(
     assert earful(capsys, "check", lost, *allowed)[0] == OK
 
 
-@pytest.mark.xfail(
-    strict=True, raises=KnownDefect, reason="Earful: a directory given for a file raises"
-)
 def test_a_directory_given_for_the_report_is_refused_in_one_line(capsys, tmp_path):
     try:
         status, _, err = earful(capsys, "report", CLEAN, "-o", tmp_path)
@@ -101,9 +95,6 @@ def test_a_directory_given_for_the_report_is_refused_in_one_line(capsys, tmp_pat
 
 @pytest.mark.parametrize(
     "field, value", [("t_us", None), ("t_us", [1]), ("seq", {"a": 1}), ("kind", {}), ("source", [])]
-)
-@pytest.mark.xfail(
-    strict=True, raises=KnownDefect, reason="Earful: a damaged ledger raises in the text report"
 )
 def test_the_text_report_of_a_damaged_ledger_ends_in_a_status(capsys, tmp_path, field, value):
     events = read_jsonl(CLEAN)
@@ -266,9 +257,6 @@ def test_the_command_runs_as_a_module_and_says_its_version():
     assert done.returncode == 0 and done.stdout.startswith("earful ")
 
 
-@pytest.mark.xfail(
-    strict=True, raises=KnownDefect, reason="Earful: a header whose schema is a list raises"
-)
 def test_a_line_whose_schema_is_a_list_is_refused_in_one_line(capsys, tmp_path):
     damaged = tmp_path / "damaged.jsonl"
     damaged.write_text('{"schema": []}\n')
@@ -280,9 +268,6 @@ def test_a_line_whose_schema_is_a_list_is_refused_in_one_line(capsys, tmp_path):
 
 
 @pytest.mark.parametrize("mark", ["", "\ufeff"], ids=["utf-8", "utf-8 with a byte order mark"])
-@pytest.mark.xfail(
-    strict=True, raises=KnownDefect, reason="Earful: a ledger in UTF-8 is not read as one"
-)
 def test_a_ledger_written_in_utf_8_is_read(capsys, tmp_path, mark):
     events = read_jsonl(CLEAN)
     final = next(e for e in events if e["kind"] == "user.transcript_final")

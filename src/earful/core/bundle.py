@@ -260,10 +260,14 @@ class Replay:
     codes: tuple[str, ...] = ()  # why the contract's verdicts were missing in some run
     broke: int = 0  # how many runs broke the bundle's rule
 
+    lost_predicate: bool = False
+
     @property
     def judged(self) -> bool:
         """Every run was valid evidence and gave the bundle's contract a pass or a fail. A
         replay that was not judged shows nothing about the rule."""
+        if self.lost_predicate and self.reproduced:
+            return True
         return all(outcome in (PASS, FAIL) for outcome in self.outcomes)
 
     @property
@@ -312,6 +316,7 @@ def replay(
         others=tuple(sorted(others)),
         codes=tuple(dict.fromkeys(codes)),
         broke=sum(broke),
+        lost_predicate=bundle.predicate.lost,
     )
 
 
