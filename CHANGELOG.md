@@ -8,13 +8,72 @@ formats have versions of their own
 
 ## [Unreleased]
 
-### Fixed
+## [0.3.0] - 2026-11-23
 
-- A broken rule exits 1. A run with only lost evidence exits 3 unless each lost code
-  is allowed. A failed verdict retains those codes, and a saved evidence loss can be replayed.
-- `run_virtual` no longer needs pydantic: it reads pydantic models only where the
-  application has imported pydantic, so the virtual clock and the backend work with
-  `pip install earful` alone.
+### Runs
+
+- A case is checked before it runs, on both adapters, and one that cannot run is refused
+  in one line: a time that is negative, not a number or beyond the clock's range, a
+  transcript that is not text, `expects_reply` on a speech with no words, an `nth` that
+  is not a whole number, an intent whose `tools` is not a list of names, and
+  `reissue_allowed` naming an intent the case does not declare. An intent that names a
+  tool the agent does not have is refused too.
+- A scripted reply whose `ttft` is longer than its `duration` makes the run invalid.
+- A run whose tool calls `sys.exit` is refused in one line that names the tool.
+- On LiveKit, `userdata` in `session_kwargs` is copied for each run, so every run of a
+  case starts from the same data. A value that cannot be copied is refused.
+- On Pipecat, a bot that returns no `LLMContext` is refused, and a processor that reports
+  an error makes the run invalid once, under the processor's name.
+- A backend write whose payload is not a JSON object, or whose key is not a string, is
+  refused and takes no request number.
+- A ledger file is read as UTF-8, with or without a byte order mark.
+- `run_virtual` works with `pip install earful` alone: it reads pydantic models only
+  where the application has imported pydantic.
+
+### Contracts
+
+- A verdict that fails keeps the code of each piece of evidence it also lost.
+- A ledger is not valid when a number that must be an integer is a float, when it holds
+  no final history or more than one, when a tool call carries a call id no model response
+  asked for, when a receipt is committed twice, or when a playout repeats a word stamp.
+
+### Search
+
+- A search's first line counts the rules that fail it, without the ones `allow` names.
+- A scenario that calls `sys.exit`, or meets an error of the operating system, is a case
+  the search reports as refused.
+- A reduced case keeps each speech the author wrote that the failure did not change, also
+  where several speeches have the same words, and holds no difference from the author's
+  case that the failure can do without.
+
+### Bundles and replay
+
+- A kept loss of evidence replays. `earful replay` prints `loses the evidence`, and counts
+  a run that shows the loss when another repeat gives a verdict. Evidence lost for other
+  contracts is listed apart from the other rules broken (`other_evidence_lost` in JSON).
+- A run from a saved case leaves the scenario's own case as it was.
+
+### Command line and pytest
+
+- `earful run` and `earful check` exit 1 when a rule is broken, and 3 when evidence was
+  lost and no rule broke, unless `--allow` names each lost code.
+- Refused in one line with exit status 2: a ledger whose `schema` is not text, a ledger
+  that is not valid given to `earful report`, a directory given where a file is read or
+  written, `search --out` without `--keep` or naming a file, `--stretch-ms` without
+  `--pairs`, and `crosscheck` of a bundle with `--case`.
+- The command prints none of Pipecat's debug log.
+- The pytest fixture keeps the evidence of each test in a directory of its own, also for
+  tests whose ids differ only in characters a directory name leaves out. Its failure text
+  names the evidence a run lost.
+
+### Documentation
+
+- [`docs/limits.md`](https://github.com/smartfox96/earful/blob/main/docs/limits.md#known-defects-of-earful)
+  lists the situations in which Earful reports a wrong result, and a test holds the list
+  to the expected failures in the repository.
+- The stand-in service of the testing page declares its intent, and
+  `examples/pipecat_booking` offers its model the booking tool.
+- Every page states the one pipecat-ai series that is supported, 1.16.
 
 ## [0.2.0] - 2026-11-22
 
@@ -173,7 +232,8 @@ The first release.
 - The formats `earful.ledger/1`, `earful.case/1` and `earful.bundle/1`, each with a
   JSON Schema.
 
-[Unreleased]: https://github.com/smartfox96/earful/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/smartfox96/earful/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/smartfox96/earful/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/smartfox96/earful/compare/v0.1.1...v0.2.0
 [0.1.1]: https://github.com/smartfox96/earful/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/smartfox96/earful/releases/tag/v0.1.0
