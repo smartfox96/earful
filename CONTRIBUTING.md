@@ -268,7 +268,7 @@ only where the defect shows, so any other failure fails the test.
 1. `EARFUL_LOCK=write scripts/make_env.sh <version> <date>`, with a date a few days after
    the release. This builds `.venvs/lk-<version>` and writes
    `compat/lk-<version>.lock.txt`.
-2. Add the release to `SUPPORT` in `src/earful/scripted/releases.py`, to
+2. Add the release and resolution date to `releases.toml`, to `SUPPORT` in `src/earful/scripted/releases.py`, to
    `scripts/check_all.sh`, to `LIVEKIT` in `scripts/ci_scope.py` and to
    `docs/compatibility.md`. A test fails while they disagree. The newest release is also
    the one in `scripts/make_lint_env.sh`, and the README lists them all.
@@ -283,9 +283,7 @@ job fails from the day such a release is on PyPI.
 
 ## Adding a pipecat-ai release
 
-The newest two minor series of pipecat-ai are supported, each by one tested release. A
-release in a new series is added and the oldest series is dropped; a later release in a
-supported series takes the place of the one tested.
+Supported pipecat-ai series: 1.16. The release and resolution date are in `releases.toml`.
 
 1. `EARFUL_LOCK=write scripts/make_pipecat_env.sh <version> <date>`, with a date a few
    days after the release. This builds `.venvs/pc-<version>` and writes
@@ -296,7 +294,7 @@ supported series takes the place of the one tested.
    `docs/compatibility.md`, the README, this page, `tests/test_ci.py` and `SUPPORT` in
    `src/earful/scripted/releases.py`. A release in a new minor series also moves the
    `pipecat` extra, in `SUPPORT` and in `pyproject.toml`: its lowest release is that of the
-   older supported series. Tests fail while these disagree.
+   oldest supported series. Tests fail while these disagree.
 3. `scripts/ran_every_test.sh --without livekit .venvs/pc-<version>/bin/python` runs
    every test that does not need livekit-agents and fails if one is skipped.
    `scripts/lint.sh` checks the adapter's types against the new release.

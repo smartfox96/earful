@@ -15,9 +15,15 @@ BUNDLES=tests/bundles
 OUT="$(mktemp -d)"
 trap 'rm -rf "$OUT"' EXIT
 
+project_version="$(sed -n 's/^version = "\([^"]*\)"$/\1/p' pyproject.toml)"
 for entry in "${RELEASES[@]}"; do
   read -r version as_of <<<"$entry"
-  [ -x ".venvs/lk-$version/bin/python" ] || scripts/make_env.sh "$version" "$as_of"
+  py=".venvs/lk-$version/bin/python"
+  if [ ! -x "$py" ]; then
+    scripts/make_env.sh "$version" "$as_of"
+  elif [ "$("$py" -c 'from importlib.metadata import version; print(version("earful"))')" != "$project_version" ]; then
+    uv pip install --python "$py" --exclude-newer "$as_of" --no-deps --reinstall-package earful -e .
+  fi
 done
 
 scripts/lint.sh

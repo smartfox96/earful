@@ -1,6 +1,7 @@
 """The documentation agrees with the code, schemas and workflows it describes."""
 
 import ast
+import importlib
 import json
 import re
 import sys
@@ -158,6 +159,23 @@ def _section(heading):
     _, found, rest = COMPATIBILITY.partition(f"\n## {heading}\n")
     assert found, heading
     return rest.partition("\n## ")[0]
+
+
+def test_release_metadata_and_ci_match_the_declared_releases():
+    with (ROOT / "releases.toml").open("rb") as source:
+        toml = importlib.import_module("tomllib" if sys.version_info >= (3, 11) else "tomli")
+        declared = toml.load(source)
+    assert declared.keys() == SUPPORT.keys()
+    for package, matrix in (("livekit-agents", ci_scope.LIVEKIT), ("pipecat-ai", ci_scope.PIPECAT)):
+        support = SUPPORT[package]
+        releases = declared[package]
+        assert list(releases["tested"].items()) == list(matrix.items())
+        assert tuple(matrix) == support.tested
+        assert (releases["lowest"], releases["below"]) == (support.lowest, support.below)
+    series = dict.fromkeys(v.rsplit(".", 1)[0] for v in declared["pipecat-ai"]["tested"])
+    sentence = f"Supported pipecat-ai series: {', '.join(series)}."
+    for page in ("CONTRIBUTING.md", "docs/limits.md", "docs/compatibility.md"):
+        assert sentence in (ROOT / page).read_text(), page
 
 
 def test_the_supported_releases_are_the_same_everywhere_they_are_listed():
