@@ -625,12 +625,22 @@ def test_ci_compares_the_environments_it_builds_on_python_3_13_with_their_lock_f
 _PASSES = "def test_one():\n    pass\n"
 _SKIPPED = "import pytest\n\n\n@pytest.mark.skip\ndef test_two():\n    pass\n\n\n"
 _SKIPS_ITSELF = 'import pytest\n\npytest.importorskip("no_such_framework")\n\n\n'
+_EXPECTED = (
+    "import pytest\n\n\n@pytest.mark.xfail(strict=True{})\ndef test_two():\n    assert {}\n\n\n"
+)
 _TESTS = {
     "every test passes": _PASSES + "\n\ndef test_two():\n    pass\n",
+    "a test fails as expected": _EXPECTED.format("", False) + _PASSES,
     "a test is skipped": _SKIPPED + _PASSES,  # pytest itself exits 0
     "the file skips itself": _SKIPS_ITSELF + _PASSES,
     "a test fails": "def test_one():\n    assert False\n",
     "there is no test": "",
+    "an expected failure passes": _EXPECTED.format("", True) + _PASSES,
+    "an expected failure is not run": _EXPECTED.format(", run=False", False) + _PASSES,
+}
+_COUNTS = {
+    "every test passes": "all 2 tests ran\n",
+    "a test fails as expected": "all 2 tests ran, 1 expected to fail\n",
 }
 
 
@@ -638,9 +648,9 @@ _TESTS = {
 def test_a_run_counts_only_when_every_test_ran(tmp_path, name):
     (tmp_path / "test_these.py").write_text(_TESTS[name])
     done = _script("ran_every_test.sh", sys.executable, "test_these.py", cwd=tmp_path)
-    if name == "every test passes":
+    if name in _COUNTS:
         assert done.returncode == 0, done.stdout + done.stderr
-        assert done.stdout.endswith("all 2 tests ran\n")
+        assert done.stdout.endswith(_COUNTS[name])
     else:
         assert done.returncode != 0, done.stdout
     if name == "a test is skipped":

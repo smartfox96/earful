@@ -32,11 +32,15 @@ report, without = sys.argv[1:]
 # What pytest.importorskip says in a file that skips itself for want of the module.
 absent = re.compile(rf"Skipped: could not import '(?:{without})[.']") if without else None
 
-ran = left_out = skipped = 0
+ran = expected = left_out = skipped = 0
 for case in ET.parse(report).getroot().iter("testcase"):
     skip = case.find("skipped")
     if skip is None:
         ran += 1
+    # An expected failure ran, and it is strict (pyproject.toml): it fails once it passes.
+    elif skip.get("type") == "pytest.xfail" and not skip.get("message", "").startswith("[NOTRUN]"):
+        ran += 1
+        expected += 1
     elif absent and skip.get("message") == "collection skipped" and absent.search(skip.text or ""):
         left_out += 1
     else:
@@ -44,5 +48,9 @@ for case in ET.parse(report).getroot().iter("testcase"):
 if ran == 0 or skipped:
     sys.exit(f"pytest ran {ran} tests and skipped {skipped}: here every test has to run")
 needs = " or ".join(without.split("|"))
-print(f"all {ran} tests ran" + (f", {left_out} files need {needs}" if without else ""))
+print(
+    f"all {ran} tests ran"
+    + (f", {expected} expected to fail" if expected else "")
+    + (f", {left_out} files need {needs}" if without else "")
+)
 PY

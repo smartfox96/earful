@@ -76,6 +76,8 @@ asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
 testpaths = ["tests"]
 addopts = "--strict-markers"
+# An expected failure that passes fails the run, until its marker is removed.
+xfail_strict = true
 markers = [
     "slow: takes over a second, mostly searches that run the framework many times (leave out with -m 'not slow')",
 ]
