@@ -424,6 +424,45 @@ def test_a3_any_commit_for_the_intent_makes_a_later_claim_true(affected):
     assert report.results["A2"].verdicts[0].measures["failed"] == 1
 
 
+RECEIPT = "send-receipt"
+
+
+def _written_for_a_receipt(events):
+    """A second intent shares the booking tool, and the first write is the receipt's."""
+    events[0]["data"]["scenario"]["intents"].append(
+        {"intent": RECEIPT, "tools": ["create_reservation"], "authorized": 1}
+    )
+    for kind in ("effect.requested", "effect.committed"):
+        of(events, kind)["data"]["intent"] = RECEIPT
+    return seal(events)
+
+
+def test_a3_a_commit_for_another_intent_does_not_make_a_claim_true(fixed):
+    report = check(_written_for_a_receipt(fixed))
+    (claim,) = report.results["A3"].verdicts
+    assert claim.instance["intent"] == INTENT and claim.outcome == FAIL
+    assert "was never committed" in claim.findings[0].detail
+    assert [v.outcome for v in report.results["A2"].verdicts] == [PASS]  # the receipt's
+
+
+def test_a_call_that_wrote_nothing_is_unobservable_although_another_intent_wrote(affected):
+    """The second booking left no request, and the only write is the receipt's: whether that
+    call booked is outside what the backend recorded."""
+    second = of(affected, "effect.requested", 1)["data"]["request"]
+    kept = [
+        e
+        for e in affected
+        if not (e["kind"].startswith("effect.") and e["data"]["request"] == second)
+    ]
+    report = check(_written_for_a_receipt(kept))
+    for name in ("A2", "A3"):
+        (booking,) = [v for v in report.results[name].verdicts if v.instance["intent"] == INTENT]
+        assert booking.outcome == UNOBSERVABLE, name
+        assert booking.findings[0].detail == (
+            "a tool for the intent was called but nothing reached the backend"
+        )
+
+
 @pytest.mark.parametrize("authorized, outcome", [(1, FAIL), (2, PASS), (3, PASS)])
 def test_a2_as_many_effects_as_were_authorized_pass_and_one_more_fails(
     affected, authorized, outcome

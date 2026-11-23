@@ -313,8 +313,7 @@ def test_a_settled_time_is_inside_its_window_and_as_round_as_the_window_allows(
 
 
 GOLDEN = sorted((TESTS / "golden").glob("*.jsonl"))
-LEDGERS = {path: read_jsonl(path) for path in GOLDEN}
-reference_ledgers = st.sampled_from(GOLDEN).map(lambda path: copy.deepcopy(LEDGERS[path]))
+LEDGERS = {path.name: read_jsonl(path) for path in GOLDEN}
 
 
 def seal(events):
@@ -322,6 +321,85 @@ def seal(events):
     for seq, event in enumerate(events):
         event["seq"], event["run"] = seq, run
     return events
+
+
+def _golden(release, case):
+    return copy.deepcopy(LEDGERS[f"lk-{release}.{case}.ledger.normalized.jsonl"])
+
+
+def _of(events, kind, n=0):
+    return [e for e in events if e["kind"] == kind][n]
+
+
+def _retired(release):
+    """The second speech retires the booking: before the write on 1.8.12, after it on 1.5.6."""
+    events = _golden(release, "book_then_interrupt")
+    events[0]["data"]["scenario"]["speeches"][1]["retires"] = ["book-table-1"]
+    return seal(events)
+
+
+def _claimed_before_the_commit():
+    events = _golden("1.8.12", "book_then_interrupt")
+    commit = _of(events, "effect.committed")
+    events.remove(commit)
+    commit["t_us"] = _of(events, "playout.finished", 1)["data"]["words_completed_us"][-1] + 1
+    events.append(commit)
+    return seal(sorted(events, key=lambda e: e["t_us"]))
+
+
+def _cut_reply_forgotten():
+    """The reply cut after 9 of its 29 words is missing from the next model call."""
+    events = _golden("1.8.12", "barge_in_mid_word")
+    request = next(e for e in events if e["kind"] == "llm.request" and e["data"]["call"] == 2)
+    items = request["data"]["items"]
+    items.remove(next(i for i in items if i["type"] == "message" and i["role"] == "assistant"))
+    return seal(events)
+
+
+def _tool_never_called():
+    events = [e for e in _golden("1.8.12", "book_then_interrupt") if e["kind"][:5] != "tool."]
+    for event in events:
+        if event["kind"] == "effect.requested":
+            event["data"]["tool"] = None
+        if event["kind"] in ("llm.request", "history.final"):
+            items = event["data"]["items"]
+            items[:] = [i for i in items if not i["type"].startswith("function_call")]
+    return seal(events)
+
+
+def _outside_the_backend():
+    """The booking tool writes nowhere the backend sees, and the booking is retired."""
+    return seal([e for e in _retired("1.5.6") if not e["kind"].startswith("effect.")])
+
+
+# Made by hand from the reference ledgers, for what none of those has: a retirement, a claim
+# heard before its commit, a cut reply forgotten, a tool never called, a write outside the backend.
+HAND_MADE = {
+    "retired before the write": _retired("1.8.12"),
+    "retired after the write": _retired("1.5.6"),
+    "claimed before the commit": _claimed_before_the_commit(),
+    "cut reply forgotten": _cut_reply_forgotten(),
+    "tool never called": _tool_never_called(),
+    "outside the backend": _outside_the_backend(),
+}
+INPUTS = {**LEDGERS, **HAND_MADE}
+# A third each: recorded on LiveKit, recorded on Pipecat, and made by hand.
+reference_ledgers = st.one_of(
+    st.sampled_from(sorted(name for name in LEDGERS if name.startswith("lk-"))),
+    st.sampled_from(sorted(name for name in LEDGERS if name.startswith("pc-"))),
+    st.sampled_from(list(HAND_MADE)),
+).map(lambda name: copy.deepcopy(INPUTS[name]))
+
+
+def test_the_inputs_make_every_contract_pass_and_fail_and_lose_its_evidence():
+    seen = {name: set() for name in RULES}
+    for name, events in INPUTS.items():
+        report = check(copy.deepcopy(events))
+        assert report.valid, name
+        for contract, result in report.results.items():
+            seen[contract] |= {v.outcome for v in result.verdicts}
+    assert {c: sorted({PASS, FAIL} - s) for c, s in seen.items() if not {PASS, FAIL} <= s} == {}
+    assert all(UNOBSERVABLE in seen[c] for c in ("A1", "A2", "A3"))
 
 
 def later(events, by_us, since=0):
