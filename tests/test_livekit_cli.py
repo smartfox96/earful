@@ -22,7 +22,7 @@ from earful.core import bundle
 from earful.core import case as cases
 from earful.core.ledger import ledger_hash, read_jsonl
 from earful.core.schema import validate, validity
-from earful.livekit import Case, Intent, ScriptedModel, UserSpeech, scenario, user_ever_said
+from earful.livekit import Case, ScriptedModel, UserSpeech, scenario, tool_returned, user_ever_said
 
 VERSION = tuple(int(part) for part in lk.__version__.split(".")[:3])
 HAS_3702 = VERSION < (1, 6, 6)
@@ -874,20 +874,24 @@ def ends_the_process() -> Case:
         agent=_EndsTheProcess,
         speeches=[UserSpeech(start=0.5, end=2.5, transcript="A table for four tonight, please.")],
         policy=ScriptedModel()
+        .when(tool_returned(), say="Sorry, I could not book that.")
         .when(
             user_ever_said("table"),
             say="Let me book that.",
             call=("create_reservation", {"party_size": 4}),
         )
         .otherwise(say="How can I help?"),
-        intents=[Intent("book-table", tools=("create_reservation",))],
     )
 
 
+# From livekit-agents 1.6 the exit leaves the tool; before, the framework takes it as an error.
 @pytest.mark.xfail(
-    strict=True, raises=KnownDefect, reason="Earful: a tool's sys.exit(0) ends the command at 0"
+    VERSION >= (1, 6),
+    strict=True,
+    raises=KnownDefect,
+    reason="Earful: a tool's sys.exit(0) ends the command at 0, printing nothing",
 )
-def test_a_tool_that_ends_the_process_is_refused_in_one_line():
+def test_a_tool_that_calls_sys_exit_never_ends_the_command_in_silence():
     done = subprocess.run(
         [sys.executable, "-m", "earful", "run", "test_livekit_cli:ends_the_process"],
         cwd=Path(__file__).parent,
@@ -895,9 +899,10 @@ def test_a_tool_that_ends_the_process_is_refused_in_one_line():
         text=True,
         check=False,
     )
-    if done.returncode == OK:
-        raise KnownDefect(f"exit 0, printing {done.stdout!r}")
-    assert done.returncode == REFUSED and len(done.stderr.strip().splitlines()) == 1
+    if done.returncode == OK and not done.stdout:
+        raise KnownDefect("exit 0, and nothing printed")
+    refused = done.returncode == REFUSED and len(done.stderr.strip().splitlines()) == 1
+    assert refused or "framework  livekit-agents" in done.stdout
 
 
 @pytest.mark.xfail(
