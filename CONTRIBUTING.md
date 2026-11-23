@@ -41,7 +41,7 @@ on the files it changes (`.pre-commit-config.yaml`).
 | `scripts/quickstart_check.sh` | Follows the README's quickstart from the wheel, with livekit-agents, outside the repository | 90 s |
 | `scripts/site.sh DIR` | Draws the two example reports the README links to, into `DIR` | 15 s |
 | `scripts/check_all.sh` | All of the above, then on each of the six LiveKit releases: every test, repeatability of the reference ledgers, the two historical cases and the replays | 8 min |
-| `.venvs/lint/bin/python scripts/mutate.py` | The control, then each deliberate break of `tests/mutants.py`: a test it names has to fail. `--since main` runs those a change can affect | 5 min |
+| `.venvs/lint/bin/python scripts/mutate.py` | The control, then each deliberate break of `tests/mutants.py`: a test it names has to fail. `--since main` runs those a change can affect | 4.5 min |
 
 Every environment above names a release and a date. The `canary` workflow is the one
 place with neither: each night `scripts/canary.sh livekit` and `scripts/canary.sh pipecat`
