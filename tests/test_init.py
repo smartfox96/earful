@@ -212,8 +212,9 @@ def test_init_does_not_write_over_a_file_and_writes_where_it_is_told(here, capsy
     assert status == REFUSED and not out
     assert "test_greeter.py is already there" in err
     assert (here / "test_greeter.py").read_text() == "mine\n"
-    status, out, _ = init(capsys, "scaffolded:Greeter", "-o", "tests/first.py")
+    status, out, err = init(capsys, "scaffolded:Greeter", "-o", "tests/first.py")
     assert status == REFUSED  # the directory is the author's to make
+    assert "cannot write tests/first.py" in err
     (here / "tests").mkdir()
     status, out, _ = init(capsys, "scaffolded:Greeter", "-o", "tests/first.py")
     assert status == OK and out.splitlines()[0] == "wrote      tests/first.py"

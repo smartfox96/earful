@@ -3268,7 +3268,7 @@ MUTANTS = [
         "src/earful/livekit/scenario.py",
         "            return cls(lambda: _copied(source), None)\n",
         "            return cls(lambda: source, None)\n",
-        first="run_from_its_data",
+        first="keeps_its_lists_and_dicts_to_itself",
     ),
     Mutant(
         "adapter: the data of an inline case is looked up by name",
