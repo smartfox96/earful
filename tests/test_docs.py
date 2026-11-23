@@ -789,6 +789,67 @@ def test_the_limits_page_quotes_the_numbers_the_code_has():
     assert linked == [(contract, contract.lower()) for contract in RULES]
 
 
+def _assigned(path, name):
+    """Each value ``name`` is given in the module at ``path``, at any depth."""
+    return [
+        node.value
+        for node in ast.walk(ast.parse(path.read_text()))
+        if isinstance(node, ast.Assign)
+        and any(isinstance(target, ast.Name) and target.id == name for target in node.targets)
+    ]
+
+
+def _keyword(call, name):
+    return next((k.value for k in getattr(call, "keywords", ()) if k.arg == name), None)
+
+
+def _first_cells(table):
+    return [name.replace("`", "").lower() for name, _ in _rows(table)[1:]]
+
+
+def test_the_limits_page_lists_each_defect_the_tests_declare_and_no_other():
+    import conformance
+    import invariants
+
+    tests = ROOT / "tests"
+    known = _sections(LIMITS)
+    varied = set()
+    for framework, heading in (("livekit", "LiveKit"), ("pipecat", "Pipecat")):
+        shapes = sorted((tests / "shapes" / framework).glob("[a-z]*.py"))
+        declared = {path.stem for path in shapes if _assigned(path, "DEFECT")}
+        link = rf"\]\(\.\./tests/shapes/{framework}/(\w+)\.py\)"
+        listed = re.findall(link, known[f"{heading} applications"])
+        assert sorted(listed) == sorted(declared), f"{heading} applications"
+        for path in shapes:
+            for value in _assigned(path, "DEFECT_VARIED"):
+                varied |= {getattr(invariants, key.id) for key in value.keys}
+    changes = _first_cells(known["A scenario changed in a way that should not matter"])
+    assert sorted(changes) == sorted(varied)
+
+    behaviours = {b.name.lower(): b for b in conformance.BEHAVIOURS}
+    rows = _rows(known["What every adapter should do"])
+    assert _first_cells(known["What every adapter should do"]) == list(behaviours)
+    for column, framework in enumerate(("livekit", "pipecat")):
+        (scenarios,) = _assigned(tests / f"test_{framework}_conformance.py", "SCENARIOS")
+        wrong = {
+            getattr(conformance, key.attr).name.lower()
+            for key, scenario in zip(scenarios.keys, scenarios.values)
+            if _keyword(scenario, "defect") is not None
+        }
+        said = {
+            name.replace("`", "").lower() for name, cells in rows[1:] if cells[column] != "Holds"
+        }
+        assert said == wrong, framework
+
+    reasons = set()
+    for path in sorted(tests.glob("test_*.py")):
+        for node in ast.walk(ast.parse(path.read_text())):
+            raises, reason = _keyword(node, "raises"), _keyword(node, "reason")
+            if isinstance(raises, ast.Name) and raises.id == "KnownDefect" and reason is not None:
+                reasons.add(ast.literal_eval(reason).removeprefix("Earful: ").lower())
+    assert sorted(_first_cells(known["Elsewhere"])) == sorted(reasons)
+
+
 def test_the_framework_independent_examples_run_on_a_recorded_ledger(tmp_path, monkeypatch):
     from doc_examples import blocks, execute
 

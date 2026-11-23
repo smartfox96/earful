@@ -263,6 +263,9 @@ One no application shows, in a command, a ledger or the clock, goes in the test 
 that part as a strict expected failure that raises `KnownDefect` (`tests/shapes/corpus.py`)
 only where the defect shows, so any other failure fails the test.
 `scripts/ran_every_test.sh` counts a strict expected failure as a test that ran.
+Each declared defect has a row under "Known defects of Earful" in `docs/limits.md`, and a
+test fails while the page and the declarations differ: add the row with the defect, and
+remove it with the fix.
 
 ## Adding a livekit-agents release
 
