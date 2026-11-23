@@ -6,7 +6,6 @@ import shutil
 from pathlib import Path
 
 import pytest
-from shapes.corpus import KnownDefect
 
 from earful.core import bundle
 from earful.core import case as cases
@@ -1068,10 +1067,8 @@ def test_a_fault_is_a_difference_and_a_reduction_keeps_it_only_if_the_failure_ne
     ] == [("backend.wait 1", "blocked", "reach")]
 
     faulted = {**author, "faults": [fault("backend.error")]}
-    assert (
-        shrink(faulted, answers(INTERRUPTS), Predicate("A2", "rule"), author=faulted).case["faults"]
-        == []
-    )
+    assert shrink(faulted, answers(INTERRUPTS), A2).case["faults"] == []
+    assert shrink(faulted, answers(INTERRUPTS), A2, author=faulted).case == faulted
 
 
 HANGUP = Variable("user.hangup", 0)
@@ -1171,7 +1168,7 @@ def test_a_hangup_is_a_difference_and_a_reduction_keeps_it_only_if_the_failure_n
     assert shrink(found, answers(INTERRUPTS), A2, author=author).case["hangup_us"] is None
     leaving = {**author, "hangup_us": 9_000_000}
     reduced = shrink(leaving, answers(lambda case: True), A2, author=leaving)
-    assert reduced.case["hangup_us"] is None and "removed the hangup" in reduced.steps
+    assert reduced.case == leaving and reduced.differences == []
 
 
 def test_a_hangup_the_failure_does_not_need_keeps_no_speech_in_the_reduced_case():
@@ -1690,6 +1687,14 @@ def test_shrinking_keeps_only_the_differences_the_failure_needs_and_settles_them
     assert FOUND["seed"] == 7
 
 
+def test_matching_repeated_words_preserves_the_unchanged_speech():
+    first, second = speech(0, 1_000_000, "Hello"), speech(2_000_000, 3_000_000, "Hello")
+    author, reduced = a_case(first, second), a_case(second)
+    (change,) = differences(author, reduced)
+    assert change.target == ("speech", 0, "dropped")
+    assert applied(author, [change]) == reduced
+
+
 def test_shrinking_keeps_an_authored_speech_when_dropping_it_is_an_unnecessary_difference():
     def fails(case):
         return any(
@@ -1762,8 +1767,7 @@ def test_a_reduced_case_keeps_no_difference_the_failure_can_do_without():
         undone = applied(author, [other for other in left if other is not one])
         if not cases.validate(undone) and runner.breaks(undone, rule):
             needless.append(one.label)
-    if needless:
-        raise KnownDefect(f"kept without need: {needless}")
+    assert not needless, needless
 
 
 def test_shrinking_without_an_authors_scenario_removes_and_settles():

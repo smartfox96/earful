@@ -209,17 +209,25 @@ def a_failure(draw):
 def test_a_reduced_case_still_fails_and_holds_nothing_the_failure_does_not_need(failure, author):
     found, fails, (needed, delays, faults, leaves) = failure
     runner = Decided(fails)
-    shrunk = shrink(found, runner, A2, author=author)
+    # Allow every generated speech and delay to have its window measured.
+    shrunk = shrink(found, runner, A2, author=author, max_runs=2_000)
     case = shrunk.case
     assert cases.validate(case) == [] and fails(case)
     assert shrunk.complete and shrunk.runs == runner.runs
-    assert {(d["of"], d["nth"]) for d in case["delays"]} == delays
-    assert {f["nth"] for f in case["faults"]} == faults
-    assert (case["hangup_us"] is not None) == leaves
-    kept = [s["transcript"] for s in case["speeches"]]
-    # A user who hangs up has spoken: one speech stays where the failure needs the hangup alone.
-    assert set(kept) == needed or (leaves and not needed and len(kept) == 1)
-    again = shrink(found, Decided(fails), A2, author=author)
+    if author is not None:
+        changes = differences(author, case)
+        assert applied(author, changes) == case
+        for i in range(len(changes)):
+            without = applied(author, changes[:i] + changes[i + 1 :])
+            assert cases.validate(without) or not fails(without)
+    else:
+        assert {(d["of"], d["nth"]) for d in case["delays"]} == delays
+        assert {f["nth"] for f in case["faults"]} == faults
+        assert (case["hangup_us"] is not None) == leaves
+        kept = [s["transcript"] for s in case["speeches"]]
+        # A user who hangs up has spoken: one speech stays where the failure needs the hangup alone.
+        assert set(kept) == needed or (leaves and not needed and len(kept) == 1)
+    again = shrink(found, Decided(fails), A2, author=author, max_runs=2_000)
     assert (again.case, again.steps, again.runs) == (case, shrunk.steps, shrunk.runs)
 
 

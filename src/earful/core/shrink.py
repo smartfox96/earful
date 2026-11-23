@@ -68,9 +68,19 @@ class Difference:
 
 def _pairs(author: cases.Case, found: cases.Case) -> list[tuple[int | None, int | None]]:
     # (author index, found index) pairs; None on a side for a speech the other does not have.
-    taken: set[int] = set()
+    # Reserve unchanged speeches before matching edited repetitions of the same words.
+    by_time = {speech["start_us"]: i for i, speech in enumerate(author["speeches"])}
+    identical = {}
+    for j, speech in enumerate(found["speeches"]):
+        i = by_time.get(speech["start_us"])
+        if i is not None and author["speeches"][i] == speech:
+            identical[j] = i
+    taken = set(identical.values())
     out: list[tuple[int | None, int | None]] = []
     for j, theirs in enumerate(found["speeches"]):
+        if j in identical:
+            out.append((identical[j], j))
+            continue
         match = next(
             (
                 i
