@@ -295,7 +295,10 @@ def replay(
     outcomes, framework = [], {}
     for _ in range(repeats):
         events = run(bundle.minimal)
-        framework = events[0]["data"]["framework"]
+        header = events[0].get("data") if events and isinstance(events[0], dict) else None
+        if not isinstance(header, dict) or not isinstance(header.get("framework"), dict):
+            raise ValueError("the replay returned a ledger without a framework header")  # noqa: TRY004
+        framework = header["framework"]
         outcomes.append(judged(bundle.minimal, events))
     # A run that is not valid evidence has no failures, so it never counts as breaking.
     broke = [bundle.predicate in o.failures for o in outcomes]

@@ -181,7 +181,10 @@ class Earful:
             broke = ", ".join(result.report.broken()) or (
                 "nothing" if result.report.valid else "not valid evidence"
             )
-            lines.append(f"run {number} ({result.case}) breaks {broke}")
+            line = f"run {number} ({result.case}) breaks {broke}"
+            if lost := result.report.lost():
+                line += f", lost evidence for {', '.join(lost)}"
+            lines.append(line)
             write(f"run-{number}.{_slug(result.case)}", result.events)
         for number, found in enumerate(self.searches, 1):
             header = (found.runner.ledger(found.case) or [{}])[0].get("data", {})

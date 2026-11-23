@@ -2200,3 +2200,19 @@ def test_the_shrinker_repeats_its_passes_until_none_removes_anything():
     assert [s["transcript"] for s in reduced.case["speeches"]] == [WINDOW["transcript"]]
     assert reduced.case["delays"] == []
     assert reduced.steps == ["removed 1 of 1 declared delays", "removed 1 of 2 speeches"]
+
+
+@pytest.mark.parametrize("events", [[], [None], [{"data": []}], [{"data": {"framework": []}}]])
+def test_a_replay_with_a_damaged_header_is_refused(tmp_path, events):
+    kept = bundle.load(a_copy(tmp_path))
+    with pytest.raises(ValueError, match="framework header"):
+        bundle.replay(kept, lambda case: events, repeats=1)
+
+
+@pytest.mark.parametrize("exc", [SystemExit(), OSError()])
+def test_an_exit_or_os_error_names_the_reason_a_search_case_was_refused(exc):
+    def refused(_case):
+        raise exc
+
+    outcome = evaluate(refused, a_case(BOOK))
+    assert outcome.why_not == "refused" and outcome.reason

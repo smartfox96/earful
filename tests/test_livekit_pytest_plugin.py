@@ -249,3 +249,10 @@ def test_tests_whose_ids_differ_in_one_character_keep_their_evidence_apart(pytes
     kept = sorted(p.name for p in out.iterdir()) if out.exists() else []
     if len(kept) != 2:
         raise KnownDefect(f"the two failing tests left {kept}")
+
+
+def test_the_fixture_names_the_evidence_lost_by_a_run(tmp_path):
+    helper = Earful(tmp_path, workers=0)
+    result = helper.run("shapes.livekit.books_outside_the_backend:case")
+    (line, *_paths) = helper.evidence()
+    assert result.report.lost() and all(code in line for code in result.report.lost())

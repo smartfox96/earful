@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from .checker import _judge
+from .checker.report import broken_rules
 from .schema import validity
 
 Event = dict[str, Any]
@@ -270,16 +271,7 @@ def _effects(virtual: list[Event], real: list[Event]) -> list[Difference]:
 
 def _broken(events: list[Event]) -> tuple[str, ...]:
     _reading, _readings, results = _judge(events)
-    return tuple(
-        sorted(
-            {
-                f"{verdict.contract}/{finding.rule}"
-                for result in results.values()
-                for verdict in result.failures
-                for finding in verdict.findings
-            }
-        )
-    )
+    return tuple(broken_rules(v for result in results.values() for v in result.failures))
 
 
 def compare(

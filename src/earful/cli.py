@@ -714,6 +714,8 @@ def _parser() -> argparse.ArgumentParser:
 
 
 def main(argv: Sequence[str] | None = None) -> int:
+    if argv is None:
+        os.environ.setdefault("LOGURU_LEVEL", "WARNING")
     args = _parser().parse_args(argv)
     try:
         if args.run in (_init, _run, _search, _replay, _crosscheck):
@@ -721,17 +723,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         return int(args.run(args))
     except SystemExit as exc:
         print(f"earful: scenario called sys.exit({exc.code!r})", file=sys.stderr)
-    except (Refused, ImportError, OSError) as exc:
-        print(f"earful: {exc}", file=sys.stderr)
-    except ValueError as exc:  # a scenario, a case or a bundle the core refuses
-        print(f"earful: {exc}", file=sys.stderr)
+    except (Refused, ImportError, OSError, ValueError) as exc:
+        reason = " ".join(str(exc).splitlines())
+        print(f"earful: {reason}", file=sys.stderr)
     return REFUSED
-
-
-def command() -> int:
-    """Run the installed command with framework diagnostics at warning level."""
-    os.environ.setdefault("LOGURU_LEVEL", "WARNING")
-    return main()
 
 
 __all__ = ["BROKEN", "NO_VERDICT", "OK", "REFUSED", "main"]

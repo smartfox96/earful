@@ -244,8 +244,13 @@ def test_a_verdict_that_fails_keeps_the_codes_of_the_evidence_it_lost(fixed):
                     item["arguments"] = '{"party_size": 2}'
     report = check(seal(fixed))
     assert report.broken() == ["M2/rule f"]
-    if report.lost() != ["M2/no-stable-text"]:
-        raise KnownDefect("the lost code is dropped, so allowing rule f passes the run")
+    assert report.lost() == ["M2/no-stable-text"]
+    from test_crosscheck import as_real
+
+    from earful.core.crosscheck import compare
+
+    compared = compare(fixed, as_real(fixed))
+    assert list(compared.rules) == list(compared.real_rules) == report.broken()
     with pytest.raises(ContractFailure, match="lost the evidence for M2/no-stable-text"):
         report.assert_contracts(allow=["M2/rule f"])
 

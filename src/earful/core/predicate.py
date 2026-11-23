@@ -7,6 +7,7 @@ from dataclasses import dataclass
 
 from .checker import FAIL, UNOBSERVABLE, Report
 from .checker.report import CODES, LOST, parse_rule
+from .outcome import reports_outcome
 
 
 @dataclass(frozen=True, order=True)
@@ -36,7 +37,8 @@ class Predicate:
 def failures(report: Report) -> set[Predicate]:
     """Every contract rule ``report`` says was broken, and every code of evidence it lost,
     which a run fails on as on a rule. Empty for an invalid run."""
-    return {Predicate.parse(name) for name in (*report.broken(), *report.lost())}
+    outcome = reports_outcome((report,), set(), [])
+    return {Predicate.parse(name) for name in (*outcome.broken, *outcome.lost)}
 
 
 def details_of(report: Report, predicate: Predicate) -> tuple[str, ...]:

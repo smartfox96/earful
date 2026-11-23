@@ -139,6 +139,17 @@ class ContractResult:
         return tuple(v for v in self.verdicts if v.outcome == FAIL)
 
 
+def broken_rules(failures: Iterable[Verdict]) -> list[str]:
+    return sorted(
+        {
+            f"{v.contract}/{finding.rule}"
+            for v in failures
+            for finding in v.findings
+            if finding.code is None
+        }
+    )
+
+
 @dataclass(frozen=True)
 class Report:
     run: str | None
@@ -168,14 +179,7 @@ class Report:
 
     def broken(self) -> list[str]:
         """Every rule a failed verdict names, as ``CONTRACT/RULE``, sorted."""
-        return sorted(
-            {
-                f"{v.contract}/{finding.rule}"
-                for v in self.failures
-                for finding in v.findings
-                if finding.code is None
-            }
-        )
+        return broken_rules(self.failures)
 
     def lost(self) -> list[str]:
         """Every code of evidence lost a verdict carries, as ``CONTRACT/CODE``, sorted."""

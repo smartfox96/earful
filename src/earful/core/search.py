@@ -93,12 +93,13 @@ def judged(case: cases.Case, events: list[Event]) -> Outcome:
 
 def attempt(run: Run, case: cases.Case) -> tuple[Outcome, list[Event] | None]:
     """Run and check a case. A refused case or a run that raises is recorded, with no ledger.
-    Only ``CaseRefused`` is a refusal: any other exception, a ``ValueError`` included, came
-    from the run and is an error."""
+    An explicit refusal, a process exit or an operating system failure is recorded as a refusal."""
     try:
         events = run(case)
-    except (SystemExit, OSError, CaseRefused) as exc:
-        return Outcome(case, refused=str(exc)), None
+    except SystemExit as exc:
+        return Outcome(case, refused=f"scenario called sys.exit({exc.code!r})"), None
+    except (OSError, CaseRefused) as exc:
+        return Outcome(case, refused=str(exc) or type(exc).__name__), None
     except Exception as exc:  # noqa: BLE001
         return Outcome(case, error=f"{type(exc).__name__}: {exc}"), None
     outcome = judged(case, events)
