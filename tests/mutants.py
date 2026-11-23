@@ -6140,4 +6140,18 @@ MUTANTS = [
         "    if True:\n",
         first="control_of_no_break_runs_nothing",
     ),
+    Mutant(
+        "breaks: a name no break has any more counts toward the median",
+        "scripts/mutate.py",
+        "    known = {name: seconds for name, seconds in recorded(root).items() if name in names}\n",
+        "    known = recorded(root)\n",
+        first="name_the_seconds_hold_and_no_break_has",
+    ),
+    Mutant(
+        "breaks: a break caught outside the files it ran first reads as caught in them",
+        "scripts/mutate.py",
+        '            if judged is not None and anywhere and judged[0] == "caught":\n',
+        "            if False:\n",
+        first="caught_only_outside_the_files_it_ran_first",
+    ),
 ]

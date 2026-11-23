@@ -97,8 +97,9 @@ def test_the_list_of_breaks_at_a_commit_is_read_from_git():
     assert mutate.breaks_at("no-such-commit") is None
 
 
-def test_the_parts_hold_every_break_once_and_the_longest_are_spread(tmp_path):
+def test_the_parts_hold_every_break_once_and_the_longest_are_spread(tmp_path, monkeypatch):
     breaks = [Mutant(f"b{n}", "src/thing.py", "1", "2", "x") for n in range(10)]
+    monkeypatch.setattr(mutate, "MUTANTS", breaks)
     (tmp_path / "tests").mkdir()
     seconds = {"b0": 100, "b1": 90, **{f"b{n}": 1 for n in range(2, 10)}}
     (tmp_path / mutate.SECONDS_FILE).write_text(json.dumps(seconds))
@@ -108,8 +109,9 @@ def test_the_parts_hold_every_break_once_and_the_longest_are_spread(tmp_path):
     assert parts == [mutate.part(breaks, k, 3, tmp_path) for k in (1, 2, 3)]  # the same each time
 
 
-def test_the_number_of_parts_follows_the_recorded_seconds(tmp_path):
+def test_the_number_of_parts_follows_the_recorded_seconds(tmp_path, monkeypatch):
     breaks = [Mutant(f"b{n}", "src/thing.py", "1", "2", "x") for n in range(4)]
+    monkeypatch.setattr(mutate, "MUTANTS", breaks)
     (tmp_path / "tests").mkdir()
     seconds_file = tmp_path / mutate.SECONDS_FILE
 
@@ -125,9 +127,17 @@ def test_the_number_of_parts_follows_the_recorded_seconds(tmp_path):
     assert mutate.part_count(breaks, tmp_path) == min(4, mutate.MOST_PARTS)
 
 
-def test_the_seconds_recorded_are_those_of_breaks_that_exist():
-    recorded = set(mutate.recorded())
-    assert recorded and recorded <= {m.name for m in MUTANTS}
+def test_a_name_the_seconds_hold_and_no_break_has_changes_nothing(tmp_path, monkeypatch):
+    breaks = [Mutant(f"b{n}", "src/thing.py", "1", "2", "x") for n in range(4)]
+    monkeypatch.setattr(mutate, "MUTANTS", breaks)
+    (tmp_path / "tests").mkdir()
+    gone = {f"gone{n}": mutate.PART_SECONDS * 10 for n in range(3)}  # renamed or deleted since
+    seconds = {"b0": 1, "b1": 1, **gone}
+    (tmp_path / mutate.SECONDS_FILE).write_text(json.dumps(seconds))
+    # b2 and b3 count as the median of b0 and b1 alone.
+    assert mutate._seconds(breaks, tmp_path) == dict.fromkeys(["b0", "b1", "b2", "b3"], 1)
+    assert mutate.part_count(breaks, tmp_path) == 1
+    assert mutate.recorded()  # the file kept in the repository is read
 
 
 def test_the_seconds_are_kept_from_the_results_of_a_run(tmp_path):
@@ -142,6 +152,33 @@ def test_the_seconds_are_kept_from_the_results_of_a_run(tmp_path):
     )
     results.write_text(json.dumps(rows[:-1]))  # a break without a result
     assert mutate.record([results], tmp_path) == 1
+
+
+def test_a_break_caught_only_outside_the_files_it_ran_first_says_so(tmp_path):
+    root = _project(
+        tmp_path,
+        {
+            # The scan chooses this file for "alpha", and its test does not read the code.
+            "test_alpha.py": "def test_alpha_holds():\n    pass\n",
+            # pytest -k also matches a parameter's id, which the scan does not read.
+            "test_beta.py": (
+                "import pytest\n\nfrom thing import VALUE\n\n\n"
+                "@pytest.mark.parametrize('x', [1], ids=['alpha'])\n"
+                "def test_value(x):\n    assert VALUE == x\n"
+            ),
+        },
+    )
+    mutate._keywords.cache_clear()
+    mutate._test_names.cache_clear()
+    try:
+        broken = Mutant("x", "src/thing.py", "VALUE = 1", "VALUE = 2", "alpha")
+        assert mutate.files_of(broken, root) == ("tests/test_alpha.py",)
+        outcome, detail = mutate._outcome(broken, tmp_path / "copy", 60, root)
+    finally:
+        mutate._keywords.cache_clear()
+        mutate._test_names.cache_clear()
+    assert outcome == "caught"
+    assert detail == mutate.OUTSIDE + "tests/test_beta.py::test_value[alpha]"
 
 
 def test_a_test_that_never_ends_is_stopped(tmp_path):

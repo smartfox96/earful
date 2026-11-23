@@ -185,15 +185,18 @@ with the schemas: a field the schema has and the page does not mention fails it.
 breaks of the code, each one piece of source text and what replaces it. When you add
 behaviour, add the break that removes it and name the test that should catch it. A break
 runs the test files that hold the tests it names, which is what keeps the whole run
-short. A break that some other test catches fails the run as misnamed, and one that keeps
-its tests running for five minutes fails it as timed out. When you move code a break is
+short; if none of them fails, it runs its named tests across the suite. The run ends by
+naming each break caught only that way, where the scan of test names in
+`scripts/mutate.py` missed a test. A break that some other test catches fails the run as
+misnamed, and one that keeps its tests running for five minutes fails it as timed out. When you move code a break is
 anchored on, or rename a test a break names, `scripts/lint.sh` fails until the break is
 brought along. Code whose break no test can catch is not needed.
 
 `tests/mutants_seconds.json` holds how long each break took in the last full run, and CI
 cuts the breaks into parts of about eight minutes of work from it. After a full run,
 `mutate.py --record mutation-*.json` with the run's result files brings it up to date. A
-break it does not list counts as the median.
+break it does not list counts as the median, and a name it lists that no break has is
+left out, so the file never stops a pull request.
 
 **Tests over a second are marked `slow`.** `pytest -m "not slow"` is the loop to work in.
 

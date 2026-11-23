@@ -46,6 +46,8 @@ PART_SECONDS = 480
 MOST_PARTS = 6
 # Longer than any break has taken, and far short of a job's limit.
 TIMEOUT_SECONDS = 300
+# How a break caught only outside the files it ran first is described.
+OUTSIDE = "outside the files it ran first: "
 
 _LEFT_OUT = shutil.ignore_patterns(
     ".git", ".venvs", "__pycache__", ".*_cache", ".hypothesis", "out", "evidence", ".claude"
@@ -226,8 +228,10 @@ def recorded(root: Path = ROOT) -> dict[str, float]:
 
 
 def _seconds(mutants: list[Mutant], root: Path) -> dict[str, float]:
-    """Each break's recorded seconds; one not yet recorded counts as the median of the rest."""
-    known = recorded(root)
+    """Each break's recorded seconds; one not yet recorded counts as the median of the rest.
+    A name no break has any more is left out."""
+    names = {m.name for m in MUTANTS}
+    known = {name: seconds for name, seconds in recorded(root).items() if name in names}
     values = sorted(known.values())
     usual = values[len(values) // 2] if values else 5.0
     return {m.name: known.get(m.name, usual) for m in mutants}
@@ -313,14 +317,14 @@ def _judge(code: int, output: str) -> tuple[str, str] | None:
 def run(mutant: Mutant, scratch: Path, number: int, timeout: float) -> Result:
     """Run the tests against ``mutant`` in a fresh copy."""
     started = time.monotonic()
-    outcome, detail = _outcome(mutant, scratch / f"copy-{number}", timeout)
+    outcome, detail = _outcome(mutant, scratch / f"copy-{number}", timeout, ROOT)
     return Result(mutant.name, outcome, detail, round(time.monotonic() - started, 1))
 
 
-def _outcome(mutant: Mutant, copy: Path, timeout: float) -> tuple[str, str]:
-    if (why := problem(mutant)) is not None:
+def _outcome(mutant: Mutant, copy: Path, timeout: float, root: Path) -> tuple[str, str]:
+    if (why := problem(mutant, root)) is not None:
         return "invalid", why
-    _copy(ROOT, copy)
+    _copy(root, copy)
     try:
         target = copy / mutant.path
         target.write_text(target.read_text().replace(mutant.old, mutant.new))
@@ -328,8 +332,12 @@ def _outcome(mutant: Mutant, copy: Path, timeout: float) -> tuple[str, str]:
             stale.unlink()
         # The files of its named tests, then its named tests anywhere: the same tests a
         # whole-suite -k selects, the files that hold them first.
-        for selection in ([*files_of(mutant), "-k", mutant.first], ["-k", mutant.first]):
+        for anywhere, selection in enumerate(
+            ([*files_of(mutant, root), "-k", mutant.first], ["-k", mutant.first])
+        ):
             judged = _judge(*_pytest(copy, *selection, timeout=timeout))
+            if judged is not None and anywhere and judged[0] == "caught":
+                return "caught", OUTSIDE + judged[1]  # files_of missed the test that failed
             if judged is not None and judged[0] in ("caught", "timed out"):
                 return judged
         # The whole suite runs only if the named tests pass, so a wrong name hides no survivor.
@@ -452,6 +460,12 @@ def main(argv: list[str]) -> int:
     counts = {o: sum(r.outcome == o for r in judged) for o in outcomes}
     if not args.control:
         print(f"{len(judged)} breaks: " + ", ".join(f"{counts[o]} {o}" for o in outcomes))
+        outside = [r.name for r in judged if r.detail.startswith(OUTSIDE)]
+        if outside:
+            print(
+                f"{len(outside)} caught only outside the files they ran first, which made each "
+                f"run twice: files_of does not find their tests, such as {outside[0]!r}"
+            )
     if results and results[0].name.startswith("control:") and results[0].outcome != "passed":
         print("the control failed: the unbroken code does not pass, so no break was run")
         return 1
