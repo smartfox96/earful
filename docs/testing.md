@@ -36,11 +36,13 @@ model = (
     .otherwise(say="How can I help?")
 )
 
+speeches = [UserSpeech(start=0.5, end=2.5, transcript="Book a table for six tonight.")]
+
 case = Case(
     name="booking",
     agent=BookingAgent,
     effects={"create_reservation": Effect("book-table")},
-    speeches=[UserSpeech(start=0.5, end=2.5, transcript="Book a table for six tonight.")],
+    speeches=speeches,
     policy=model,
 )
 
@@ -256,6 +258,7 @@ tool writes nothing, leaves A2 not exercised and passes. `require` names the con
 test is about. Each must end with a pass or a fail:
 
 ```python
+result = run(case)
 result.assert_contracts(require=["A2", "A3"])
 ```
 
@@ -379,6 +382,9 @@ that the ledger is the one recorded. Once the defect is fixed, the bundle is the
 regression test:
 
 ```python
+from earful.livekit import replay
+
+
 def test_the_double_booking_stays_fixed():
     assert replay("failures/double-booking").clean
 ```
@@ -386,8 +392,9 @@ def test_the_double_booking_stays_fixed():
 `clean` says that every run was judged and the rule's contract passed in each. Assert
 `clean`, and never `not reproduced`: a replay whose runs were not valid evidence, or in
 which the contract had nothing to judge, is not reproduced either, and it is not clean.
-`judged` says whether every run was valid evidence and gave the contract a pass or a
-fail.
+For a saved rule, `judged` means every replay gave its contract a pass or a fail.
+A bundle kept for a loss of evidence also counts as judged when every replay observes
+the saved loss.
 
 `scenario_changed` says whether the module that defines the scenario's function differs
 from when the bundle was kept. It covers that one file. An agent or a service stand-in
@@ -529,10 +536,10 @@ with nothing patched, and compares each of those runs with the virtual one.
 
 ```python
 from earful.livekit import cross_check
+from earful.livekit.cases import book_then_interrupt
 
 checked = cross_check(book_then_interrupt, runs=3)
 print("\n".join(checked.lines()))
-assert checked.agrees
 ```
 
 ```

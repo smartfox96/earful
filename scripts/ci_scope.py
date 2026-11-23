@@ -105,6 +105,7 @@ RULES = (
     ("tests/*.py", "declared"),
     ("tests/shapes/*.py", "declared"),
     ("src/**", "core"),
+    ("releases.toml", "everything"),
     ("pyproject.toml", "build"),
     ("LICENSE", "build"),
     ("NOTICE", "build"),

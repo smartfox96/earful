@@ -114,6 +114,7 @@ script among them. `python3 scripts/ci_scope.py --table` prints these tables:
 | `tests/*.py` | declared |
 | `tests/shapes/*.py` | declared |
 | `src/**` | core |
+| `releases.toml` | everything |
 | `pyproject.toml` | build |
 | `LICENSE` | build |
 | `NOTICE` | build |

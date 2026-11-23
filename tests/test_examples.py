@@ -72,16 +72,19 @@ class SupportAgent(lk.Agent):
 
 
 def test_the_test_the_skill_shows_a_coding_assistant_runs_as_written(pytester):
-    """Only the conversation as written is run: what a search of it finds depends on the release."""
+    """The skill's search is green on the release used in the walkthrough."""
     (shown, *_others) = re.findall(r"```python\n(.*?)```", SKILL.read_text(), flags=re.DOTALL)
     (pytester.path / "myapp").mkdir()
     (pytester.path / "myapp" / "__init__.py").write_text("")
     (pytester.path / "myapp" / "agent.py").write_text(SUPPORT_AGENT)
     (pytester.path / "test_refund.py").write_text(shown)
-    result = pytester.runpytest_inprocess(
-        "-p", "no:cacheprovider", "-p", "no:asyncio", "-k", "as_written"
-    )
-    result.assert_outcomes(passed=1, deselected=1)
+    if VERSION == QUICKSTART_RELEASE:
+        run(pytester).assert_outcomes(passed=2)
+    else:
+        result = pytester.runpytest_inprocess(
+            "-p", "no:cacheprovider", "-p", "no:asyncio", "-k", "as_written"
+        )
+        result.assert_outcomes(passed=1, deselected=1)
 
 
 def test_with_an_idempotency_key_sent_the_second_booking_is_gone(example):

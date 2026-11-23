@@ -210,6 +210,7 @@ _EXAMPLES = {
     "tests/*.py": "tests/test_cli.py",
     "tests/shapes/*.py": "tests/shapes/corpus.py",
     "src/**": "src/earful/core/schemas/ledger.json",
+    "releases.toml": "releases.toml",
     "pyproject.toml": "pyproject.toml",
     "LICENSE": "LICENSE",
     "NOTICE": "NOTICE",

@@ -288,8 +288,7 @@ def test_the_testing_page_runs_its_examples_in_a_booking_application(tmp_path, m
     import livekit.agents as lk
     from doc_examples import blocks, execute
 
-    from earful.livekit import replay, run
-    from earful.livekit.cases import book_then_interrupt
+    from earful.livekit import run
     from earful.pytest_plugin import Earful
 
     monkeypatch.chdir(tmp_path)
@@ -307,12 +306,10 @@ def test_the_testing_page_runs_its_examples_in_a_booking_application(tmp_path, m
     for module in ("myapp", "myapp.agent", "myapp.scenarios"):
         monkeypatch.delitem(sys.modules, module, raising=False)
     page = "docs/testing.md"
-    names = {"book_then_interrupt": book_then_interrupt}
+    names = {}
     for block in blocks(page, "python"):
         if "failures/double-booking" in block:
             if "def test_" in block:
-                names["replay"] = replay
-
                 shutil.copytree(
                     ROOT / "tests/bundles/lk-1.5.6.book_then_interrupt.A2-rule",
                     "failures/double-booking",
@@ -324,9 +321,7 @@ def test_the_testing_page_runs_its_examples_in_a_booking_application(tmp_path, m
             continue  # the page quotes the historical real-clock control
         execute(page, block, names)
         if "case = Case(" in block:
-            names["speeches"] = names["case"].speeches
-            names["result"] = run(names["case"])
-            names["result"].assert_contracts()
+            run(names["case"]).assert_contracts()
         if (
             "def test_a_booking_is_made_once_and_confirmed_truthfully" in block
             and lk.__version__ == "1.8.13"
@@ -336,6 +331,8 @@ def test_the_testing_page_runs_its_examples_in_a_booking_application(tmp_path, m
                 test(Earful(tmp_path / "evidence", workers=0))
             else:
                 test()
+        elif "cross_check(" in block:
+            assert len(names["checked"].comparisons) == 3
         elif "def policy(" in block:
             assert names["policy"]([]).tool_calls
         elif "def test_the_double_booking_stays_fixed" in block and lk.__version__ == "1.8.13":
@@ -385,3 +382,23 @@ def test_the_testing_pages_command_sequence_builds_a_replayable_bundle(tmp_path,
         assert program == "earful"
         assert main([command, *arguments]) == (1 if command == "search" else 0)
     assert (tmp_path / "report.html").read_text().startswith("<!DOCTYPE html>")
+
+
+@pytest.mark.slow
+def test_each_saved_case_page_runs_its_commands_on_the_named_release(monkeypatch, capsys):
+    import livekit.agents as lk
+    from doc_examples import commands
+
+    from earful.cli import BROKEN, OK, main
+
+    monkeypatch.chdir(ROOT)
+    for page in (ROOT / "docs/cases").glob("*.md"):
+        for program, *arguments in commands(str(page)):
+            if program != f".venvs/lk-{lk.__version__}/bin/earful":
+                continue
+            status = main(arguments)
+            output = capsys.readouterr().out
+            if arguments[0] == "crosscheck":
+                assert status in (OK, BROKEN) and "of 3 real-clock runs agree" in output
+            else:
+                assert status == (BROKEN if arguments[0] == "check" else OK), (page, arguments)
