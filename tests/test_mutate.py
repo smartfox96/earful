@@ -140,18 +140,18 @@ def test_a_name_the_seconds_hold_and_no_break_has_changes_nothing(tmp_path, monk
     assert mutate.recorded()  # the file kept in the repository is read
 
 
-def test_the_seconds_are_kept_from_the_results_of_a_run(tmp_path):
+def test_the_seconds_of_a_run_replace_those_recorded_and_the_rest_are_kept(tmp_path):
     (tmp_path / "tests").mkdir()
+    names = [m.name for m in MUTANTS]
+    before = {names[0]: 7.0, names[1]: 8.0, "a break deleted since": 9.0}
+    (tmp_path / mutate.SECONDS_FILE).write_text(json.dumps(before))
     results = tmp_path / "part.json"
-    rows = [{"name": "control: nothing is broken", "seconds": 9.0}]
-    rows += [{"name": m.name, "seconds": 2.5} for m in MUTANTS]
+    rows = [{"name": "control: nothing is broken", "seconds": 99.0}]
+    rows += [{"name": name, "seconds": 2.5} for name in names[1:3]]
     results.write_text(json.dumps(rows))
     assert mutate.record([results], tmp_path) == 0
-    assert json.loads((tmp_path / mutate.SECONDS_FILE).read_text()) == dict.fromkeys(
-        [m.name for m in MUTANTS], 2.5
-    )
-    results.write_text(json.dumps(rows[:-1]))  # a break without a result
-    assert mutate.record([results], tmp_path) == 1
+    kept = json.loads((tmp_path / mutate.SECONDS_FILE).read_text())
+    assert kept == {names[0]: 7.0, names[1]: 2.5, names[2]: 2.5}
 
 
 def test_a_break_caught_only_outside_the_files_it_ran_first_says_so(tmp_path):
