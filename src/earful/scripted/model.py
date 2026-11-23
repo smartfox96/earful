@@ -35,6 +35,14 @@ class Reply:
     duration: float = 0.3  # total generation time
     claims: tuple[Claim, ...] = ()
 
+    def check_timing(self) -> None:
+        from .case import seconds
+
+        seconds("ttft", self.ttft)
+        seconds("duration", self.duration)
+        if self.ttft > self.duration:
+            raise ValueError(f"reply ttft {self.ttft} exceeds duration {self.duration}")
+
 
 def _words(text: str) -> list[str]:
     return text.split()

@@ -215,9 +215,6 @@ def test_outside_a_run_there_is_no_backend_to_write_to():
         asyncio.run(effect("order-1", {"dish": "soup"}))
 
 
-@pytest.mark.xfail(
-    strict=True, raises=KnownDefect, reason="Earful: a write refused for its payload takes a number"
-)
 def test_a_write_refused_for_its_payload_is_no_request_and_the_next_one_is_write_1():
     async def main():
         ledger = Ledger(now_us, run="run-0000000000000000")

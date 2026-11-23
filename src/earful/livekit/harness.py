@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import copy
 import logging
 import random
 from collections.abc import Callable, Iterable
@@ -22,7 +23,15 @@ from ..core.ledger import Ledger, ledger_hash
 from ..core.predicate import Predicate
 from ..core.schema import validity
 from ..core.timebase import to_seconds, to_us
-from ..scripted.case import DELAYS, Delay, Fault, Intent, InvalidRun, check_case, declared_intents
+from ..scripted.case import (
+    DELAYS,
+    Delay,
+    Fault,
+    Intent,
+    InvalidRun,
+    check_intent_tools,
+    declared_intents,
+)
 from ..scripted.clock import (
     ClockPatchReport,
     VirtualTimeLoop,
@@ -95,7 +104,7 @@ class Case:
     # Further AgentSession options, of those ``options.PASSED`` names.
     session_kwargs: dict[str, Any] = field(default_factory=dict)
 
-    def check(self) -> None:
+    def check(self, seed: int = 0) -> None:
         """Raise ``ValueError`` for a scenario that contradicts itself."""
         options.refuse_session_kwargs(self.session_kwargs)
         if not callable(self.agent):
@@ -104,7 +113,9 @@ class Case:
                 f"a function; got an object of {type(self.agent).__name__}. Write "
                 f"agent=lambda: {type(self.agent).__name__}(...)"
             )
-        check_case(self)
+        from .scenario import INLINE, describe
+
+        describe(self, INLINE, seed)
 
 
 @dataclass
@@ -194,6 +205,11 @@ def _session_kwargs(case: Case) -> dict[str, Any]:
         "aec_warmup_duration": None,
     }
     kwargs.update(case.session_kwargs)
+    if "userdata" in kwargs:
+        try:
+            kwargs["userdata"] = copy.deepcopy(kwargs["userdata"])
+        except Exception as exc:
+            raise ValueError(f"session userdata cannot be copied for each run: {exc}") from exc
     return kwargs
 
 
@@ -246,7 +262,7 @@ def _header(
     case: Case, tools_found: dict[str, Effect | None], history: list[dict[str, Any]]
 ) -> dict[str, Any]:
     effects = _effects(case, tools_found)
-    intents = declared_intents(case.intents, effects, case.speeches)
+    intents = declared_intents(case.intents, effects, case.speeches, case.contracts)
     header = _scenario(case, sorted(tools_found), intents)
     if history:
         header["history"] = history
@@ -477,7 +493,7 @@ def _descendants(logger: logging.Logger) -> list[logging.Logger]:
 
 
 async def _run(case: Case, seed: int) -> RunResult:
-    case.check()
+    case.check(seed)
     random.seed(seed)
     loop = asyncio.get_running_loop()
     virtual = isinstance(loop, VirtualTimeLoop)
@@ -626,7 +642,8 @@ async def _play(
         scenario=scenario,
         contracts=case.contracts,
     )
-    _tap(session, ledger, harness_errors, checked=[agent])
+    checked = [agent]
+    _tap(session, ledger, harness_errors, checked=checked)
 
     await session.start(agent)
     audio_in.push_silence(0.1)  # first frame starts the scripted user's clock
@@ -660,6 +677,11 @@ async def _play(
     except asyncio.TimeoutError:
         harness_errors.append(f"the session did not close within {case.drain_timeout} s")
     await sync.aclose()
+    if not harness_errors:
+        available = set(found)
+        for active in checked:
+            available.update(tools.tool_names(active.tools))
+        check_intent_tools(case.intents, available)
     return sink
 
 

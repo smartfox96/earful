@@ -78,6 +78,13 @@ def test_a_scenario_without_effects_does_not_state_any():
 
 def test_an_intent_the_scenario_lists_keeps_what_it_declares_and_gains_the_tool():
     case = as_written_reads_the_error()
+    class Host(TalksToItsServiceItself):
+        @lk.function_tool
+        async def amend_reservation(self) -> str:
+            """Amend a reservation."""
+            return "Amended."
+
+    case.agent = Host
     case.intents = [Intent(BOOKING_INTENT, tools=("amend_reservation",), authorized=2)]
     assert _scenario(run_case(case).ledger.events)["intents"] == [
         {

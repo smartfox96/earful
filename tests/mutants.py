@@ -31,6 +31,13 @@ MUTANTS = [
         "self.unjudged",
         first="check_exits_3_when or run_exits_3_when",
     ),
+    Mutant(
+        "backend: a refused payload consumes a request number",
+        "src/earful/core/backend.py",
+        "request = self._requests + 1",
+        "self._requests += 1\n        request = self._requests",
+        first="a_write_refused_for_its_payload",
+    ),
     # The checker: ties, stand-ins, refusals and readings.
     Mutant(
         "M1: a stop as the audio ends is held to one reading",

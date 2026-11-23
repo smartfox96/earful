@@ -28,7 +28,7 @@ from earful.scripted import clock
 from earful.scripted.clock import now_us, run_virtual
 
 
-@pytest.mark.parametrize("ttft,duration", [(0.1, 0.4), (0, 0), (0.4, 0.1)])
+@pytest.mark.parametrize("ttft,duration", [(0.1, 0.4), (0, 0), (0.4, 0.4)])
 def test_model_chunks_are_paced_and_tools_arrive_at_generation_end(ttft, duration):
     async def main():
         ledger = Ledger(now_us, run="test")

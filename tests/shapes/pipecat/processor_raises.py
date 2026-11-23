@@ -67,5 +67,3 @@ def case() -> Case:
 
 # One reason, naming the processor.
 SHOULD = invalid("Censor")
-# The same reason once per frame, and no processor named.
-DEFECT = invalid("Error processing frame: the word list is not loaded")

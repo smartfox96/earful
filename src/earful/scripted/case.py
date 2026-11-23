@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import dataclasses
 import itertools
+import math
 from dataclasses import dataclass
 from typing import Any, Protocol, get_args
 
@@ -64,9 +65,34 @@ class CaseData(Protocol):
     backend_mode: BackendMode
 
 
+def seconds(name: str, value: float) -> float:
+    if (
+        isinstance(value, bool)
+        or not isinstance(value, (int, float))
+        or not math.isfinite(value)
+        or value < 0
+    ):
+        raise ValueError(f"{name} must be finite nonnegative seconds, got {value!r}")
+    return value
+
+
 def check_case(case: CaseData) -> None:
     """Reject contradictory speeches, contracts and backend declarations."""
     parse_all(case.contracts)  # raises PolicyError, a ValueError, on anything undefined
+    for speech in case.speeches:
+        for name in ("start", "end", "stt_delay"):
+            seconds(name, getattr(speech, name))
+        if speech.expects_reply and not speech.transcript.strip():
+            raise ValueError("expects_reply requires a speech with a transcript")
+        if isinstance(speech.retires, str):
+            raise ValueError("retires must be a sequence of intent names")  # noqa: TRY004
+    for intent in case.intents:
+        if not isinstance(intent.tools, (list, tuple)) or not all(
+            isinstance(name, str) for name in intent.tools
+        ):
+            raise ValueError("intent tools must be a sequence of tool names")
+        if type(intent.authorized) is not int or intent.authorized < 0:
+            raise ValueError("authorized must be a nonnegative integer")
     ordered = sorted(case.speeches, key=lambda s: s.start)
     for speech in ordered:
         if speech.end_us <= speech.start_us:
@@ -82,6 +108,9 @@ def check_case(case: CaseData) -> None:
             raise ValueError(f"the speeches at {before.start} s and {after.start} s overlap")
     seen: set[tuple[str, int]] = set()
     for delay in case.delays:
+        seconds("delay.seconds", delay.seconds)
+        if type(delay.nth) is not int:
+            raise ValueError("delay.nth must be an integer")
         if delay.of not in DELAYS:
             raise ValueError(f"unknown delay {delay.of!r}; choose from {list(DELAYS)}")
         if delay.nth < 1 or delay.seconds < 0:
@@ -93,6 +122,10 @@ def check_case(case: CaseData) -> None:
         seen.add((delay.of, delay.nth))
     faulted: set[int] = set()
     for fault in case.faults:
+        if fault.seconds is not None:
+            seconds("fault.seconds", fault.seconds)
+        if type(fault.nth) is not int:
+            raise ValueError("fault.nth must be an integer")
         if fault.of not in FAULTS:
             raise ValueError(f"unknown fault {fault.of!r}; choose from {list(FAULTS)}")
         waits = fault.of != "backend.error"
@@ -109,7 +142,8 @@ def check_case(case: CaseData) -> None:
             raise ValueError(f"backend write #{fault.nth} has more than one fault")
         faulted.add(fault.nth)
     if case.hangup is not None:
-        if case.hangup < 0 or not case.speeches:
+        seconds("hangup", case.hangup)
+        if not case.speeches:
             raise ValueError(
                 "the user hangs up after their last speech; a user who never speaks cannot"
             )
@@ -123,8 +157,17 @@ def check_case(case: CaseData) -> None:
         raise ValueError("an intent is declared more than once")
 
 
+def check_intent_tools(intents: list[Intent], tools: set[str]) -> None:
+    unknown = sorted({name for intent in intents for name in intent.tools} - tools)
+    if unknown:
+        raise ValueError(f"intents name unknown tools {unknown}")
+
+
 def declared_intents(
-    explicit: list[Intent], effects: dict[str, Effect], speeches: list[UserSpeech]
+    explicit: list[Intent],
+    effects: dict[str, Effect],
+    speeches: list[UserSpeech],
+    contracts: dict[str, dict[str, Any]],
 ) -> list[Intent]:
     """Include each effect's tool and check which intents the scripted user may retire."""
     intents = {it.intent: it for it in explicit}
@@ -133,6 +176,9 @@ def declared_intents(
         if tool not in known.tools:
             known = dataclasses.replace(known, tools=(*known.tools, tool))
         intents[declared.intent] = known
+    unknown = sorted(set(contracts.get("A1", {}).get("reissue_allowed", ())) - intents.keys())
+    if unknown:
+        raise ValueError(f"reissue_allowed names undeclared intents {unknown}")
     for speech in speeches:
         undeclared = sorted(set(speech.retires) - intents.keys())
         if undeclared:

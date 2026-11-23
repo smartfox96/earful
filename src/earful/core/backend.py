@@ -65,8 +65,7 @@ class EffectBackend:
         """Request one durable effect for ``intent`` and return its receipt. ``latency`` is
         in seconds; a keyed backend decides whether a key repeats when the write commits.
         Raises ``BackendError`` or ``BackendTimeout`` for a write with a declared fault."""
-        self._requests += 1
-        request = self._requests
+        request = self._requests + 1
         latency_us = self._latencies_us.get(request, to_us(latency))
         fault, give_up_us = self._faults.get(request, (None, None))
         self._ledger.append(
@@ -79,6 +78,7 @@ class EffectBackend:
             tool=current_tool.get(),
             latency_us=latency_us,
         )
+        self._requests = request
         # The outcome is scheduled now, whatever becomes of the caller. A dropped write has none.
         outcome: asyncio.Future[str] = asyncio.get_running_loop().create_future()
         if fault != "backend.drop":

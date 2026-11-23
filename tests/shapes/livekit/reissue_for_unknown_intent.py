@@ -5,10 +5,8 @@ from __future__ import annotations
 
 import dataclasses
 
-from invariants import HISTORY, TWO_PARTS
-
 from earful.livekit import Case
-from shapes.corpus import judged, refused
+from shapes.corpus import refused
 from shapes.livekit import booking
 
 
@@ -20,8 +18,3 @@ def case() -> Case:
 
 
 SHOULD = refused("no-such-intent")
-DEFECT = judged()
-DEFECT_VARIED = {
-    HISTORY: judged(M2="rule b"),
-    TWO_PARTS: judged(M1="rule 2, rule 3, rule 5"),
-}

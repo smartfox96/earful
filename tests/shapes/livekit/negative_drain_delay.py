@@ -5,7 +5,7 @@ from __future__ import annotations
 import livekit.agents as lk
 
 from earful.livekit import Case, ScriptedModel, UserSpeech
-from shapes.corpus import judged, refused
+from shapes.corpus import refused
 
 
 def case() -> Case:
@@ -19,4 +19,3 @@ def case() -> Case:
 
 
 SHOULD = refused("drain_delay")
-DEFECT = judged()

@@ -17,7 +17,7 @@ from typing import Any, TypeVar
 from ..core import case as case_format
 from ..core.search import CaseRefused
 from ..core.timebase import to_seconds, to_us
-from .case import CaseData, Delay, Fault, check_case
+from .case import CaseData, Delay, Fault, check_case, seconds
 from .releases import SUPPORT, quiet_worker
 from .world import UserSpeech
 
@@ -126,7 +126,8 @@ def describe(
     plain: dict[str, tuple[str, type]],
 ) -> dict[str, Any]:
     """The data of ``case``, as earful.case/1, naming ``scenario`` as its code."""
-    return {
+    check_case(case)
+    data = {
         "schema": case_format.SCHEMA,
         "schema_minor": case_format.SCHEMA_MINOR,
         "scenario": scenario,
@@ -157,11 +158,14 @@ def describe(
             for fault in sorted(case.faults, key=lambda f: (f.of, f.nth))
         ],
         "settings": {
-            **{name: to_us(getattr(case, attr)) for name, attr in times.items()},
+            **{name: to_us(seconds(attr, getattr(case, attr))) for name, attr in times.items()},
             **{name: getattr(case, attr) for name, (attr, _kind) in plain.items()},
         },
         "contracts": copy.deepcopy(case.contracts),
     }
+    if errors := case_format.validate(data):
+        raise CaseRefused("not an earful.case/1 document: " + "; ".join(errors))
+    return data
 
 
 def build(

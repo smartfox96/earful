@@ -339,6 +339,7 @@ class ScriptedLLM(LLMService):
         self._ledger.append("llm", "llm.request", call=call, items=items)
         try:
             reply = self._policy(items)
+            reply.check_timing()
         except Exception as exc:
             self._errors.append(f"policy raised on call {call}: {type(exc).__name__}: {exc}")
             raise

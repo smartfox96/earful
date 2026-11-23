@@ -6,7 +6,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 import livekit.agents as lk
-from invariants import AGAIN, HISTORY
+from invariants import HISTORY
 
 from earful.livekit import Case, ScriptedModel, UserSpeech, tool_returned
 from shapes.corpus import judged
@@ -41,8 +41,6 @@ def case() -> Case:
 
 
 SHOULD = judged()
-# The userdata object is shared by every run of the case, so a second run differs.
 DEFECT_VARIED = {
     HISTORY: judged(M2="rule b"),
-    AGAIN: judged(),
 }

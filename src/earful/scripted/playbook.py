@@ -144,19 +144,21 @@ def tool_failed(tool: str | None = None) -> Condition:
 Call = ToolCall | tuple[str, Mapping[str, Any]] | str
 
 
-def _tool_calls(call: Call | Sequence[Call]) -> tuple[ToolCall, ...]:
+def _tool_calls(call: object) -> tuple[ToolCall, ...]:
     if isinstance(call, ToolCall):
         return (call,)
     if isinstance(call, str):
         return (ToolCall(call, "{}"),)
     # A name with its arguments is one call, though a pair is also a sequence.
     if (
-        isinstance(call, tuple)
+        isinstance(call, (tuple, list))
         and len(call) == 2
         and isinstance(call[0], str)
         and isinstance(call[1], Mapping)
     ):
         return (ToolCall(call[0], json.dumps(dict(call[1]))),)
+    if not isinstance(call, Sequence):
+        raise TypeError(f"call must name a tool or a sequence of calls, got {call!r}")
     return tuple(one for each in call for one in _tool_calls(each))
 
 

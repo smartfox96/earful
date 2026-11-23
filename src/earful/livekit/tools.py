@@ -301,6 +301,10 @@ def witness_tool(tool: Any) -> Any:
     return type(tool)(witnessed(tool, name=tool.info.name), tool.info)  # type: ignore[arg-type]
 
 
+def tool_names(offered: list[Any]) -> set[str]:
+    return set(_tool_effects(offered))
+
+
 def _tool_effects(tools: list[Any]) -> dict[str, Effect | None]:
     return {
         t.info.name: declared_effect(t)

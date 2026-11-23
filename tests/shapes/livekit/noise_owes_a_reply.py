@@ -4,10 +4,9 @@ reply. Nothing can answer it, so the case contradicts itself."""
 from __future__ import annotations
 
 import livekit.agents as lk
-from invariants import HISTORY
 
 from earful.livekit import Case, Reply, ScriptedModel, UserSpeech
-from shapes.corpus import judged, refused
+from shapes.corpus import refused
 
 
 def case() -> Case:
@@ -23,7 +22,3 @@ def case() -> Case:
 
 
 SHOULD = refused("expects_reply")
-DEFECT = judged()  # the noise takes the obligation over, and the unanswered turn passes
-DEFECT_VARIED = {
-    HISTORY: judged(M2="rule b"),
-}

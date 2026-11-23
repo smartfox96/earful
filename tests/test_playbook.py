@@ -194,9 +194,6 @@ def test_a_reply_whose_generation_stopped_inside_a_word_is_a_prefix():
     assert two.attribute("Okay") == (None, "ambiguous", [1, 2])
 
 
-@pytest.mark.xfail(
-    strict=True, raises=KnownDefect, reason="Earful: a call given as a list becomes two calls"
-)
 def test_a_call_given_as_a_list_is_one_call_or_refused():
     try:
         calls = reply(call=["book", {"n": 1}]).tool_calls

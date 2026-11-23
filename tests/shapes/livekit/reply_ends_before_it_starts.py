@@ -4,10 +4,9 @@ a second in."""
 from __future__ import annotations
 
 import livekit.agents as lk
-from invariants import HISTORY, TWO_PARTS
 
 from earful.livekit import Case, Reply, ScriptedModel, UserSpeech
-from shapes.corpus import invalid, judged
+from shapes.corpus import invalid
 
 
 def case() -> Case:
@@ -20,9 +19,3 @@ def case() -> Case:
 
 
 SHOULD = invalid("ttft")
-# The end is moved to the first token, and the run is judged.
-DEFECT = judged()
-DEFECT_VARIED = {
-    HISTORY: judged(M1="rule 2", M2="rule b"),
-    TWO_PARTS: judged(M1="rule 2, rule 5"),
-}
