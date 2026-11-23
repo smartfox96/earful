@@ -15,7 +15,7 @@ from .ledger import SCHEMA, run_id
 
 Event = dict[str, Any]
 
-_IntegerValidator = validators.extend(  # type: ignore[no-untyped-call]
+IntegerValidator = validators.extend(  # type: ignore[no-untyped-call]
     Draft202012Validator,
     type_checker=Draft202012Validator.TYPE_CHECKER.redefine("integer", lambda _, n: type(n) is int),
 )
@@ -34,7 +34,7 @@ def load_schema() -> dict[str, Any]:
 def _validator() -> Draft202012Validator:
     schema = load_schema()
     Draft202012Validator.check_schema(schema)
-    return _IntegerValidator(schema)
+    return IntegerValidator(schema)
 
 
 @cache
@@ -47,7 +47,7 @@ def _validator_for(kind: str) -> Draft202012Validator:
         if rule["if"]["properties"]["kind"].get("const", kind)
         == kind  # its own rule, and any not tied to one kind
     ]
-    return _IntegerValidator({**schema, "allOf": rules})
+    return IntegerValidator({**schema, "allOf": rules})
 
 
 def event_errors(event: Any) -> list[Any]:

@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from typing import Any, Literal
 
 from .ledger import Ledger, json_value
-from .timebase import to_seconds, to_us
+from .timebase import seconds, to_seconds, to_us
 
 # The witnessed tool invocation currently running, if any; set by a framework adapter.
 current_tool: ContextVar[int | None] = ContextVar("earful_current_tool", default=None)
@@ -65,6 +65,13 @@ class EffectBackend:
         """Request one durable effect for ``intent`` and return its receipt. ``latency`` is
         in seconds; a keyed backend decides whether a key repeats when the write commits.
         Raises ``BackendError`` or ``BackendTimeout`` for a write with a declared fault."""
+        if not isinstance(payload, dict):
+            raise TypeError("effect payload must be a JSON object")
+        if not isinstance(intent, str) or not intent:
+            raise ValueError("an effect names its intent with a nonempty string")
+        if key is not None and not isinstance(key, str):
+            raise TypeError("effect key must be a string")
+        seconds("effect latency", latency)
         request = self._requests + 1
         latency_us = self._latencies_us.get(request, to_us(latency))
         fault, give_up_us = self._faults.get(request, (None, None))
@@ -233,8 +240,7 @@ class Effect:
     def __post_init__(self) -> None:
         if not isinstance(self.intent, str) or not self.intent:
             raise ValueError(f"an effect names its intent, a non-empty string; got {self.intent!r}")
-        if self.latency < 0:
-            raise ValueError(f"an effect's latency cannot be negative; got {self.latency}")
+        seconds("effect latency", self.latency)
 
     async def make(self, arguments: Arguments) -> Any:
         """Make the write for a call with ``arguments`` and return the tool's result."""

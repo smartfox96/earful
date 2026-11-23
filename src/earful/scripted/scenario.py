@@ -16,8 +16,8 @@ from typing import Any, TypeVar
 
 from ..core import case as case_format
 from ..core.search import CaseRefused
-from ..core.timebase import to_seconds, to_us
-from .case import CaseData, Delay, Fault, check_case, seconds
+from ..core.timebase import seconds, to_seconds, to_us
+from .case import CaseData, Delay, Fault, check_case
 from .releases import SUPPORT, quiet_worker
 from .world import UserSpeech
 
@@ -118,6 +118,23 @@ def fingerprint(scenario: str) -> str:
     return hashlib.sha256(source.encode("utf-8")).hexdigest() if source else ""
 
 
+def _check_settings(
+    values: dict[str, Any], times: dict[str, str], plain: dict[str, tuple[str, type]]
+) -> None:
+    settings = (*times, *plain)
+    for name, value in values.items():
+        if name not in settings:
+            raise CaseRefused(f"unknown setting {name!r}; this adapter has {sorted(settings)}")
+        wanted = int if name in times else plain[name][1]
+        if wanted is int:
+            ok = isinstance(value, int) and not isinstance(value, bool) and value >= 0
+        else:
+            ok = isinstance(value, wanted)
+        if not ok:
+            kind = "time in microseconds" if wanted is int else wanted.__name__
+            raise CaseRefused(f"setting {name!r} takes a {kind}, not {value!r}")
+
+
 def describe(
     case: CaseData,
     scenario: str,
@@ -127,7 +144,7 @@ def describe(
 ) -> dict[str, Any]:
     """The data of ``case``, as earful.case/1, naming ``scenario`` as its code."""
     check_case(case)
-    data = {
+    data: dict[str, Any] = {
         "schema": case_format.SCHEMA,
         "schema_minor": case_format.SCHEMA_MINOR,
         "scenario": scenario,
@@ -165,6 +182,7 @@ def describe(
     }
     if errors := case_format.validate(data):
         raise CaseRefused("not an earful.case/1 document: " + "; ".join(errors))
+    _check_settings(data["settings"], times, plain)
     return data
 
 
@@ -182,23 +200,13 @@ def build(
     errors = case_format.validate(data)
     if errors:
         raise CaseRefused("not an earful.case/1 document: " + "; ".join(errors))
-    settings = (*times, *plain)
-    for name, value in data["settings"].items():
-        if name not in settings:
-            raise CaseRefused(f"unknown setting {name!r}; this adapter has {sorted(settings)}")
-        wanted = int if name in times else plain[name][1]
-        if wanted is int:
-            ok = isinstance(value, int) and not isinstance(value, bool) and value >= 0
-        else:
-            ok = isinstance(value, wanted)
-        if not ok:
-            kind = "time in microseconds" if wanted is int else wanted.__name__
-            raise CaseRefused(f"setting {name!r} takes a {kind}, not {value!r}")
+    _check_settings(data["settings"], times, plain)
     case = (make or resolve(data["scenario"]))()
     if not isinstance(case, case_type):
         raise CaseRefused(
             f"scenario {data['scenario']!r} returned {type(case).__name__}, not a Case"
         )
+    case = copy.copy(case)
     case.speeches = [
         UserSpeech(
             start=to_seconds(speech["start_us"]),

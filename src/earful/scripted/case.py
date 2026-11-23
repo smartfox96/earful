@@ -4,13 +4,12 @@ from __future__ import annotations
 
 import dataclasses
 import itertools
-import math
 from dataclasses import dataclass
 from typing import Any, Protocol, get_args
 
 from ..core.backend import FAULTS, BackendMode, Effect
 from ..core.checker.policy import parse_all
-from ..core.timebase import to_us
+from ..core.timebase import seconds, to_us
 from .world import UserSpeech
 
 
@@ -65,28 +64,23 @@ class CaseData(Protocol):
     backend_mode: BackendMode
 
 
-def seconds(name: str, value: float) -> float:
-    if (
-        isinstance(value, bool)
-        or not isinstance(value, (int, float))
-        or not math.isfinite(value)
-        or value < 0
-    ):
-        raise ValueError(f"{name} must be finite nonnegative seconds, got {value!r}")
-    return value
-
-
 def check_case(case: CaseData) -> None:
     """Reject contradictory speeches, contracts and backend declarations."""
     parse_all(case.contracts)  # raises PolicyError, a ValueError, on anything undefined
     for speech in case.speeches:
         for name in ("start", "end", "stt_delay"):
             seconds(name, getattr(speech, name))
+        if not isinstance(speech.transcript, str):
+            raise ValueError("speech transcript must be a string")  # noqa: TRY004
         if speech.expects_reply and not speech.transcript.strip():
             raise ValueError("expects_reply requires a speech with a transcript")
-        if isinstance(speech.retires, str):
-            raise ValueError("retires must be a sequence of intent names")  # noqa: TRY004
+        if not isinstance(speech.retires, (list, tuple)) or not all(
+            isinstance(name, str) for name in speech.retires
+        ):
+            raise ValueError("retires must be a sequence of intent names")
     for intent in case.intents:
+        if not isinstance(intent.intent, str) or not intent.intent:
+            raise ValueError("intent must be a nonempty name")
         if not isinstance(intent.tools, (list, tuple)) or not all(
             isinstance(name, str) for name in intent.tools
         ):

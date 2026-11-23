@@ -7,6 +7,8 @@ from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 from typing import Any
 
+from ..core.timebase import seconds
+
 
 @dataclass(frozen=True)
 class ToolCall:
@@ -36,8 +38,6 @@ class Reply:
     claims: tuple[Claim, ...] = ()
 
     def check_timing(self) -> None:
-        from .case import seconds
-
         seconds("ttft", self.ttft)
         seconds("duration", self.duration)
         if self.ttft > self.duration:

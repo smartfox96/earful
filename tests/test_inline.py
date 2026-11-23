@@ -18,7 +18,7 @@ from earful.core.predicate import Predicate
 from earful.core.schema import validity
 from earful.core.search import evaluate
 from earful.livekit import scenario
-from earful.livekit.api import WorkersUnavailable, explore, keep, replay, run
+from earful.livekit.api import WorkersUnavailable, cross_check, explore, keep, replay, run
 from earful.livekit.cases import BOOKING_ACK, BOOKING_INTENT, barge_in_mid_word
 from earful.livekit.harness import Case, Delay, Fault, Intent, InvalidRun
 from earful.livekit.providers import UserSpeech
@@ -555,3 +555,49 @@ def test_a_scenario_is_run_on_both_clocks_and_the_real_run_is_never_evidence():
     assert checked.lines()[0].startswith("speak_over_new_turn on livekit-agents ")
     with pytest.raises(ValueError, match="at least one real-clock run"):
         on_both_clocks("earful.livekit.cases:speak_over_new_turn", runs=0)
+
+
+def test_rebuilding_a_saved_case_preserves_the_factorys_defaults():
+    case = barge_in_mid_word()
+    factory = Scenario.of(lambda: case)
+    original = factory.default(7)
+    changed = factory.default(7)
+    changed["speeches"][0]["transcript"] = "A different question"
+    rebuilt = factory.build(changed)
+    assert rebuilt.speeches[0].transcript == "A different question"
+    assert factory.default(7) == original
+
+
+@pytest.mark.parametrize("operation", [run, explore, cross_check])
+@pytest.mark.parametrize(
+    "damage,field", [("list", "object"), ("float", "start_us"), ("seed", "seed")]
+)
+def test_public_operations_refuse_malformed_saved_cases(operation, damage, field):
+    source = "earful.livekit.cases:barge_in_mid_word"
+    data = scenario.default(source)
+    if damage == "list":
+        data = []
+    elif damage == "float":
+        data["speeches"][0]["start_us"] = 1.0
+    else:
+        del data["seed"]
+    options = {"workers": 0} if operation is explore else {}
+    with pytest.raises(ValueError, match=field):
+        operation(source, data=data, **options)
+
+
+@pytest.mark.parametrize(
+    "field,value", [("sink_can_pause", 1), ("drain_delay", 1e308), ("drain_delay", 10**400)]
+)
+def test_direct_runs_refuse_unrepresentable_settings(field, value):
+    case = barge_in_mid_word()
+    setattr(case, field, value)
+    with pytest.raises(ValueError, match=field):
+        run(case)
+
+
+def test_direct_runs_refuse_a_missing_transcript():
+    case = barge_in_mid_word()
+    case.speeches = [UserSpeech(0, 1, None, expects_reply=True)]
+    with pytest.raises(ValueError, match="transcript"):
+        run(case)
