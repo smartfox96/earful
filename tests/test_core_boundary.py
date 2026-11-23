@@ -1,5 +1,5 @@
-"""The core and the shared scripted world must never import a framework or an adapter,
-and a test file says which framework it needs."""
+"""The core and the shared scripted world must never import a framework or an adapter, an
+adapter never imports the other, and a test file says which framework it needs."""
 
 import ast
 import re
@@ -48,6 +48,20 @@ def test_the_core_and_the_scripted_world_import_no_framework():
         for path in _sources()
         for line, name in _imports(path)
         if any(name == f or name.startswith(f + ".") for f in FORBIDDEN)
+    ]
+    assert not offenders, offenders
+
+
+@pytest.mark.parametrize(("adapter", "other"), [("livekit", "pipecat"), ("pipecat", "livekit")])
+def test_an_adapter_imports_neither_the_other_adapter_nor_its_framework(adapter, other):
+    """So a change to one adapter cannot change what the other does (scripts/ci_scope.py)."""
+    sources = sorted((SRC / "earful" / adapter).rglob("*.py"))
+    assert len(sources) > 5, adapter
+    offenders = [
+        f"{path.relative_to(SRC)}:{line} imports {name}"
+        for path in sources
+        for line, name in _imports(path)
+        if any(name == f or name.startswith(f + ".") for f in (other, f"earful.{other}"))
     ]
     assert not offenders, offenders
 

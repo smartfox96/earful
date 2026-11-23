@@ -74,10 +74,10 @@ older releases have the two defects described in `docs/cases/`.
 
 **The core imports no framework.** Everything under `src/earful/core/` works on plain
 data. `tests/test_core_boundary.py` fails if a module there imports `livekit`, `pipecat`
-or either Earful adapter. The same rule covers `src/earful/scripted/`. Anything that touches
-livekit-agents belongs in `src/earful/livekit/`,
-and a name taken from inside livekit-agents, one that it does not export at its top
-level, goes through `src/earful/livekit/_compat.py`.
+or either Earful adapter. The same rule covers `src/earful/scripted/`. Neither adapter
+imports the other or the other's framework. Anything that touches livekit-agents belongs
+in `src/earful/livekit/`, and a name taken from inside livekit-agents, one that it does
+not export at its top level, goes through `src/earful/livekit/_compat.py`.
 
 **A test file says which framework it needs.** A file under `tests/` that imports
 livekit-agents or the LiveKit adapter starts with `pytest.importorskip("livekit.agents")`,
