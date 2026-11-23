@@ -42,7 +42,7 @@ CLOCK = (
 )
 BUILD = ({"lint", "wheel", "quickstart"}, {lk(OLDEST), lk(NEWEST), pc("3.12", wheel=True)})
 FULL = (
-    {"lint", "wheel", "quickstart", "report"},
+    {"lint", "wheel", "quickstart", "report", "bare"},
     EVERY_LK
     | {lk(v, "macOS") for v in LIVEKIT}
     | OTHERS

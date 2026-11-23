@@ -290,6 +290,14 @@ def test_the_ci_table_on_the_compatibility_page_is_what_the_full_tier_runs():
     assert "Python 3.10 to 3.14 are each tested with one release." in COMPATIBILITY
 
 
+def test_the_page_names_the_oldest_jsonschema_the_package_accepts():
+    project = (ROOT / "pyproject.toml").read_text()
+    (floor,) = re.findall(r'^dependencies = \["jsonschema>=([\d.]+)"\]$', project, re.MULTILINE)
+    assert f"the oldest jsonschema the package accepts, {floor}.0 " in " ".join(
+        _section("What CI runs for LiveKit").split()
+    )
+
+
 README = (ROOT / "README.md").read_text()
 
 

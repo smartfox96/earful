@@ -67,6 +67,7 @@ FULL = (
     "wheel",
     "quickstart",
     "report",
+    "bare",
     "lk every linux",
     "lk every macos",
     "lk other pythons",
@@ -119,10 +120,11 @@ _JOBS = {
     "wheel": "the wheel installs clean",
     "quickstart": "the quickstart from the wheel",
     "report": "the example reports",
+    "bare": "no framework, the oldest jsonschema",
 }
 # The jobs of checks.yml after the scope, in its order.
 JOB_ORDER: tuple[str, ...] = ("prose", "lint", "wheel", "quickstart", "report", "livekit")
-JOB_ORDER += ("pipecat", "control", "breaks")
+JOB_ORDER += ("pipecat", "bare", "control", "breaks")
 _SKIPS_ITSELF = re.compile(r'^pytest\.importorskip\("(livekit|pipecat)[."]', re.MULTILINE)
 _IMPORTS = re.compile(r"^\s*(?:import|from)\s+(?:earful\.)?(livekit|pipecat)\b", re.MULTILINE)
 

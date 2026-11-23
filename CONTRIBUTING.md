@@ -129,7 +129,7 @@ script among them. `python3 scripts/ci_scope.py --table` prints these tables:
 | report | format, lint, types; the example reports; LiveKit 1.8.13 |
 | build | format, lint, types; the wheel installs clean; the quickstart from the wheel; LiveKit 1.5.6 and 1.8.13; Pipecat from the wheel |
 | breaks | format, lint, types |
-| everything | the full tier: the tests that read the pages; format, lint, types; the wheel installs clean; the quickstart from the wheel; the example reports; LiveKit, every release; LiveKit on macOS, every release; LiveKit on every other Python; Pipecat on Python 3.11 and 3.13; Pipecat from the wheel; Pipecat on macOS |
+| everything | the full tier: the tests that read the pages; format, lint, types; the wheel installs clean; the quickstart from the wheel; the example reports; no framework, the oldest jsonschema; LiveKit, every release; LiveKit on macOS, every release; LiveKit on every other Python; Pipecat on Python 3.11 and 3.13; Pipecat from the wheel; Pipecat on macOS |
 
 On a pull request the four middle LiveKit releases leave out the slow tests. The
 deliberate breaks a change runs are those anchored in a changed file, those whose named
@@ -158,7 +158,8 @@ core goes in one of those. `tests/test_core_boundary.py` fails while a file disa
 with its imports. A file that needs pydantic, which both frameworks install and Earful
 alone does not, starts with `pytest.importorskip("pydantic")`. CI runs the Pipecat
 environment with `scripts/ran_every_test.sh --without livekit`, where the LiveKit files
-are left out and any other skip fails the job.
+are left out and any other skip fails the job, and an environment with no framework with
+`--without livekit --without pipecat --without pydantic`.
 
 **Time is integer microseconds.** Authors write seconds. Providers, the sink and the
 backend convert once (`earful.core.timebase`) and compute in integers, so that an event on

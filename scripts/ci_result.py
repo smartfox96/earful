@@ -22,6 +22,7 @@ JOBS = (
     "report",
     "livekit",
     "pipecat",
+    "bare",
     "control",
     "breaks",
 )

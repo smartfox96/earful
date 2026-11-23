@@ -109,7 +109,7 @@ def _due(repo, **env):
 
 
 CORE_JOBS = ["lint", "wheel", "quickstart", "livekit", "pipecat", "control", "breaks"]
-EVERY_JOB = ["lint", "wheel", "quickstart", "report", "livekit", "pipecat"]
+EVERY_JOB = ["lint", "wheel", "quickstart", "report", "livekit", "pipecat", "bare"]
 EVERY_JOB += ["control", "breaks"]
 
 
@@ -661,6 +661,11 @@ def test_a_file_that_skips_itself_for_the_framework_named_absent_is_left_out(tmp
         assert done.returncode == 1 and "skipped 1: here every test" in done.stderr, name
     done = run("--without", "a framework")
     assert done.returncode == 2 and "takes the name of a module" in done.stderr
+    # Several frameworks can be absent at once.
+    (tmp_path / "test_other.py").write_text(_wants("no_other_framework"))
+    done = run("--without", "no_such_framework", "--without", "no_other_framework")
+    assert done.returncode == 0, done.stdout + done.stderr
+    assert done.stdout.endswith("2 files need no_such_framework or no_other_framework\n")
 
 
 def test_the_reference_ledgers_of_both_frameworks_are_repeated_and_compared():
@@ -696,6 +701,10 @@ def test_where_livekit_is_absent_every_other_test_runs_and_a_skip_fails_the_job(
         "scripts/ran_every_test.sh .venvs/pc-1.16.0/bin/python tests/test_pipecat.py\n"
         in (jobs["prose"])
     )
+    # And with no framework, none of the files that need one.
+    bare = "scripts/ran_every_test.sh --without livekit --without pipecat --without pydantic\n"
+    assert bare + "          .venvs/bare/bin/python -n auto\n" in jobs["bare"]
+    assert "        run: scripts/make_bare_env.sh\n" in jobs["bare"]
 
 
 def test_the_breaks_run_once_unbroken_and_in_parts_each_of_its_own_breaks():

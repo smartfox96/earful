@@ -39,6 +39,7 @@ jobs:
       wheel: ${{ steps.scope.outputs.wheel }}
       quickstart: ${{ steps.scope.outputs.quickstart }}
       report: ${{ steps.scope.outputs.report }}
+      bare: ${{ steps.scope.outputs.bare }}
       livekit: ${{ steps.scope.outputs.livekit }}
       pipecat: ${{ steps.scope.outputs.pipecat }}
       breaks: ${{ steps.scope.outputs.breaks }}
@@ -257,6 +258,27 @@ jobs:
           name: evidence-pc-${{ matrix.cell.version }}-${{ matrix.cell.os }}-py${{ matrix.cell.python }}-${{ matrix.cell.from }}
           path: evidence/
 
+  # Earful as "pip install earful" gives it, with the oldest jsonschema it accepts.
+  bare:
+    name: no framework, the oldest jsonschema
+    needs: scope
+    if: needs.scope.outputs.bare == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          version: ${{ env.UV_VERSION }}
+      - name: Build the environment with no framework (scripts/make_bare_env.sh)
+        run: scripts/make_bare_env.sh
+      - name: Every test that needs no framework runs, and none is skipped (scripts/ran_every_test.sh)
+        run: >-
+          scripts/ran_every_test.sh --without livekit --without pipecat --without pydantic
+          .venvs/bare/bin/python -n auto
+
   # The deliberate breaks of tests/mutants.py: every one in the full tier, on a change those
   # its paths can affect (scripts/mutate.py).
   control:
@@ -317,7 +339,7 @@ jobs:
 
   result:
     name: result
-    needs: [scope, prose, lint, wheel, quickstart, report, livekit, pipecat, control, breaks]
+    needs: [scope, prose, lint, wheel, quickstart, report, livekit, pipecat, bare, control, breaks]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 5

@@ -140,7 +140,9 @@ recorded on one machine is what every other must reproduce.
 
 A separate job builds the wheel, installs it alone in a fresh environment outside the
 repository, without livekit-agents, and uses it (`scripts/wheel_smoke.sh`): the package
-imports and checks a ledger with nothing but its own dependencies.
+imports and checks a ledger with nothing but its own dependencies. In the full tier
+another runs every test that needs no framework with Earful alone, on Python 3.10 and the
+oldest jsonschema the package accepts, 4.18.0 (`scripts/make_bare_env.sh`).
 
 ## What CI runs for Pipecat
 
