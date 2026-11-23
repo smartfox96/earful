@@ -10,6 +10,7 @@ import heapq
 import logging
 import random
 import selectors
+import sys
 import threading
 import time
 import weakref
@@ -399,6 +400,8 @@ def _models() -> Iterator[type[BaseModel]]:
 
 def _patch_new_models() -> None:
     # A field with default_factory=time.time holds the real function: patching time.time misses it.
+    if sys.modules.get("pydantic") is None:
+        return  # no model exists before pydantic is imported
     from pydantic_core import SchemaValidator
 
     unpatched = []

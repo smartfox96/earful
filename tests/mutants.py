@@ -5907,4 +5907,11 @@ MUTANTS = [
         "    if False:\n",
         first="another_format_is_said_to_be_so_once",
     ),
+    Mutant(
+        "clock: a run reads pydantic's models where the application never imported it",
+        "src/earful/scripted/clock.py",
+        '    if sys.modules.get("pydantic") is None:\n        return  # no model exists before pydantic is imported\n',
+        "",
+        first="reads_no_model_where_the_application_never_imported_pydantic",
+    ),
 ]

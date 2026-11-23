@@ -1,22 +1,22 @@
-"""The virtual clock, and the patch that makes pydantic models read it."""
+"""The virtual clock. The patch that makes pydantic models read it: test_clock_models.py."""
 
 import _thread
 import asyncio
 import logging
 import random
 import socket
+import subprocess
+import sys
 import threading
 import time
 
 import pytest
-from pydantic import BaseModel, Field
 
 from earful.core.timebase import to_seconds, to_us
 from earful.scripted.clock import (
     VIRTUAL_READS,
     WALL_CLOCK_EPOCH,
     left_the_clock,
-    patch_report,
     run_real,
     run_virtual,
 )
@@ -78,6 +78,19 @@ def test_due_time_half_a_tick_past_the_grid_does_not_stall():
     assert run_virtual(main) == list(range(1, 50))
 
 
+def test_a_run_reads_no_model_where_the_application_never_imported_pydantic():
+    code = (
+        "import sys\n"
+        "sys.modules['pydantic'] = sys.modules['pydantic_core'] = None\n"  # importing either raises
+        "from earful.scripted.clock import run_virtual\n"
+        "async def main():\n"
+        "    return 7\n"
+        "print(run_virtual(main))\n"
+    )
+    done = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, check=False)
+    assert (done.returncode, done.stdout) == (0, "7\n"), done.stderr
+
+
 def test_a_deadlocked_run_fails_instead_of_hanging(monkeypatch):
     from earful.scripted import clock
 
@@ -92,23 +105,6 @@ def test_a_deadlocked_run_fails_instead_of_hanging(monkeypatch):
 
 async def _nothing():
     return None
-
-
-def test_a_model_defined_after_the_first_run_reads_the_virtual_clock():
-    """A ``default_factory=time.time`` field holds the real function, so every run patches
-    the model classes that arrived since the last."""
-    run_virtual(_nothing)
-
-    class Late(BaseModel):
-        at: float = Field(default_factory=time.time)
-
-    async def main():
-        await asyncio.sleep(5)
-        return Late().at
-
-    assert run_virtual(main) == WALL_CLOCK_EPOCH + 5
-    assert any(name.endswith("Late.at") for name in patch_report().model_fields)
-    assert abs(Late().at - time.time()) < 60  # outside a run it reads the real clock
 
 
 def test_a_wake_up_from_a_thread_that_was_already_running_is_counted():
@@ -232,18 +228,6 @@ def test_a_clock_function_of_the_time_module_reads_the_loop_during_a_run(name):
     # The monotonic clock is the loop's own: two reads at one instant are equal.
     assert second == first if name.startswith("monotonic") else second > first
     assert getattr(time, name) is real  # and outside a run it is the real one again
-
-
-def test_a_default_built_without_validation_reads_the_virtual_clock():
-    class Stamped(BaseModel):
-        at: float = Field(default_factory=time.time)
-
-    async def main():
-        await asyncio.sleep(3)
-        return Stamped.model_construct().at
-
-    assert run_virtual(main) == WALL_CLOCK_EPOCH + 3
-    assert Stamped.model_fields["at"].default_factory is time.time  # as it was before the run
 
 
 def _microseconds(seconds):

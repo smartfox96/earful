@@ -84,9 +84,10 @@ livekit-agents or the LiveKit adapter starts with `pytest.importorskip("livekit.
 before those imports, and a Pipecat file with `pytest.importorskip("pipecat")`. A file
 with neither line imports no framework and runs in every environment, so a test of the
 core goes in one of those. `tests/test_core_boundary.py` fails while a file disagrees
-with its imports. CI runs the Pipecat environment with
-`scripts/ran_every_test.sh --without livekit`, where the LiveKit files are left out and
-any other skip fails the job.
+with its imports. A file that needs pydantic, which both frameworks install and Earful
+alone does not, starts with `pytest.importorskip("pydantic")`. CI runs the Pipecat
+environment with `scripts/ran_every_test.sh --without livekit`, where the LiveKit files
+are left out and any other skip fails the job.
 
 **Time is integer microseconds.** Authors write seconds. Providers, the sink and the
 backend convert once (`earful.core.timebase`) and compute in integers, so that an event on
