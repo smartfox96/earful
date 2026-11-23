@@ -470,7 +470,9 @@ def test_a_hangup_is_marked_across_the_lanes():
 
 def test_a_run_with_no_speech_and_no_playout_renders():
     events = golden("lk-1.8.12.barge_in_mid_word")
-    bare = [events[0], events[-1]]
+    history = next(e for e in events if e["kind"] == "history.final")
+    history["data"]["items"] = []
+    bare = [events[0], history, events[-1]]
     bare[0]["data"]["scenario"]["speeches"] = []
     assert check(renumbered(bare)).valid
     doc = well_formed(report.render(bare))

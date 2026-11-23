@@ -2,7 +2,21 @@
 
 from __future__ import annotations
 
+import sys
+
 US_PER_SECOND = 1_000_000
+
+
+def seconds(name: str, value: float) -> float:
+    if (
+        isinstance(value, bool)
+        or not isinstance(value, (int, float))
+        or not value < sys.float_info.max / US_PER_SECOND
+    ):
+        raise ValueError(f"{name} must be finite seconds within microsecond range, got {value!r}")
+    if value < 0:
+        raise ValueError(f"{name} cannot be negative, got {value!r}")
+    return value
 
 
 def to_us(seconds: float) -> int:
@@ -12,7 +26,10 @@ def to_us(seconds: float) -> int:
 
 def to_seconds(us: int) -> float:
     """Microseconds to the float nearest that many seconds, for a framework API."""
-    return us / US_PER_SECOND
+    try:
+        return us / US_PER_SECOND
+    except OverflowError as exc:
+        raise ValueError("time in microseconds exceeds the supported range") from exc
 
 
 __all__ = ["US_PER_SECOND", "to_seconds", "to_us"]

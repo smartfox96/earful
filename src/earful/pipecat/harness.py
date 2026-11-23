@@ -35,7 +35,7 @@ from ..core.ledger import Ledger, ledger_hash
 from ..core.predicate import Predicate
 from ..core.schema import validity
 from ..core.timebase import to_seconds, to_us
-from ..scripted.case import Delay, Fault, Intent, InvalidRun, check_case, declared_intents
+from ..scripted.case import Delay, Fault, Intent, InvalidRun, check_intent_tools, declared_intents
 from ..scripted.clock import (
     VirtualTimeLoop,
     left_the_clock,
@@ -158,7 +158,8 @@ def _header(case: Case, tools: set[str], options: dict[str, Any]) -> dict[str, A
             f"effects are declared for {unknown}, which are not functions the bot registers; "
             f"it registers {sorted(tools)}"
         )
-    intents = declared_intents(case.intents, case.effects, case.speeches)
+    check_intent_tools(case.intents, tools)
+    intents = declared_intents(case.intents, case.effects, case.speeches, case.contracts)
     return {
         "speeches": [
             {
@@ -295,6 +296,10 @@ def _built(case: Case, s: _Scripted) -> tuple[LLMContext, pipelines.Plan, dict[s
     """The bot's context, the pipeline as inspected, and the header of the run."""
     model, witness = s.model, s.witness
     context = case.bot(model)
+    if not isinstance(context, LLMContext):
+        raise ValueError(  # noqa: TRY004 - invalid cases are refused with ValueError
+            f"bot must return an LLMContext, got {type(context).__name__}"
+        )
     ends = Ends(s.user, s.stt, model, s.voice, s.output, context)
     timeouts = (case.user_speech_timeout, case.user_turn_stop_timeout)
     build = case.pipeline or pipelines.standard(*timeouts)
@@ -348,7 +353,11 @@ def _worker(
         if any(exc is frame.exception for exc in s.witness.exceptions):
             return  # a tool raised: the witness has recorded it
         if frame.exception is not None or frame.fatal:
-            errors.append(_UNSTABLE.sub("#", frame.error))  # a processor broke
+            message = _UNSTABLE.sub("#", frame.error)
+            if frame.processor is not None:
+                message = f"{type(frame.processor).__name__}: {message}"
+            if message not in errors:
+                errors.append(message)
             return
         # Something Pipecat says of itself, such as a voice that sent no audio in time.
         reported.append(frame.error)
@@ -463,7 +472,9 @@ async def _run(case: Case, seed: int) -> RunResult:
             "bot is a function that is handed the model service and returns the context; "
             f"got an object of {type(case.bot).__name__}"
         )
-    check_case(case)
+    from .scenario import INLINE, describe
+
+    describe(case, INLINE, seed)
     random.seed(seed)
     loop = asyncio.get_running_loop()
     virtual = isinstance(loop, VirtualTimeLoop)
@@ -493,6 +504,8 @@ async def _run(case: Case, seed: int) -> RunResult:
             contracts=case.contracts,
         )
         await _play(case, worker, tap, s, ledger, errors)
+        if s.witness.refusal is not None:
+            raise ValueError(s.witness.refusal)
         _close(case, plan, context, s, ledger, errors)
     finally:
         await s.backend.cancel_in_flight()

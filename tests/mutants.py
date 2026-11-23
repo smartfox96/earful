@@ -17,6 +17,230 @@ class Mutant:
 
 
 MUTANTS = [
+    Mutant(
+        "checker: a failed verdict drops its lost evidence",
+        "src/earful/core/checker/report.py",
+        "for code, why in missing if CODES[code] == LOST",
+        "for code, why in []",
+        first="a_verdict_that_fails_keeps",
+    ),
+    Mutant(
+        "outcome: lost evidence passes",
+        "src/earful/core/outcome.py",
+        "self.lost or self.unjudged",
+        "self.unjudged",
+        first="check_exits_3_when or run_exits_3_when",
+    ),
+    Mutant(
+        "backend: a refused payload consumes a request number",
+        "src/earful/core/backend.py",
+        "request = self._requests + 1",
+        "self._requests += 1\n        request = self._requests",
+        first="a_write_refused_for_its_payload",
+    ),
+    Mutant(
+        "ledger: two commits can share a receipt",
+        "src/earful/core/schema.py",
+        'if d["receipt"] in walk.receipts:',
+        "if False:",
+        first="the_validator_refuses_a_ledger_no_run",
+    ),
+    Mutant(
+        "pytest: colliding test ids share a directory",
+        "src/earful/pytest_plugin.py",
+        'name = f"{name[:180]}-{digest}"',
+        "name = name[:180]",
+        first="ids_differ_in_one_character",
+    ),
+    Mutant(
+        "shrink: differences are kept after another edit makes them unnecessary",
+        "src/earful/core/shrink.py",
+        "if remaining_changes and restored == current:",
+        "if False:",
+        first="a_reduced_case_keeps_no_difference",
+    ),
+    Mutant(
+        "case: replay overwrites factory defaults",
+        "src/earful/scripted/scenario.py",
+        "case = copy.copy(case)",
+        "pass",
+        first="rebuilding_a_saved_case_preserves",
+    ),
+    Mutant(
+        "case: saved times accept integer-valued floats",
+        "src/earful/core/case.py",
+        "return IntegerValidator(schema)",
+        "return Draft202012Validator(schema)",
+        first="public_operations_refuse_malformed_saved",
+    ),
+    Mutant(
+        "case: direct runs omit adapter setting types",
+        "src/earful/scripted/scenario.py",
+        '    _check_settings(data["settings"], times, plain)\n    return data',
+        "    return data",
+        first="direct_runs_refuse_unrepresentable_settings",
+    ),
+    Mutant(
+        "case: a shared session keeps its previous orders",
+        "src/earful/livekit/harness.py",
+        'kwargs["userdata"] = copy.deepcopy(kwargs["userdata"])',
+        "pass",
+        first="test_variation",
+    ),
+    Mutant(
+        "case: a call given as a list is split",
+        "src/earful/scripted/playbook.py",
+        "isinstance(call, (tuple, list))",
+        "isinstance(call, tuple)",
+        first="a_call_given_as_a_list",
+    ),
+    Mutant(
+        "backend: a list is written as a payload",
+        "src/earful/core/backend.py",
+        "if not isinstance(payload, dict):",
+        "if False:",
+        first="a_write_refused_for_its_payload",
+    ),
+    Mutant(
+        "replay: lost evidence cannot be reproduced",
+        "src/earful/core/bundle.py",
+        "if self.loss_judged:",
+        "if False:",
+        first="a_kept_loss_of_evidence_replays",
+    ),
+    Mutant(
+        "replay: a damaged header is read as a framework",
+        "src/earful/core/bundle.py",
+        'if not isinstance(header, dict) or not isinstance(header.get("framework"), dict):',
+        "if False:",
+        first="a_replay_with_a_damaged_header",
+    ),
+    Mutant(
+        "ledger: a model need never have asked for the tool",
+        "src/earful/core/schema.py",
+        'if d.get("call_id") is not None and d["call_id"] not in walk.call_ids:',
+        "if False:",
+        first="the_validator_refuses_a_ledger_no_run",
+    ),
+    Mutant(
+        "ledger: a file is read only as ASCII",
+        "src/earful/core/ledger.py",
+        'encoding="utf-8-sig"',
+        'encoding="ascii"',
+        first="a_ledger_written_in_utf_8",
+    ),
+    Mutant(
+        "cli: search silently ignores the output directory",
+        "src/earful/cli.py",
+        "if args.out is not None and not keep:",
+        "if False:",
+        first="an_option_that_does_nothing",
+    ),
+    Mutant(
+        "cli: framework debug messages reach the terminal",
+        "src/earful/cli.py",
+        'os.environ.setdefault("LOGURU_LEVEL", "WARNING")',
+        "pass",
+        first="the_command_writes_none_of_pipecats_debug_log",
+    ),
+    Mutant(
+        "pytest: the fixture omits evidence lost during a run",
+        "src/earful/pytest_plugin.py",
+        "if lost := result.report.lost():",
+        "if lost := []:",
+        first="fixture_names_the_evidence",
+    ),
+    Mutant(
+        "checker: a loss is named as a broken rule",
+        "src/earful/core/checker/report.py",
+        "if finding.code is None",
+        "if True",
+        first="a_verdict_that_fails_keeps",
+    ),
+    Mutant(
+        "releases: the Pipecat range includes an untested series",
+        "releases.toml",
+        'below = "1.17"',
+        'below = "1.18"',
+        first="release_metadata_and_ci_match",
+    ),
+    Mutant(
+        "shrink: an edited repetition takes an unchanged speech",
+        "src/earful/core/shrink.py",
+        'if i is not None and author["speeches"][i] == speech:',
+        "if False:",
+        first="matching_repeated_words_preserves",
+    ),
+    Mutant(
+        "pipecat: a function that exits produces a verdict",
+        "src/earful/pipecat/harness.py",
+        "if s.witness.refusal is not None:",
+        "if False:",
+        first="a_pipecat_function_that_exits",
+    ),
+    Mutant(
+        "case: intents may name an unknown tool",
+        "src/earful/scripted/case.py",
+        "unknown = sorted({name for intent in intents for name in intent.tools} - tools)",
+        "unknown = []",
+        first="test_shape",
+    ),
+    Mutant(
+        "case: a reissue names no declared intent",
+        "src/earful/scripted/case.py",
+        'if unknown:\n        raise ValueError(f"reissue_allowed',
+        'if False:\n        raise ValueError(f"reissue_allowed',
+        first="test_shape",
+    ),
+    Mutant(
+        "case: silence can owe a reply",
+        "src/earful/scripted/case.py",
+        "if speech.expects_reply and not speech.transcript.strip():",
+        "if False:",
+        first="test_shape",
+    ),
+    Mutant(
+        "model: a reply may finish before its first token",
+        "src/earful/scripted/model.py",
+        "if self.ttft > self.duration:",
+        "if False:",
+        first="test_shape",
+    ),
+    Mutant(
+        "pipecat: a bot may omit its context",
+        "src/earful/pipecat/harness.py",
+        "if not isinstance(context, LLMContext):",
+        "if False:",
+        first="test_shape",
+    ),
+    Mutant(
+        "pipecat: repeated processor errors are counted again",
+        "src/earful/pipecat/harness.py",
+        "if message not in errors:",
+        "if True:",
+        first="test_a_repeated_processor_error_is_reported_once",
+    ),
+    Mutant(
+        "livekit: a tool can end a command silently",
+        "src/earful/livekit/tools.py",
+        "except SystemExit as exc:",
+        "except GeneratorExit as exc:",
+        first="a_tool_that_calls_sys_exit",
+    ),
+    Mutant(
+        "docs: the stand-in writes for no declared intent",
+        "docs/testing.md",
+        '    intents=[Intent("book-table", tools=("create_reservation",))],',
+        "    intents=[],",
+        first="testing_page_runs_its_examples",
+    ),
+    Mutant(
+        "docs: the Pipecat model retries failed bookings",
+        "skills/earful/SKILL.md",
+        '    .when(tool_failed(), say="Sorry, I could not book that.")\n',
+        "",
+        first="skills_pipecat_example_passes",
+    ),
     # The checker: ties, stand-ins, refusals and readings.
     Mutant(
         "M1: a stop as the audio ends is held to one reading",
@@ -1060,15 +1284,15 @@ MUTANTS = [
     Mutant(
         "search: a refused case counts as run",
         "src/earful/core/search.py",
-        "        return Outcome(case, refused=str(exc)), None\n",
-        "        return Outcome(case), None\n",
+        "return Outcome(case, refused=str(exc) or type(exc).__name__), None",
+        "return Outcome(case), None",
         first="test_a_runner_runs_each_case_once_and_one_bad_run_does_not_end_a_search",
     ),
     Mutant(
         "search: any ValueError a run raises is taken for a refusal",
         "src/earful/core/search.py",
-        "    except CaseRefused as exc:\n",
-        "    except ValueError as exc:\n",
+        "(OSError, CaseRefused)",
+        "(OSError, ValueError)",
         first="one_bad_run_does_not_end_a_search or refused_only_if_the_adapter_refused_it",
     ),
     Mutant(
@@ -1234,8 +1458,8 @@ MUTANTS = [
     Mutant(
         "predicate: the rule is ignored",
         "src/earful/core/predicate.py",
-        "        Predicate(verdict.contract, finding.rule)\n",
-        "        Predicate(verdict.contract, 'rule')\n",
+        "Predicate.parse(name) for name",
+        'Predicate(name.split("/")[0], "rule") for name',
         first="test_a_predicate_names_a_contract_rule_and_no_instance",
     ),
     Mutant(
@@ -1355,7 +1579,7 @@ MUTANTS = [
         "src/earful/core/shrink.py",
         "            if len(needed) < len(all_of_them):\n",
         "            if False:\n",
-        first="test_a_fault_is_a_difference_and_a_reduction_keeps_it_only_if_the_failure_needs_it",
+        first="test_a_case_whose_authors_scenario_fails_as_written_reduces_to_it",
     ),
     Mutant(
         "shrink: nothing removed",
@@ -2189,7 +2413,7 @@ MUTANTS = [
         "src/earful/core/shrink.py",
         '        if current["hangup_us"] is not None and breaks(cases.without_hangup(current)):\n',
         "        if False:\n",
-        first="test_a_hangup_is_a_difference_and_a_reduction_keeps_it_only_if_the_failure_needs_it",
+        first="test_a_hangup_the_failure_does_not_need_keeps_no_speech",
     ),
     Mutant(
         "shrink: a moved hangup is not settled",
@@ -3044,7 +3268,7 @@ MUTANTS = [
         "src/earful/livekit/scenario.py",
         "            return cls(lambda: _copied(source), None)\n",
         "            return cls(lambda: source, None)\n",
-        first="run_from_its_data",
+        first="keeps_its_lists_and_dicts_to_itself",
     ),
     Mutant(
         "adapter: the data of an inline case is looked up by name",
@@ -3097,9 +3321,9 @@ MUTANTS = [
     ),
     Mutant(
         "report: a rule that is allowed to break still fails the assertion",
-        "src/earful/core/checker/report.py",
-        "        broken = [rule for rule in self.broken() if rule not in allowing]\n",
-        "        broken = self.broken()\n",
+        "src/earful/core/outcome.py",
+        "set(broken) - allow",
+        "set(broken)",
         first="says_which_rule_and_why",
     ),
     Mutant(
@@ -3336,15 +3560,15 @@ MUTANTS = [
     Mutant(
         "search: a break at single instants fails the assertion",
         "src/earful/core/search.py",
-        "            one for one in found if not one.instants_only and str(one.predicate) not in allowing\n",
-        "            one for one in found if str(one.predicate) not in allowing\n",
+        " for one in found if not one.instants_only]",
+        " for one in found]",
         first="one_microsecond_is_an_instant",
     ),
     Mutant(
         "search: a rule that is allowed to break still fails the assertion",
         "src/earful/core/search.py",
-        "            one for one in found if not one.instants_only and str(one.predicate) not in allowing\n",
-        "            one for one in found if not one.instants_only\n",
+        "self.decision(found, unjudged, allowing).status",
+        "self.decision(found, unjudged, set()).status",
         first="lasts_30_ms or searched_in_the_process",
     ),
     Mutant(
@@ -3357,8 +3581,8 @@ MUTANTS = [
     Mutant(
         "search: a required contract with no pass or fail passes the assertion",
         "src/earful/core/search.py",
-        "        if counted or unjudged or self.no_verdict:\n",
-        "        if counted or self.no_verdict:\n",
+        "self.decision(found, unjudged, allowing).status",
+        "self.decision(found, {}, allowing).status",
         first="requires_a_contract_of_the_case_as_given",
     ),
     Mutant(
@@ -3391,9 +3615,9 @@ MUTANTS = [
     ),
     Mutant(
         "cli: a search with no verdict exits 0",
-        "src/earful/cli.py",
-        "    return NO_VERDICT if unjudged or found.no_verdict else OK\n",
-        "    return NO_VERDICT if unjudged else OK\n",
+        "src/earful/core/search.py",
+        "bool(unjudged) or self.no_verdict,",
+        "bool(unjudged),",
         first="search_in_which_a_case_raised_exits_3",
     ),
     Mutant(
@@ -3644,16 +3868,16 @@ MUTANTS = [
     # The command line and the pytest plugin.
     Mutant(
         "cli: a run that could not be judged exits 0",
-        "src/earful/cli.py",
-        "    unjudged = any(not report.valid or report.unjudged(require) for report in reports)\n",
-        "    unjudged = any(report.unjudged(require) for report in reports)\n",
+        "src/earful/core/outcome.py",
+        "not report.valid or bool(report.unjudged(require))",
+        "bool(report.unjudged(require))",
         first="exits_3_for",
     ),
     Mutant(
         "cli: a required contract with no pass or fail exits 0",
-        "src/earful/cli.py",
-        "    unjudged = any(not report.valid or report.unjudged(require) for report in reports)\n",
-        "    unjudged = any(not report.valid for report in reports)\n",
+        "src/earful/core/outcome.py",
+        "not report.valid or bool(report.unjudged(require))",
+        "not report.valid",
         first="required_contract_with_no_pass_or_fail_exits_3",
     ),
     Mutant(
@@ -3694,8 +3918,8 @@ MUTANTS = [
     Mutant(
         "cli: a rule that is allowed to break still fails the command",
         "src/earful/cli.py",
-        "    if any(rule not in allow for report in reports for rule in report.broken()):\n",
-        "    if any(report.broken() for report in reports):\n",
+        "reports_outcome(reports, allow, require)",
+        "reports_outcome(reports, set(), require)",
         first="allowed_to_break_does_not_fail_the_command",
     ),
     Mutant(
@@ -3715,8 +3939,8 @@ MUTANTS = [
     Mutant(
         "cli: a search that found a break exits 0",
         "src/earful/cli.py",
-        "        return BROKEN\n    return NO_VERDICT",
-        "        return OK\n    return NO_VERDICT",
+        "return found.decision(broken, unjudged, allow).status",
+        "return OK",
         first="keeps_it_and_the_kept_bundle_replays",
     ),
     Mutant(
@@ -3785,8 +4009,8 @@ MUTANTS = [
     Mutant(
         "cli: what the core refuses is raised, not reported",
         "src/earful/cli.py",
-        "    except ValueError as exc:  # a scenario, a case or a bundle the core refuses\n",
-        "    except KeyError as exc:\n",
+        "(Refused, ImportError, OSError, ValueError)",
+        "(Refused, ImportError, OSError)",
         first="does_not_exist_is_refused",
     ),
     Mutant(
@@ -3841,8 +4065,8 @@ MUTANTS = [
     Mutant(
         "ledger: a ledger file is read only from a Path",
         "src/earful/core/ledger.py",
-        '    text = Path(path).read_text(encoding="ascii")\n',
-        '    text = path.read_text(encoding="ascii")\n',
+        'Path(path).read_text(encoding="utf-8-sig")',
+        'path.read_text(encoding="utf-8-sig")',
         first="by_name_or_by_path",
     ),
     Mutant(
@@ -5315,9 +5539,16 @@ MUTANTS = [
     Mutant(
         "bundle: a replay keeps no other rule that broke",
         "src/earful/core/bundle.py",
-        "    others = {str(p) for o in outcomes for p in o.failures if p != bundle.predicate}\n",
-        "    others: set[str] = set()\n",
+        "    others = {p for o in outcomes for p in o.failures if p != bundle.predicate}\n",
+        "    others = set()\n",
         first="clean_only_if_the_contract_of_the_bundle_passed",
+    ),
+    Mutant(
+        "replay: a loss observed in some runs is unjudged",
+        "src/earful/core/bundle.py",
+        "and all(matched or verdict in (PASS, FAIL) for matched, verdict in zip(broke, contract))",
+        "and all(broke)",
+        first="test_a_saved_loss_observed_in_only_one_replay",
     ),
     Mutant(
         "bundle: a replay counts no run as breaking the rule",
@@ -5574,8 +5805,8 @@ MUTANTS = [
     Mutant(
         "predicate: evidence lost is no failure",
         "src/earful/core/predicate.py",
-        "    return broken | {Predicate.parse(name) for name in report.lost()}\n",
-        "    return broken\n",
+        "(*outcome.broken, *outcome.lost)",
+        "outcome.broken",
         first="loses_is_a_rule",
     ),
     Mutant(

@@ -4,10 +4,11 @@ from __future__ import annotations
 
 from typing import Any
 
+from invariants import HISTORY
 from pipecat.services.llm_service import LLMService
 
 from earful.pipecat import Case, ScriptedModel, UserSpeech
-from shapes.corpus import raises, refused
+from shapes.corpus import refused
 
 
 def bot(llm: LLMService) -> Any:
@@ -24,4 +25,4 @@ def case() -> Case:
 
 
 SHOULD = refused("LLMContext")
-DEFECT = raises("AttributeError")
+NOT_VARIED = {HISTORY: "the bot provides no context to put a starting history in"}

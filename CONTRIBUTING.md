@@ -52,8 +52,8 @@ the report: GitHub mails it to whoever last changed the workflow's schedule.
 
 `main` takes a change only as a pull request, and only once that pull request's
 `ci / result` check has passed. A pull request also needs the maintainer's approval, given
-after its last push (`.github/CODEOWNERS`). Nobody can push to `main`, and a merged
-branch is deleted from the repository.
+after its last push (`.github/CODEOWNERS`). Administrators can bypass branch protection. GitHub deletes a merged
+branch from the repository.
 
 `check_all.sh` is heavy: six test runs side by side for six minutes. It shares the
 processors between them (`EARFUL_WORKERS`), and it is still not something to run on
@@ -114,6 +114,7 @@ script among them. `python3 scripts/ci_scope.py --table` prints these tables:
 | `tests/*.py` | declared |
 | `tests/shapes/*.py` | declared |
 | `src/**` | core |
+| `releases.toml` | everything |
 | `pyproject.toml` | build |
 | `LICENSE` | build |
 | `NOTICE` | build |
@@ -262,13 +263,16 @@ One no application shows, in a command, a ledger or the clock, goes in the test 
 that part as a strict expected failure that raises `KnownDefect` (`tests/shapes/corpus.py`)
 only where the defect shows, so any other failure fails the test.
 `scripts/ran_every_test.sh` counts a strict expected failure as a test that ran.
+Each declared defect has a row under "Known defects of Earful" in `docs/limits.md`, and a
+test fails while the page and the declarations differ: add the row with the defect, and
+remove it with the fix.
 
 ## Adding a livekit-agents release
 
 1. `EARFUL_LOCK=write scripts/make_env.sh <version> <date>`, with a date a few days after
    the release. This builds `.venvs/lk-<version>` and writes
    `compat/lk-<version>.lock.txt`.
-2. Add the release to `SUPPORT` in `src/earful/scripted/releases.py`, to
+2. Add the release and resolution date to `releases.toml`, to `SUPPORT` in `src/earful/scripted/releases.py`, to
    `scripts/check_all.sh`, to `LIVEKIT` in `scripts/ci_scope.py` and to
    `docs/compatibility.md`. A test fails while they disagree. The newest release is also
    the one in `scripts/make_lint_env.sh`, and the README lists them all.
@@ -283,9 +287,7 @@ job fails from the day such a release is on PyPI.
 
 ## Adding a pipecat-ai release
 
-The newest two minor series of pipecat-ai are supported, each by one tested release. A
-release in a new series is added and the oldest series is dropped; a later release in a
-supported series takes the place of the one tested.
+Supported pipecat-ai series: 1.16. The release and resolution date are in `releases.toml`.
 
 1. `EARFUL_LOCK=write scripts/make_pipecat_env.sh <version> <date>`, with a date a few
    days after the release. This builds `.venvs/pc-<version>` and writes
@@ -296,7 +298,7 @@ supported series takes the place of the one tested.
    `docs/compatibility.md`, the README, this page, `tests/test_ci.py` and `SUPPORT` in
    `src/earful/scripted/releases.py`. A release in a new minor series also moves the
    `pipecat` extra, in `SUPPORT` and in `pyproject.toml`: its lowest release is that of the
-   older supported series. Tests fail while these disagree.
+   oldest supported series. Tests fail while these disagree.
 3. `scripts/ran_every_test.sh --without livekit .venvs/pc-<version>/bin/python` runs
    every test that does not need livekit-agents and fails if one is skipped.
    `scripts/lint.sh` checks the adapter's types against the new release.

@@ -7,6 +7,8 @@ from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 from typing import Any
 
+from ..core.timebase import seconds
+
 
 @dataclass(frozen=True)
 class ToolCall:
@@ -34,6 +36,12 @@ class Reply:
     ttft: float = 0.1  # time to first token
     duration: float = 0.3  # total generation time
     claims: tuple[Claim, ...] = ()
+
+    def check_timing(self) -> None:
+        seconds("ttft", self.ttft)
+        seconds("duration", self.duration)
+        if self.ttft > self.duration:
+            raise ValueError(f"reply ttft {self.ttft} exceeds duration {self.duration}")
 
 
 def _words(text: str) -> list[str]:

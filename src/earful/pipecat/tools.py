@@ -26,6 +26,7 @@ class ToolWitness:
         self._invocations = 0
         self.in_flight = 0
         self.exceptions: list[Exception] = []
+        self.refusal: str | None = None
         self.names: set[str] = set()
 
     def wrap(self, handler: Callable[..., Any], *, direct: bool = False) -> Any:
@@ -87,6 +88,9 @@ class ToolWitness:
             if not told:
                 self._ledger.append("world", "tool.cancelled", tool=tool, name=params.function_name)
             raise
+        except SystemExit as exc:
+            self.refusal = f"tool {params.function_name!r} called sys.exit({exc.code!r})"
+            raise asyncio.CancelledError(self.refusal) from exc
         except Exception as exc:
             self.exceptions.append(exc)
             if told:

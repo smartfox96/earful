@@ -4,7 +4,6 @@ import asyncio
 import datetime
 
 import pytest
-from shapes.corpus import KnownDefect
 
 from earful.core import backend as backends
 from earful.core.backend import BackendError, BackendTimeout, EffectBackend, current_tool, effect
@@ -215,9 +214,6 @@ def test_outside_a_run_there_is_no_backend_to_write_to():
         asyncio.run(effect("order-1", {"dish": "soup"}))
 
 
-@pytest.mark.xfail(
-    strict=True, raises=KnownDefect, reason="Earful: a write refused for its payload takes a number"
-)
 def test_a_write_refused_for_its_payload_is_no_request_and_the_next_one_is_write_1():
     async def main():
         ledger = Ledger(now_us, run="run-0000000000000000")
@@ -225,14 +221,16 @@ def test_a_write_refused_for_its_payload_is_no_request_and_the_next_one_is_write
         try:
             with pytest.raises(TypeError):
                 await effect("book", {"when": datetime.datetime(2026, 1, 1)})
-            try:
+            for invalid in ({"payload": []}, {"payload": {}, "key": []}):
+                with pytest.raises(TypeError):
+                    await effect("book", **invalid)
+            with pytest.raises(ValueError, match="latency"):
+                await effect("book", {}, latency=-1)
+            assert not ledger.events
+            with pytest.raises(BackendError):
                 await effect("book", {"n": 1})
-            except BackendError:
-                return "the fault applied"
-            return [e["data"]["request"] for e in ledger.events]
+            assert {e["data"]["request"] for e in ledger.events} == {1}
         finally:
             backends.uninstall(token)
 
-    said = run_virtual(main)
-    if said != "the fault applied":
-        raise KnownDefect(f"the good write was request {said[0]}, and committed")
+    run_virtual(main)

@@ -18,5 +18,3 @@ def case() -> Case:
 
 
 SHOULD = refused("start")
-# A raw error of the conversion to microseconds.
-DEFECT = refused("cannot convert float NaN to integer")

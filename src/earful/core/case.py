@@ -12,6 +12,8 @@ from typing import Any
 
 from jsonschema import Draft202012Validator
 
+from .schema import IntegerValidator
+
 SCHEMA = "earful.case/1"
 SCHEMA_MINOR = 0
 SCHEMA_FILE = "earful.case-1.schema.json"
@@ -29,7 +31,7 @@ def load_schema() -> dict[str, Any]:
 def _validator() -> Draft202012Validator:
     schema = load_schema()
     Draft202012Validator.check_schema(schema)
-    return Draft202012Validator(schema)
+    return IntegerValidator(schema)
 
 
 def validate(case: Any) -> list[str]:

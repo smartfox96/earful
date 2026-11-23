@@ -73,7 +73,7 @@ to be declared.
      In a run the tool's body is replaced by one write. Do this only for tools that
      write, never for a lookup.
    - The agent is handed its service: pass a stand-in whose method does
-     `return await effect("intent", payload)` (`from earful import effect`), and build the
+     `return await effect("intent", payload)` (`from earful import effect`), declare `intents=[Intent("intent")]` on the case, and build the
      agent with `agent=lambda: SupportAgent(FakeService())`. The tool's own code runs.
 4. **`claims=["intent"]`** goes on a reply that tells the user the write succeeded.
    Leave it off a reply that only says the agent is trying.
@@ -93,7 +93,8 @@ Install: `pip install "earful[pipecat]"`, on Python 3.11 or later.
 from pipecat.processors.aggregators.llm_context import LLMContext
 
 from earful import effect
-from earful.pipecat import Case, Intent, ScriptedModel, UserSpeech, tool_succeeded, user_ever_said
+from earful.pipecat import Case, Intent, ScriptedModel, UserSpeech
+from earful.pipecat import tool_failed, tool_succeeded, user_ever_said
 
 from mybot.bot import register_functions  # how the application sets up its model service
 
@@ -111,6 +112,7 @@ def bot(llm):
 model = (
     ScriptedModel()
     .when(tool_succeeded(), say="Your table is booked.", claims=["book-table"])
+    .when(tool_failed(), say="Sorry, I could not book that.")
     .when(user_ever_said("table"), say="One moment.", call=("create_reservation", {"party_size": 4}))
     .otherwise(say="How can I help?")
 )
@@ -131,7 +133,7 @@ def test_as_written(earful):
 
 
 def test_every_timing_and_fault_near_it(earful):
-    earful.explore(booking).assert_contracts()
+    earful.explore(booking).assert_contracts(allow=["M2/rule d"])
 ```
 
 1. **`bot(llm)` registers the bot's functions** on the model service Earful hands it, as

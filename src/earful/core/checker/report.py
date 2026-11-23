@@ -7,6 +7,7 @@ from collections.abc import Iterable
 from dataclasses import asdict, dataclass, field, replace
 from typing import TYPE_CHECKING, Any
 
+from ..outcome import decide
 from .contracts import DECLARED
 
 if TYPE_CHECKING:
@@ -138,6 +139,17 @@ class ContractResult:
         return tuple(v for v in self.verdicts if v.outcome == FAIL)
 
 
+def broken_rules(failures: Iterable[Verdict]) -> list[str]:
+    return sorted(
+        {
+            f"{v.contract}/{finding.rule}"
+            for v in failures
+            for finding in v.findings
+            if finding.code is None
+        }
+    )
+
+
 @dataclass(frozen=True)
 class Report:
     run: str | None
@@ -167,9 +179,7 @@ class Report:
 
     def broken(self) -> list[str]:
         """Every rule a failed verdict names, as ``CONTRACT/RULE``, sorted."""
-        return sorted(
-            {f"{v.contract}/{finding.rule}" for v in self.failures for finding in v.findings}
-        )
+        return broken_rules(self.failures)
 
     def lost(self) -> list[str]:
         """Every code of evidence lost a verdict carries, as ``CONTRACT/CODE``, sorted."""
@@ -246,8 +256,8 @@ class Report:
                 f"{what} is not valid evidence, so no contract was checked:\n"
                 + "\n".join(f"  {reason}" for reason in self.invalid)
             )
-        broken = [rule for rule in self.broken() if rule not in allowing]
-        lost = [code for code in self.lost() if code not in allowing]
+        decision = decide(self.broken(), self.lost(), bool(unjudged), allowing)
+        broken, lost = decision.broken, decision.lost
         if broken or lost or unjudged:
             said = [f"breaks {', '.join(broken)}"] if broken else []
             if lost:
@@ -288,6 +298,9 @@ def verdict(
         )
     if findings:
         outcome = FAIL
+        findings.extend(
+            Finding("unobservable", why, code=code) for code, why in missing if CODES[code] == LOST
+        )
     elif missing:
         lost = any(CODES[code] == LOST for code, _why in missing)
         outcome = UNOBSERVABLE if lost else NOT_EXERCISED

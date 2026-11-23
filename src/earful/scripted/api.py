@@ -56,6 +56,8 @@ def seeded(data: dict[str, Any] | None, seed: int | None) -> int:
 
 def same_scenario(reference: str | None, data: dict[str, Any] | None) -> None:
     """Raise ``ValueError`` if ``data`` is a case made for another scenario than ``reference``."""
+    if data is not None and not isinstance(data, dict):
+        raise ValueError("not an earful.case/1 document: expected an object")
     if data is None or reference is None or data.get("scenario") in (None, INLINE, reference):
         return
     raise ValueError(

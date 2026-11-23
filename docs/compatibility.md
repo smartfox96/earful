@@ -42,10 +42,8 @@ across the handoff ([`contracts.md`](contracts.md#m2-turn-integrity), rule d).
 
 ## pipecat-ai
 
-The newest two minor series are supported, each tested on one release, pinned and
-recorded the same way (`scripts/make_pipecat_env.sh`). pipecat-ai ships a minor about
-every two weeks; when the canary below finds one the extra does not accept, it is added
-and the oldest series is dropped.
+Supported pipecat-ai series: 1.16. The table gives the release and resolution date
+used by `scripts/make_pipecat_env.sh`.
 
 | pipecat-ai | Dependencies as of | Lock file |
 | --- | --- | --- |

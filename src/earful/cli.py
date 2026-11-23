@@ -18,11 +18,12 @@ from pathlib import Path
 from typing import Any
 
 from . import __version__, _adapters
-from .core import bundle, crosscheck, html, timeline
+from .core import bundle, crosscheck, html, schema, timeline
 from .core import case as cases
 from .core.checker import CONTRACTS, Report, check
 from .core.checker.report import RULES, allowed, required
 from .core.ledger import read_jsonl, write_jsonl
+from .core.outcome import reports_outcome
 from .core.predicate import Predicate
 from .core.search import CaseRefused, default_workers
 
@@ -111,6 +112,8 @@ def _ledger(path: Path) -> list[dict[str, Any]]:
         raise Refused(f"{path} is not a ledger file: {exc}") from exc
     if not all(isinstance(event, dict) for event in events):
         raise Refused(f"{path} is not a ledger file: a line is not a JSON object")
+    if any(not isinstance(event.get("schema"), str) for event in events):
+        raise Refused(f"{path} is not a ledger file: schema must be a string")
     return events
 
 
@@ -130,11 +133,7 @@ def _case(path: Path | None) -> cases.Case | None:
 
 
 def _status(reports: Sequence[Report], allow: set[str], require: list[str]) -> int:
-    # A rule that broke outranks a run that could not be judged.
-    if any(rule not in allow for report in reports for rule in report.broken()):
-        return BROKEN
-    unjudged = any(not report.valid or report.unjudged(require) for report in reports)
-    return NO_VERDICT if unjudged else OK
+    return reports_outcome(reports, allow, require).status
 
 
 def _asked(args: argparse.Namespace) -> tuple[set[str], list[str]]:
@@ -192,6 +191,12 @@ def _run(args: argparse.Namespace) -> int:
 def _search(args: argparse.Namespace) -> int:
     allow, require = _asked(args)
     keep = [Predicate.parse(rule) for rule in args.keep or []]
+    if args.out is not None and not keep:
+        raise Refused("--out needs --keep to name the bundles to write")
+    if args.out is not None and args.out.exists() and not args.out.is_dir():
+        raise Refused(f"--out needs a directory, got {args.out}")
+    if args.stretch_ms is not None and not args.pairs:
+        raise Refused("--stretch-ms needs --pairs")
     if keep and args.out is None:
         raise Refused("--keep needs --out, the directory to write bundles to")
     faults = () if args.faults == "none" else tuple(args.faults.split(","))
@@ -263,7 +268,7 @@ def _search(args: argparse.Namespace) -> int:
         summary["not_kept"] = not_kept
         print(json.dumps(summary, indent=2))
     else:
-        print(found.describe(broken, unjudged))
+        print(found.describe(broken, unjudged, allow=allow))
         unmeasured = [str(one.predicate) for one in broken if one.predicate not in keep]
         if args.no_windows and unmeasured:
             print(
@@ -278,9 +283,7 @@ def _search(args: argparse.Namespace) -> int:
         missing = [str(p) for p in keep if str(p) not in kept and str(p) not in not_kept]
         if missing:
             print(f"\nnot kept, since no case broke them: {', '.join(missing)}")
-    if any(not one.instants_only and str(one.predicate) not in allow for one in broken):
-        return BROKEN
-    return NO_VERDICT if unjudged or found.no_verdict else OK
+    return found.decision(broken, unjudged, allow).status
 
 
 def _in_us(**given_ms: int | None) -> dict[str, int]:
@@ -318,6 +321,7 @@ def _replay(args: argparse.Namespace) -> int:
         "contract_outcomes": list(result.outcomes),
         "contract_codes": list(result.codes),
         "other_rules_broken": list(result.others),
+        "other_evidence_lost": list(result.other_losses),
         "repeatable": result.repeatable,
         "identical_to_recorded": result.identical,
         "scenario_code_changed": result.scenario_changed,
@@ -337,12 +341,17 @@ def _replay(args: argparse.Namespace) -> int:
         gave = ["not valid evidence" if one is None else one for one in result.outcomes]
         print(f"{kept.predicate}, kept on {made.get('name')} {made.get('version')}")
         print(f"replayed {args.repeats} times on {on.get('name')} {on.get('version')}")
-        print(f"  breaks the rule       {breaks}")
+        if kept.predicate.lost:
+            print(f"  loses the evidence    {breaks}")
+        else:
+            print(f"  breaks the rule       {breaks}")
         contract = f"{kept.predicate.contract} gave"
         why = f" ({', '.join(result.codes)})" if result.codes else ""
         print(f"  {contract:<22}{gave[0] if len(set(gave)) == 1 else ', '.join(gave)}{why}")
         if result.others:
             print(f"  other rules broken    {', '.join(result.others)}")
+        if result.other_losses:
+            print(f"  other evidence lost   {', '.join(result.other_losses)}")
         print(f"  every run the same    {'yes' if result.repeatable else 'no'}")
         print(f"  the ledger recorded   {'yes' if result.identical else 'no'}")
         changed = {None: "not known", True: "yes", False: "no"}[result.scenario_changed]
@@ -366,6 +375,8 @@ def _replay(args: argparse.Namespace) -> int:
 
 def _crosscheck(args: argparse.Namespace) -> int:
     source = args.source
+    if args.case is not None and Path(source).is_dir():
+        raise Refused("a bundle supplies its own case; omit --case")
     case = _case(args.case)
     if Path(args.source).is_dir():  # a kept failure: its reduced case
         kept = bundle.load(Path(args.source))
@@ -409,6 +420,8 @@ def _report(args: argparse.Namespace) -> int:
             raise Refused(f"cannot read the bundle in {args.source}: {exc.strerror}") from exc
     else:
         events = _ledger(args.source)
+    if errors := schema.validate(events):
+        raise Refused(f"{args.source}: {errors[0]}")
     as_page = args.format == "html" or (
         args.format is None
         and args.output is not None
@@ -544,7 +557,9 @@ def _parser() -> argparse.ArgumentParser:
         "from its own tools.",
     )
     sub.add_argument(
-        "agent", metavar="AGENT", help="module:Class, such as myapp.agent:SupportAgent"
+        "agent",
+        metavar="AGENT",
+        help="module:Class for a LiveKit agent or module:function for a Pipecat bot",
     )
     sub.add_argument(
         "-o", "--output", type=Path, metavar="FILE", help="write here, not test_<agent>.py"
@@ -702,15 +717,18 @@ def _parser() -> argparse.ArgumentParser:
 
 
 def main(argv: Sequence[str] | None = None) -> int:
+    if argv is None:
+        os.environ.setdefault("LOGURU_LEVEL", "WARNING")
     args = _parser().parse_args(argv)
     try:
         if args.run in (_init, _run, _search, _replay, _crosscheck):
             _scenario_path()
         return int(args.run(args))
-    except (Refused, ImportError) as exc:
-        print(f"earful: {exc}", file=sys.stderr)
-    except ValueError as exc:  # a scenario, a case or a bundle the core refuses
-        print(f"earful: {exc}", file=sys.stderr)
+    except SystemExit as exc:
+        print(f"earful: scenario called sys.exit({exc.code!r})", file=sys.stderr)
+    except (Refused, ImportError, OSError, ValueError) as exc:
+        reason = " ".join(str(exc).splitlines())
+        print(f"earful: {reason}", file=sys.stderr)
     return REFUSED
 
 

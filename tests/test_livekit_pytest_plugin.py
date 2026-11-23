@@ -8,7 +8,6 @@ import pytest
 pytest.importorskip("livekit.agents")
 
 # Imported before pytester runs: the framework's extension modules cannot be imported twice.
-from shapes.corpus import KnownDefect
 
 import earful.livekit as adapter
 from earful.core.ledger import read_jsonl
@@ -241,16 +240,17 @@ def test_booking(earful, who):
 """
 
 
-@pytest.mark.xfail(
-    strict=True,
-    raises=KnownDefect,
-    reason="Earful: ids that differ in one character share evidence",
-)
 def test_tests_whose_ids_differ_in_one_character_keep_their_evidence_apart(pytester):
     pytester.makepyfile(test_booking=PROJECT.partition("def test_as_written")[0] + COLLIDING)
     result = pytester.runpytest_inprocess("-p", "no:cacheprovider", "-p", "no:asyncio")
     result.assert_outcomes(passed=1, failed=2)
     out = pytester.path / ".earful"
     kept = sorted(p.name for p in out.iterdir()) if out.exists() else []
-    if len(kept) != 2:
-        raise KnownDefect(f"the two failing tests left {kept}")
+    assert len(kept) == 2, kept
+
+
+def test_the_fixture_names_the_evidence_lost_by_a_run(tmp_path):
+    helper = Earful(tmp_path, workers=0)
+    result = helper.run("shapes.livekit.books_outside_the_backend:case")
+    (line, *_paths) = helper.evidence()
+    assert result.report.lost() and all(code in line for code in result.report.lost())

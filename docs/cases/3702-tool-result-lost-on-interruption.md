@@ -35,7 +35,7 @@ scripts/make_env.sh 1.6.6 2026-07-20
 ```
 
 `make_env.sh` installs the release with its dependencies resolved as of the given date
-and writes the resulting set to `compat/lk-<version>.lock.txt`. `earful replay` runs the case
+in UTC. Set `EARFUL_LOCK=write` to record the result in `compat/lk-<version>.lock.txt`. `earful replay` runs the case
 three times and exits 0 when the outcome matches `--expect`. The first command prints
 `breaks the rule       yes` and `the ledger recorded   yes`. The second prints
 `breaks the rule       no`.
@@ -96,8 +96,8 @@ still fail.
 
 ## How much timing room the failure has
 
-On 1.5.6, 1.5.7 and 1.6.5 the case fails for any start of the second speech from 3.000 s
-to 7.859 s. In that range the speech interrupts the reply that made the tool call. The
+The bundle on 1.5.6 records a failure for starts of the second speech from 3.000 s
+to 8.310 s. In that range the speech interrupts the reply that made the tool call. The
 first speech can start anywhere from 0 s to 2.5 s. Both ranges are in the bundle's
 `manifest.json` under `windows`.
 

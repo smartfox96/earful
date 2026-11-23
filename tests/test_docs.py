@@ -1,6 +1,7 @@
 """The documentation agrees with the code, schemas and workflows it describes."""
 
 import ast
+import importlib
 import json
 import re
 import sys
@@ -40,6 +41,9 @@ def test_every_kind_and_field_in_the_schema_is_documented():
     defs = load_schema()["$defs"]
     missing = [kind for kind in kinds() if kind not in MENTIONED]
     for kind in kinds():
+        row = next(line for line in DOC.splitlines() if line.startswith(f"| `{kind}` |"))
+        direct = set(defs[kind].get("properties", {}))
+        missing += [f"{kind}: {name}" for name in direct if f"`{name}`" not in row]
         missing += [
             f"{kind}: {name}" for name in sorted(_field_names(defs[kind], defs) - MENTIONED)
         ]
@@ -158,6 +162,23 @@ def _section(heading):
     _, found, rest = COMPATIBILITY.partition(f"\n## {heading}\n")
     assert found, heading
     return rest.partition("\n## ")[0]
+
+
+def test_release_metadata_and_ci_match_the_declared_releases():
+    with (ROOT / "releases.toml").open("rb") as source:
+        toml = importlib.import_module("tomllib" if sys.version_info >= (3, 11) else "tomli")
+        declared = toml.load(source)
+    assert declared.keys() == SUPPORT.keys()
+    for package, matrix in (("livekit-agents", ci_scope.LIVEKIT), ("pipecat-ai", ci_scope.PIPECAT)):
+        support = SUPPORT[package]
+        releases = declared[package]
+        assert list(releases["tested"].items()) == list(matrix.items())
+        assert tuple(matrix) == support.tested
+        assert (releases["lowest"], releases["below"]) == (support.lowest, support.below)
+    series = dict.fromkeys(v.rsplit(".", 1)[0] for v in declared["pipecat-ai"]["tested"])
+    sentence = f"Supported pipecat-ai series: {', '.join(series)}."
+    for page in ("CONTRIBUTING.md", "docs/limits.md", "docs/compatibility.md"):
+        assert sentence in (ROOT / page).read_text(), page
 
 
 def test_the_supported_releases_are_the_same_everywhere_they_are_listed():
@@ -766,3 +787,124 @@ def test_the_limits_page_quotes_the_numbers_the_code_has():
     rows = _rows(_sections(LIMITS, "##")["What each contract cannot decide"])
     linked = [re.match(r"\[(\w\d)\]\(contracts\.md#(\w\d)-", name).groups() for name, _ in rows[1:]]
     assert linked == [(contract, contract.lower()) for contract in RULES]
+
+
+def _assigned(path, name):
+    """Each value ``name`` is given in the module at ``path``, at any depth."""
+    return [
+        node.value
+        for node in ast.walk(ast.parse(path.read_text()))
+        if isinstance(node, ast.Assign)
+        and any(isinstance(target, ast.Name) and target.id == name for target in node.targets)
+    ]
+
+
+def _keyword(call, name):
+    return next((k.value for k in getattr(call, "keywords", ()) if k.arg == name), None)
+
+
+def _first_cells(table):
+    return [name.replace("`", "").lower() for name, _ in _rows(table)[1:]]
+
+
+def test_the_limits_page_lists_each_defect_the_tests_declare_and_no_other():
+    import conformance
+    import invariants
+
+    tests = ROOT / "tests"
+    known = _sections(LIMITS)
+    varied = set()
+    for framework, heading in (("livekit", "LiveKit"), ("pipecat", "Pipecat")):
+        shapes = sorted((tests / "shapes" / framework).glob("[a-z]*.py"))
+        declared = {path.stem for path in shapes if _assigned(path, "DEFECT")}
+        link = rf"\]\(\.\./tests/shapes/{framework}/(\w+)\.py\)"
+        listed = re.findall(link, known[f"{heading} applications"])
+        assert sorted(listed) == sorted(declared), f"{heading} applications"
+        for path in shapes:
+            for value in _assigned(path, "DEFECT_VARIED"):
+                varied |= {getattr(invariants, key.id) for key in value.keys}
+    changes = _first_cells(known["A scenario changed in a way that should not matter"])
+    assert sorted(changes) == sorted(varied)
+
+    behaviours = {b.name.lower(): b for b in conformance.BEHAVIOURS}
+    rows = _rows(known["What every adapter should do"])
+    assert _first_cells(known["What every adapter should do"]) == list(behaviours)
+    for column, framework in enumerate(("livekit", "pipecat")):
+        (scenarios,) = _assigned(tests / f"test_{framework}_conformance.py", "SCENARIOS")
+        wrong = {
+            getattr(conformance, key.attr).name.lower()
+            for key, scenario in zip(scenarios.keys, scenarios.values)
+            if _keyword(scenario, "defect") is not None
+        }
+        said = {
+            name.replace("`", "").lower() for name, cells in rows[1:] if cells[column] != "Holds"
+        }
+        assert said == wrong, framework
+
+    reasons = set()
+    for path in sorted(tests.glob("test_*.py")):
+        for node in ast.walk(ast.parse(path.read_text())):
+            raises, reason = _keyword(node, "raises"), _keyword(node, "reason")
+            if isinstance(raises, ast.Name) and raises.id == "KnownDefect" and reason is not None:
+                reasons.add(ast.literal_eval(reason).removeprefix("Earful: ").lower())
+    assert sorted(_first_cells(known["Elsewhere"])) == sorted(reasons)
+
+
+def test_the_framework_independent_examples_run_on_a_recorded_ledger(tmp_path, monkeypatch):
+    from doc_examples import blocks, execute
+
+    from earful import read_ledger
+    from earful.cli import main
+
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "tests").symlink_to(ROOT / "tests", target_is_directory=True)
+    ledger = next((ROOT / "tests/golden").glob("*.book_then_interrupt.*"))
+    for filename in ("run.ledger.jsonl", "booking.ledger.jsonl"):
+        (tmp_path / filename).symlink_to(ledger)
+    names = {"events": read_ledger(ledger)}
+    for page in ("docs/report.md", "docs/contracts.md", "docs/api.md", "docs/troubleshooting.md"):
+        for block in blocks(page, "python"):
+            if page == "docs/api.md" and block.startswith(("class ", "def ")):
+                continue  # public signatures are compared with inspect.signature
+            execute(page, block, names)
+    from doc_examples import commands
+
+    for command, *arguments in commands("docs/report.md"):
+        assert command == "earful" and main(arguments) == 0
+        assert (tmp_path / "report.html").stat().st_size > 0
+
+
+def test_command_blocks_use_the_installed_cli_and_declared_environments():
+    from doc_examples import commands
+
+    from earful.cli import _parser
+
+    parser = _parser()
+    pages = [*ROOT.glob("*.md"), *(ROOT / "docs").rglob("*.md"), *(ROOT / "skills").rglob("*.md")]
+    for page in pages:
+        for program, *args in commands(str(page)):
+            if Path(program).name == "earful":
+                parser.parse_args(args)
+                if program.startswith(".venvs/lk-"):
+                    assert program.split("/")[1][3:] in SUPPORT["livekit-agents"].tested
+            elif program == "scripts/make_env.sh":
+                assert ci_scope.LIVEKIT[args[0]] == args[1]
+            elif program == "pip":
+                assert args in (["install", "earful[livekit]"], ["install", "earful[pipecat]"])
+            else:
+                assert program in {"pytest", "git", "cd", "open"} or program.endswith(
+                    "/bin/python"
+                ), (page, program)
+
+
+def test_the_unobservable_example_is_a_complete_line_from_the_report():
+    from earful import check, read_ledger
+    from earful.core.ledger import run_id
+
+    ledger = next((ROOT / "tests/golden").glob("*.book_then_interrupt.*"))
+    events = [e for e in read_ledger(ledger) if not e["kind"].startswith("effect.")]
+    run = run_id(events[0]["data"])
+    report = check([{**event, "seq": n, "run": run} for n, event in enumerate(events)])
+    section = _sections(TROUBLESHOOTING)["Unobservable"]
+    (quoted,) = re.findall(r"```text\n(.*?)\n```", section, flags=re.DOTALL)
+    assert quoted in [line.strip() for line in report.lines()]

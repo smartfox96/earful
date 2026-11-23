@@ -397,6 +397,7 @@ class _ScriptedLLMStream(lk_llm.LLMStream):
             model._errors.append(f"call {call}: the model is offered {missed} without the witness")
         try:
             reply = model._policy(items)
+            reply.check_timing()
         except Exception as exc:
             # The framework would handle this as a model failure. It is a broken scenario.
             model._errors.append(f"policy raised on call {call}: {type(exc).__name__}: {exc}")

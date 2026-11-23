@@ -68,9 +68,19 @@ class Difference:
 
 def _pairs(author: cases.Case, found: cases.Case) -> list[tuple[int | None, int | None]]:
     # (author index, found index) pairs; None on a side for a speech the other does not have.
-    taken: set[int] = set()
+    # Reserve unchanged speeches before matching edited repetitions of the same words.
+    by_time = {speech["start_us"]: i for i, speech in enumerate(author["speeches"])}
+    identical = {}
+    for j, speech in enumerate(found["speeches"]):
+        i = by_time.get(speech["start_us"])
+        if i is not None and author["speeches"][i] == speech:
+            identical[j] = i
+    taken = set(identical.values())
     out: list[tuple[int | None, int | None]] = []
     for j, theirs in enumerate(found["speeches"]):
+        if j in identical:
+            out.append((identical[j], j))
+            continue
         match = next(
             (
                 i
@@ -416,6 +426,23 @@ def shrink(
                 current = candidate
                 steps.append(f"{variable}: settled at {to} us, inside {found.lo_us}..{found.hi_us}")
         windows.append(found)
+    if author is not None and not spent():
+        remaining_changes = differences(author, current)
+        restored = applied(author, remaining_changes)
+        if remaining_changes and restored == current:
+            needed = ddmin(remaining_changes, lambda chosen: breaks(applied(author, chosen)))
+            if len(needed) < len(remaining_changes):
+                current = applied(author, needed)
+                steps.append(
+                    f"kept {len(needed)} of {len(remaining_changes)} remaining differences"
+                )
+                windows.clear()
+                for variable in _moved_times(author, current):
+                    found = measured(variable)
+                    if found is None:
+                        break
+                    windows.append(found)
+
     # Speeches left where the author put them are measured too, for the record.
     for index in range(len(current["speeches"])):
         variable = Variable("speech.position", index)

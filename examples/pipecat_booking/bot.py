@@ -3,6 +3,8 @@ knows of Earful: the bot is handed the service it books with."""
 
 from typing import Protocol
 
+from pipecat.adapters.llm.schemas.function_schema import FunctionSchema
+from pipecat.adapters.llm.schemas.tools_schema import ToolsSchema
 from pipecat.processors.aggregators.llm_context import LLMContext
 from pipecat.services.llm_service import FunctionCallParams, LLMService
 
@@ -24,4 +26,10 @@ def booking_bot(llm: LLMService, reservations: Reservations) -> LLMContext:
         await params.result_callback(f"Booked. Confirmation {confirmation}.")
 
     llm.register_function("create_reservation", create_reservation)
-    return LLMContext()
+    booking = FunctionSchema(
+        name="create_reservation",
+        description="Book a table for tonight.",
+        properties={"party_size": {"type": "integer"}},
+        required=["party_size"],
+    )
+    return LLMContext(tools=ToolsSchema(standard_tools=[booking]))

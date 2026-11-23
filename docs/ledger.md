@@ -224,8 +224,8 @@ with any such reply could not be it, and leaves it to be judged as never voiced.
 
 Tools are witnessed without changing the agent. The harness replaces each function tool
 of the agent it is given with a recording copy, through the agent's public `tools` and
-`update_tools`. A tool the harness cannot reach (one belonging to an agent created during
-the run) is witnessed only if it is wrapped with `earful.livekit.tools.witnessed`. Each
+`update_tools`. The same witness wraps session tools and the tools of an agent handed to
+`session.update_agent` during the run. Each
 `tool.called` is followed by at most one of the other three.
 
 A tool can stand for one durable write. The scenario declares it by tool name
@@ -352,7 +352,7 @@ adapter-defined, and they never decide a verdict.
 
 `validate` applies the JSON Schema to every line and then checks:
 
-- the ledger begins with its only `run.start` and ends with its only `run.end`;
+- the ledger begins with its only `run.start`, contains one `history.final` and ends with its only `run.end`;
 - `seq` counts from 0 without gaps, and `t_us` never decreases;
 - every event carries the same `run`, and it is the digest of `run.start`. Editing the
   header of a recorded ledger is detected;
@@ -367,17 +367,17 @@ adapter-defined, and they never decide a verdict.
 - a tool listed in `effects` is listed once, is one of `witnessed_tools`, and is among the
   tools of the intent it names;
 - each model call is requested once and answered once; a claim fits inside its reply; no
-  two tool calls share a call id, since the id is what links a call to its result;
+  two tool calls share a call id. An invocation with a call id names one of those calls;
 - an attributed synthesis names a call that has answered and has at least one word, and
   no call is attributed twice; its candidates fit its attribution and none is already
   attributed; there is one stamp and one sample count per word, and no utterance number or
   stamp is used twice;
 - each tool invocation and each backend request has at most one outcome, a caller gives
   up on a request at most once, every backend event carries its request's intent, and a
-  deduplication names a receipt that was committed;
+  deduplication names a receipt that was committed. Each commit creates a distinct receipt;
 - segments start at most once and finish at most once, pause only while playing and
   resume only while paused, `audible` matches whether the segment started, and every
-  played word has a completion time, in order and no later than the event;
+  played word has a distinct stamp in the segment and a completion time, in order and no later than the event;
 - a segment names only utterances that were synthesized, and every word it played or cut
   belongs to one of them.
 

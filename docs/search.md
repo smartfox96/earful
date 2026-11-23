@@ -1,38 +1,20 @@
 # Search, reduction and replay
 
-The checker says whether one run broke a contract (`docs/contracts.md`). This document
-covers what surrounds it: how Earful looks for the timings and faults under which a
-scenario fails, how wide the failure is, how a failing case is reduced to the smallest one
-that fails the same way, and what is kept so that anyone can run that case again. The
-code is in `src/earful/core/` (`case.py`, `search.py`, `shrink.py`, `bundle.py`,
-`predicate.py`).
-
-```python
-from earful.core import bundle, search
-from earful.core.predicate import Predicate
-from earful.core.shrink import nearest
-from earful.livekit import scenario
-
-author = scenario.default("earful.livekit.cases:book_then_interrupt")   # earful.case/1
-found = search.explore(author, scenario.run)       # every time to every boundary, every fault on every write
-found.predicates()                                 # the rules some run broke
-found.windows(Predicate("A2", "rule"))             # how wide each failure is
-found.coverage()                                   # which boundaries were reached, and which were not
-case = nearest(author, [t.candidate.case for t in found.breaking(Predicate("A2", "rule"))])
-bundle.capture(directory, case, scenario.run, Predicate("A2", "rule"), author=author)
-```
+Search a scenario to find the timings and backend faults that break a contract.
+To replay the published double booking from a checkout on any supported LiveKit release:
 
 ```bash
-earful search earful.livekit.cases:book_then_interrupt --keep A2/rule --out out
-earful replay out/lk-1.5.6.book_then_interrupt.A2-rule
+earful replay tests/bundles/lk-1.5.6.book_then_interrupt.A2-rule
 ```
 
-All of it is framework-independent. The one thing an adapter supplies is `run`: a
-function from a case to the ledger of running it. For LiveKit that is
-`earful.livekit.scenario.run`.
+On livekit-agents 1.5.6, find and keep that failure from Python:
 
-A test calls these through `earful.livekit.api`: `run`, `explore`, `keep` and `replay`
-(`docs/testing.md`).
+```python
+from earful.livekit import explore, keep
+
+found = explore("earful.livekit.cases:book_then_interrupt")
+kept = keep(found, "A2/rule", "failures/double-booking")
+```
 
 ## 1. A case is data: `earful.case/1`
 
@@ -369,10 +351,12 @@ keeps the step only if the run still breaks the same predicate.
    window that runs past the limit is cut off there, and the time is put just inside the
    edge the window has below it. The window is still reported whole.
 
-The result is 1-minimal: undoing any one remaining change of a value, or removing any one
-remaining speech, declared delay or fault, makes it pass. What step 2 removed is a
-difference too, and putting it back leaves the case failing. It is not necessarily the
-smallest failing case there is. A reduction can only undo differences, so of several failing
+4. **Check the remaining differences.** With an author's scenario, reduce the differences
+   again after removal and settling. This can restore an authored speech or delay when
+   changing it is unnecessary. Measure the windows again if the case changes.
+
+For a complete reduction against an author's scenario, undoing any one remaining
+difference loses the failure or gives an invalid case. A reduction can only undo differences, so of several failing
 candidates the one to reduce is the one nearest the author's scenario
 (`earful.core.shrink.nearest`).
 
@@ -461,14 +445,13 @@ damaged or left out. They do not make a bundle from an unknown source safe to re
 **Replaying** runs the reduced case again, three times by default, and says:
 
 - **judged**: every run was valid evidence (`docs/ledger.md`, Validity) and gave the
-  predicate's contract a pass or a fail. A replay with a run that was not, or in which the
-  contract had nothing to judge or could not judge, shows nothing about the rule.
+  predicate's contract a pass or a fail, or observed the specific loss the bundle names.
   `invalid` gives the reasons a run was not valid evidence.
 - **reproduced**: every run was judged and broke the frozen predicate.
 - **clean**: every run was judged and the predicate's contract passed in each.
 - **outcomes**: the contract's outcome in each run, printed as `A2 gave pass`.
 - **others**: the rules of any contract that some run broke other than the frozen one.
-  They do not change whether the replay is clean, and the replay prints them.
+  The replay also lists other evidence lost under `other_losses`.
 - **repeatable**: every run gave the same ledger.
 - **identical**: that ledger is the one recorded. Expected only on the release, and with
   the Earful version and scenario code, the bundle was made with.

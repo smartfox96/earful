@@ -12,7 +12,6 @@ import pytest
 
 pytest.importorskip("pipecat")
 
-from shapes.corpus import KnownDefect
 
 import earful.pipecat  # noqa: F401 - before pytest is run on a project, as in test_examples
 
@@ -102,13 +101,8 @@ def _registers_its_functions(llm, reservations):
     llm.register_function("create_reservation", create_reservation)
 
 
-@pytest.mark.xfail(
-    strict=True,
-    raises=KnownDefect,
-    reason="Earful: the skill's Pipecat example fails its own search",
-)
 def test_the_skills_pipecat_example_passes_its_own_two_tests(monkeypatch):
-    from earful.pipecat import ContractFailure, explore, run
+    from earful.pytest_plugin import Earful
 
     skill = (ROOT / "skills" / "earful" / "SKILL.md").read_text()
     section = skill.split("## A Pipecat bot", 1)[1]
@@ -119,8 +113,6 @@ def test_the_skills_pipecat_example_passes_its_own_two_tests(monkeypatch):
     monkeypatch.setitem(sys.modules, "mybot.bot", bot)
     names: dict = {}
     exec(compile(block, "SKILL.md", "exec"), names)  # noqa: S102
-    run(names["booking"]).assert_contracts()  # its first test
-    try:
-        explore(names["booking"], workers=0).assert_contracts()  # its second
-    except ContractFailure as exc:
-        raise KnownDefect(str(exc).splitlines()[0]) from exc
+    fixture = Earful(Path.cwd(), workers=0)
+    names["test_as_written"](fixture)
+    names["test_every_timing_and_fault_near_it"](fixture)

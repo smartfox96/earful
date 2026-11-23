@@ -6,7 +6,7 @@ from pipecat.processors.aggregators.llm_context import LLMContext
 from pipecat.services.llm_service import LLMService
 
 from earful.pipecat import Case, ScriptedModel, UserSpeech
-from shapes.corpus import invalid, refused
+from shapes.corpus import refused
 
 
 def bot(llm: LLMService) -> LLMContext:
@@ -24,5 +24,3 @@ def case() -> Case:
 
 
 SHOULD = refused("vad_start_secs")
-# The run goes ahead, and its own header fails validation.
-DEFECT = invalid("less than the minimum of 0")

@@ -260,10 +260,14 @@ class Replay:
     codes: tuple[str, ...] = ()  # why the contract's verdicts were missing in some run
     broke: int = 0  # how many runs broke the bundle's rule
 
+    loss_judged: bool = False
+    other_losses: tuple[str, ...] = ()
+
     @property
     def judged(self) -> bool:
-        """Every run was valid evidence and gave the bundle's contract a pass or a fail. A
-        replay that was not judged shows nothing about the rule."""
+        """Every run gave a verdict on the contract or observed the loss the bundle names."""
+        if self.loss_judged:
+            return True
         return all(outcome in (PASS, FAIL) for outcome in self.outcomes)
 
     @property
@@ -291,13 +295,16 @@ def replay(
     outcomes, framework = [], {}
     for _ in range(repeats):
         events = run(bundle.minimal)
-        framework = events[0]["data"]["framework"]
+        header = events[0].get("data") if events and isinstance(events[0], dict) else None
+        if not isinstance(header, dict) or not isinstance(header.get("framework"), dict):
+            raise ValueError("the replay returned a ledger without a framework header")  # noqa: TRY004
+        framework = header["framework"]
         outcomes.append(judged(bundle.minimal, events))
     # A run that is not valid evidence has no failures, so it never counts as breaking.
     broke = [bundle.predicate in o.failures for o in outcomes]
     invalid = next((o.invalid for o in outcomes if o.invalid), ())
     contract = [o.outcomes.get(bundle.predicate.contract) for o in outcomes]
-    others = {str(p) for o in outcomes for p in o.failures if p != bundle.predicate}
+    others = {p for o in outcomes for p in o.failures if p != bundle.predicate}
     codes = (code for o in outcomes for code in o.missing.get(bundle.predicate.contract, ()))
     return Replay(
         reproduced=all(broke),
@@ -309,9 +316,12 @@ def replay(
         clean=all(outcome == PASS for outcome in contract),
         unverified=bundle.unverified,
         outcomes=tuple(contract),
-        others=tuple(sorted(others)),
+        others=tuple(sorted(str(p) for p in others if not p.lost)),
+        other_losses=tuple(sorted(str(p) for p in others if p.lost)),
         codes=tuple(dict.fromkeys(codes)),
         broke=sum(broke),
+        loss_judged=bundle.predicate.lost
+        and all(matched or verdict in (PASS, FAIL) for matched, verdict in zip(broke, contract)),
     )
 
 

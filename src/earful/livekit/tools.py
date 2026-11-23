@@ -90,6 +90,7 @@ class ToolWitness:
     def __init__(self, ledger: Ledger, effects: Mapping[str, Effect] | None = None) -> None:
         self._ledger = ledger
         self.effects = dict(effects or {})
+        self.refusal: str | None = None
         self._invocations = 0
         self._running: dict[int, asyncio.Task[Any] | None] = {}
 
@@ -226,6 +227,10 @@ def witnessed(
         except asyncio.CancelledError:
             witness.cancelled(tool, called_as)
             raise
+        except SystemExit as exc:
+            witness.refusal = f"tool {called_as!r} called sys.exit({exc.code!r})"
+            witness.raised(tool, called_as, exc)
+            raise RuntimeError(witness.refusal) from exc
         except BaseException as exc:
             witness.raised(tool, called_as, exc)
             raise
@@ -294,6 +299,10 @@ def witness_tool(tool: Any) -> Any:
         return tool
     # The constructor ``function_tool`` uses, so the copy keeps the tool's info on every release.
     return type(tool)(witnessed(tool, name=tool.info.name), tool.info)  # type: ignore[arg-type]
+
+
+def tool_names(offered: list[Any]) -> set[str]:
+    return set(_tool_effects(offered))
 
 
 def _tool_effects(tools: list[Any]) -> dict[str, Effect | None]:

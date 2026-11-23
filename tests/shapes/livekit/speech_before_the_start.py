@@ -6,7 +6,7 @@ import livekit.agents as lk
 from invariants import SHIFTED
 
 from earful.livekit import Case, ScriptedModel, UserSpeech
-from shapes.corpus import invalid, refused
+from shapes.corpus import refused
 
 
 def case() -> Case:
@@ -19,6 +19,4 @@ def case() -> Case:
 
 
 SHOULD = refused("-1.0")
-# It runs, and its own header then fails validation.
-DEFECT = invalid("less than the minimum of 0")
 NOT_VARIED = {SHIFTED: "the shift gives the speech a start the run can have: another case"}

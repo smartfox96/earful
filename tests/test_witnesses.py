@@ -298,7 +298,7 @@ def test_a_fault_that_is_no_fault_is_refused():
         ((Fault("backend.error", 0),), "counts from 1"),
         ((Fault("backend.timeout", 1),), "how long the caller waits"),
         ((Fault("backend.error", 1, 0.5),), "an error does not"),
-        ((Fault("backend.error", 1), Fault("backend.drop", 1, 0.5)), "more than one fault"),
+        ((Fault("backend.error", 1), Fault("backend.drop", 1, 0.5)), "write #1 has more than one"),
     ):
         with pytest.raises(ValueError, match=message):
             run_case(make(*bad))

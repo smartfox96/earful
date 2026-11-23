@@ -34,7 +34,6 @@ from pipecat.frames.frames import (
 )
 from pipecat.processors.aggregators.llm_context import LLMContext
 from pipecat.processors.frame_processor import FrameDirection, FrameProcessor
-from shapes.corpus import KnownDefect
 
 from earful import pipecat as pc
 from earful.cli import main
@@ -486,10 +485,23 @@ def test_pipecat_documented_example_runs_from_pytest_and_the_installed_cli(tmp_p
             [sys.executable, "-m", *args], cwd=tmp_path, capture_output=True, text=True, check=True
         ).stdout
 
-    assert "1 passed" in command("pytest", "-q", "test_greeting.py")
-    ledger = tmp_path / "greeting.jsonl"
-    command("earful", "run", "test_greeting:greeting", "--ledger", str(ledger))
-    assert "pipecat-ai" in command("earful", "report", str(ledger))
+    from doc_examples import commands
+
+    package = tmp_path / "mybot"
+    package.mkdir()
+    (package / "__init__.py").touch()
+    (package / "bot.py").write_text(
+        (PAGE.parents[1] / "examples/pipecat_booking/bot.py").read_text()
+    )
+    for program, *args in commands(str(PAGE)):
+        if program == "earful":
+            output = command(program, *args)
+            if args[0] == "report":
+                assert "pipecat-ai" in output
+            elif args[0] == "init":
+                assert (tmp_path / "test_booking_bot.py").is_file()
+        elif program == "pytest" and "test_greeting.py" in args:
+            assert "1 passed" in command(program, *args)
     searched = command(
         "earful",
         "search",
@@ -1050,11 +1062,6 @@ def test_pipecat_help_shows_each_public_function_as_a_function_of_the_adapter():
     assert "source: 'str | Case | Callable[[], Case]'" in str(inspect.signature(pc.run))
 
 
-@pytest.mark.xfail(
-    strict=True,
-    raises=KnownDefect,
-    reason="Earful: Pipecat's debug log reaches the command's stderr",
-)
 def test_the_command_writes_none_of_pipecats_debug_log():
     done = subprocess.run(
         [sys.executable, "-m", "earful", "run", "earful.pipecat.cases:greeting"],
@@ -1064,5 +1071,29 @@ def test_the_command_writes_none_of_pipecats_debug_log():
     )
     assert done.returncode == 0, done.stderr
     debug = [line for line in done.stderr.splitlines() if "DEBUG" in line]
-    if debug:
-        raise KnownDefect(f"{len(debug)} DEBUG lines")
+    assert not debug, debug
+
+
+def exits_in_a_function():
+    def bot(llm):
+        async def stop(params):
+            sys.exit(0)
+
+        llm.register_function("stop", stop)
+        return LLMContext()
+
+    return replace(greeting(), bot=bot, policy=pc.ScriptedModel().otherwise(call="stop"))
+
+
+@pytest.mark.slow
+def test_a_pipecat_function_that_exits_is_refused_in_one_line():
+    done = subprocess.run(
+        [sys.executable, "-m", "earful", "run", "test_pipecat:exits_in_a_function"],
+        cwd=Path(__file__).parent,
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=20,
+    )
+    assert done.returncode == 2 and not done.stdout
+    assert done.stderr.splitlines() == ["earful: tool 'stop' called sys.exit(0)"]

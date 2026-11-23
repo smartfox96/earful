@@ -232,11 +232,6 @@ def test_a_required_contract_that_fails_by_an_allowed_rule_was_judged(affected):
         cut.assert_contracts(require=["A2"])
 
 
-@pytest.mark.xfail(
-    strict=True,
-    raises=KnownDefect,
-    reason="Earful: a verdict that fails drops the codes of what it lost",
-)
 def test_a_verdict_that_fails_keeps_the_codes_of_the_evidence_it_lost(fixed):
     for e in fixed:
         if e["kind"] == "tool.returned":  # an object as the tool's value: no stable text
@@ -249,8 +244,13 @@ def test_a_verdict_that_fails_keeps_the_codes_of_the_evidence_it_lost(fixed):
                     item["arguments"] = '{"party_size": 2}'
     report = check(seal(fixed))
     assert report.broken() == ["M2/rule f"]
-    if report.lost() != ["M2/no-stable-text"]:
-        raise KnownDefect("the lost code is dropped, so allowing rule f passes the run")
+    assert report.lost() == ["M2/no-stable-text"]
+    from test_crosscheck import as_real
+
+    from earful.core.crosscheck import compare
+
+    compared = compare(fixed, as_real(fixed))
+    assert list(compared.rules) == list(compared.real_rules) == report.broken()
     with pytest.raises(ContractFailure, match="lost the evidence for M2/no-stable-text"):
         report.assert_contracts(allow=["M2/rule f"])
 
@@ -809,8 +809,11 @@ def test_m1_the_final_history_counts_only_if_read_after_the_playout_finished(bar
 
 
 def test_m1_a_reply_that_no_context_or_final_history_follows_has_nothing_to_judge(barge):
+    from earful.core.checker import m1
+    from earful.core.checker.policy import M1
+
     barge.remove(of(barge, "history.final"))
-    last = check(seal(barge)).results["M1"].verdicts[-1]
+    last = m1.check(View(seal(barge), {}), M1()).verdicts[-1]
     assert (last.outcome, last.findings[0].code) == (NOT_EXERCISED, "no-memory-after")
 
 
@@ -2257,7 +2260,7 @@ def test_m1_a_reply_whose_audio_may_be_in_a_segment_that_never_started_has_nothi
 
 def test_l2_a_speech_the_vad_never_reported_holds_no_floor(barge):
     cut = barge.index(of(barge, "user.vad_start", 1))
-    result = check(seal(barge[:cut] + [barge[-1]])).results["L2"]
+    result = check(seal([*barge[:cut], of(barge, "history.final"), barge[-1]])).results["L2"]
     assert [v.instance for v in result.verdicts] == [{"speech": 0}]
     assert result.notes == ("speech 1: the VAD never reported it, so it held no floor",)
 
