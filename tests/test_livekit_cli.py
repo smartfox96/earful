@@ -453,7 +453,7 @@ def test_a_search_takes_its_wait_stretch_and_delay_limit_in_milliseconds(capsys,
     monkeypatch.setattr(search, "explore", recorded)
     narrow = ("--variables", "none", "--faults", "backend.error", "--no-words", "--workers", "0")
     reference = "breaks:as_written_reads_the_error"
-    timing = ("--wait-ms", "2500", "--stretch-ms", "2000", "--delay-limit-ms", "8000")
+    timing = ("--pairs", "--wait-ms", "2500", "--stretch-ms", "2000", "--delay-limit-ms", "8000")
     assert earful(capsys, "search", reference, *narrow, *timing)[0] == OK
     assert given == [{"wait_us": 2_500_000, "stretch_us": 2_000_000, "delay_limit_us": 8_000_000}]
     status, _, err = earful(capsys, "search", reference, *narrow, "--wait-ms", "-1")
@@ -913,9 +913,6 @@ def test_a_directory_given_for_the_ledger_is_refused_in_one_line(capsys, tmp_pat
         "search --stretch-ms without --pairs",
         pytest.param("crosscheck of a bundle with --case", marks=pytest.mark.slow),
     ],
-)
-@pytest.mark.xfail(
-    strict=True, raises=KnownDefect, reason="Earful: an option that does nothing is accepted"
 )
 def test_an_option_that_does_nothing_with_the_others_given_is_refused(capsys, tmp_path, unused):
     reference = "breaks:as_written_confirms_a_failed_booking"

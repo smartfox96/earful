@@ -1050,11 +1050,6 @@ def test_pipecat_help_shows_each_public_function_as_a_function_of_the_adapter():
     assert "source: 'str | Case | Callable[[], Case]'" in str(inspect.signature(pc.run))
 
 
-@pytest.mark.xfail(
-    strict=True,
-    raises=KnownDefect,
-    reason="Earful: Pipecat's debug log reaches the command's stderr",
-)
 def test_the_command_writes_none_of_pipecats_debug_log():
     done = subprocess.run(
         [sys.executable, "-m", "earful", "run", "earful.pipecat.cases:greeting"],

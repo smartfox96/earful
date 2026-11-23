@@ -1690,7 +1690,7 @@ def test_shrinking_keeps_only_the_differences_the_failure_needs_and_settles_them
     assert FOUND["seed"] == 7
 
 
-def test_shrinking_removes_a_speech_of_the_authors_that_the_failure_does_not_need():
+def test_shrinking_keeps_an_authored_speech_when_dropping_it_is_an_unnecessary_difference():
     def fails(case):
         return any(
             3_000_000 <= s["start_us"] <= 7_800_000
@@ -1699,9 +1699,11 @@ def test_shrinking_removes_a_speech_of_the_authors_that_the_failure_does_not_nee
         )
 
     shrunk = shrink(FOUND, answers(fails), A2, author=AUTHOR)
-    assert [s["transcript"] for s in shrunk.case["speeches"]] == [WINDOW["transcript"]]
-    assert "removed 1 of 2 speeches" in shrunk.steps
-    assert "speech 'Book a table for six tonight.' dropped" in shrunk.differences
+    assert [s["transcript"] for s in shrunk.case["speeches"]] == [
+        BOOK["transcript"],
+        WINDOW["transcript"],
+    ]
+    assert len(shrunk.differences) == 1
 
 
 def test_a_case_whose_authors_scenario_fails_as_written_reduces_to_it():
@@ -1712,7 +1714,7 @@ def test_a_case_whose_authors_scenario_fails_as_written_reduces_to_it():
         author=AUTHOR,
     )
     assert shrunk.steps[0] == "kept 0 of 11 differences from the author's scenario"
-    assert shrunk.differences == ["speech 'Is the table by the window?' dropped"]
+    assert shrunk.case == AUTHOR and shrunk.differences == []
 
 
 def test_a_settled_time_is_the_roundest_in_the_middle_half_of_its_window():
@@ -1738,11 +1740,6 @@ def test_a_settled_time_is_the_roundest_in_the_middle_half_of_its_window():
 
 
 @pytest.mark.slow
-@pytest.mark.xfail(
-    strict=True,
-    raises=KnownDefect,
-    reason="Earful: a reduced case keeps a change of value the failure does not need",
-)
 def test_a_reduced_case_keeps_no_difference_the_failure_can_do_without():
     """It needs the fault and the question, and the question early or no thanks after it."""
     author = a_case(BOOK, WINDOW, speech(8_000_000, 9_000_000, "Thanks."))

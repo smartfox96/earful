@@ -3,6 +3,7 @@
 #   scripts/check_all.sh            check against tests/golden/ and tests/bundles/
 #   scripts/check_all.sh --update   rewrite them from this machine's runs first
 set -euo pipefail
+export TZ=UTC # resolution dates use UTC
 cd "$(dirname "$0")/.."
 
 # The runs side by side share the processors.

@@ -241,11 +241,6 @@ def test_booking(earful, who):
 """
 
 
-@pytest.mark.xfail(
-    strict=True,
-    raises=KnownDefect,
-    reason="Earful: ids that differ in one character share evidence",
-)
 def test_tests_whose_ids_differ_in_one_character_keep_their_evidence_apart(pytester):
     pytester.makepyfile(test_booking=PROJECT.partition("def test_as_written")[0] + COLLIDING)
     result = pytester.runpytest_inprocess("-p", "no:cacheprovider", "-p", "no:asyncio")

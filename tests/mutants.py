@@ -45,6 +45,20 @@ MUTANTS = [
         "if False:",
         first="the_validator_refuses_a_ledger_no_run",
     ),
+    Mutant(
+        "pytest: colliding test ids share a directory",
+        "src/earful/pytest_plugin.py",
+        'name = f"{name[:180]}-{digest}"',
+        "name = name[:180]",
+        first="ids_differ_in_one_character",
+    ),
+    Mutant(
+        "shrink: differences are kept after another edit makes them unnecessary",
+        "src/earful/core/shrink.py",
+        "if remaining_changes and restored == current:",
+        "if False:",
+        first="a_reduced_case_keeps_no_difference",
+    ),
     # The checker: ties, stand-ins, refusals and readings.
     Mutant(
         "M1: a stop as the audio ends is held to one reading",

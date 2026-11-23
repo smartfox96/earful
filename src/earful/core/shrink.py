@@ -416,6 +416,23 @@ def shrink(
                 current = candidate
                 steps.append(f"{variable}: settled at {to} us, inside {found.lo_us}..{found.hi_us}")
         windows.append(found)
+    if author is not None and not spent():
+        remaining_changes = differences(author, current)
+        restored = applied(author, remaining_changes)
+        if remaining_changes and restored == current:
+            needed = ddmin(remaining_changes, lambda chosen: breaks(applied(author, chosen)))
+            if len(needed) < len(remaining_changes):
+                current = applied(author, needed)
+                steps.append(
+                    f"kept {len(needed)} of {len(remaining_changes)} remaining differences"
+                )
+                windows.clear()
+                for variable in _moved_times(author, current):
+                    found = measured(variable)
+                    if found is None:
+                        break
+                    windows.append(found)
+
     # Speeches left where the author put them are measured too, for the record.
     for index in range(len(current["speeches"])):
         variable = Variable("speech.position", index)

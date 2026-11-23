@@ -2,6 +2,6 @@
 
 import sys
 
-from .cli import main
+from .cli import command
 
-sys.exit(main())
+sys.exit(command())

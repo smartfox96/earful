@@ -191,6 +191,12 @@ def _run(args: argparse.Namespace) -> int:
 def _search(args: argparse.Namespace) -> int:
     allow, require = _asked(args)
     keep = [Predicate.parse(rule) for rule in args.keep or []]
+    if args.out is not None and not keep:
+        raise Refused("--out needs --keep to name the bundles to write")
+    if args.out is not None and args.out.exists() and not args.out.is_dir():
+        raise Refused(f"--out needs a directory, got {args.out}")
+    if args.stretch_ms is not None and not args.pairs:
+        raise Refused("--stretch-ms needs --pairs")
     if keep and args.out is None:
         raise Refused("--keep needs --out, the directory to write bundles to")
     faults = () if args.faults == "none" else tuple(args.faults.split(","))
@@ -364,6 +370,8 @@ def _replay(args: argparse.Namespace) -> int:
 
 def _crosscheck(args: argparse.Namespace) -> int:
     source = args.source
+    if args.case is not None and Path(source).is_dir():
+        raise Refused("a bundle supplies its own case; omit --case")
     case = _case(args.case)
     if Path(args.source).is_dir():  # a kept failure: its reduced case
         kept = bundle.load(Path(args.source))
@@ -714,6 +722,12 @@ def main(argv: Sequence[str] | None = None) -> int:
     except ValueError as exc:  # a scenario, a case or a bundle the core refuses
         print(f"earful: {exc}", file=sys.stderr)
     return REFUSED
+
+
+def command() -> int:
+    """Run the installed command with framework diagnostics at warning level."""
+    os.environ.setdefault("LOGURU_LEVEL", "WARNING")
+    return main()
 
 
 __all__ = ["BROKEN", "NO_VERDICT", "OK", "REFUSED", "main"]

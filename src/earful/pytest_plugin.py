@@ -4,6 +4,7 @@ Pytest loads it wherever Earful is installed, so the adapter is imported only wh
 from __future__ import annotations
 
 import contextlib
+import hashlib
 import json
 import re
 import shutil
@@ -216,7 +217,12 @@ def earful(request: pytest.FixtureRequest) -> Earful:
     out = Path(config.getoption("--earful-out"))
     if not out.is_absolute():
         out = config.rootpath / out
-    directory = out / _slug(request.node.nodeid)
+    nodeid = request.node.nodeid
+    name = _slug(nodeid)
+    if len(name) > 180 or not re.fullmatch(r"[A-Za-z_0-9]+\.py::[A-Za-z_0-9]+", nodeid):
+        digest = hashlib.sha256(nodeid.encode()).hexdigest()[:20]
+        name = f"{name[:180]}-{digest}"
+    directory = out / name
     # What an earlier run of this test left is not evidence of this one.
     shutil.rmtree(directory, ignore_errors=True)
     with contextlib.suppress(OSError):
