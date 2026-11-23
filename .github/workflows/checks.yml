@@ -21,8 +21,6 @@ defaults:
 
 env:
   UV_VERSION: "0.13.9"
-  # A search runs in its test's process: the processors go to pytest's workers.
-  EARFUL_WORKERS: "0"
 
 jobs:
   scope:
@@ -179,10 +177,14 @@ jobs:
           EARFUL_LOCK: ${{ matrix.cell.python == '3.13' && 'check' || '' }}
         run: scripts/make_env.sh ${{ matrix.cell.version }} ${{ matrix.cell.as_of }}
       - name: Tests under a second, on every processor
+        env:
+          EARFUL_WORKERS: "0" # a search stays in its test's process
         run: .venvs/lk-${{ matrix.cell.version }}/bin/python -m pytest -q -n auto -m "not slow"
       - name: Slow tests, on every processor
         if: matrix.cell.slow
-        run: .venvs/lk-${{ matrix.cell.version }}/bin/python -m pytest -q -n auto -m slow
+        env:
+          EARFUL_WORKERS: "0" # a search stays in its test's process
+        run: .venvs/lk-${{ matrix.cell.version }}/bin/python -m pytest -q -n auto -m slow --durations=10
       - name: Repeatability (every case, 100 in-process + 20 subprocess) and committed-hash check
         run: >-
           .venvs/lk-${{ matrix.cell.version }}/bin/python scripts/repeat.py
@@ -246,6 +248,8 @@ jobs:
           assert installed == (os.environ["FROM"] == "wheel"), earful.__file__
           PY
       - name: Every test that needs no LiveKit runs, and none is skipped (scripts/ran_every_test.sh)
+        env:
+          EARFUL_WORKERS: "0" # a search stays in its test's process
         run: >-
           scripts/ran_every_test.sh --without livekit
           .venvs/pc-${{ matrix.cell.version }}/bin/python -n auto
@@ -275,6 +279,8 @@ jobs:
       - name: Build the environment with no framework (scripts/make_bare_env.sh)
         run: scripts/make_bare_env.sh
       - name: Every test that needs no framework runs, and none is skipped (scripts/ran_every_test.sh)
+        env:
+          EARFUL_WORKERS: "0" # a search stays in its test's process
         run: >-
           scripts/ran_every_test.sh --without livekit --without pipecat --without pydantic
           .venvs/bare/bin/python -n auto

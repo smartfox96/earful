@@ -601,6 +601,18 @@ def test_every_install_names_a_date_and_the_build_backend_is_pinned():
     assert re.search(r'^requires = \["hatchling==\d+\.\d+\.\d+"\]$', project, re.MULTILINE)
 
 
+def test_a_search_stays_in_its_test_process_only_where_pytest_has_the_processors():
+    assert "EARFUL_WORKERS" not in CHECKS.partition("\njobs:\n")[0]
+    spread = 0
+    for name, job in _jobs(CHECKS).items():
+        for step in job.split("\n      - ")[1:]:
+            stays = '          EARFUL_WORKERS: "0" ' in step
+            assert stays == (" -n auto" in step), f"{name}: {step.splitlines()[0]}"
+            assert not (stays and "scripts/repeat.py" in step), name  # its runs go to workers
+            spread += stays
+    assert spread == 4  # quick and slow LiveKit tests, Pipecat's, and those of no framework
+
+
 def test_ci_compares_the_environments_it_builds_on_python_3_13_with_their_lock_files():
     jobs = _jobs(CHECKS)
     for name in ("livekit", "pipecat"):

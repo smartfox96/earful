@@ -282,6 +282,7 @@ def _copy(root: Path, copy: Path) -> None:
 def _pytest(copy: Path, *selection: str, timeout: float) -> tuple[int, str]:
     """Run the tests of the copy against the code of the copy. Status None: it timed out."""
     env = {**os.environ, "PYTHONPATH": f"{copy / 'src'}{os.pathsep}{copy / 'tests'}"}
+    env.setdefault("EARFUL_WORKERS", "0")  # the breaks running at once share the processors
     with subprocess.Popen(
         [sys.executable, *_PYTEST, *selection],
         cwd=copy,

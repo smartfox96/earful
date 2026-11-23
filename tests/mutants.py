@@ -6154,4 +6154,11 @@ MUTANTS = [
         "            if False:\n",
         first="caught_only_outside_the_files_it_ran_first",
     ),
+    Mutant(
+        "breaks: a break's searches start a worker per processor",
+        "scripts/mutate.py",
+        '    env.setdefault("EARFUL_WORKERS", "0")  # the breaks running at once share the processors\n',
+        "",
+        first="searches_in_their_own_process",
+    ),
 ]
