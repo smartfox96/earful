@@ -6161,4 +6161,19 @@ MUTANTS = [
         "",
         first="searches_in_their_own_process",
     ),
+    # Two intents, one that writes and one that does not.
+    Mutant(
+        "A3: a commit for any intent makes a claim true",
+        "src/earful/core/checker/a3.py",
+        "(e.committed for e in view.effects.values() if e.intent == intent and e.committed)",
+        "(e.committed for e in view.effects.values() if e.committed)",
+        first="commit_for_another_intent_does_not_make_a_claim_true",
+    ),
+    Mutant(
+        "A2: a call that wrote nothing is judged once another intent wrote",
+        "src/earful/core/checker/view.py",
+        "        if any(e.intent == intent for e in self.effects.values()):\n",
+        "        if self.effects:\n",
+        first="wrote_nothing_is_unobservable_although_another_intent_wrote",
+    ),
 ]
