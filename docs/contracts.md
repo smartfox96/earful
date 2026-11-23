@@ -659,7 +659,7 @@ Outcomes on the reference ledgers: every contract passes or is not exercised, ex
 where a release has a known defect. On `book_then_interrupt`, releases before 1.6.6 fail
 A2 (two durable bookings, one authorized) and M2 rule d (the first booking finished
 before the next model call, which was shown neither the call nor its result). On
-`speak_over_new_turn`, 1.5.6 fails L2 rule b (a segment started 250 000 µs after the user
+`speak_over_new_turn`, 1.5.6 fails L2 rule b (a segment started 268 000 µs after the user
 took the floor). The same checker, policies and cases produce both the failures and the
 passes.
 

@@ -12,7 +12,6 @@ import pytest
 
 pytest.importorskip("livekit.agents")
 
-from shapes.corpus import KnownDefect
 from test_docs import (
     README,
     REPORT_DOC,
@@ -282,41 +281,107 @@ def test_the_page_on_scripting_the_model_runs_as_written():
     assert built[2]["speeches"][1].retires == ("book-table",)
 
 
-@pytest.mark.xfail(
-    strict=True, raises=KnownDefect, reason="Earful: the testing page's stand-in example is invalid"
-)
-def test_the_stand_in_service_of_the_testing_page_runs_as_written():
-    """Section 3's first block, with the model of the page's opening block."""
+@pytest.mark.slow
+def test_the_testing_page_runs_its_examples_in_a_booking_application(tmp_path, monkeypatch):
+    import shutil
+
     import livekit.agents as lk
+    from doc_examples import blocks, execute
 
-    from earful.livekit import ContractFailure, InvalidRun, UserSpeech, run
+    from earful.livekit import replay, run
+    from earful.livekit.cases import book_then_interrupt
+    from earful.pytest_plugin import Earful
 
-    class BookingAgent(lk.Agent):  # the application's agent, handed its service
-        def __init__(self, reservations) -> None:
-            super().__init__(instructions="You take reservations for a restaurant.")
-            self._reservations = reservations
-
-        @lk.function_tool
-        async def create_reservation(self, party_size: int) -> str:
-            """Book a table.
-
-            Args:
-                party_size: Number of guests
-            """
-            return f"Booked. Confirmation {await self._reservations.create(party_size)}."
-
-    page = TESTING_DOC
-    opening, *_ = re.findall(r"```python\n(.*?)```", page, flags=re.DOTALL)
-    stand_in = re.search(
-        r"\*\*The agent is handed the service.*?```python\n(.*?)```", page, re.DOTALL
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("EARFUL_WORKERS", "0")
+    package = tmp_path / "myapp"
+    package.mkdir()
+    (package / "__init__.py").touch()
+    application = (ROOT / "examples/booking/agent.py").read_text()
+    (package / "agent.py").write_text(
+        application.replace(
+            "reservations: Reservations)", "reservations: Reservations | None = None)"
+        )
     )
-    assert stand_in is not None
-    names: dict = {"BookingAgent": BookingAgent}
-    opening = opening.replace("from myapp.agent import BookingAgent", "")
-    exec(compile(opening.split("\ncase = Case(")[0], "testing.md", "exec"), names)  # noqa: S102
-    names["speeches"] = [UserSpeech(start=0.5, end=2.5, transcript="Book a table for six tonight.")]
-    exec(compile(stand_in.group(1), "testing.md", "exec"), names)  # noqa: S102
-    try:
-        run(names["case"]).assert_contracts()
-    except (InvalidRun, ContractFailure) as exc:
-        raise KnownDefect(str(exc).splitlines()[0]) from exc
+    monkeypatch.syspath_prepend(str(tmp_path))
+    for module in ("myapp", "myapp.agent", "myapp.scenarios"):
+        monkeypatch.delitem(sys.modules, module, raising=False)
+    page = "docs/testing.md"
+    names = {"book_then_interrupt": book_then_interrupt}
+    for block in blocks(page, "python"):
+        if "failures/double-booking" in block:
+            if "def test_" in block:
+                names["replay"] = replay
+
+                shutil.copytree(
+                    ROOT / "tests/bundles/lk-1.5.6.book_then_interrupt.A2-rule",
+                    "failures/double-booking",
+                    dirs_exist_ok=True,
+                )
+            elif lk.__version__ != "1.5.6":
+                continue  # the page specifies this release for capture
+        if "cross_check(" in block and lk.__version__ != "1.5.6":
+            continue  # the page quotes the historical real-clock control
+        execute(page, block, names)
+        if "case = Case(" in block:
+            names["speeches"] = names["case"].speeches
+            names["result"] = run(names["case"])
+            names["result"].assert_contracts()
+        if (
+            "def test_a_booking_is_made_once_and_confirmed_truthfully" in block
+            and lk.__version__ == "1.8.13"
+        ):
+            test = names["test_a_booking_is_made_once_and_confirmed_truthfully"]
+            if "earful" in inspect.signature(test).parameters:
+                test(Earful(tmp_path / "evidence", workers=0))
+            else:
+                test()
+        elif "def policy(" in block:
+            assert names["policy"]([]).tool_calls
+        elif "def test_the_double_booking_stays_fixed" in block and lk.__version__ == "1.8.13":
+            names["test_the_double_booking_stays_fixed"]()
+
+
+@pytest.mark.slow
+def test_the_search_page_runs_as_printed(tmp_path, monkeypatch):
+    import livekit.agents as lk
+    from doc_examples import blocks, commands, execute
+
+    from earful.cli import main
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("EARFUL_WORKERS", "0")
+    (tmp_path / "tests").symlink_to(ROOT / "tests", target_is_directory=True)
+    page = "docs/search.md"
+    for program, *args in commands(page):
+        assert program == "earful" and main(args) == 0
+    if lk.__version__ == "1.5.6":
+        for block in blocks(page, "python"):
+            names = {}
+            execute(page, block, names)
+            assert names["kept"].directory.is_dir()
+
+
+@pytest.mark.slow
+def test_the_testing_pages_command_sequence_builds_a_replayable_bundle(tmp_path, monkeypatch):
+    from doc_examples import commands
+
+    from earful.cli import main
+
+    _newest_tested_release()
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.syspath_prepend(str(tmp_path))
+    monkeypatch.setenv("EARFUL_WORKERS", "0")
+    package = tmp_path / "myapp"
+    package.mkdir()
+    (package / "__init__.py").touch()
+    (package / "agent.py").write_text((ROOT / "examples/booking/agent.py").read_text())
+    (package / "scenarios.py").write_text(
+        "from breaks import as_written_confirms_a_failed_booking as booking\n"
+    )
+    for module in ("myapp", "myapp.agent", "myapp.scenarios"):
+        monkeypatch.delitem(sys.modules, module, raising=False)
+    for program, command, *arguments in commands("docs/testing.md"):
+        assert program == "earful"
+        assert main([command, *arguments]) == (1 if command == "search" else 0)
+    assert (tmp_path / "report.html").read_text().startswith("<!DOCTYPE html>")

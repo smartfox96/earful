@@ -108,6 +108,8 @@ The tool name can be left out to mean any tool. Conditions combine with `&`, `|`
 `user_turns`, `last_user_turn`, `assistant_turns` and `tool_results` as typed values.
 
 ```python
+from earful.livekit import tool_failed
+
 retried_once = tool_failed("create_reservation") & (lambda c: len(c.tool_results) == 1)
 ```
 
@@ -146,6 +148,7 @@ its arguments, its error handling and its return value are the application's.
 
 ```python
 from earful import effect
+from earful.livekit import Intent
 
 class FakeReservations:
     async def create(self, party_size: int) -> str:
@@ -154,6 +157,7 @@ class FakeReservations:
 case = Case(
     name="booking",
     agent=lambda: BookingAgent(FakeReservations()),
+    intents=[Intent("book-table", tools=("create_reservation",))],
     speeches=speeches,
     policy=model,
 )
@@ -351,8 +355,12 @@ calls. A policy function that keeps state of its own needs the function form.
 
 ## 7. Keeping a failure
 
+Run the capture below on livekit-agents 1.5.6, where this booking breaks A2.
+
 ```python
 from earful.livekit import explore, keep, replay
+
+from earful.livekit.cases import book_then_interrupt
 
 found = explore(book_then_interrupt)                # a top-level function
 kept = keep(found, "A2/rule", "failures/double-booking")
@@ -467,7 +475,7 @@ earful report failures/lk-1.8.13.booking.A3-rule -o report.html
 
 | Command | Does |
 | --- | --- |
-| `earful init AGENT` | Writes a first test for a livekit-agents agent, named as `module:Class`, into `test_<agent>.py` (`-o FILE` names another). The scripted model calls the agent's first tool with a value for each argument the tool requires, and once more if the call fails. Every tool is declared an effect, so no tool body runs. Both tests require A2, A3 and L1 to reach a verdict, and the search fails on a write the model repeats until the file declares that write's idempotency key. The file marks what to change. An agent that cannot be built without arguments is built with `None` for each. A tool it cannot write a call for, because no value it has is one the tool accepts, is refused. Named as `module:function`, a Pipecat bot gets the same test, written from the functions it registers and the tools its context advertises ([`pipecat.md`](pipecat.md#a-first-test-of-your-bot)). Adds `.earful/` to `.gitignore` |
+| `earful init AGENT` | Writes a first test for a livekit-agents agent, named as `module:Class`, into `test_<agent>.py` (`-o FILE` names another). The scripted model calls the agent's first tool with a value for each argument the tool requires, and once more if the call fails. Every tool is declared an effect, so no tool body runs. Both tests require A2, A3 and L1 to reach a verdict, and the search fails on a write the model repeats until the file declares that write's idempotency key. The file marks what to change. An agent that cannot be built without arguments is built with `None` for each. A tool it cannot write a call for, because no value it has is one the tool accepts, is refused. Named as `module:function`, a Pipecat bot gets the same test, written from the functions it registers and the tools its context advertises ([`pipecat.md`](pipecat.md#a-first-test-of-your-bot)). Adds `.earful/` to an existing `.gitignore`, or creates one at a Git root |
 | `earful check LEDGER...` | Prints the verdicts for recorded ledgers. `--measures` adds what each verdict measured, `--json` prints one report per line |
 | `earful run SCENARIO` | Runs a scenario once and prints its verdicts. `--case FILE` runs a saved case, `--ledger FILE` writes the ledger |
 | `earful search SCENARIO` | Searches a scenario, in one worker process per processor unless `--workers` says otherwise. Where worker processes cannot be started, as in some sandboxes and containers, it says so and searches in its own process; with `--workers N` given it refuses. `--keep CONTRACT/RULE --out DIR` writes a bundle for a rule that broke, in a directory of `DIR` named after the framework release, the scenario's function and the rule: `lk-1.8.12.booking.A3-rule` on livekit-agents, `pc-1.16.0.booking.A3-rule` on pipecat-ai. `--variables`, `--faults`, `--pairs`, `--profiles`, `--no-words` and `--no-windows` narrow or widen the search. It prints how many cases it is about to run on standard error, and `--max-runs N` stops it after N runs: a search cut short is incomplete and exits 3 unless a rule broke. With `--no-windows` a rule that breaks only at single instants counts as broken, and the output names the rules that were not measured |
@@ -487,7 +495,7 @@ checked before anything runs.
 | 0 | Nothing broke, or the replay did what `--expect` names. For `report`: the report was written |
 | 1 | A contract rule broke, the replay did not do what `--expect` names, or a real-clock run did not agree with the virtual one |
 | 2 | The command could not be carried out: bad arguments, a file that is not what it should be, a bundle with a file that is not what its manifest records, a scenario that does not exist, cannot be imported, built or run, or contradicts itself |
-| 3 | No verdict: a run was not valid evidence, did not repeat, or could not be compared, a required contract got no pass or fail, a case of a search raised, a search could judge none of the cases it tried, or its budget of runs cut it short |
+| 3 | No verdict: evidence was lost without its code being allowed, a run was not valid evidence, did not repeat, or could not be compared, a required contract got no pass or fail, a case of a search raised, a search could judge none of the cases it tried, or its budget of runs cut it short |
 
 A rule that broke outranks a run without a verdict.
 

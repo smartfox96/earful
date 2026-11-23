@@ -41,6 +41,9 @@ def test_every_kind_and_field_in_the_schema_is_documented():
     defs = load_schema()["$defs"]
     missing = [kind for kind in kinds() if kind not in MENTIONED]
     for kind in kinds():
+        row = next(line for line in DOC.splitlines() if line.startswith(f"| `{kind}` |"))
+        direct = set(defs[kind].get("properties", {}))
+        missing += [f"{kind}: {name}" for name in direct if f"`{name}`" not in row]
         missing += [
             f"{kind}: {name}" for name in sorted(_field_names(defs[kind], defs) - MENTIONED)
         ]
@@ -784,3 +787,63 @@ def test_the_limits_page_quotes_the_numbers_the_code_has():
     rows = _rows(_sections(LIMITS, "##")["What each contract cannot decide"])
     linked = [re.match(r"\[(\w\d)\]\(contracts\.md#(\w\d)-", name).groups() for name, _ in rows[1:]]
     assert linked == [(contract, contract.lower()) for contract in RULES]
+
+
+def test_the_framework_independent_examples_run_on_a_recorded_ledger(tmp_path, monkeypatch):
+    from doc_examples import blocks, execute
+
+    from earful import read_ledger
+    from earful.cli import main
+
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "tests").symlink_to(ROOT / "tests", target_is_directory=True)
+    ledger = next((ROOT / "tests/golden").glob("*.book_then_interrupt.*"))
+    for filename in ("run.ledger.jsonl", "booking.ledger.jsonl"):
+        (tmp_path / filename).symlink_to(ledger)
+    names = {"events": read_ledger(ledger)}
+    for page in ("docs/report.md", "docs/contracts.md", "docs/api.md", "docs/troubleshooting.md"):
+        for block in blocks(page, "python"):
+            if page == "docs/api.md" and block.startswith(("class ", "def ")):
+                continue  # public signatures are compared with inspect.signature
+            execute(page, block, names)
+    from doc_examples import commands
+
+    for command, *arguments in commands("docs/report.md"):
+        assert command == "earful" and main(arguments) == 0
+        assert (tmp_path / "report.html").stat().st_size > 0
+
+
+def test_command_blocks_use_the_installed_cli_and_declared_environments():
+    from doc_examples import commands
+
+    from earful.cli import _parser
+
+    parser = _parser()
+    pages = [*ROOT.glob("*.md"), *(ROOT / "docs").rglob("*.md"), *(ROOT / "skills").rglob("*.md")]
+    for page in pages:
+        for program, *args in commands(str(page)):
+            if Path(program).name == "earful":
+                parser.parse_args(args)
+                if program.startswith(".venvs/lk-"):
+                    assert program.split("/")[1][3:] in SUPPORT["livekit-agents"].tested
+            elif program == "scripts/make_env.sh":
+                assert ci_scope.LIVEKIT[args[0]] == args[1]
+            elif program == "pip":
+                assert args in (["install", "earful[livekit]"], ["install", "earful[pipecat]"])
+            else:
+                assert program in {"pytest", "git", "cd", "open"} or program.endswith(
+                    "/bin/python"
+                ), (page, program)
+
+
+def test_the_unobservable_example_is_a_complete_line_from_the_report():
+    from earful import check, read_ledger
+    from earful.core.ledger import run_id
+
+    ledger = next((ROOT / "tests/golden").glob("*.book_then_interrupt.*"))
+    events = [e for e in read_ledger(ledger) if not e["kind"].startswith("effect.")]
+    run = run_id(events[0]["data"])
+    report = check([{**event, "seq": n, "run": run} for n, event in enumerate(events)])
+    section = _sections(TROUBLESHOOTING)["Unobservable"]
+    (quoted,) = re.findall(r"```text\n(.*?)\n```", section, flags=re.DOTALL)
+    assert quoted in [line.strip() for line in report.lines()]

@@ -36,7 +36,7 @@ scripts/make_env.sh 1.5.7 2026-05-06
 ```
 
 `make_env.sh` installs the release with its dependencies resolved as of the given date
-and writes the resulting set to `compat/lk-<version>.lock.txt`. `earful replay` runs the case
+in UTC. Set `EARFUL_LOCK=write` to record the result in `compat/lk-<version>.lock.txt`. `earful replay` runs the case
 three times and exits 0 when the outcome matches `--expect`. The first command prints
 `breaks the rule       yes` and `the ledger recorded   yes`. The second prints
 `breaks the rule       no`.

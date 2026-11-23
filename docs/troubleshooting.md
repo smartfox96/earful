@@ -149,31 +149,6 @@ reason cannot be run: run the agent without it.
 [`compatibility.md`](compatibility.md#the-options-earful-models-on-livekit) lists every
 option and what Earful does with it.
 
-### The run lost the evidence for a contract
-
-```text
-the run lost the evidence for A2/outside-backend
-```
-
-A verdict could not be judged because evidence it needs was lost, and the code after the
-slash says which ([`contracts.md`](contracts.md#5-verdicts)). `outside-backend`: a tool
-for an intent was called and nothing reached Earful's backend, so the tool writes some
-other way; declare it an effect, or have it write through `effect`.
-`audio-unattributed`: a reply's text was altered on its way to the voice. `tool-unwitnessed`:
-a tool the model called is not one Earful witnesses. When the loss is expected, name it in
-`allow`, as a rule is named. A search reports each as a rule of its own, with the change
-that caused it.
-
-### A required contract had nothing to judge
-
-```text
-L2 had nothing to judge: no reply was under way, or waiting to play, while the user held the floor (no-reply-under-way)
-```
-
-The run never reached what the contract judges, so `require` fails. For L2, have the user
-speak while a reply plays. For L1, `run-ended` means the run ended before the deadline:
-give the scenario more `drain_delay`.
-
 ### A rule or a contract that does not exist
 
 ```text
@@ -363,10 +338,35 @@ is exercised when the run has:
 For A2 and A3 the usual causes are a scripted model that never calls the tool, and a
 tool whose write does not reach Earful's backend ([`testing.md`](testing.md#3-side-effects)).
 
+### The run lost the evidence for a contract
+
+```text
+the run lost the evidence for A2/outside-backend
+```
+
+A verdict could not be judged because evidence it needs was lost, and the code after the
+slash says which ([`contracts.md`](contracts.md#5-verdicts)). `outside-backend`: a tool
+for an intent was called and nothing reached Earful's backend, so the tool writes some
+other way; declare it an effect, or have it write through `effect`.
+`audio-unattributed`: a reply's text was altered on its way to the voice. `tool-unwitnessed`:
+a tool the model called is not one Earful witnesses. When the loss is expected, name it in
+`allow`, as a rule is named. A search reports each as a rule of its own, with the change
+that caused it.
+
+### A required contract had nothing to judge
+
+```text
+L2 had nothing to judge: no reply was under way, or waiting to play, while the user held the floor (no-reply-under-way)
+```
+
+The run never reached what the contract judges, so `require` fails. For L2, have the user
+speak while a reply plays. For L1, `run-ended` means the run ended before the deadline:
+give the scenario more `drain_delay`.
+
 ### Unobservable
 
 ```text
-A2 is unobservable: a tool for the intent was called but nothing reached the backend
+unobservable (outside-backend): a tool for the intent was called but nothing reached the backend
 ```
 
 The tool ran and made no write through `effect`, so what it did cannot be known

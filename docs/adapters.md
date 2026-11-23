@@ -96,7 +96,7 @@ Most of what a run needs is already shared, in `earful.scripted`:
 ## Tests
 
 A test file that needs the framework starts with `pytest.importorskip` of it, before its
-other imports, and is named `tests/test_<framework>_<subject>.py`. A file with no such
+other imports, and CI selects it from that import. A file with no such
 line imports no framework: `tests/test_core_boundary.py` holds every test file to that.
 Each new rule of the adapter gets a test on its edge and a deliberate break in
 `tests/mutants.py` that the test catches. The contracts' own tests read ledgers and need

@@ -297,7 +297,8 @@ or a `FunctionSchema` that carries its handler. A handler delivers its result wi
 `await params.result_callback(value)`. To stand in for a service, pass
 `effects={"create_reservation": Effect("book-table")}` on the case. Earful makes the
 declared write in place of that function and gives its receipt to the callback. A handler
-can also call `earful.effect` itself.
+can also call `earful.effect` itself. Declare that write on the case with
+`intents=[Intent("book-table", tools=("create_reservation",))]`.
 
 ## A booking bot, searched
 
@@ -311,6 +312,8 @@ knows of Earful: the bot is handed the service it books with."""
 
 from typing import Protocol
 
+from pipecat.adapters.llm.schemas.function_schema import FunctionSchema
+from pipecat.adapters.llm.schemas.tools_schema import ToolsSchema
 from pipecat.processors.aggregators.llm_context import LLMContext
 from pipecat.services.llm_service import FunctionCallParams, LLMService
 
@@ -332,7 +335,13 @@ def booking_bot(llm: LLMService, reservations: Reservations) -> LLMContext:
         await params.result_callback(f"Booked. Confirmation {confirmation}.")
 
     llm.register_function("create_reservation", create_reservation)
-    return LLMContext()
+    booking = FunctionSchema(
+        name="create_reservation",
+        description="Book a table for tonight.",
+        properties={"party_size": {"type": "integer"}},
+        required=["party_size"],
+    )
+    return LLMContext(tools=ToolsSchema(standard_tools=[booking]))
 ```
 
 `test_booking.py` scripts the model, stands in for the service, and holds two tests: the

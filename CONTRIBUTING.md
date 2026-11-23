@@ -52,8 +52,8 @@ the report: GitHub mails it to whoever last changed the workflow's schedule.
 
 `main` takes a change only as a pull request, and only once that pull request's
 `ci / result` check has passed. A pull request also needs the maintainer's approval, given
-after its last push (`.github/CODEOWNERS`). Nobody can push to `main`, and a merged
-branch is deleted from the repository.
+after its last push (`.github/CODEOWNERS`). Administrators can bypass branch protection. GitHub deletes a merged
+branch from the repository.
 
 `check_all.sh` is heavy: six test runs side by side for six minutes. It shares the
 processors between them (`EARFUL_WORKERS`), and it is still not something to run on

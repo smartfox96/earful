@@ -37,7 +37,7 @@ The two files below are in
 pip install "earful[livekit]"
 ```
 
-`[livekit]` installs livekit-agents alongside, in a release Earful is tested with.
+`[livekit]` installs livekit-agents alongside, within the supported version range.
 
 **1. An agent.** This one takes restaurant bookings. It is handed the service it books
 with and knows nothing of Earful. Save it as `agent.py`.

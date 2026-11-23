@@ -340,8 +340,10 @@ def _replay(args: argparse.Namespace) -> int:
         gave = ["not valid evidence" if one is None else one for one in result.outcomes]
         print(f"{kept.predicate}, kept on {made.get('name')} {made.get('version')}")
         print(f"replayed {args.repeats} times on {on.get('name')} {on.get('version')}")
-        label = "loses the evidence" if kept.predicate.lost else "breaks the rule"
-        print(f"  {label:<22}{breaks}")
+        if kept.predicate.lost:
+            print(f"  loses the evidence    {breaks}")
+        else:
+            print(f"  breaks the rule       {breaks}")
         contract = f"{kept.predicate.contract} gave"
         why = f" ({', '.join(result.codes)})" if result.codes else ""
         print(f"  {contract:<22}{gave[0] if len(set(gave)) == 1 else ', '.join(gave)}{why}")
@@ -552,7 +554,9 @@ def _parser() -> argparse.ArgumentParser:
         "from its own tools.",
     )
     sub.add_argument(
-        "agent", metavar="AGENT", help="module:Class, such as myapp.agent:SupportAgent"
+        "agent",
+        metavar="AGENT",
+        help="module:Class for a LiveKit agent or module:function for a Pipecat bot",
     )
     sub.add_argument(
         "-o", "--output", type=Path, metavar="FILE", help="write here, not test_<agent>.py"
