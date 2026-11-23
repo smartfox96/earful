@@ -75,7 +75,7 @@ of two tiers:
   as a pull request (`scripts/ci_tested.sh`).
 - The full tier runs every job: each night on `main`, on a pull request with the label
   `full ci`, on request (`gh workflow run ci.yml --ref <branch>`), and in the release
-  workflow on the tagged commit.
+  workflow on the tagged commit. A failed night opens an issue.
 
 `python3 scripts/ci_scope.py --explain <base> [<head>]` prints what a diff runs and why,
 and what it leaves to the full tier. The check `main` requires, `ci / result`, passes when
@@ -137,8 +137,9 @@ tests are in a changed file, and those `tests/mutants.py` changed or added. A ch
 `scripts/mutate.py`, `tests/conftest.py` or another helper the tests share runs every
 break (`scripts/mutate.py --since`).
 
-A change can merge and then fail the full tier on a job its own tier left out. No release
-can be made until it passes: the release runs the full tier on its own commit.
+A change can merge and then fail the full tier on a job its own tier left out. The night's
+issue names it, and no release can be made until it passes: the release runs the full
+tier on its own commit.
 
 ## Rules the code keeps
 

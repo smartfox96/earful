@@ -412,10 +412,22 @@ def test_ci_starts_on_each_event_of_a_pull_request_that_changes_what_it_checks()
     # The check main requires is the called workflow's last job, "ci / result": a skipped
     # caller leaves a check named "ci" alone, and never a skipped "ci / result".
     assert "\n  result:\n    name: result\n" in CHECKS
-    assert set(_jobs(CI)) == {"ci"}
+    assert set(_jobs(CI)) == {"ci", "nightly"}
     assert "\n  workflow_call:\n" in CHECKS and not re.search(
         r"^  (push|pull_request|schedule):", CHECKS, re.MULTILINE
     )
+
+
+def test_a_failed_night_opens_an_issue_or_adds_to_the_one_open():
+    job = _jobs(CI)["nightly"]
+    assert (
+        "    if: always() && github.event_name == 'schedule' && needs.ci.result != 'success'\n"
+        in job
+    )
+    assert "    permissions:\n      issues: write\n" in job
+    script = _run_block(job, "Open an issue that names the run, or add the run to the one open")
+    assert 'gh issue comment "$open"' in script and 'gh issue create --title "$title"' in script
+    assert [name for name, text in _jobs(CI).items() if "issues: write" in text] == ["nightly"]
 
 
 _GH = """#!/usr/bin/env bash
@@ -578,6 +590,17 @@ def test_a_resolve_date_means_the_same_day_on_every_machine():
         assert "--exclude-newer" not in text, f"{name} has a date that belongs in a script"
 
 
+def test_every_install_names_a_date_and_the_build_backend_is_pinned():
+    # The canary alone installs what PyPI holds tonight.
+    for path in sorted(SCRIPTS.glob("*.sh")):
+        for line in re.findall(r"^.*uv pip install .*$", path.read_text(), re.MULTILINE):
+            assert ("--exclude-newer " in line) == (path.name != "canary.sh"), (
+                f"{path.name}: {line}"
+            )
+    project = (ROOT / "pyproject.toml").read_text()
+    assert re.search(r'^requires = \["hatchling==\d+\.\d+\.\d+"\]$', project, re.MULTILINE)
+
+
 def test_ci_compares_the_environments_it_builds_on_python_3_13_with_their_lock_files():
     jobs = _jobs(CHECKS)
     for name in ("livekit", "pipecat"):
@@ -662,9 +685,10 @@ def test_the_reference_ledgers_of_both_frameworks_are_repeated_and_compared():
 def test_where_livekit_is_absent_every_other_test_runs_and_a_skip_fails_the_job():
     jobs = _jobs(CHECKS)
     ran = "scripts/ran_every_test.sh --without livekit\n"
-    assert (ran + "          .venvs/pc-${{ matrix.cell.version }}/bin/python -n auto\n") in jobs[
-        "pipecat"
-    ]
+    assert (
+        ran + "          .venvs/pc-${{ matrix.cell.version }}/bin/python -n auto\n"
+        in jobs["pipecat"]
+    )
     every = "scripts/ran_every_test.sh --without livekit .venvs/pc-1.16.0/bin/python\n"
     assert every in (SCRIPTS / "check_all.sh").read_text()
     # A change to prose alone runs the one Pipecat file that reads docs/.

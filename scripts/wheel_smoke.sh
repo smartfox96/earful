@@ -3,7 +3,9 @@
 #   scripts/wheel_smoke.sh               builds both first
 #   scripts/wheel_smoke.sh <directory>   checks the wheel and the sdist already in it
 # The framework is left out on purpose: checking a ledger must work without it. Needs uv.
+# EARFUL_AS_OF is the date pytest is resolved as of.
 set -euo pipefail
+export TZ=UTC # uv reads a date in the machine's time zone
 
 root="$(cd "$(dirname "$0")/.." && pwd)"
 work="$(mktemp -d)"
@@ -61,7 +63,7 @@ fi
 echo "ok"
 
 uv venv -q --python "${EARFUL_PYTHON:-3.13}" "$work/venv"
-VIRTUAL_ENV="$work/venv" uv pip install -q "$wheel" pytest
+VIRTUAL_ENV="$work/venv" uv pip install -q --exclude-newer "${EARFUL_AS_OF:-2026-11-20}" "$wheel" pytest
 
 cp "$root/tests/golden/lk-1.8.12.barge_in_mid_word.ledger.normalized.jsonl" "$work/run.jsonl"
 cp "$root/tests/golden/lk-1.5.6.book_then_interrupt.ledger.normalized.jsonl" "$work/broken.jsonl"

@@ -50,3 +50,29 @@ jobs:
       pull-requests: read # the scope asks which pull request a commit on main came from
       actions: read # and whether ci passed on it
 
+  nightly:
+    name: a failed night opens an issue
+    needs: ci
+    if: always() && github.event_name == 'schedule' && needs.ci.result != 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      issues: write
+    steps:
+      - name: Open an issue that names the run, or add the run to the one open
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RUN: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          title="The nightly run of ci failed"
+          open="$(gh issue list --state open --search "\"$title\" in:title" \
+            --json number --jq '.[0].number // empty')"
+          body="$RUN names the jobs that failed. A pull request runs the jobs its paths select,
+          so main can hold a change that fails a job it left out. A release runs every job,
+          so none can be made until this passes."
+          if [ -n "$open" ]; then
+            gh issue comment "$open" --body "Failed again: $RUN"
+          else
+            gh issue create --title "$title" --body "$body"
+          fi
