@@ -9,11 +9,16 @@ from functools import cache, lru_cache
 from importlib import resources
 from typing import Any
 
-from jsonschema import Draft202012Validator
+from jsonschema import Draft202012Validator, validators
 
 from .ledger import SCHEMA, run_id
 
 Event = dict[str, Any]
+
+_IntegerValidator = validators.extend(  # type: ignore[no-untyped-call]
+    Draft202012Validator,
+    type_checker=Draft202012Validator.TYPE_CHECKER.redefine("integer", lambda _, n: type(n) is int),
+)
 
 SCHEMA_FILE = "earful.ledger-1.schema.json"
 
@@ -29,7 +34,7 @@ def load_schema() -> dict[str, Any]:
 def _validator() -> Draft202012Validator:
     schema = load_schema()
     Draft202012Validator.check_schema(schema)
-    return Draft202012Validator(schema)
+    return _IntegerValidator(schema)
 
 
 @cache
@@ -42,7 +47,7 @@ def _validator_for(kind: str) -> Draft202012Validator:
         if rule["if"]["properties"]["kind"].get("const", kind)
         == kind  # its own rule, and any not tied to one kind
     ]
-    return Draft202012Validator({**schema, "allOf": rules})
+    return _IntegerValidator({**schema, "allOf": rules})
 
 
 def event_errors(event: Any) -> list[Any]:
@@ -117,6 +122,8 @@ def _framed(events: list[Event], errors: list[str]) -> bool:
     kinds_seen = [e["kind"] for e in events]
     if kinds_seen[0] != "run.start" or kinds_seen.count("run.start") != 1:
         errors.append("the ledger must begin with its only run.start")
+    if kinds_seen.count("history.final") != 1:
+        errors.append("the ledger must contain exactly one history.final")
     if kinds_seen[-1] != "run.end" or kinds_seen.count("run.end") != 1:
         errors.append("the ledger must end with its only run.end")
     return not errors
@@ -325,6 +332,8 @@ def _tts_synthesized(walk: _Walk, e: Event, where: str) -> None:
 
 def _tool_called(walk: _Walk, e: Event, where: str) -> None:
     d = e["data"]
+    if d.get("call_id") is not None and d["call_id"] not in walk.call_ids:
+        walk.errors.append(f"{where}: no model response requested call {d['call_id']!r}")
     if d["tool"] in walk.tools:
         walk.errors.append(f"{where}: tool {d['tool']} called twice")
     walk.tools.add(d["tool"])
@@ -360,6 +369,8 @@ def _effect_outcome(walk: _Walk, e: Event, where: str) -> None:
         errors.append(f"{where}: intent differs from the request's")
     effect_outcomes.add(d["request"])
     if k == "effect.committed":
+        if d["receipt"] in walk.receipts:
+            errors.append(f"{where}: receipt {d['receipt']!r} was already committed")
         walk.receipts.add(d["receipt"])
     elif k == "effect.deduplicated" and d["receipt"] not in walk.receipts:
         errors.append(f"{where}: receipt {d['receipt']!r} was never committed")
@@ -441,6 +452,8 @@ def _check_playouts(walk: _Walk) -> None:
         else:
             numbers = d["utterances"]
             stamps = [*d["words_played"], *([d["word_cut"]] if d["word_cut"] is not None else [])]
+            if len(stamps) != len(set(stamps)):
+                errors.append(f"{where}: one word stamp occurs more than once")
             if any(walk.stamp_owner.get(stamp) not in numbers for stamp in stamps):
                 errors.append(
                     f"{where}: a word played or cut belongs to none of the segment's utterances"

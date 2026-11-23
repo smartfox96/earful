@@ -346,9 +346,6 @@ DAMAGED = {
 
 
 @pytest.mark.parametrize("damage", DAMAGED)
-@pytest.mark.xfail(
-    strict=True, raises=KnownDefect, reason="Earful: the validator accepts a ledger no run writes"
-)
 def test_the_validator_refuses_a_ledger_no_run_could_have_written(damage):
     events = read_jsonl(GOLDEN / "lk-1.8.12.book_then_interrupt.ledger.normalized.jsonl")
     assert validity(events) == []

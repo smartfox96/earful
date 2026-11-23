@@ -38,6 +38,13 @@ MUTANTS = [
         "self._requests += 1\n        request = self._requests",
         first="a_write_refused_for_its_payload",
     ),
+    Mutant(
+        "ledger: two commits can share a receipt",
+        "src/earful/core/schema.py",
+        'if d["receipt"] in walk.receipts:',
+        "if False:",
+        first="the_validator_refuses_a_ledger_no_run",
+    ),
     # The checker: ties, stand-ins, refusals and readings.
     Mutant(
         "M1: a stop as the audio ends is held to one reading",

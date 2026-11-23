@@ -804,8 +804,11 @@ def test_m1_the_final_history_counts_only_if_read_after_the_playout_finished(bar
 
 
 def test_m1_a_reply_that_no_context_or_final_history_follows_has_nothing_to_judge(barge):
+    from earful.core.checker import m1
+    from earful.core.checker.policy import M1
+
     barge.remove(of(barge, "history.final"))
-    last = check(seal(barge)).results["M1"].verdicts[-1]
+    last = m1.check(View(seal(barge), {}), M1()).verdicts[-1]
     assert (last.outcome, last.findings[0].code) == (NOT_EXERCISED, "no-memory-after")
 
 
@@ -2252,7 +2255,7 @@ def test_m1_a_reply_whose_audio_may_be_in_a_segment_that_never_started_has_nothi
 
 def test_l2_a_speech_the_vad_never_reported_holds_no_floor(barge):
     cut = barge.index(of(barge, "user.vad_start", 1))
-    result = check(seal(barge[:cut] + [barge[-1]])).results["L2"]
+    result = check(seal([*barge[:cut], of(barge, "history.final"), barge[-1]])).results["L2"]
     assert [v.instance for v in result.verdicts] == [{"speech": 0}]
     assert result.notes == ("speech 1: the VAD never reported it, so it held no floor",)
 
