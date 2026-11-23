@@ -3,10 +3,15 @@
 import ast
 import json
 import re
+import sys
 from pathlib import Path
 
 from earful.core.schema import kinds, load_schema
 from earful.scripted.releases import SUPPORT
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
+
+import ci_scope  # the cells CI runs
 
 DOC = (Path(__file__).resolve().parents[1] / "docs" / "ledger.md").read_text()
 MENTIONED = set(re.findall(r"`([^`\s]+)`", DOC))
@@ -144,7 +149,7 @@ def test_the_policy_defaults_are_those_the_contracts_page_states():
 
 
 COMPATIBILITY = (ROOT / "docs" / "compatibility.md").read_text()
-CI = (ROOT / ".github" / "workflows" / "ci.yml").read_text()
+FULL_TIER = sorted(ci_scope.plan("full", None).cells)
 _PINNED = r"^\| (\d+\.\d+\.\d+) \| (\d{4}-\d\d-\d\d) \|"
 
 
@@ -155,18 +160,11 @@ def _section(heading):
     return rest.partition("\n## ")[0]
 
 
-def _job(name):
-    """The text of one job of the ci workflow."""
-    (text,) = re.findall(rf"^  {name}:\n(.*?)(?=^  [a-z_]+:\n|\Z)", CI, re.MULTILINE | re.DOTALL)
-    return text
-
-
 def test_the_supported_releases_are_the_same_everywhere_they_are_listed():
     section = _section("livekit-agents")
     declared = dict(re.findall(_PINNED, section, re.MULTILINE))
     assert tuple(declared) == SUPPORT["livekit-agents"].tested
-    in_ci = dict(re.findall(r'version: "([\d.]+)", as_of: "([\d-]+)"', _job("determinism")))
-    assert in_ci == declared
+    assert ci_scope.LIVEKIT == declared
     script = (ROOT / "scripts" / "check_all.sh").read_text()
     assert dict(re.findall(r'"([\d.]+) (\d{4}-\d\d-\d\d)"', script)) == declared
     locked = {path.name[3:-9] for path in (ROOT / "compat").glob("lk-*.lock.txt")}
@@ -250,10 +248,10 @@ def test_the_compatibility_page_says_what_an_adapter_does_with_the_installed_rel
 
 def test_the_pipecat_table_on_the_compatibility_page_is_what_the_workflow_runs():
     ((release, as_of),) = re.findall(_PINNED, _section("pipecat-ai"), re.MULTILINE)
-    job = _job("pipecat")
-    assert re.findall(r'version: "([\d.]+)", as_of: "([\d-]+)"', job) == [(release, as_of)]
-    cells = re.findall(r'\{ os: (\w+)-latest, python: "([\d.]+)", from: (\w+) \}', job)
-    systems = {"ubuntu": "Linux", "macos": "macOS"}
+    assert ci_scope.PIPECAT == {release: as_of}
+    cells = [(c.system, c.python, c.source) for c in FULL_TIER if c.framework == "pc"]
+    cells.sort(key=lambda cell: (cell[1], cell[0]))
+    systems = {"linux": "Linux", "macos": "macOS"}
     sources = {"checkout": "the checkout", "wheel": "the built wheel"}
     table = re.findall(
         r"^\| ([\d.]+) \| ([\d.]+) \| (Linux|macOS) \| (the checkout|the built wheel) \|$",
@@ -272,27 +270,24 @@ def test_the_pipecat_table_on_the_compatibility_page_is_what_the_workflow_runs()
     assert supported in README
 
 
-def test_the_ci_table_on_the_compatibility_page_is_what_the_workflow_runs():
-    page = (ROOT / "docs" / "compatibility.md").read_text()
-    workflow = (ROOT / ".github" / "workflows" / "ci.yml").read_text()
-    table = {
-        release: (macos, pythons.strip())
-        for release, macos, pythons in re.findall(
-            r"^\| ([\d.]+) \| every change \| (every change|nightly) \| ([\d., ]*)\|",
-            page,
-            re.MULTILINE,
-        )
-    }
-    assert len(table) == 6
-    # The releases the workflow leaves out of a pull request on macOS run nightly only.
-    left_out = set(re.findall(r"\|\| 'macos-latest' }}\n\s+lk: \{ version: \"([\d.]+)\"", workflow))
-    assert {release for release, (macos, _) in table.items() if macos == "nightly"} == left_out
-    # Each other Python runs once, with the release the workflow pairs it with.
-    extra = re.findall(r'python: "([\d.]+)"\n\s+lk: \{ version: "([\d.]+)"', workflow)
-    assert extra
-    for release, (_, pythons) in table.items():
-        expected = sorted(python for python, with_release in extra if with_release == release)
-        assert sorted(filter(None, (p.strip() for p in pythons.split(",")))) == expected
+def test_the_ci_table_on_the_compatibility_page_is_what_the_full_tier_runs():
+    table = re.findall(
+        r"^\| ([\d.]+) \| ([A-Za-z, ]+) \| ([\d., ]*)\|$",
+        _section("What CI runs for LiveKit"),
+        re.MULTILINE,
+    )
+    systems = {"linux": "Linux", "macos": "macOS"}
+    expected = []
+    for release in ci_scope.LIVEKIT:
+        cells = [c for c in FULL_TIER if c.framework == "lk" and c.version == release]
+        on = ", ".join(systems[c.system] for c in cells if c.python == "3.13")
+        others = ", ".join(c.python for c in cells if c.python != "3.13")
+        expected.append((release, on, f"{others} " if others else ""))
+    assert table == expected
+    # Python 3.10 to 3.14, each with one release.
+    pythons = sorted({c.python for c in FULL_TIER if c.framework == "lk"}, key=lambda p: int(p[2:]))
+    assert pythons == ["3.10", "3.11", "3.12", "3.13", "3.14"]
+    assert "Python 3.10 to 3.14 are each tested with one release." in COMPATIBILITY
 
 
 README = (ROOT / "README.md").read_text()

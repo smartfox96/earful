@@ -1,8 +1,8 @@
 name: release
 
-# A tag v<version> builds the wheel and the source distribution once, checks those files
-# and publishes the same files to PyPI through a trusted publisher: no token is stored
-# here. See CONTRIBUTING.md, "Releasing".
+# A tag v<version> runs every job of ci on the tagged commit, builds the wheel and the source
+# distribution once, checks those files and publishes the same files to PyPI through a
+# trusted publisher: no token is stored here. See CONTRIBUTING.md, "Releasing".
 on:
   push:
     tags: ["v*"]
@@ -23,10 +23,6 @@ jobs:
     name: the tag may be released
     runs-on: ubuntu-latest
     timeout-minutes: 5
-    permissions:
-      contents: read
-      pull-requests: read # scripts/ci_passed.sh asks which pull request the commit came from
-      actions: read # and whether ci passed on it, or on the commit in a run on main
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -47,14 +43,22 @@ jobs:
           fi
       - name: The changelog has a section for the version (scripts/changelog_section.sh)
         run: scripts/changelog_section.sh "${GITHUB_REF_NAME#v}"
-      - name: ci passed on the tagged commit (scripts/ci_passed.sh)
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: scripts/ci_passed.sh "$(git rev-parse HEAD)"
+
+  # The full tier of ci, on this commit: every cell and every deliberate break.
+  ci:
+    name: ci
+    needs: allowed
+    uses: ./.github/workflows/checks.yml
+    with:
+      tier: full
+    permissions:
+      contents: read
+      pull-requests: read
+      actions: read
 
   build:
     name: build once
-    needs: allowed
+    needs: [allowed, ci]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     outputs:

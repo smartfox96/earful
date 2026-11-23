@@ -47,7 +47,7 @@ echo "=== what the source distribution holds"
 sources="$(tar tzf "$sdist")"
 for wanted in pyproject.toml README.md CHANGELOG.md LICENSE NOTICE src/earful/py.typed \
   src/earful/core/schemas/earful.ledger-1.schema.json tests/test_golden.py docs/testing.md \
-  examples/booking/agent.py scripts/ci_scope.sh .github/workflows/ci.yml \
+  examples/booking/agent.py scripts/ci_scope.py .github/workflows/checks.yml \
   .github/dependabot.yml .pre-commit-config.yaml SECURITY.md; do
   grep -q "/$wanted\$" <<<"$sources" || {
     echo "the source distribution does not hold $wanted" >&2

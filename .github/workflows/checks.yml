@@ -1,0 +1,329 @@
+name: checks
+
+# Every job of ci, called by ci.yml and by release.yml. The first job decides which of the
+# others run: what the changed paths select in the pull-request tier, everything in the
+# full tier (scripts/ci_scope.py). The last, "result", is the check main requires.
+on:
+  workflow_call:
+    inputs:
+      tier:
+        description: "pull-request: what the changed paths select; full: everything"
+        type: string
+        required: true
+
+permissions:
+  contents: read
+
+# Named, so that every step runs with pipefail: a failure before a pipe fails the step.
+defaults:
+  run:
+    shell: bash
+
+env:
+  UV_VERSION: "0.13.9"
+
+jobs:
+  scope:
+    name: what changed
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read # scripts/ci_tested.sh asks which pull request a commit came from
+      actions: read # and whether ci passed on it
+    outputs:
+      prose: ${{ steps.scope.outputs.prose }}
+      lint: ${{ steps.scope.outputs.lint }}
+      wheel: ${{ steps.scope.outputs.wheel }}
+      quickstart: ${{ steps.scope.outputs.quickstart }}
+      report: ${{ steps.scope.outputs.report }}
+      livekit: ${{ steps.scope.outputs.livekit }}
+      pipecat: ${{ steps.scope.outputs.pipecat }}
+      breaks: ${{ steps.scope.outputs.breaks }}
+      since: ${{ steps.scope.outputs.since }}
+      due: ${{ steps.scope.outputs.due }}
+      explained: ${{ steps.scope.outputs.explained }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Decide from the tier, the event and the changed paths (scripts/ci_scope.py)
+        id: scope
+        env:
+          TIER: ${{ inputs.tier }}
+          EVENT: ${{ github.event_name }}
+          ACTION: ${{ github.event.action }}
+          BEFORE: ${{ github.event.before }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          GH_TOKEN: ${{ github.token }}
+        # No pipe: if the script fails, the step fails and no output is set.
+        run: |
+          python3 scripts/ci_scope.py --github > "$RUNNER_TEMP/scope"
+          cat "$RUNNER_TEMP/scope" >> "$GITHUB_OUTPUT"
+
+  # A change to prose alone runs only the tests that read it.
+  prose:
+    name: the tests that read the pages
+    needs: scope
+    if: needs.scope.outputs.prose == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          version: ${{ env.UV_VERSION }}
+      - name: Build one pinned environment for each framework
+        run: |
+          scripts/make_env.sh 1.8.13 2026-11-20
+          scripts/make_pipecat_env.sh
+      - name: Tests that read docs/ and the top-level Markdown
+        run: |
+          .venvs/lk-1.8.13/bin/python -m pytest -q tests/test_docs.py
+          .venvs/lk-1.8.13/bin/python -m pytest -q tests/test_livekit_docs.py
+          .venvs/lk-1.8.13/bin/python -m pytest -q tests/test_ci_scope.py
+          scripts/ran_every_test.sh .venvs/pc-1.16.0/bin/python tests/test_pipecat.py
+          scripts/ran_every_test.sh .venvs/pc-1.16.0/bin/python tests/test_pipecat_examples.py
+
+  lint:
+    name: format, lint, types
+    needs: scope
+    if: needs.scope.outputs.lint == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          version: ${{ env.UV_VERSION }}
+      - name: ruff format, ruff check, mypy, every break applies (scripts/lint.sh)
+        run: scripts/lint.sh
+
+  wheel:
+    name: the wheel installs clean
+    needs: scope
+    if: needs.scope.outputs.wheel == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          version: ${{ env.UV_VERSION }}
+      - name: Build the wheel, install it outside the repository and use it (scripts/wheel_smoke.sh)
+        run: scripts/wheel_smoke.sh
+
+  quickstart:
+    name: the quickstart from the wheel
+    needs: scope
+    if: needs.scope.outputs.quickstart == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          version: ${{ env.UV_VERSION }}
+      - name: Install the wheel with livekit-agents and follow the README (scripts/quickstart_check.sh)
+        run: scripts/quickstart_check.sh
+
+  report:
+    name: the example reports
+    needs: scope
+    if: needs.scope.outputs.report == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          version: ${{ env.UV_VERSION }}
+      - name: The example reports the README links to still build (scripts/site.sh)
+        run: scripts/site.sh "$RUNNER_TEMP/site"
+
+  livekit:
+    name: ${{ matrix.cell.name }}
+    needs: scope
+    if: needs.scope.outputs.livekit != '[]'
+    runs-on: ${{ matrix.cell.os }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        cell: ${{ fromJSON(needs.scope.outputs.livekit) }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          version: ${{ env.UV_VERSION }}
+      - name: Build pinned environment, and compare it with its lock file on Python 3.13
+        env:
+          EARFUL_PYTHON: ${{ matrix.cell.python }}
+          EARFUL_LOCK: ${{ matrix.cell.python == '3.13' && 'check' || '' }}
+        run: scripts/make_env.sh ${{ matrix.cell.version }} ${{ matrix.cell.as_of }}
+      - name: Tests under a second
+        run: .venvs/lk-${{ matrix.cell.version }}/bin/python -m pytest -q -m "not slow"
+      - name: Slow tests
+        if: matrix.cell.slow
+        run: .venvs/lk-${{ matrix.cell.version }}/bin/python -m pytest -q -m slow
+      - name: Repeatability (every case, 100 in-process + 20 subprocess) and committed-hash check
+        run: >-
+          .venvs/lk-${{ matrix.cell.version }}/bin/python scripts/repeat.py
+          --check tests/golden --out evidence
+      - name: Historical cases (#3702, #5509)
+        run: |
+          .venvs/lk-${{ matrix.cell.version }}/bin/python scripts/spike_3702.py evidence
+          .venvs/lk-${{ matrix.cell.version }}/bin/python scripts/spike_5509.py evidence
+      - name: Reduced historical cases, replayed
+        run: |
+          for kept in tests/bundles/*/; do
+            .venvs/lk-${{ matrix.cell.version }}/bin/earful replay "$kept"
+          done
+      - name: Negative control (real clock must change the hash)
+        if: matrix.cell.control
+        run: .venvs/lk-${{ matrix.cell.version }}/bin/python scripts/realtime_control.py 2
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: evidence-lk-${{ matrix.cell.version }}-${{ matrix.cell.os }}-py${{ matrix.cell.python }}
+          path: evidence/
+
+  pipecat:
+    name: ${{ matrix.cell.name }}
+    needs: scope
+    if: needs.scope.outputs.pipecat != '[]'
+    runs-on: ${{ matrix.cell.os }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        cell: ${{ fromJSON(needs.scope.outputs.pipecat) }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          version: ${{ env.UV_VERSION }}
+      - name: Build the wheel
+        if: matrix.cell.from == 'wheel'
+        run: uv build --wheel --out-dir dist
+      - name: Build pinned environment, and compare it with its lock file on Python 3.13
+        env:
+          EARFUL_PYTHON: ${{ matrix.cell.python }}
+          EARFUL_DIST: ${{ matrix.cell.from == 'wheel' && 'dist' || '' }}
+          EARFUL_LOCK: ${{ matrix.cell.python == '3.13' && 'check' || '' }}
+        run: scripts/make_pipecat_env.sh ${{ matrix.cell.version }} ${{ matrix.cell.as_of }}
+      - name: LiveKit is absent, and the package is the one this cell installs
+        env:
+          FROM: ${{ matrix.cell.from }}
+        run: |
+          .venvs/pc-${{ matrix.cell.version }}/bin/python - <<'PY'
+          import importlib.util
+          import os
+
+          import earful
+
+          assert importlib.util.find_spec("livekit") is None, "livekit is installed"
+          installed = "site-packages" in earful.__file__
+          assert installed == (os.environ["FROM"] == "wheel"), earful.__file__
+          PY
+      - name: Every test that needs no LiveKit runs, and none is skipped (scripts/ran_every_test.sh)
+        run: >-
+          scripts/ran_every_test.sh --without livekit
+          .venvs/pc-${{ matrix.cell.version }}/bin/python
+      - name: Repeatability (every case, 100 in-process + 20 subprocess) and committed-hash check
+        run: >-
+          .venvs/pc-${{ matrix.cell.version }}/bin/python scripts/repeat.py
+          --check tests/golden --out evidence
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: evidence-pc-${{ matrix.cell.version }}-${{ matrix.cell.os }}-py${{ matrix.cell.python }}-${{ matrix.cell.from }}
+          path: evidence/
+
+  # The deliberate breaks of tests/mutants.py: every one in the full tier, on a change those
+  # its paths can affect (scripts/mutate.py).
+  control:
+    name: breaks, the control
+    needs: scope
+    if: needs.scope.outputs.breaks != '[]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0 # the breaks are chosen from what changed since a commit
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          version: ${{ env.UV_VERSION }}
+      - name: Build the environment with both frameworks (scripts/make_lint_env.sh)
+        run: scripts/make_lint_env.sh
+      - name: The unbroken code passes every test file the breaks run (scripts/mutate.py)
+        env:
+          SINCE: ${{ needs.scope.outputs.since }}
+        run: >-
+          .venvs/lint/bin/python scripts/mutate.py --control ${SINCE:+--since "$SINCE"}
+          --json mutation-control.json
+
+  breaks:
+    name: breaks ${{ matrix.part.part }}/${{ matrix.part.of }}
+    needs: scope
+    if: needs.scope.outputs.breaks != '[]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        part: ${{ fromJSON(needs.scope.outputs.breaks) }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0 # the breaks are chosen from what changed since a commit
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          version: ${{ env.UV_VERSION }}
+      - name: Build the environment with both frameworks (scripts/make_lint_env.sh)
+        run: scripts/make_lint_env.sh
+      - name: Break the code one place at a time (scripts/mutate.py)
+        env:
+          SINCE: ${{ needs.scope.outputs.since }}
+          PART: ${{ matrix.part.part }}/${{ matrix.part.of }}
+        run: >-
+          .venvs/lint/bin/python scripts/mutate.py --part "$PART" ${SINCE:+--since "$SINCE"}
+          --json "mutation-${{ matrix.part.part }}.json"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: mutation-${{ matrix.part.part }}
+          path: mutation-${{ matrix.part.part }}.json
+
+  result:
+    name: result
+    needs: [scope, prose, lint, wheel, quickstart, report, livekit, pipecat, control, breaks]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Every job did what the scope asked of it (scripts/ci_result.py)
+        env:
+          DUE: ${{ needs.scope.outputs.due }}
+          EXPLAINED: ${{ needs.scope.outputs.explained }}
+          NEEDS: ${{ toJSON(needs) }}
+        run: python3 scripts/ci_result.py

@@ -43,11 +43,6 @@ on the files it changes (`.pre-commit-config.yaml`).
 | `scripts/check_all.sh` | All of the above, then on each of the six LiveKit releases: every test, repeatability of the reference ledgers, the two historical cases and the replays | 8 min |
 | `.venvs/lint/bin/python scripts/mutate.py` | The control, then each deliberate break of `tests/mutants.py`: a test it names has to fail. `--since main` runs those a change can affect | 5 min |
 
-CI runs `check_all.sh`'s parts on every pull request, on Linux for the six releases and
-on macOS for the oldest and the newest. The deliberate breaks run each night, and on a
-pull request that changes `src/` or `tests/`: the control once, then the breaks in four
-parts cut by their recorded seconds.
-
 Every environment above names a release and a date. The `canary` workflow is the one
 place with neither: each night `scripts/canary.sh livekit` and `scripts/canary.sh pipecat`
 install the newest release each extra admits, with that night's dependencies, and run the
@@ -56,20 +51,94 @@ release an extra does not admit. No pull request waits for the canary. A failed 
 the report: GitHub mails it to whoever last changed the workflow's schedule.
 
 `main` takes a change only as a pull request, and only once that pull request's
-`ci result` check has passed. A pull request also needs the maintainer's approval, given
+`ci / result` check has passed. A pull request also needs the maintainer's approval, given
 after its last push (`.github/CODEOWNERS`). Nobody can push to `main`, and a merged
 branch is deleted from the repository.
 
 `check_all.sh` is heavy: six test runs side by side for six minutes. It shares the
 processors between them (`EARFUL_WORKERS`), and it is still not something to run on
 battery or after every change. While working, the first row of the table is the check to
-run. CI runs everything on the pull request, and the deliberate breaks run there in seven
-minutes (`gh workflow run mutation.yml --ref <branch>`), where they take a whole machine
-for five here.
+run. CI runs the rest.
 
 Run `check_all.sh` before opening a pull request that touches `src/`. A change can pass
 on the newest release and fail on the oldest: some tests search a real session, and the
 older releases have the two defects described in `docs/cases/`.
+
+## What CI runs
+
+`.github/workflows/checks.yml` holds every job. `ci.yml` and `release.yml` call it in one
+of two tiers:
+
+- The pull-request tier runs what a change's paths select, by the tables below, which
+  `scripts/ci_scope.py` reads. It runs on each pull request, again when its base changes,
+  and on each push to `main`. A push to `main` runs nothing when the same files passed
+  as a pull request (`scripts/ci_tested.sh`).
+- The full tier runs every job: each night on `main`, on a pull request with the label
+  `full ci`, on request (`gh workflow run ci.yml --ref <branch>`), and in the release
+  workflow on the tagged commit.
+
+`python3 scripts/ci_scope.py --explain <base> [<head>]` prints what a diff runs and why,
+and what it leaves to the full tier. The check `main` requires, `ci / result`, passes when
+every job the scope asked for passed and no other ran (`scripts/ci_result.py`), and prints
+what the scope decided. A new push, a new base or closing a pull request cancels its run
+in progress. A run on `main` is never cancelled.
+
+A path takes the group of the first rule it matches. A test file takes the group of the
+framework it declares, so a change to a LiveKit test runs no Pipecat cell, and neither
+adapter imports the other. A path no rule matches runs everything, every workflow and
+script among them. `python3 scripts/ci_scope.py --table` prints these tables:
+
+| Path | Group |
+| --- | --- |
+| `docs/**` | prose |
+| `*.md` | prose |
+| `.github/ISSUE_TEMPLATE/**` | prose |
+| `.github/pull_request_template.md` | prose |
+| `compat/lk-*.lock.txt` | its release |
+| `compat/pc-*.lock.txt` | pipecat |
+| `src/earful/pipecat/**` | pipecat |
+| `examples/pipecat_booking/**` | pipecat |
+| `tests/golden/pc-*` | pipecat |
+| `src/earful/livekit/**` | livekit |
+| `examples/booking/**` | livekit |
+| `skills/**` | livekit |
+| `tests/golden/lk-*` | livekit |
+| `tests/bundles/**` | livekit |
+| `src/earful/scripted/clock.py` | clock |
+| `src/earful/core/html.py` | report |
+| `tests/mutants.py` | breaks |
+| `tests/mutants_seconds.json` | breaks |
+| `tests/conftest.py` | core |
+| `tests/*.py` | declared |
+| `src/**` | core |
+| `pyproject.toml` | build |
+| `LICENSE` | build |
+| `NOTICE` | build |
+| `.gitignore` | build |
+| anything else | everything |
+
+| Group | Runs before a pull request merges |
+| --- | --- |
+| declared | the group of the framework the file needs: livekit, pipecat or core |
+| prose | the tests that read the pages |
+| pipecat | format, lint, types; Pipecat on Python 3.11 and 3.13 |
+| livekit | format, lint, types; the quickstart from the wheel; LiveKit, every release |
+| its release | LiveKit, that release alone |
+| core | format, lint, types; the quickstart from the wheel; the wheel installs clean; LiveKit, every release; Pipecat on Python 3.11 and 3.13 |
+| clock | format, lint, types; the quickstart from the wheel; the wheel installs clean; LiveKit, every release; LiveKit 1.5.6 and 1.8.13 on macOS; LiveKit on every other Python; Pipecat on Python 3.11 and 3.13; Pipecat on macOS |
+| report | format, lint, types; the example reports; LiveKit 1.8.13 |
+| build | format, lint, types; the wheel installs clean; the quickstart from the wheel; LiveKit 1.5.6 and 1.8.13; Pipecat from the wheel |
+| breaks | format, lint, types |
+| everything | the full tier: the tests that read the pages; format, lint, types; the wheel installs clean; the quickstart from the wheel; the example reports; LiveKit, every release; LiveKit on macOS, every release; LiveKit on every other Python; Pipecat on Python 3.11 and 3.13; Pipecat from the wheel; Pipecat on macOS |
+
+On a pull request the four middle LiveKit releases leave out the slow tests. The
+deliberate breaks a change runs are those anchored in a changed file, those whose named
+tests are in a changed file, and those `tests/mutants.py` changed or added. A change to
+`scripts/mutate.py`, `tests/conftest.py` or another helper the tests share runs every
+break (`scripts/mutate.py --since`).
+
+A change can merge and then fail the full tier on a job its own tier left out. No release
+can be made until it passes: the release runs the full tier on its own commit.
 
 ## Rules the code keeps
 
@@ -152,7 +221,7 @@ uses fails one of them until the README is brought along.
    the release. This builds `.venvs/lk-<version>` and writes
    `compat/lk-<version>.lock.txt`.
 2. Add the release to `SUPPORT` in `src/earful/scripted/releases.py`, to
-   `scripts/check_all.sh`, to the matrix in `.github/workflows/ci.yml` and to
+   `scripts/check_all.sh`, to `LIVEKIT` in `scripts/ci_scope.py` and to
    `docs/compatibility.md`. A test fails while they disagree. The newest release is also
    the one in `scripts/make_lint_env.sh`, and the README lists them all.
 3. `scripts/check_all.sh --update` records its three reference ledgers.
@@ -174,9 +243,9 @@ supported series takes the place of the one tested.
    days after the release. This builds `.venvs/pc-<version>` and writes
    `compat/pc-<version>.lock.txt`. Delete the lock file of the release it replaces.
 2. Put the release and the date beside the others, or where the replaced ones are: the defaults of
-   `scripts/make_pipecat_env.sh`, `scripts/make_lint_env.sh`, `scripts/check_all.sh`, the
-   `pipecat` and `docs` jobs of `.github/workflows/ci.yml`, `docs/compatibility.md`, the
-   README, this page, `tests/test_ci.py` and `SUPPORT` in
+   `scripts/make_pipecat_env.sh`, `scripts/make_lint_env.sh`, `scripts/check_all.sh`,
+   `PIPECAT` in `scripts/ci_scope.py`, the `prose` job of `.github/workflows/checks.yml`,
+   `docs/compatibility.md`, the README, this page, `tests/test_ci.py` and `SUPPORT` in
    `src/earful/scripted/releases.py`. A release in a new minor series also moves the
    `pipecat` extra, in `SUPPORT` and in `pyproject.toml`: its lowest release is that of the
    older supported series. Tests fail while these disagree.
@@ -219,24 +288,21 @@ version.
 
 ## Releasing
 
-A release is a tag. `.github/workflows/release.yml` builds the wheel and the source
-distribution from it once, runs `scripts/wheel_smoke.sh` and `scripts/quickstart_check.sh`
-on those two files, publishes the same two files to PyPI, and creates the GitHub release.
+A release is a tag. `.github/workflows/release.yml` runs the full tier of ci on the tagged
+commit, every deliberate break among it, then builds the wheel and the source distribution
+once, runs `scripts/wheel_smoke.sh` and `scripts/quickstart_check.sh` on those two files,
+publishes the same two files to PyPI, and creates the GitHub release.
 
 1. In one pull request, set `version` in `pyproject.toml` and, in `CHANGELOG.md`, move
    what is under `## [Unreleased]` to a new section `## [<version>] - <date>`, with its
    link at the foot of the file. Merge it. A test fails while the newest section is not
    the version's.
-2. The deliberate breaks ran on each pull request that changed `src/` or `tests/`. Check
-   that the last nightly run of the `mutation` workflow on `main` passed too, or start
-   one from the Actions page.
-3. `git tag v<version>` on that commit of `main` and push the tag.
+2. `git tag v<version>` on that commit of `main` and push the tag.
 
 The workflow refuses a tag that does not name the version in `pyproject.toml`, a tag on a
-commit that is not on `main`, a version with no section in the changelog, and a commit on
-which ci has not passed (`scripts/ci_passed.sh`). ci has passed on a commit whose files
-passed as a pull request, and on one where a run of ci on `main` passed. If that run is
-still going, wait for it and run the failed job again.
+commit that is not on `main`, and a version with no section in the changelog. It builds
+nothing until every job of the full tier has passed on the tagged commit. A job that
+failed for a reason outside the commit can be run again from the release's run.
 
 The two files are built in one job. The job that checks them and the job that publishes
 them each compare what they were handed with the SHA-256 sums the build recorded. The
