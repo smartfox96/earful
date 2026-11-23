@@ -41,11 +41,12 @@ on the files it changes (`.pre-commit-config.yaml`).
 | `scripts/quickstart_check.sh` | Follows the README's quickstart from the wheel, with livekit-agents, outside the repository | 90 s |
 | `scripts/site.sh DIR` | Draws the two example reports the README links to, into `DIR` | 15 s |
 | `scripts/check_all.sh` | All of the above, then on each of the six LiveKit releases: every test, repeatability of the reference ledgers, the two historical cases and the replays | 8 min |
-| `.venvs/lint/bin/python scripts/mutate.py` | Applies each deliberate break of `tests/mutants.py` and checks that a test it names fails | 5 min |
+| `.venvs/lint/bin/python scripts/mutate.py` | The control, then each deliberate break of `tests/mutants.py`: a test it names has to fail. `--since main` runs those a change can affect | 5 min |
 
 CI runs `check_all.sh`'s parts on every pull request, on Linux for the six releases and
 on macOS for the oldest and the newest. The deliberate breaks run each night, and on a
-pull request that changes `src/` or `tests/`.
+pull request that changes `src/` or `tests/`: the control once, then the breaks in four
+parts cut by their recorded seconds.
 
 Every environment above names a release and a date. The `canary` workflow is the one
 place with neither: each night `scripts/canary.sh livekit` and `scripts/canary.sh pipecat`
@@ -111,11 +112,17 @@ with the schemas: a field the schema has and the page does not mention fails it.
 
 **A change to behaviour comes with a deliberate break.** `tests/mutants.py` lists small
 breaks of the code, each one piece of source text and what replaces it. When you add
-behaviour, add the break that removes it and name the test that should catch it. Only
-the named tests are run against a break, which is what keeps the whole run short; a break
-that some other test catches fails the run as misnamed. When you move code a break is
+behaviour, add the break that removes it and name the test that should catch it. A break
+runs the test files that hold the tests it names, which is what keeps the whole run
+short. A break that some other test catches fails the run as misnamed, and one that keeps
+its tests running for five minutes fails it as timed out. When you move code a break is
 anchored on, or rename a test a break names, `scripts/lint.sh` fails until the break is
 brought along. Code whose break no test can catch is not needed.
+
+`tests/mutants_seconds.json` holds how long each break took in the last full run, and CI
+cuts the breaks into parts of about eight minutes of work from it. After a full run,
+`mutate.py --record mutation-*.json` with the run's result files brings it up to date. A
+break it does not list counts as the median.
 
 **Tests over a second are marked `slow`.** `pytest -m "not slow"` is the loop to work in.
 
