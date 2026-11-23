@@ -10,8 +10,8 @@ formats have versions of their own
 
 ### Fixed
 
-- A run with lost evidence exits 3 unless each lost code is allowed. A failed verdict
-  retains those codes, and a saved evidence loss can be replayed.
+- A broken rule exits 1. A run with only lost evidence exits 3 unless each lost code
+  is allowed. A failed verdict retains those codes, and a saved evidence loss can be replayed.
 - `run_virtual` no longer needs pydantic: it reads pydantic models only where the
   application has imported pydantic, so the virtual clock and the backend work with
   `pip install earful` alone.

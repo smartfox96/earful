@@ -8,7 +8,6 @@ import pytest
 pytest.importorskip("livekit.agents")
 
 # Imported before pytester runs: the framework's extension modules cannot be imported twice.
-from shapes.corpus import KnownDefect
 
 import earful.livekit as adapter
 from earful.core.ledger import read_jsonl
@@ -247,8 +246,7 @@ def test_tests_whose_ids_differ_in_one_character_keep_their_evidence_apart(pytes
     result.assert_outcomes(passed=1, failed=2)
     out = pytester.path / ".earful"
     kept = sorted(p.name for p in out.iterdir()) if out.exists() else []
-    if len(kept) != 2:
-        raise KnownDefect(f"the two failing tests left {kept}")
+    assert len(kept) == 2, kept
 
 
 def test_the_fixture_names_the_evidence_lost_by_a_run(tmp_path):
