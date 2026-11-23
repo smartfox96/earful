@@ -504,6 +504,8 @@ async def _run(case: Case, seed: int) -> RunResult:
             contracts=case.contracts,
         )
         await _play(case, worker, tap, s, ledger, errors)
+        if s.witness.refusal is not None:
+            raise ValueError(s.witness.refusal)
         _close(case, plan, context, s, ledger, errors)
     finally:
         await s.backend.cancel_in_flight()

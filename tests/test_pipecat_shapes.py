@@ -55,6 +55,14 @@ def test_shape(shape: corpus.Shape) -> None:
     corpus.judge(shape.should, shape.defect, corpus.run(shape, ADAPTER, run_case))
 
 
+def test_a_repeated_processor_error_is_reported_once():
+    from shapes.pipecat.processor_raises import case
+
+    result = run_case(case(), require_valid=False)
+    (reason,) = result.invalid
+    assert "Censor" in reason and "word list is not loaded" in reason
+
+
 @pytest.mark.parametrize("shape, variation", invariants.params(SHAPES, VARIATIONS))
 def test_variation(shape: corpus.Shape, variation: invariants.Variation) -> None:
     case = importlib.import_module(shape.module).case()

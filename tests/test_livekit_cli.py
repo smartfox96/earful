@@ -849,8 +849,7 @@ NARROW = ("--variables", "none", "--no-words", "--workers", "0")
 def test_run_exits_3_when_a_contract_lost_its_evidence_unless_that_is_allowed(capsys):
     status, out, _ = earful(capsys, "run", LOST)
     assert "A2  unobservable" in out
-    if status != NO_VERDICT:
-        raise KnownDefect(f"exit {status}")
+    assert status == NO_VERDICT
     allowed = ("--allow", "A2/outside-backend", "--allow", "A3/outside-backend")
     assert earful(capsys, "run", LOST, *allowed)[0] == OK
 
@@ -881,7 +880,6 @@ def ends_the_process() -> Case:
     )
 
 
-# From livekit-agents 1.6 the exit leaves the tool; before, the framework takes it as an error.
 def test_a_tool_that_calls_sys_exit_never_ends_the_command_in_silence():
     done = subprocess.run(
         [sys.executable, "-m", "earful", "run", "test_livekit_cli:ends_the_process"],
@@ -889,20 +887,17 @@ def test_a_tool_that_calls_sys_exit_never_ends_the_command_in_silence():
         capture_output=True,
         text=True,
         check=False,
+        timeout=15,
     )
-    if done.returncode == OK and not done.stdout:
-        raise KnownDefect("exit 0, and nothing printed")
-    refused = done.returncode == REFUSED and len(done.stderr.strip().splitlines()) == 1
-    assert refused or "framework  livekit-agents" in done.stdout
+    assert done.returncode == REFUSED
+    assert done.stdout == ""
+    assert done.stderr.splitlines() == ["earful: tool 'create_reservation' called sys.exit(0)"]
 
 
 def test_a_directory_given_for_the_ledger_is_refused_in_one_line(capsys, tmp_path):
-    try:
-        status, _, err = earful(
-            capsys, "run", "earful.livekit.cases:barge_in_mid_word", "--ledger", tmp_path
-        )
-    except IsADirectoryError as exc:
-        raise KnownDefect(str(exc)) from exc
+    status, _, err = earful(
+        capsys, "run", "earful.livekit.cases:barge_in_mid_word", "--ledger", tmp_path
+    )
     assert status == REFUSED and len(err.strip().splitlines()) == 1
 
 
@@ -929,8 +924,7 @@ def test_an_option_that_does_nothing_with_the_others_given_is_refused(capsys, tm
         ),
     }[unused]
     status = earful(capsys, *argv)[0]
-    if status != REFUSED:
-        raise KnownDefect(f"exit {status}")
+    assert status == REFUSED
 
 
 def _kept(capsys, reference, rule, out):
@@ -965,8 +959,7 @@ def test_a_replay_whose_kept_fault_never_applies_says_so_and_is_not_clean(capsys
 def test_a_kept_loss_of_evidence_replays_as_one(capsys, tmp_path):
     directory = _kept(capsys, LOST, "A2/outside-backend", tmp_path)
     status, out, _ = earful(capsys, "replay", directory, "--expect", "reproduced")
-    if status != OK or "breaks the rule" in out:
-        raise KnownDefect(f"exit {status}: {out.strip().splitlines()[-1]}")
+    assert status == OK and "loses the evidence    yes" in out
 
 
 @pytest.mark.slow
@@ -975,5 +968,4 @@ def test_a_searchs_first_line_counts_only_the_rules_that_fail_it(capsys):
     status, out, _ = earful(capsys, "search", reference, *NARROW, "--allow", "A3/rule")
     first = out.splitlines()[0]
     assert status == OK and "A3/rule  in " in out
-    if "1 contract rule(s) broken" in first:
-        raise KnownDefect(first)
+    assert "0 contract rule(s) broken" in first
