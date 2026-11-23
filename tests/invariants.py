@@ -16,7 +16,8 @@ SHIFTED = "every time shifted"
 LONGER = "a declared delay longer"
 HISTORY = "a starting history"
 TWO_PARTS = "a reply voiced in two parts"
-NAMES = (SHIFTED, LONGER, HISTORY, TWO_PARTS)
+AGAIN = "the same case run again"
+NAMES = (SHIFTED, LONGER, HISTORY, TWO_PARTS, AGAIN)
 
 SHIFT = 1.25  # seconds added to every time the scenario declares
 LONGER_BY = 2.0  # seconds added to every model call and every backend write
@@ -36,6 +37,13 @@ def same_verdicts(original: Seen, varied: Seen) -> str | None:
     if original.verdicts() == varied.verdicts():
         return None
     return f"{original} became {varied}"
+
+
+def same_ledger(original: Seen, varied: Seen) -> str | None:
+    """The same case and seed give the same ledger, so the same verdicts."""
+    if original.hash == varied.hash:
+        return None
+    return f"another ledger: {original} became {varied}"
 
 
 def missed_stays_missed(original: Seen, varied: Seen) -> str | None:
@@ -71,6 +79,7 @@ def _longer(case: Any, original: Seen) -> Any:
 
 SHIFT_EVERY_TIME = Variation(SHIFTED, _shifted, same_verdicts)
 LONGER_DELAYS = Variation(LONGER, _longer, missed_stays_missed)
+RUN_AGAIN = Variation(AGAIN, lambda case, original: case, same_ledger)
 
 
 def earlier_exchange(case: Any, original: Seen) -> tuple[str, str]:

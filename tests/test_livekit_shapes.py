@@ -72,6 +72,7 @@ VARIATIONS = [
     invariants.LONGER_DELAYS,
     invariants.Variation(invariants.HISTORY, _with_history, invariants.same_verdicts),
     invariants.Variation(invariants.TWO_PARTS, _in_two_parts, invariants.same_verdicts),
+    invariants.RUN_AGAIN,
 ]
 
 
@@ -82,10 +83,10 @@ def test_shape(shape: corpus.Shape) -> None:
 
 @pytest.mark.parametrize("shape, variation", invariants.params(SHAPES, VARIATIONS))
 def test_variation(shape: corpus.Shape, variation: invariants.Variation) -> None:
-    module = importlib.import_module(shape.module)
-    original = corpus.observe(run_case, module.case())
+    case = importlib.import_module(shape.module).case()
+    original = corpus.observe(run_case, case)
     assert variation.vary is not None
-    varied = corpus.observe(run_case, variation.vary(module.case(), original))
+    varied = corpus.observe(run_case, variation.vary(case, original))  # the same case, varied
     invariants.judge(shape, variation, original, varied)
 
 
