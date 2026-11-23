@@ -41,7 +41,7 @@ on the files it changes (`.pre-commit-config.yaml`).
 | `scripts/quickstart_check.sh` | Follows the README's quickstart from the wheel, with livekit-agents, outside the repository | 90 s |
 | `scripts/site.sh DIR` | Draws the two example reports the README links to, into `DIR` | 15 s |
 | `scripts/check_all.sh` | All of the above, then on each of the six LiveKit releases: every test, repeatability of the reference ledgers, the two historical cases and the replays | 8 min |
-| `.venvs/lint/bin/python scripts/mutate.py` | The control, then each deliberate break of `tests/mutants.py`: a test it names has to fail. `--since main` runs those a change can affect | 5 min |
+| `.venvs/lint/bin/python scripts/mutate.py` | The control, then each deliberate break of `tests/mutants.py`: a test it names has to fail. `--since main` runs those a change can affect | 4.5 min |
 
 Every environment above names a release and a date. The `canary` workflow is the one
 place with neither: each night `scripts/canary.sh livekit` and `scripts/canary.sh pipecat`
@@ -192,11 +192,11 @@ misnamed, and one that keeps its tests running for five minutes fails it as time
 anchored on, or rename a test a break names, `scripts/lint.sh` fails until the break is
 brought along. Code whose break no test can catch is not needed.
 
-`tests/mutants_seconds.json` holds how long each break took in the last full run, and CI
-cuts the breaks into parts of about eight minutes of work from it. After a full run,
-`mutate.py --record mutation-*.json` with the run's result files brings it up to date. A
-break it does not list counts as the median, and a name it lists that no break has is
-left out, so the file never stops a pull request.
+`tests/mutants_seconds.json` holds how long each break took, and CI cuts the breaks into
+parts of about sixteen minutes of work from it, four on a runner. After a run,
+`mutate.py --record mutation-*.json` with the run's result files replaces the seconds of
+the breaks it ran. A break the file does not list counts as the median, and a name it
+lists that no break has is left out, so the file never stops a pull request.
 
 **Tests over a second are marked `slow`.** `pytest -m "not slow"` is the loop to work in.
 

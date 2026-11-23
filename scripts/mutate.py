@@ -41,8 +41,9 @@ from mutants import MUTANTS, Mutant
 
 MUTANTS_FILE = "tests/mutants.py"
 SECONDS_FILE = "tests/mutants_seconds.json"
-# A part holds about this many seconds of breaks, as recorded with four workers at once.
-PART_SECONDS = 480
+# A part holds about this many seconds of breaks, as recorded with four workers at once:
+# four minutes on a runner, about as long as the control, which runs beside the parts.
+PART_SECONDS = 960
 MOST_PARTS = 6
 # Longer than any break has taken, and far short of a job's limit.
 TIMEOUT_SECONDS = 300
@@ -282,6 +283,7 @@ def _copy(root: Path, copy: Path) -> None:
 def _pytest(copy: Path, *selection: str, timeout: float) -> tuple[int, str]:
     """Run the tests of the copy against the code of the copy. Status None: it timed out."""
     env = {**os.environ, "PYTHONPATH": f"{copy / 'src'}{os.pathsep}{copy / 'tests'}"}
+    env.setdefault("EARFUL_WORKERS", "0")  # the breaks running at once share the processors
     with subprocess.Popen(
         [sys.executable, *_PYTEST, *selection],
         cwd=copy,
@@ -392,19 +394,22 @@ def fraction(text: str) -> tuple[int, int]:
 
 
 def record(files: list[Path], root: Path = ROOT) -> int:
-    """Keep the seconds each break took, from the result files of a run of every break."""
+    """Keep the seconds each break took, from the result files of a run. A break the run
+    left out keeps what was recorded; a name no break has any more is dropped."""
     seconds = {}
     for path in files:
         for result in json.loads(path.read_text()):
             if not result["name"].startswith("control:"):
                 seconds[result["name"]] = result["seconds"]
-    missing = sorted({m.name for m in MUTANTS} - set(seconds))
-    if missing:
-        print(f"{len(missing)} breaks have no result in these files, such as {missing[0]!r}")
-        return 1
-    ordered = {m.name: seconds[m.name] for m in MUTANTS}
+    kept = recorded(root)
+    ordered = {
+        m.name: seconds.get(m.name, kept.get(m.name))
+        for m in MUTANTS
+        if m.name in seconds or m.name in kept
+    }
     (root / SECONDS_FILE).write_text(json.dumps(ordered, indent=1) + "\n")
-    print(f"{len(ordered)} breaks, {sum(ordered.values()) / 60:.0f} minutes in all")
+    fresh = sum(m.name in seconds for m in MUTANTS)
+    print(f"{fresh} of {len(MUTANTS)} breaks timed by this run, {len(ordered)} recorded")
     return 0
 
 
