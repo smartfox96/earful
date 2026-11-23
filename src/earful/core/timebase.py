@@ -11,11 +11,11 @@ def seconds(name: str, value: float) -> float:
     if (
         isinstance(value, bool)
         or not isinstance(value, (int, float))
-        or not 0 <= value <= sys.float_info.max / US_PER_SECOND
+        or not value < sys.float_info.max / US_PER_SECOND
     ):
-        raise ValueError(
-            f"{name} must be finite nonnegative seconds within microsecond range, got {value!r}"
-        )
+        raise ValueError(f"{name} must be finite seconds within microsecond range, got {value!r}")
+    if value < 0:
+        raise ValueError(f"{name} cannot be negative, got {value!r}")
     return value
 
 

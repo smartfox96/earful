@@ -337,7 +337,7 @@ def test_a_tool_is_recorded_under_the_name_the_model_calls_it_by():
 def test_an_effect_without_an_intent_or_with_a_negative_latency_is_refused():
     with pytest.raises(ValueError, match="names its intent"):
         Effect("")
-    with pytest.raises(ValueError, match="latency.*nonnegative"):
+    with pytest.raises(ValueError, match="cannot be negative"):
         Effect(BOOKING_INTENT, latency=-0.1)
 
 
