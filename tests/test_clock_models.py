@@ -20,6 +20,10 @@ async def _nothing():
 def test_a_model_defined_after_the_first_run_reads_the_virtual_clock():
     """A ``default_factory=time.time`` field holds the real function, so every run patches
     the model classes that arrived since the last."""
+
+    class Early(BaseModel):  # a model the first run looks at, whatever else is imported
+        at: float = 0.0
+
     run_virtual(_nothing)
 
     class Late(BaseModel):
