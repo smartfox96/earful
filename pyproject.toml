@@ -117,5 +117,5 @@ warn_return_any = false
 
 [dependency-groups]
 # What the tests need beside a framework. The environment scripts install it.
-test = ["pytest", "pytest-asyncio", "hypothesis"]
+test = ["pytest", "pytest-asyncio", "pytest-xdist", "hypothesis"]
 lint = ["ruff==0.17.5", "mypy==2.4.1", "types-jsonschema"]

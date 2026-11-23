@@ -662,7 +662,9 @@ def test_the_reference_ledgers_of_both_frameworks_are_repeated_and_compared():
 def test_where_livekit_is_absent_every_other_test_runs_and_a_skip_fails_the_job():
     jobs = _jobs(CHECKS)
     ran = "scripts/ran_every_test.sh --without livekit\n"
-    assert ran + "          .venvs/pc-${{ matrix.cell.version }}/bin/python\n" in jobs["pipecat"]
+    assert (ran + "          .venvs/pc-${{ matrix.cell.version }}/bin/python -n auto\n") in jobs[
+        "pipecat"
+    ]
     every = "scripts/ran_every_test.sh --without livekit .venvs/pc-1.16.0/bin/python\n"
     assert every in (SCRIPTS / "check_all.sh").read_text()
     # A change to prose alone runs the one Pipecat file that reads docs/.

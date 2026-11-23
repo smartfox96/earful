@@ -8,6 +8,7 @@ attrs==26.1.0
 cffi==2.1.1
 docopt==0.6.2
 docstring-parser==0.18.0
+execnet==2.1.2
 flatbuffers==25.12.19
 frozenlist==1.8.0
 h11==0.16.0
@@ -40,6 +41,7 @@ pydantic-core==2.50.4
 pygments==2.21.0
 pytest==9.2.0
 pytest-asyncio==1.5.0
+pytest-xdist==3.8.0
 python-dotenv==1.2.4
 pyyaml==6.0.3
 referencing==0.37.0
