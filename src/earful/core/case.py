@@ -34,8 +34,21 @@ def _validator() -> Draft202012Validator:
     return IntegerValidator(schema)
 
 
-def validate(case: Any, *, speech_times: list[tuple[float, float]] | None = None) -> list[str]:
-    """Every way ``case`` departs from earful.case/1. An empty list means valid."""
+def validate(case: Any) -> list[str]:
+    """Every way a saved case departs from the case format."""
+    return _validate(case, None, None)
+
+
+def validate_authored(
+    case: Case, speech_times: list[tuple[float, float]], hangup: float | None
+) -> list[str]:
+    """Check encoded data and report contradictions using the author's units."""
+    return _validate(case, speech_times, hangup)
+
+
+def _validate(
+    case: Any, speech_times: list[tuple[float, float]] | None, hangup: float | None
+) -> list[str]:
     errors = [
         f"{'/'.join(str(p) for p in error.absolute_path) or 'case'}: {error.message}"
         for error in sorted(
@@ -52,46 +65,53 @@ def validate(case: Any, *, speech_times: list[tuple[float, float]] | None = None
     for n, (start, end) in enumerate(times):
         speech = case["speeches"][n]
         if speech["end_us"] <= speech["start_us"]:
-            reason = (
-                "must end after it starts"
-                if speech_times is None
-                else (f"the speech at {start} s ends at {end} s; a speech ends after it starts")
-            )
-            errors.append(f"speeches/{n}: {reason}")
+            if speech_times is not None:
+                raise ValueError(
+                    f"the speech at {start} s ends at {end} s; a speech ends after it starts"
+                )
+            errors.append(f"speeches/{n}: must end after it starts")
         if n and start < times[n - 1][1]:
-            reason = (
-                "starts before the speech before it has ended"
-                if speech_times is None
-                else (f"the speeches at {times[n - 1][0]} s and {start} s overlap")
-            )
-            errors.append(f"speeches/{n}: {reason}")
+            if speech_times is not None:
+                raise ValueError(f"the speeches at {times[n - 1][0]} s and {start} s overlap")
+            errors.append(f"speeches/{n}: starts before the speech before it has ended")
     if case["hangup_us"] is not None:
         if not times:
+            if speech_times is not None:
+                raise ValueError(
+                    "the user hangs up after their last speech; a user who never speaks cannot"
+                )
             errors.append("hangup_us: a user who never speaks cannot hang up")
         else:
             late = next(
                 (n for n, s in enumerate(case["speeches"]) if s["end_us"] > case["hangup_us"]), None
             )
             if late is not None:
-                reason = (
-                    "the user hangs up before their last speech is over"
-                    if speech_times is None
-                    else (
-                        f"the user hangs up at {case['hangup_us'] / 1_000_000} s, "
+                if speech_times is not None:
+                    raise ValueError(
+                        f"the user hangs up at {hangup} s, "
                         f"before the speech at {times[late][0]} s is over"
                     )
-                )
-                errors.append(f"hangup_us: {reason}")
+                errors.append("hangup_us: the user hangs up before their last speech is over")
     declared = [(d["of"], d["nth"]) for d in case["delays"]]
     if len(set(declared)) != len(declared):
+        if speech_times is not None:
+            of, nth = next(key for i, key in enumerate(declared) if key in declared[:i])
+            raise ValueError(f"delay {of} #{nth} is declared more than once")
         errors.append("delays: a delay is declared more than once")
     faulted = [f["nth"] for f in case["faults"]]
     if len(set(faulted)) != len(faulted):
-        duplicate = next(n for i, n in enumerate(faulted) if n in faulted[:i])
-        which = "a backend write" if speech_times is None else f"backend write #{duplicate}"
-        errors.append(f"faults: {which} has more than one fault")
+        if speech_times is not None:
+            duplicate = next(n for i, n in enumerate(faulted) if n in faulted[:i])
+            raise ValueError(f"backend write #{duplicate} has more than one fault")
+        errors.append("faults: a backend write has more than one fault")
     for n, fault in enumerate(case["faults"]):
         if (fault["us"] is None) != (fault["of"] == "backend.error"):
+            if speech_times is not None:
+                raise ValueError(
+                    f"fault {fault['of']} #{fault['nth']}: nth counts from 1; "
+                    "a timeout or a drop says "
+                    "how long the caller waits, and an error does not"
+                )
             errors.append(
                 f"faults/{n}: a timeout or a drop says how long the caller waits; an error does not"
             )
