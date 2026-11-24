@@ -450,7 +450,7 @@ is held to what the same reply without it is held to.
 | Rule a, stop | If a reply is under way at the interruption point, having begun at or before it, the sink stops being audible by that point plus `stop_bound_us`. A reply that starts at the point itself may start there, since the two are the same instant (section 2.3), and is held to the bound like any other. The reply stopped at the end of its last audio that began before the floor window closed. So audio that returns after a gap, while the user still speaks, counts, and a gap that lasts from before the point until the user has stopped leaves the agent silent. Rule b keeps it silent from then until the floor window closes |
 | Rule b, no start | No segment starts, and none is resumed after a pause the output was asked for, inside the floor window later than `start_grace_us` after it opens. Both ends of that span are excluded. Excusing a start at the instant the window opens excuses the start only: where that instant is the interruption point, rule a holds what plays on. A reply that plays on after a gap in its buffer does not start: it was under way, and rule a judges it. A pause of zero length silences nothing: it is no resume and does not end the reply |
 | Policy | `stop_bound_us` (default 100 000). `start_grace_us` (default 0). `interruptions_allowed` (default true; if false, rule a does not apply) |
-| Reference in doubt | A rule a failure in which a pause or clear command did reach the sink, but later than the interruption point plus `stop_bound_us`, is marked `reference_in_doubt`. It stays a failure. It is not published or attributed until someone confirms that the computed interruption point matches the framework's documented threshold on that release. A failure with no command at all, or with a timely command the sink did not obey, is not marked |
+| Reference in doubt | A rule a failure in which a pause or clear command did reach the sink, but later than the interruption point plus `stop_bound_us`, is marked `reference_in_doubt`. It stays a failure. Check the computed interruption point against the framework's documented threshold on that release before attributing the failure. A failure with no command at all, or with a timely command the sink did not obey, is not marked |
 | Nothing to judge | `no-reply-under-way`: no reply was under way at the interruption point, none was waiting to play during the floor window (its synthesis began before the window closed and it had not finished playing when the window opened), and no rule broke. `no-interruption-point`: the speech was too short to have an interruption point, and no reply was in flight. `no-origin`: the ledger has no true speech boundaries. So `require=["L2"]` means an interruption, or a reply held back, was judged |
 | Reported separately | Recognition delay: from the true start of speech to the first pause or clear command the sink received. Decision lag: from the interruption point to that command; it can be negative. Stop latency: from that command to silence |
 | Deliberate break | A sink that keeps consuming for 400 ms after it is told to pause or clear; a second variant with interruptions disabled on the agent while the policy still expects them |
@@ -469,17 +469,15 @@ command. How fast an output device obeys it is outside the rule.
 
 ## 7. Attributing a failure
 
-The checker reports violations. Before a failure is published or reported upstream, a
-person classifies it as one of:
+Use the ledger and the framework documentation for the recorded release to distinguish these causes.
 
 - **framework defect**: the framework broke a guarantee it documents;
 - **hazardous documented default**: the framework behaved as documented and the default is
   unsafe for this scenario;
 - **application or backend error**: the agent, model policy, tool or store is at fault;
-- **harness artifact**: Earful's simulation caused it. Fixed before anything is published.
+- **harness artifact**: Earful's simulation caused the observed failure.
 
-The classification is recorded with the case, with the version it was observed on and the
-documentation it was compared against.
+Record the cause with the case, the observed version and the documentation used to attribute it.
 
 ## 8. What the ledger must record
 
@@ -702,7 +700,3 @@ What fails:
 No other rule fails on any release, and no verdict on any release lost its evidence:
 where a framework generates a reply again and the scripted model gives the same words,
 the run is read as section 2.5 describes.
-
-A failure that has not been classified (section 7) is not reported here. The sweep is
-how such results are found; they are published once someone has reproduced them
-deliberately and compared them with what the framework documents.

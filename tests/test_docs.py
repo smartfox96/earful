@@ -558,17 +558,38 @@ def _class(name, adapter=None):
         node
         for path in sorted((SOURCE / adapter if adapter else SOURCE).rglob("*.py"))
         # The checker's view of a ledger has an Effect of its own.
-        if adapter or (path.parent.name not in ("livekit", "pipecat") and path.name != "view.py")
+        if adapter or (path.parent.name not in ("livekit", "pipecat") and path.name != "records.py")
         for node in ast.parse(path.read_text()).body
         if isinstance(node, ast.ClassDef) and node.name == name
     ]
+    if not found and adapter:
+        return _class(name)
     assert len(found) == 1, f"{len(found)} classes are named {name}"
     fields, members = {}, set()
+    shared = {
+        "ScriptedCase": "Case",
+        "RunEvidence": "RunEvidence",
+        "DrainOptions": "DrainOptions",
+        "Application": "Application",
+    }
+    for base in reversed(found[0].bases):
+        if isinstance(base, ast.Name) and base.id in shared:
+            inherited, names = _class(shared[base.id], "scripted")
+        elif (
+            adapter
+            and isinstance(base, ast.Name)
+            and base.id in {"AgentFactory", "BotFactory", "SessionOptions", "PipelineOptions"}
+        ):
+            inherited, names = _class(base.id, adapter)
+        else:
+            continue
+        fields.update(inherited)
+        members.update(names)
     for node in found[0].body:
         if isinstance(node, ast.AnnAssign):
             fields[ast.unparse(node.target)] = node.value and ast.unparse(node.value)
             members.add(ast.unparse(node.target))
-        elif isinstance(node, ast.FunctionDef):
+        elif isinstance(node, ast.FunctionDef) and node.name != "__init__":
             members.add(node.name)
     return fields, members
 
@@ -747,7 +768,12 @@ def test_every_link_between_the_pages_leads_to_a_heading_that_exists():
 
 def test_every_term_of_the_glossary_is_one_the_page_it_points_to_uses():
     in_code = "".join(
-        (SOURCE / name).read_text() for name in ("cli.py", "core/search.py", "core/bundle.py")
+        path.read_text()
+        for path in (
+            SOURCE / "cli.py",
+            SOURCE / "core/bundle.py",
+            *(SOURCE / "core/search").glob("*.py"),
+        )
     )
     terms = []
     for heading, text in _sections(GLOSSARY, "##").items():

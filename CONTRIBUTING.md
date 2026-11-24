@@ -107,6 +107,7 @@ script among them. `python3 scripts/ci_scope.py --table` prints these tables:
 | `tests/bundles/**` | livekit |
 | `tests/shapes/livekit/**` | livekit |
 | `src/earful/scripted/clock.py` | clock |
+| `src/earful/scripted/timers.py` | clock |
 | `src/earful/core/html.py` | report |
 | `tests/mutants.py` | breaks |
 | `tests/mutants_seconds.json` | breaks |
@@ -150,9 +151,15 @@ tier on its own commit.
 **The core imports no framework.** Everything under `src/earful/core/` works on plain
 data. `tests/test_core_boundary.py` fails if a module there imports `livekit`, `pipecat`
 or either Earful adapter. The same rule covers `src/earful/scripted/`. Neither adapter
-imports the other or the other's framework. Anything that touches livekit-agents belongs
-in `src/earful/livekit/`, and a name taken from inside livekit-agents, one that it does
-not export at its top level, goes through `src/earful/livekit/_compat.py`.
+imports the other or the other's framework. Shared code reaches an adapter through its public
+case and result types, scenario or ports. Each adapter keeps private SDK fields,
+release-specific imports and attribute defaults in its own `seams.py`.
+
+**Module budgets.** New modules have a 500-line limit. The two harnesses and the
+kernel's run module have a 150-line limit, and its ports have a 100-line limit.
+Only `earful/cli.py` and `earful/core/html.py` are exempt. The import, seam and size
+checks live in `tests/test_core_boundary.py`. Exercise the shared lifecycle and party
+schedules in `tests/test_kernel.py` with the bare interpreter.
 
 **A test file says which framework it needs.** A file under `tests/` that imports
 livekit-agents or the LiveKit adapter starts with `pytest.importorskip("livekit.agents")`,

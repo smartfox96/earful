@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import dataclasses
 import json
 import time
 from collections import Counter
@@ -43,8 +42,14 @@ from ..core.ledger import Ledger
 from ..core.timebase import to_us
 from ..scripted.clock import now_us
 from ..scripted.model import Policy, ReplyRegister, ToolCall, misfit
-from ..scripted.voice import SHORTEST, StampTable, letters
-from ..scripted.world import UserSpeech, WorldOrigin, sleep_until, vad_segments
+from ..scripted.parties.activity import Activity, Schedule
+from ..scripted.parties.model import claim_spans, fragments, identified_calls, reply_for
+from ..scripted.parties.stt import Recognition
+from ..scripted.parties.vad import detections
+from ..scripted.parties.voice import Synthesis
+from ..scripted.voice import SHORTEST, StampTable
+from ..scripted.world import UserSpeech, WorldOrigin, sleep_until
+from . import seams
 from .tools import ToolWitness
 
 SAMPLE_RATE = 24000
@@ -67,7 +72,7 @@ class ScriptedUser(FrameProcessor):
         super().__init__()
         self._ledger, self._origin, self._left = ledger, origin, left
         self._speeches = sorted(speeches, key=lambda s: s.start)
-        self.done = False
+        self.activity = Schedule()
         self._start_secs, self._stop_secs = start_secs, stop_secs
 
     async def process_frame(self, frame: Frame, direction: FrameDirection) -> None:
@@ -80,24 +85,20 @@ class ScriptedUser(FrameProcessor):
         t0 = now_us()
         self._origin.mark("vad", t0)
         confirm_us, silence_us = to_us(self._start_secs), to_us(self._stop_secs)
-        for segment in vad_segments(self._speeches, silence_us):
-            first, last = segment[0], segment[-1]
-            await sleep_until(t0, self._speeches[first].start_us + confirm_us)
-            if self._left.is_set():
-                return  # the user has hung up: there is nobody to hear
-            self._ledger.append("world", "user.vad_start", speech=first)
-            await self.push_frame(
-                VADUserStartedSpeakingFrame(start_secs=self._start_secs, timestamp=time.time())
-            )
-            await sleep_until(t0, self._speeches[last].end_us + silence_us)
+        for event in detections(self._speeches, confirm_us, silence_us):
+            await sleep_until(t0, event.at_us)
             if self._left.is_set():
                 return
-            self._ledger.append("world", "user.vad_end", speech=last)
-            await self.push_frame(
-                VADUserStoppedSpeakingFrame(stop_secs=self._stop_secs, timestamp=time.time())
-            )
-
-        self.done = True
+            self._ledger.append("world", f"user.vad_{event.kind}", speech=event.speech)
+            if event.kind == "start":
+                await self.push_frame(
+                    VADUserStartedSpeakingFrame(start_secs=self._start_secs, timestamp=time.time())
+                )
+            else:
+                await self.push_frame(
+                    VADUserStoppedSpeakingFrame(stop_secs=self._stop_secs, timestamp=time.time())
+                )
+        self.activity.finish()
 
 
 class ScriptedSTT(STTService):
@@ -109,8 +110,7 @@ class ScriptedSTT(STTService):
         # The longest the framework should wait for a transcript after the VAD's stop.
         super().__init__(ttfs_p99_latency=0.0, settings=STTSettings(model=None, language=None))
         self._ledger, self._origin, self._left = ledger, origin, left
-        self._speeches = sorted(speeches, key=lambda s: s.start)
-        self.done: asyncio.Future[None] = asyncio.get_running_loop().create_future()
+        self.script = Recognition(sorted(speeches, key=lambda s: s.start), chronological=True)
 
     async def run_stt(self, audio: bytes) -> AsyncGenerator[Frame | None, None]:
         return
@@ -124,35 +124,22 @@ class ScriptedSTT(STTService):
     async def _script(self) -> None:
         t0 = now_us()
         self._origin.mark("stt", t0)
-        # A slow recognition can finish after a later speech's recognition.
-        deadlines: list[tuple[int, int, bool]] = []
-        for index, speech in enumerate(self._speeches):
-            if speech.transcript:
-                deadlines.append((speech.end_us + speech.stt_delay_us // 2, index, False))
-            deadlines.append((speech.end_us + speech.stt_delay_us, index, True))
-        for at_us, index, final in sorted(deadlines):
-            await sleep_until(t0, at_us)
+        async for event in self.script.events(t0):
             if self._left.is_set():
                 return
-            speech = self._speeches[index]
-            if not speech.transcript:
-                continue  # noise occupies its time in the scenario
-            if not final:
-                interim = " ".join(speech.transcript.split()[:2])
+            if not event.text:
+                continue
+            if not event.final:
                 await self.push_frame(
-                    InterimTranscriptionFrame(interim, "user", time_now_iso8601())
+                    InterimTranscriptionFrame(event.text, "user", time_now_iso8601())
                 )
             else:
                 self._ledger.append(
-                    "world", "user.transcript_final", speech=index, text=speech.transcript
+                    "world", "user.transcript_final", speech=event.speech, text=event.text
                 )
                 await self.push_frame(
-                    TranscriptionFrame(
-                        speech.transcript, "user", time_now_iso8601(), finalized=True
-                    )
+                    TranscriptionFrame(event.text, "user", time_now_iso8601(), finalized=True)
                 )
-        if not self.done.done():
-            self.done.set_result(None)
 
 
 IN_PROGRESS = "IN_PROGRESS"
@@ -216,10 +203,6 @@ def summarize(
     return items
 
 
-# The names pipecat-ai keeps private that the scripted model reads to witness functions.
-PRIVATE = ("_functions", "_cancel_tool_names", "_sync_registered_tool_handlers")
-
-
 class ScriptedLLM(LLMService):
     """The scripted model, as a Pipecat service. Records every context it is shown."""
 
@@ -257,26 +240,16 @@ class ScriptedLLM(LLMService):
         self._calls = 0
         self._witnessed: list[object] = []  # handlers the witness is already around
         self.listed: frozenset[str] | None = None  # the functions the header names, once written
-        self.generating = 0
+        self.activity = Activity()
         self.register = ReplyRegister()
-
-    def private(self, name: str) -> Any:
-        """One of the names in ``PRIVATE``. Raises ``ValueError`` on a release without it."""
-        try:
-            return getattr(self, name)
-        except AttributeError:
-            raise ValueError(
-                f"this pipecat-ai release keeps LLMService.{name} where Earful cannot read it, "
-                "so the functions the bot registers could not be witnessed"
-            ) from None
 
     def witness_tools(self, advertised: Any = None) -> None:
         """Put the witness around every function the application has registered, however
         it did so. ``advertised`` is a context's tools, whose handlers Pipecat registers
         when it first sees the context."""
-        functions, cancel = self.private("_functions"), self.private("_cancel_tool_names")
+        functions, cancel = seams.registered(self), seams.cancel_tools(self)
         if advertised is not None:
-            self.private("_sync_registered_tool_handlers")(advertised)
+            seams.sync_handlers(self, advertised)
         for name, item in functions.items():
             if name in cancel or item.handler in self._witnessed:
                 continue  # Pipecat's own tool, or one already wrapped
@@ -302,11 +275,10 @@ class ScriptedLLM(LLMService):
             return
         self.witness_tools()  # the base class has just registered what this context advertises
         await self.push_frame(LLMFullResponseStartFrame())
-        self.generating += 1
         try:
-            await self._generate(frame.context)
+            with self.activity.working():
+                await self._generate(frame.context)
         finally:
-            self.generating -= 1
             await self.push_frame(LLMFullResponseEndFrame())
 
     async def push_frame(
@@ -337,55 +309,25 @@ class ScriptedLLM(LLMService):
         call = self._calls
         items = summarize(context.get_messages(), self.error_results, self.interrupted)
         self._ledger.append("llm", "llm.request", call=call, items=items)
-        try:
-            reply = self._policy(items)
-            reply.check_timing()
-        except Exception as exc:
-            self._errors.append(f"policy raised on call {call}: {type(exc).__name__}: {exc}")
-            raise
-        words = reply.text.split()
-        tool_calls = [
-            t if t.call_id is not None else dataclasses.replace(t, call_id=f"call-{call}-{n}")
-            for n, t in enumerate(reply.tool_calls, 1)
-        ]
-        for tool in tool_calls:
-            assert tool.call_id is not None
-            if tool.call_id in self._call_ids:
-                self._errors.append(f"call {call}: the policy reused tool call id {tool.call_id!r}")
-            self._call_ids.add(tool.call_id)
+        reply = reply_for(self._policy, items, self._errors, call)
+        tool_calls = []
+        for tool in identified_calls(call, reply.tool_calls, self._call_ids, self._errors):
+            tool_calls.append(tool)
             wrong = self._unfit(tool, context)
             if wrong is not None:
                 self._errors.append(f"call {call}: {wrong}")
-        claims = [
-            {
-                "intent": claim.intent,
-                "first_word": claim.first_word,
-                "last_word": len(words) - 1 if claim.last_word is None else claim.last_word,
-            }
-            for claim in reply.claims
-        ]
-        ttft_us = self._ttft_us.get(call, to_us(reply.ttft))
-        duration_us = max(self._duration_us.get(call, to_us(reply.duration)), ttft_us)
-        self._ledger.append(
-            "llm",
-            "llm.response",
-            call=call,
-            text=reply.text,
-            tool_calls=[dataclasses.asdict(t) for t in tool_calls],
-            claims=claims,
-            ttft_us=ttft_us,
-            duration_us=duration_us,
-        )
-        t0 = now_us()
-        await sleep_until(t0, ttft_us)
-        if words:
-            self.register.replies[call] = words
-        step = 3
-        chunks = range(0, len(reply.text), step)
-        for n, i in enumerate(chunks):
-            await sleep_until(t0, ttft_us + (duration_us - ttft_us) * n // max(len(chunks) - 1, 1))
-            await self.push_frame(LLMTextFrame(reply.text[i : i + step]))
-        await sleep_until(t0, duration_us)
+        claims = claim_spans(reply, call)
+        async for text in fragments(
+            self._ledger,
+            call,
+            reply,
+            tool_calls,
+            claims,
+            self._ttft_us,
+            self._duration_us,
+            self.register,
+        ):
+            await self.push_frame(LLMTextFrame(text))
         if tool_calls:
             await self.run_function_calls(
                 [
@@ -437,7 +379,7 @@ class StampedTTS(TTSService):
         self._replies = 0
         self._reply: str | None = None  # the model reply being generated, if one is
         self._open: dict[str, _Utterance] = {}  # by reply, or by audio context outside one
-        self.synthesizing = 0
+        self.activity = Activity()
         self.table = StampTable(sample_rate=SAMPLE_RATE)
 
     async def run_tts(self, text: str, context_id: str) -> AsyncGenerator[Frame | None, None]:
@@ -451,31 +393,26 @@ class StampedTTS(TTSService):
             self._utterances += 1
             one = self._open[key] = _Utterance(
                 number=self._utterances,
-                started_us=self._ledger.now_us(),
+                ledger=self._ledger,
+                table=self.table,
+                register=self._register,
+                sample_rate=SAMPLE_RATE,
+                letter_us=self._letter_us,
                 ttfb_us=self._ttfb_by_utterance.get(self._utterances, self._ttfb_us),
-                eligible=set(self._register.replies),
             )
         one.contexts.add(context_id)
         t0, starts, pcm = now_us(), [], bytearray()
         for word in text.split():
-            samples = (SAMPLE_RATE * letters(word) * self._letter_us + 500_000) // 1_000_000
-            stamp = self.table.add(one.number, len(one.words), word, samples)
-            starts.append((word, one.spoken[context_id] / SAMPLE_RATE))  # from its first audio
-            one.words.append(word)
-            one.stamps.append(stamp)
-            one.word_samples.append(samples)
-            one.spoken[context_id] += samples
-            pcm.extend(self.table.audio(stamp).tobytes())
-        self.synthesizing += 1
-        try:
+            starts.append((word, one.spoken[context_id] / SAMPLE_RATE))
+            pcm.extend(one.render(word))
+            one.spoken[context_id] += one.word_samples[-1]
+        with self.activity.working():
             if first:
                 await sleep_until(t0, one.ttfb_us)
             if pcm and self._word_timestamps:
                 await self.add_word_timestamps(starts, context_id)
             if pcm:
                 yield TTSAudioRawFrame(bytes(pcm), SAMPLE_RATE, 1, context_id=context_id)
-        finally:
-            self.synthesizing -= 1
 
     async def push_frame(
         self, frame: Frame, direction: FrameDirection = FrameDirection.DOWNSTREAM
@@ -508,32 +445,10 @@ class StampedTTS(TTSService):
         one = self._open.pop(key, None)
         if one is None:
             return
-        text = " ".join(one.words)
-        call, attribution, candidates = self._register.attribute(text, eligible=one.eligible)
-        self._ledger.append(
-            "world",
-            "tts.synthesized",
-            utterance=one.number,
-            call=call,
-            attribution=attribution,
-            candidates=candidates,
-            text=text,
-            stamps=one.stamps,
-            word_samples=one.word_samples,
-            sample_rate=SAMPLE_RATE,
-            ttfb_us=one.ttfb_us,
-            started_us=one.started_us,
-        )
+        one.finish()
 
 
 @dataclass
-class _Utterance:
-    number: int
-    started_us: int
-    ttfb_us: int
-    eligible: set[int]
-    words: list[str] = field(default_factory=list)
-    stamps: list[int] = field(default_factory=list)
-    word_samples: list[int] = field(default_factory=list)
+class _Utterance(Synthesis):
     contexts: set[str] = field(default_factory=set)  # audio contexts still open
     spoken: Counter[str] = field(default_factory=Counter)  # samples so far, by context

@@ -259,6 +259,12 @@ which the bundle's manifest counts (`reduction.runs`) and `earful search --keep`
 
 ### What a search reports
 
+The first line counts **cases**. A case is "judged" when the checker can read its
+ledger. The rows below count **verdicts for one contract**. For example, all 736
+cases can be judged and all 736 can have "nothing to judge" for A2 if no durable
+write was attempted. "Evidence lost" means the contract needed an observation the
+ledger could not supply.
+
 - **By contract.** Under the first line, for each contract, how many of the cases judged
   gave it a pass, a fail, nothing to judge, and evidence lost
   ([`contracts.md`](contracts.md#5-verdicts)).

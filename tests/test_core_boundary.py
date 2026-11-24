@@ -12,6 +12,7 @@ import pytest
 TESTS = Path(__file__).resolve().parent
 SRC = TESTS.parent / "src"
 PORTABLE = (SRC / "earful" / "core", SRC / "earful" / "scripted")
+KERNEL = SRC / "earful" / "scripted" / "kernel"
 FORBIDDEN = ("livekit", "pipecat", "earful.livekit", "earful.pipecat")
 
 
@@ -52,6 +53,38 @@ def test_the_core_and_the_scripted_world_import_no_framework():
     assert not offenders, offenders
 
 
+def test_the_kernel_imports_no_concrete_party():
+    implementations = tuple(
+        f"earful.scripted.{name}" for name in ("model", "parties", "playbook", "voice", "world")
+    )
+    sources = sorted(KERNEL.rglob("*.py"))
+    assert KERNEL / "ports.py" in sources
+    offenders = [
+        f"{path.relative_to(SRC)}:{line} imports {name}"
+        for path in sources
+        for line, name in _imports(path)
+        if any(name == impl or name.startswith(impl + ".") for impl in implementations)
+    ]
+    assert not offenders, offenders
+
+
+def test_the_kernel_addresses_parties_without_naming_a_provider_kind():
+    """Catch a named port such as voice_quiet or a lookup such as parties['stt']."""
+    roles = {"stt", "vad", "llm", "model", "tts", "voice"}
+    offenders = []
+    for path in KERNEL.rglob("*.py"):
+        for node in ast.walk(ast.parse(path.read_text())):
+            for field, name in ast.iter_fields(node):
+                if (
+                    field in {"id", "arg", "attr", "name", "value"}
+                    and isinstance(name, str)
+                    and name.isidentifier()
+                    and roles.intersection(name.lower().split("_"))
+                ):
+                    offenders.append(f"{path.relative_to(SRC)}:{node.lineno} names {name}")
+    assert not offenders, offenders
+
+
 @pytest.mark.parametrize(("adapter", "other"), [("livekit", "pipecat"), ("pipecat", "livekit")])
 def test_an_adapter_imports_neither_the_other_adapter_nor_its_framework(adapter, other):
     """So a change to one adapter cannot change what the other does (scripts/ci_scope.py)."""
@@ -63,6 +96,141 @@ def test_an_adapter_imports_neither_the_other_adapter_nor_its_framework(adapter,
         for line, name in _imports(path)
         if any(name == f or name.startswith(f + ".") for f in (other, f"earful.{other}"))
     ]
+    assert not offenders, offenders
+
+
+def _own_private_members(cls):
+    members = set()
+    for stmt in cls.body:
+        if isinstance(stmt, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            members.add(stmt.name)
+        elif isinstance(stmt, ast.AnnAssign) and isinstance(stmt.target, ast.Name):
+            members.add(stmt.target.id)
+        elif isinstance(stmt, ast.Assign):
+            members.update(target.id for target in stmt.targets if isinstance(target, ast.Name))
+    members.update(
+        node.attr
+        for node in ast.walk(cls)
+        if isinstance(node, ast.Attribute)
+        and isinstance(node.ctx, ast.Store)
+        and isinstance(node.value, ast.Name)
+        and node.value.id == "self"
+    )
+    return members
+
+
+def _owned_accesses(tree):
+    """Recognize Earful's fields on their declaring class or a checked provider instance."""
+    classes = [node for node in ast.walk(tree) if isinstance(node, ast.ClassDef)]
+    members = {cls.name: _own_private_members(cls) for cls in classes}
+    owned = set()
+    for cls in classes:
+        for method in cls.body:
+            if not isinstance(method, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                continue
+            owners = {"self": cls.name, "cls": cls.name}
+            for arg in method.args.args:
+                if isinstance(arg.annotation, ast.Name) and arg.annotation.id in members:
+                    owners[arg.arg] = arg.annotation.id
+            for node in ast.walk(method):
+                match node:
+                    case ast.Assert(
+                        test=ast.Call(
+                            func=ast.Name(id="isinstance"),
+                            args=[ast.Name(id=receiver), ast.Name(id=owner)],
+                        )
+                    ) if owner in members:
+                        owners[receiver] = owner
+            for node in ast.walk(method):
+                if isinstance(node, ast.Attribute) and isinstance(node.value, ast.Name):
+                    owner = owners.get(node.value.id)
+                    if owner in members and node.attr in members[owner]:
+                        owned.add(node)
+    return owned
+
+
+@pytest.mark.parametrize("adapter", ["livekit", "pipecat"])
+def test_framework_private_access_and_attribute_defaults_live_in_seams(adapter):
+    folder = SRC / "earful" / adapter
+    offenders = []
+    for path in sorted(folder.rglob("*.py")):
+        if path == folder / "seams.py":
+            continue
+        tree = ast.parse(path.read_text())
+        owned = _owned_accesses(tree)
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Attribute):
+                if (
+                    node.attr.startswith("_")
+                    and not node.attr.startswith("__")
+                    and node not in owned
+                ):
+                    offenders.append((path.name, node.lineno, node.attr))
+            elif (
+                isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Name)
+                and node.func.id in {"getattr", "setattr", "hasattr"}
+                and len(node.args) >= 2
+            ):
+                name = node.args[1]
+                private = (
+                    isinstance(name, ast.Constant)
+                    and isinstance(name.value, str)
+                    and name.value.startswith("_")
+                    and not name.value.startswith("__")
+                )
+                if private or (node.func.id == "getattr" and len(node.args) == 3):
+                    offenders.append((path.name, node.lineno, ast.unparse(node)))
+    assert not offenders, offenders
+
+
+def test_core_only_imports_earful_core():
+    offenders = [
+        (path.relative_to(SRC), line, name)
+        for path in (SRC / "earful/core").rglob("*.py")
+        for line, name in _imports(path)
+        if name.startswith("earful.") and name.split(".")[1] != "core"
+    ]
+    assert not offenders, offenders
+
+
+def test_shared_code_reaches_adapters_through_their_entry_points():
+    root = SRC / "earful"
+    adapters = {"livekit", "pipecat"}
+    entry_points = {"Case", "RunResult", "Scenario", "ports"}
+    offenders = []
+    for path in root.rglob("*.py"):
+        if path.relative_to(root).parts[0] in adapters:
+            continue
+        for line, name in _imports(path):
+            parts = name.split(".")
+            if (
+                len(parts) > 2
+                and parts[0] == "earful"
+                and parts[1] in adapters
+                and (len(parts) > 3 or parts[2] not in entry_points)
+            ):
+                offenders.append((path.relative_to(root), line, name))
+    assert not offenders, offenders
+
+
+def test_each_module_fits_its_line_budget():
+    root = SRC / "earful"
+    budgets = {
+        "livekit/harness.py": 150,
+        "pipecat/harness.py": 150,
+        "scripted/kernel/run.py": 150,
+        "scripted/kernel/ports.py": 100,
+    }
+    offenders = []
+    for path in sorted(root.rglob("*.py")):
+        name = path.relative_to(root).as_posix()
+        if name in {"cli.py", "core/html.py"}:
+            continue
+        budget = budgets.get(name, 500)
+        lines = len(path.read_text().splitlines())
+        if lines > budget:
+            offenders.append(f"{name} has {lines} lines, budget {budget}")
     assert not offenders, offenders
 
 

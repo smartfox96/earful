@@ -36,6 +36,7 @@ from pipecat.turns.user_turn_strategies import UserTurnStrategies, UserTurnStrat
 
 from ..core.ledger import json_value
 from ..core.timebase import to_us
+from . import seams
 
 
 @dataclass(frozen=True)
@@ -142,16 +143,6 @@ def _shape(processor: FrameProcessor) -> Any:
     return {name: [_shape(p) for p in held]} if processor.processors else name
 
 
-def _setting(of: object, name: str) -> Any:
-    try:
-        return getattr(of, name)
-    except AttributeError:
-        raise ValueError(
-            f"this pipecat-ai release keeps {type(of).__name__}.{name} where Earful cannot "
-            "read it, so the run's header could not state it"
-        ) from None
-
-
 def _start(strategy: object) -> str:
     name = type(strategy).__name__
     if type(strategy) not in (VADUserTurnStartStrategy, TranscriptionUserTurnStartStrategy):
@@ -160,10 +151,10 @@ def _start(strategy: object) -> str:
             "VADUserTurnStartStrategy, and TranscriptionUserTurnStartStrategy with it if wanted"
         )
     changed = []
-    if not _setting(strategy, "_enable_interruptions"):
+    if not seams.interruptions_enabled(strategy):
         changed.append("enable_interruptions=False")
-    if isinstance(strategy, TranscriptionUserTurnStartStrategy) and not _setting(
-        strategy, "_use_interim"
+    if isinstance(strategy, TranscriptionUserTurnStartStrategy) and not seams.uses_interim(
+        strategy
     ):
         changed.append("use_interim=False")
     return f"{name}({', '.join(changed)})" if changed else name
@@ -173,8 +164,8 @@ def turns(
     user: LLMUserAggregator, user_speech_timeout: float, user_turn_stop_timeout: float
 ) -> dict[str, str]:
     """The user aggregator's turn strategies as the header names them, or ``ValueError``."""
-    params = _setting(user, "_params")
-    strategies = _setting(user, "_user_turn_controller").user_turn_strategies
+    params = seams.aggregator_params(user)
+    strategies = seams.turn_controller(user).user_turn_strategies
     if params.vad_analyzer is not None:
         raise ValueError(
             "a vad_analyzer hears audio in a thread: Earful scripts the VAD, which "
@@ -209,7 +200,7 @@ def turns(
             "model, which Earful does not script"
         )
     for name, held, declared in (
-        ("user_speech_timeout", _setting(stop[0], "_user_speech_timeout"), user_speech_timeout),
+        ("user_speech_timeout", seams.speech_timeout(stop[0]), user_speech_timeout),
         ("user_turn_stop_timeout", params.user_turn_stop_timeout, user_turn_stop_timeout),
     ):
         # The case's value is in its data and in the header, so the two have to agree.
@@ -288,14 +279,14 @@ def inspect(
             "the context aggregators have to be built on ends.context, the context bot returned"
         )
     options: dict[str, Any] = turns(user, user_speech_timeout, user_turn_stop_timeout)
-    kept = _setting(assistant, "_params")
-    if getattr(kept, _SUMMARIES, False):
+    kept = seams.aggregator_params(assistant)
+    if seams.summaries_enabled(kept):
         raise ValueError(
             f"{_SUMMARIES} summarizes the context with a model call of its own, which "
             "Earful does not script"
         )
     if own:
         options["pipeline"] = [_shape(processor) for processor in top]
-        options.update(_further(_setting(user, "_params"), {"empty_user_turn": None}))
+        options.update(_further(seams.aggregator_params(user), {"empty_user_turn": None}))
         options.update(_further(kept, {}, "assistant_"))
     return Plan([built] if isinstance(built, Pipeline) else top, user, assistant, options)

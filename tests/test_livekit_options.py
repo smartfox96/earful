@@ -1,6 +1,7 @@
 """What a run on LiveKit models of the session's and the agent's options, and what it refuses."""
 
 import re
+from dataclasses import asdict, fields
 
 import pytest
 
@@ -24,6 +25,39 @@ def _case(agent=lambda: lk.Agent(instructions="t"), **fields):
 
 def _session(result):
     return result.ledger.events[0]["data"]["scenario"]["session"]
+
+
+def test_run_calls_the_cases_own_check_with_its_seed():
+    class CheckedCase(Case):
+        def check(self, seed=0):
+            raise ValueError(f"application refused seed {seed}")
+
+    case = CheckedCase(**vars(_case()))
+    with pytest.raises(ValueError, match="application refused seed 19"):
+        run_case(case, seed=19)
+
+
+def test_run_result_preserves_field_order_in_repr_and_asdict():
+    result = run_case(_case())
+    names = [
+        "case",
+        "seed",
+        "ledger",
+        "hash",
+        "versions",
+        "clock",
+        "stamp_errors",
+        "executor_calls",
+        "underruns",
+        "harness_errors",
+        "framework_warnings",
+        "invalid",
+    ]
+    assert [field.name for field in fields(result)] == names
+    assert list(asdict(result)) == names
+    shown = repr(result)
+    positions = [shown.index(f"{name}=") for name in names]
+    assert positions == sorted(positions)
 
 
 def test_every_option_of_the_installed_release_is_modelled_or_refused():

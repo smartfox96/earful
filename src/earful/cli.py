@@ -472,10 +472,8 @@ def _init(args: argparse.Namespace) -> int:
     named = _named(args.agent)
     bot = named is not None and not inspect.isclass(named) and callable(named)
     try:
-        if bot:
-            from .pipecat.scaffold import scaffold
-        else:
-            from .livekit.scaffold import scaffold
+        framework = "pipecat-ai" if bot else "livekit-agents"
+        scaffold = _adapters.by_framework(framework).ports.scaffold
     except ImportError as exc:
         if bot:
             raise Refused(

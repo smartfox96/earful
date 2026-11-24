@@ -21,14 +21,21 @@ from .core.ledger import write_jsonl
 if TYPE_CHECKING:
     from .core.predicate import Predicate
     from .core.search import Exploration, Plan
-    from .livekit.harness import RunResult as LiveKitResult
-    from .livekit.scenario import Scenario as LiveKitScenario
-    from .livekit.scenario import Source as LiveKitSource
-    from .pipecat.harness import RunResult as PipecatResult
-    from .pipecat.scenario import Scenario as PipecatScenario
-    from .pipecat.scenario import Source as PipecatSource
+    from .livekit import Case as LiveKitCase
+    from .livekit import RunResult as LiveKitResult
+    from .livekit import Scenario as LiveKitScenario
+    from .pipecat import Case as PipecatCase
+    from .pipecat import RunResult as PipecatResult
+    from .pipecat import Scenario as PipecatScenario
 
-    Source = LiveKitSource | PipecatSource | LiveKitScenario | PipecatScenario
+    Source = (
+        str
+        | LiveKitCase
+        | PipecatCase
+        | Callable[[], LiveKitCase | PipecatCase]
+        | LiveKitScenario
+        | PipecatScenario
+    )
 
 _KEY = pytest.StashKey["Earful"]()
 

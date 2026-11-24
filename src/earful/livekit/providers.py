@@ -3,13 +3,8 @@ Authors give times in seconds; the providers compute in integer microseconds."""
 
 from __future__ import annotations
 
-import asyncio
-import contextlib
 import dataclasses
-import functools
-from collections.abc import Callable, Coroutine
-from contextvars import ContextVar, Token
-from typing import Any, NoReturn, ParamSpec, TypeVar
+from typing import Any, NoReturn
 
 from livekit import rtc
 from livekit.agents import llm as lk_llm
@@ -21,71 +16,24 @@ from livekit.agents import vad as lk_vad
 from ..core.ledger import Ledger
 from ..core.timebase import to_seconds, to_us
 from ..scripted.clock import now_us
-from ..scripted.model import Claim, Policy, Reply, ReplyRegister, ToolCall, _words, misfit
+from ..scripted.model import Claim, Policy, Reply, ReplyRegister, ToolCall, misfit
+from ..scripted.parties.activity import Activity
+from ..scripted.parties.model import claim_spans, fragments, identified_calls, reply_for
+from ..scripted.parties.stt import Recognition
+from ..scripted.parties.vad import detections
+from ..scripted.parties.voice import Synthesis as _Synthesis
+from ..scripted.provider_errors import (
+    record_errors_in,
+    scripted,
+    scripted_call,
+    stop_recording_errors,
+)
 from ..scripted.voice import SHORTEST, StampTable, letters
 from ..scripted.world import UserSpeech, WorldOrigin, _check_speeches, vad_segments
 from ..scripted.world import sleep_until as _sleep_until
-from ._compat import DEFAULT_API_CONNECT_OPTIONS, APIConnectOptions
+from . import seams
+from .seams import DEFAULT_API_CONNECT_OPTIONS, APIConnectOptions, summarize_item
 from .tools import unwitnessed
-
-P = ParamSpec("P")
-R = TypeVar("R")
-
-# The harness errors of the run in progress. Tasks the framework starts inherit it.
-_errors: ContextVar[list[str] | None] = ContextVar("earful_harness_errors", default=None)
-
-
-def record_errors_in(errors: list[str] | None) -> Token[list[str] | None]:
-    """Record what Earful's own providers raise from here on in ``errors``."""
-    return _errors.set(errors)
-
-
-def stop_recording_errors(token: Token[list[str] | None]) -> None:
-    _errors.reset(token)
-
-
-def _record(what: str, exc: Exception) -> None:
-    errors, said = _errors.get(), f"{type(exc).__name__}: {exc}"
-    # A policy that raised is already there, recorded by the scripted model.
-    if errors is not None and not (errors and errors[-1].endswith(said)):
-        errors.append(f"the scripted {what} raised {said}")
-
-
-def scripted(
-    what: str,
-) -> Callable[[Callable[P, Coroutine[Any, Any, R]]], Callable[P, Coroutine[Any, Any, R]]]:
-    """The framework handles what a provider raises as that provider failing. In Earful's
-    own providers it is a broken simulation, so it is recorded as a harness error first."""
-
-    def guard(run: Callable[P, Coroutine[Any, Any, R]]) -> Callable[P, Coroutine[Any, Any, R]]:
-        @functools.wraps(run)
-        async def guarded(*args: P.args, **kwargs: P.kwargs) -> R:
-            try:
-                return await run(*args, **kwargs)
-            except Exception as exc:
-                _record(what, exc)
-                raise
-
-        return guarded
-
-    return guard
-
-
-def scripted_call(what: str) -> Callable[[Callable[P, R]], Callable[P, R]]:
-    """``scripted`` for a method that is not a coroutine."""
-
-    def guard(call: Callable[P, R]) -> Callable[P, R]:
-        @functools.wraps(call)
-        def guarded(*args: P.args, **kwargs: P.kwargs) -> R:
-            try:
-                return call(*args, **kwargs)
-            except Exception as exc:
-                _record(what, exc)
-                raise
-
-        return guarded
-
-    return guard
 
 
 class ScriptedVAD(lk_vad.VAD):
@@ -124,13 +72,13 @@ _VAD_EVENT_FIELDS = {f.name for f in dataclasses.fields(lk_vad.VADEvent)}
 class _ScriptedVADStream(lk_vad.VADStream):
     @scripted("VAD")
     async def _main_task(self) -> None:
-        vad = self._vad
+        vad = seams.vad_of(self)
         assert isinstance(vad, ScriptedVAD)
         if not vad._speeches:
             return
         vad._streams += 1
         if vad._streams == 1:  # the scripted user's clock starts at the first audio frame
-            async for frame in self._input_ch:
+            async for frame in seams.stream_input(self):
                 if isinstance(frame, rtc.AudioFrame):
                     break
             else:
@@ -139,35 +87,29 @@ class _ScriptedVADStream(lk_vad.VADStream):
         assert vad._origin.t0_us is not None
         t0 = vad._origin.t0_us
         opened = now_us() - t0
-        for number, segment in enumerate(vad_segments(vad._speeches, vad._min_silence_us)):
-            # A stream hears only what is said after it opens, as a detector would.
-            spans = [
-                (max(vad._speeches[i].start_us, opened), vad._speeches[i].end_us)
-                for i in segment
-                if vad._speeches[i].end_us > opened
-            ]
-            if number in vad._ends or not spans:
-                continue
-            start_us, end_us = spans[0][0], spans[-1][1]
-            await _sleep_until(t0, start_us + vad._min_speech_us)
-            self._emit(lk_vad.VADEventType.START_OF_SPEECH, spans, now_us() - t0)
-            if number not in vad._starts:
-                vad._starts.add(number)
-                vad._ledger.append("world", "user.vad_start", speech=segment[0])
-
-            end_at = end_us + vad._min_silence_us
-            tick = start_us + 2 * vad._min_speech_us
-            while tick < end_at:
-                await _sleep_until(t0, tick)
-                self._emit(lk_vad.VADEventType.INFERENCE_DONE, spans, now_us() - t0)
-                tick += vad._min_speech_us
-
-            await _sleep_until(t0, end_at)
-            self._emit(lk_vad.VADEventType.END_OF_SPEECH, spans, now_us() - t0)
-            vad._ends.add(number)
-            vad._ledger.append("world", "user.vad_end", speech=segment[-1])
-
-        async for _ in self._input_ch:
+        events = detections(
+            vad._speeches,
+            vad._min_speech_us,
+            vad._min_silence_us,
+            opened=opened,
+            ended=vad._ends,
+            ticks=True,
+        )
+        kinds = {
+            "start": lk_vad.VADEventType.START_OF_SPEECH,
+            "inference": lk_vad.VADEventType.INFERENCE_DONE,
+            "end": lk_vad.VADEventType.END_OF_SPEECH,
+        }
+        for event in events:
+            await _sleep_until(t0, event.at_us)
+            self._emit(kinds[event.kind], event.spans, now_us() - t0)
+            if event.kind == "start" and event.segment not in vad._starts:
+                vad._starts.add(event.segment)
+                vad._ledger.append("world", "user.vad_start", speech=event.speech)
+            if event.kind == "end":
+                vad._ends.add(event.segment)
+                vad._ledger.append("world", "user.vad_end", speech=event.speech)
+        async for _ in seams.stream_input(self):
             pass
 
     def _emit(self, type: lk_vad.VADEventType, spans: list[tuple[int, int]], at_us: int) -> None:
@@ -188,17 +130,7 @@ class _ScriptedVADStream(lk_vad.VADStream):
             "speaking": not ended,
         }
         kwargs = {k: v for k, v in values.items() if k in _VAD_EVENT_FIELDS}
-        self._event_ch.send_nowait(lk_vad.VADEvent(**kwargs))
-
-
-def _speech_data(text: str) -> lk_stt.SpeechData:
-    language: Any = ""
-    code = getattr(lk_stt, "LanguageCode", None) or getattr(
-        __import__("livekit.agents", fromlist=["LanguageCode"]), "LanguageCode", None
-    )
-    if code is not None:
-        language = code("")
-    return lk_stt.SpeechData(text=text, language=language)
+        seams.send_event(self, lk_vad.VADEvent(**kwargs))
 
 
 # The type argument names a provider's extra events: none here (NoReturn is 3.10's Never).
@@ -208,10 +140,9 @@ class ScriptedSTT(lk_stt.STT[NoReturn]):
         super().__init__(capabilities=lk_stt.STTCapabilities(streaming=True, interim_results=True))
         self._ledger = ledger
         self._origin = origin
-        self._speeches = _check_speeches(speeches)
-        self.done: asyncio.Future[None] = asyncio.get_running_loop().create_future()
-        if not self._speeches:
-            self.done.set_result(None)
+        self.script = Recognition(_check_speeches(speeches), chronological=False)
+        if not speeches:
+            self.script.finish()
 
     async def _recognize_impl(self, buffer: Any, **kwargs: Any) -> lk_stt.SpeechEvent:
         raise NotImplementedError("ScriptedSTT only supports streaming recognition")
@@ -228,39 +159,30 @@ class ScriptedSTT(lk_stt.STT[NoReturn]):
 class _ScriptedRecognizeStream(lk_stt.RecognizeStream):
     @scripted("recognizer")
     async def _run(self) -> None:
-        stt = self._stt
+        stt = seams.recognizer_of(self)
         assert isinstance(stt, ScriptedSTT)
-        if stt._speeches and not stt.done.done():
+        if not stt.script.quiet():
             try:
                 await self._script(stt)
             except Exception:
                 # The scenario ends on the last transcript: a run must not wait for it now.
-                with contextlib.suppress(asyncio.InvalidStateError):
-                    stt.done.set_result(None)
+                stt.script.finish()
                 raise
 
-        async for _ in self._input_ch:
+        async for _ in seams.stream_input(self):
             pass
 
     async def _script(self, stt: ScriptedSTT) -> None:
-        await self._input_ch.recv()  # clock starts at the first audio frame
+        await seams.stream_input(self).recv()  # clock starts at the first audio frame
         t0 = now_us()
         stt._origin.mark("stt", t0)
-        for i, speech in enumerate(stt._speeches):
-            final_at = speech.end_us + speech.stt_delay_us
-            if speech.transcript:
-                await _sleep_until(t0, speech.end_us + speech.stt_delay_us // 2)
-                interim = " ".join(speech.transcript.split()[:2])
-                self._send(interim, final=False)
-                await _sleep_until(t0, final_at)
-                self._send(speech.transcript, final=True)
-                stt._ledger.append(
-                    "world", "user.transcript_final", speech=i, text=speech.transcript
-                )
-            else:
-                await _sleep_until(t0, final_at)
-        with contextlib.suppress(asyncio.InvalidStateError):
-            stt.done.set_result(None)
+        async for event in stt.script.events(t0):
+            if event.text:
+                self._send(event.text, final=event.final)
+                if event.final:
+                    stt._ledger.append(
+                        "world", "user.transcript_final", speech=event.speech, text=event.text
+                    )
 
     def _send(self, text: str, *, final: bool) -> None:
         kind = (
@@ -268,26 +190,9 @@ class _ScriptedRecognizeStream(lk_stt.RecognizeStream):
             if final
             else lk_stt.SpeechEventType.INTERIM_TRANSCRIPT
         )
-        self._event_ch.send_nowait(lk_stt.SpeechEvent(type=kind, alternatives=[_speech_data(text)]))
-
-
-def summarize_item(item: Any) -> dict[str, Any]:
-    """A chat-context item reduced to the fields contracts care about."""
-    out: dict[str, Any] = {"type": item.type, "id": getattr(item, "id", None)}
-    if item.type == "message":
-        out["role"] = item.role
-        out["text"] = item.text_content
-        out["interrupted"] = bool(getattr(item, "interrupted", False))
-    elif item.type == "function_call":
-        out["name"] = item.name
-        out["arguments"] = item.arguments
-        out["call_id"] = item.call_id
-    elif item.type == "function_call_output":
-        out["name"] = getattr(item, "name", None)
-        out["output"] = item.output
-        out["call_id"] = item.call_id
-        out["is_error"] = bool(getattr(item, "is_error", False))
-    return out
+        seams.send_event(
+            self, lk_stt.SpeechEvent(type=kind, alternatives=[seams.speech_data(text)])
+        )
 
 
 def starting_history(items: list[Any]) -> list[dict[str, Any]]:
@@ -316,6 +221,7 @@ class ScriptedLLM(lk_llm.LLM[NoReturn]):
         self._ttft_us, self._duration_us = dict(ttft_us or {}), dict(duration_us or {})
         self._calls = 0
         self._call_ids: set[str] = set()
+        self.activity = Activity()
         self.register = ReplyRegister()
 
     def chat(
@@ -385,7 +291,7 @@ class _ScriptedLLMStream(lk_llm.LLMStream):
 
     @scripted("model")
     async def _run(self) -> None:
-        model = self._llm
+        model = seams.model_of(self)
         assert isinstance(model, ScriptedLLM)
         model._calls += 1
         call = model._calls
@@ -395,86 +301,45 @@ class _ScriptedLLMStream(lk_llm.LLMStream):
         missed = unwitnessed(list(self.tools))
         if missed:
             model._errors.append(f"call {call}: the model is offered {missed} without the witness")
-        try:
-            reply = model._policy(items)
-            reply.check_timing()
-        except Exception as exc:
-            # The framework would handle this as a model failure. It is a broken scenario.
-            model._errors.append(f"policy raised on call {call}: {type(exc).__name__}: {exc}")
-            raise
+        reply = reply_for(model._policy, items, model._errors, call)
         model._errors += [f"call {call}: {wrong}" for wrong in _unfit(self.tools, reply.tool_calls)]
         unserved = _unserved(*self.asked, reply.tool_calls)
         if unserved is not None:
             model._errors.append(f"call {call}: {unserved}")
-        words = _words(reply.text)
-        claims = []
-        for claim in reply.claims:
-            last = len(words) - 1 if claim.last_word is None else claim.last_word
-            if not 0 <= claim.first_word <= last < len(words):
-                model._errors.append(
-                    f"call {call}: claim {claim} does not fit reply {reply.text!r}"
-                )
-                continue
-            claims.append(
-                {"intent": claim.intent, "first_word": claim.first_word, "last_word": last}
-            )
-        call_ids = [
-            t.call_id if t.call_id is not None else f"call-{call}-{n}"
-            for n, t in enumerate(reply.tool_calls, 1)
-        ]
-        tool_calls = [
-            t if t.call_id is not None else dataclasses.replace(t, call_id=call_id)
-            for t, call_id in zip(reply.tool_calls, call_ids)
-        ]
-        for call_id in call_ids:
-            # A call id links a tool invocation to its result; a model never repeats one.
-            if call_id in model._call_ids:
-                model._errors.append(f"call {call}: the policy reused tool call id {call_id!r}")
-            model._call_ids.add(call_id)
-        ttft_us = model._ttft_us.get(call, to_us(reply.ttft))
-        # Generation cannot end before its first token.
-        duration_us = max(model._duration_us.get(call, to_us(reply.duration)), ttft_us)
-        model._ledger.append(
-            "llm",
-            "llm.response",
-            call=call,
-            text=reply.text,
-            tool_calls=[dataclasses.asdict(t) for t in tool_calls],
-            claims=claims,
-            ttft_us=ttft_us,
-            duration_us=duration_us,
-        )
-
-        t0 = now_us()
-        await _sleep_until(t0, ttft_us)
-        # A text can be this reply only from its first token on.
-        if words:
-            model.register.replies[call] = words
-        step = 3
-        chunks = range(0, len(reply.text), step)
-        for n, i in enumerate(chunks):
-            # Absolute integer deadlines avoid accumulating float rounding or scheduler lag.
-            at_us = ttft_us + (duration_us - ttft_us) * n // max(len(chunks) - 1, 1)
-            await _sleep_until(t0, at_us)
-            self._chunk(call, content=reply.text[i : i + step])
-        await _sleep_until(t0, duration_us)
+        claims = claim_spans(reply, call, model._errors)
+        tool_calls = list(identified_calls(call, reply.tool_calls, model._call_ids, model._errors))
+        with model.activity.working():
+            async for text in fragments(
+                model._ledger,
+                call,
+                reply,
+                tool_calls,
+                claims,
+                model._ttft_us,
+                model._duration_us,
+                model.register,
+            ):
+                self._chunk(call, content=text)
         if tool_calls:
             self._chunk(
                 call,
                 tool_calls=[
-                    lk_llm.FunctionToolCall(name=t.name, arguments=t.arguments, call_id=call_id)
-                    for t, call_id in zip(tool_calls, call_ids)
+                    lk_llm.FunctionToolCall(
+                        name=t.name, arguments=t.arguments, call_id=t.call_id or ""
+                    )
+                    for t in tool_calls
                 ],
             )
 
     def _chunk(self, call: int, *, content: str | None = None, tool_calls: Any = None) -> None:
-        self._event_ch.send_nowait(
+        seams.send_event(
+            self,
             lk_llm.ChatChunk(
                 id=f"scripted-llm-{call}",
                 delta=lk_llm.ChoiceDelta(
                     role="assistant", content=content, tool_calls=tool_calls or []
                 ),
-            )
+            ),
         )
 
 
@@ -506,6 +371,7 @@ class StampedTTS(lk_tts.TTS[NoReturn]):
         if (sample_rate * self._letter_us + 500_000) // 1_000_000 < SHORTEST:
             raise ValueError(f"seconds_per_letter is shorter than {SHORTEST} audio samples")
         self._utterances = 0
+        self.activity = Activity()
         self.table = StampTable(sample_rate=sample_rate)
 
     def synthesize(
@@ -518,46 +384,14 @@ class StampedTTS(lk_tts.TTS[NoReturn]):
 
     def _begin(self) -> _Synthesis:
         self._utterances += 1
-        return _Synthesis(self, self._utterances)
-
-
-class _Synthesis:
-    # One utterance, recorded once at its end. Only replies known at its start are eligible.
-    def __init__(self, tts: StampedTTS, utterance: int) -> None:
-        self.tts, self.utterance = tts, utterance
-        self.started_us = tts._ledger.now_us()
-        self.t0_us = now_us()
-        self.ttfb_us = tts._ttfb_by_utterance.get(utterance, tts._ttfb_us)
-        self.eligible = set(tts._register.replies)
-        self.words: list[str] = []
-        self.stamps: list[int] = []
-        self.word_samples: list[int] = []
-
-    def render(self, word: str) -> bytes:
-        tts = self.tts
-        samples = (tts.sample_rate * letters(word) * tts._letter_us + 500_000) // 1_000_000
-        stamp = tts.table.add(self.utterance, len(self.words), word, samples)
-        self.words.append(word)
-        self.stamps.append(stamp)
-        self.word_samples.append(samples)
-        return tts.table.audio(stamp).tobytes()
-
-    def finish(self) -> None:
-        text = " ".join(self.words)
-        call, attribution, candidates = self.tts._register.attribute(text, eligible=self.eligible)
-        self.tts._ledger.append(
-            "world",
-            "tts.synthesized",
-            utterance=self.utterance,
-            call=call,
-            attribution=attribution,
-            candidates=candidates,
-            text=text,
-            stamps=self.stamps,
-            word_samples=self.word_samples,
-            sample_rate=self.tts.sample_rate,
-            ttfb_us=self.ttfb_us,
-            started_us=self.started_us,
+        return _Synthesis(
+            self._utterances,
+            self._ledger,
+            self.table,
+            self._register,
+            self.sample_rate,
+            self._letter_us,
+            self._ttfb_by_utterance.get(self._utterances, self._ttfb_us),
         )
 
 
@@ -570,7 +404,7 @@ def _push_pcm(emitter: Any, pcm: bytes, sample_rate: int) -> None:
 class _StampedChunkedStream(lk_tts.ChunkedStream):
     @scripted("voice")
     async def _run(self, output_emitter: Any) -> None:
-        tts = self._tts
+        tts = seams.voice_of(self)
         assert isinstance(tts, StampedTTS)
         output_emitter.initialize(
             request_id=utils.shortuuid("earful_tts_"),
@@ -578,21 +412,22 @@ class _StampedChunkedStream(lk_tts.ChunkedStream):
             num_channels=1,
             mime_type="audio/pcm",
         )
-        synthesis = tts._begin()
-        try:
-            pcm = b"".join(synthesis.render(word) for word in self._input_text.split())
-            if pcm:
-                await _sleep_until(synthesis.t0_us, synthesis.ttfb_us)
-                _push_pcm(output_emitter, pcm, tts.sample_rate)
-            output_emitter.flush()
-        finally:
-            synthesis.finish()
+        with tts.activity.working():
+            synthesis = tts._begin()
+            try:
+                pcm = b"".join(synthesis.render(word) for word in seams.input_text(self).split())
+                if pcm:
+                    await _sleep_until(synthesis.t0_us, synthesis.ttfb_us)
+                    _push_pcm(output_emitter, pcm, tts.sample_rate)
+                output_emitter.flush()
+            finally:
+                synthesis.finish()
 
 
 class _StampedSynthesizeStream(lk_tts.SynthesizeStream):
     @scripted("voice")
     async def _run(self, output_emitter: Any) -> None:
-        tts = self._tts
+        tts = seams.voice_of(self)
         assert isinstance(tts, StampedTTS)
         output_emitter.initialize(
             request_id=utils.shortuuid("earful_tts_"),
@@ -601,40 +436,40 @@ class _StampedSynthesizeStream(lk_tts.SynthesizeStream):
             mime_type="audio/pcm",
             stream=True,
         )
-        pending = ""
-        synthesis: _Synthesis | None = None
+        with tts.activity.working():
+            pending = ""
+            synthesis: _Synthesis | None = None
 
-        async def push(words: list[str]) -> None:
-            nonlocal synthesis
-            for word in words:
-                first = synthesis is None
-                if synthesis is None:
-                    synthesis = tts._begin()
-                    if "_mark_started" in dir(self):
-                        self._mark_started()
-                pcm = synthesis.render(word)
-                if first:
-                    await _sleep_until(synthesis.t0_us, synthesis.ttfb_us)
-                    output_emitter.start_segment(segment_id=utils.shortuuid("earful_segment_"))
-                _push_pcm(output_emitter, pcm, tts.sample_rate)
+            async def push(words: list[str]) -> None:
+                nonlocal synthesis
+                for word in words:
+                    first = synthesis is None
+                    if synthesis is None:
+                        synthesis = tts._begin()
+                        seams.mark_started(self)
+                    pcm = synthesis.render(word)
+                    if first:
+                        await _sleep_until(synthesis.t0_us, synthesis.ttfb_us)
+                        output_emitter.start_segment(segment_id=utils.shortuuid("earful_segment_"))
+                    _push_pcm(output_emitter, pcm, tts.sample_rate)
 
-        try:
-            async for data in self._input_ch:
-                if isinstance(data, str):
-                    pending += data
-                    words = pending.split()
-                    pending = words.pop() if words and not pending[-1].isspace() else ""
-                    await push(words)
-                else:
-                    await push(pending.split())
-                    pending = ""
-                    if synthesis is not None:
-                        synthesis.finish()
-                        synthesis = None
-                        output_emitter.end_segment()
-        finally:
-            if synthesis is not None:
-                synthesis.finish()
+            try:
+                async for data in seams.stream_input(self):
+                    if isinstance(data, str):
+                        pending += data
+                        words = pending.split()
+                        pending = words.pop() if words and not pending[-1].isspace() else ""
+                        await push(words)
+                    else:
+                        await push(pending.split())
+                        pending = ""
+                        if synthesis is not None:
+                            synthesis.finish()
+                            synthesis = None
+                            output_emitter.end_segment()
+            finally:
+                if synthesis is not None:
+                    synthesis.finish()
 
 
 __all__ = [
@@ -651,6 +486,10 @@ __all__ = [
     "UserSpeech",
     "WorldOrigin",
     "letters",
+    "record_errors_in",
+    "scripted",
+    "scripted_call",
+    "stop_recording_errors",
     "summarize_item",
     "vad_segments",
 ]

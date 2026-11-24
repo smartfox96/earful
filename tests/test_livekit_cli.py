@@ -319,7 +319,7 @@ def test_a_scenario_whose_own_code_raises_during_a_run_is_refused_in_one_line(
 def test_what_earful_itself_raises_during_a_run_is_not_made_a_refusal(crashes, monkeypatch):
     with pytest.raises(TypeError, match="NoneType"):  # under the scenario's code, in Earful's
         main(["run", "crashes:misuses_earful"])
-    monkeypatch.setattr("earful.livekit.harness.validity", None)  # no code of the scenario's
+    monkeypatch.setattr("earful.scripted.kernel.run.validity", None)  # no code of the scenario's
     with pytest.raises(TypeError, match="not callable"):
         main(["run", "earful.livekit.cases:barge_in_mid_word"])
 

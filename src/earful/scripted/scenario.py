@@ -17,11 +17,11 @@ from typing import Any, TypeVar
 from ..core import case as case_format
 from ..core.search import CaseRefused
 from ..core.timebase import seconds, to_seconds, to_us
-from .case import CaseData, Delay, Fault, check_case
+from .case import Case, Delay, Fault, check_case
 from .releases import SUPPORT, quiet_worker
 from .world import UserSpeech
 
-CaseT = TypeVar("CaseT", bound=CaseData)
+CaseT = TypeVar("CaseT", bound=Case)
 
 INLINE = "__inline__:case"
 # The package that provides each framework's top-level module.
@@ -136,7 +136,7 @@ def _check_settings(
 
 
 def describe(
-    case: CaseData,
+    case: Case,
     scenario: str,
     seed: int,
     times: dict[str, str],
@@ -144,6 +144,7 @@ def describe(
 ) -> dict[str, Any]:
     """The data of ``case``, as earful.case/1, naming ``scenario`` as its code."""
     check_case(case)
+    ordered = sorted(case.speeches, key=lambda s: s.start)
     data: dict[str, Any] = {
         "schema": case_format.SCHEMA,
         "schema_minor": case_format.SCHEMA_MINOR,
@@ -159,7 +160,7 @@ def describe(
                 "backchannel": speech.backchannel,
                 "retires": list(speech.retires),
             }
-            for speech in sorted(case.speeches, key=lambda s: s.start)
+            for speech in ordered
         ],
         "hangup_us": None if case.hangup is None else to_us(case.hangup),
         "delays": [
@@ -180,7 +181,7 @@ def describe(
         },
         "contracts": copy.deepcopy(case.contracts),
     }
-    if errors := case_format.validate(data):
+    if errors := case_format.schema_errors(data):
         raise CaseRefused("not an earful.case/1 document: " + "; ".join(errors))
     _check_settings(data["settings"], times, plain)
     return data

@@ -20,6 +20,7 @@ from ..scripted.scaffold import (
     placeholder,
     tests_lines,
 )
+from . import seams
 
 _REFERENCE = re.compile(r"^[A-Za-z_][A-Za-z0-9_.]*:[A-Za-z_][A-Za-z0-9_]*$")
 
@@ -74,7 +75,7 @@ def _functions(bot: Any, needs: list[inspect.Parameter]) -> dict[str, dict[str, 
             "the bot to read the functions it registers"
         ) from exc
     found: dict[str, dict[str, Any] | None] = {}
-    tools = getattr(context, "tools", None)
+    tools = seams.advertised_tools(context)
     for schema in tools.standard_tools if isinstance(tools, ToolsSchema) else []:
         if isinstance(schema, FunctionSchema):
             found[schema.name] = {
@@ -82,10 +83,8 @@ def _functions(bot: Any, needs: list[inspect.Parameter]) -> dict[str, dict[str, 
                 "properties": schema.properties,
                 "required": schema.required,
             }
-    cancel: set[str] = getattr(reader, "_cancel_tool_names", set())
-    for name in getattr(reader, "_functions", {}):
-        if name is not None and name not in cancel:
-            found.setdefault(name, None)
+    for name in seams.declared_functions(reader):
+        found.setdefault(name, None)
     return dict(sorted(found.items()))
 
 
