@@ -96,7 +96,7 @@ MUTANTS = [
     ),
     Mutant(
         "case: a shared session keeps its previous orders",
-        "src/earful/livekit/harness.py",
+        "src/earful/livekit/config.py",
         'kwargs["userdata"] = copy.deepcopy(kwargs["userdata"])',
         "pass",
         first="test_variation",
@@ -187,7 +187,7 @@ MUTANTS = [
     ),
     Mutant(
         "pipecat: a function that exits produces a verdict",
-        "src/earful/pipecat/harness.py",
+        "src/earful/pipecat/ports.py",
         "if s.witness.refusal is not None:",
         "if False:",
         first="a_pipecat_function_that_exits",
@@ -222,14 +222,14 @@ MUTANTS = [
     ),
     Mutant(
         "pipecat: a bot may omit its context",
-        "src/earful/pipecat/harness.py",
+        "src/earful/pipecat/worker.py",
         "if not isinstance(context, LLMContext):",
         "if False:",
         first="test_shape",
     ),
     Mutant(
         "pipecat: repeated processor errors are counted again",
-        "src/earful/pipecat/harness.py",
+        "src/earful/pipecat/worker.py",
         "if message not in errors:",
         "if True:",
         first="test_a_repeated_processor_error_is_reported_once",
@@ -1790,7 +1790,7 @@ MUTANTS = [
     ),
     Mutant(
         "harness: declared delays ignored",
-        "src/earful/livekit/harness.py",
+        "src/earful/scripted/kernel/run.py",
         "        return {delay.nth: to_us(delay.seconds) for delay in case.delays if delay.of == of}\n",
         "        return {}\n",
         first="test_l1_budgets_a_reply_with_the_delays_declared_for_it",
@@ -2051,14 +2051,14 @@ MUTANTS = [
     ),
     Mutant(
         "pipecat: the header says a turn ends after the longer of its two waits",
-        "src/earful/pipecat/harness.py",
+        "src/earful/pipecat/config.py",
         '            "turn_end_delay_us": to_us(case.vad_stop_secs) + to_us(case.user_speech_timeout),\n',
         '            "turn_end_delay_us": max(to_us(case.vad_stop_secs), to_us(case.user_speech_timeout)),\n',
         first="pipecat_the_turn_ends_where_the_header_says",
     ),
     Mutant(
         "livekit: the header says a turn ends after both of its waits in a row",
-        "src/earful/livekit/harness.py",
+        "src/earful/livekit/config.py",
         '            "turn_end_delay_us": max(\n                to_us(case.vad_min_silence), to_us(case.min_endpointing_delay)\n            ),\n',
         '            "turn_end_delay_us": to_us(case.vad_min_silence) + to_us(case.min_endpointing_delay),\n',
         first="test_the_turn_ends_where_the_header_says",
@@ -2142,13 +2142,9 @@ MUTANTS = [
     ),
     Mutant(
         "harness: faults do not reach the backend",
-        "src/earful/livekit/harness.py",
-        (
-            "        faults={\n"
-            "            f.nth: (f.of, None if f.seconds is None else to_us(f.seconds)) for f in case.faults\n"
-            "        },\n"
-        ),
-        "        faults={},\n",
+        "src/earful/scripted/kernel/run.py",
+        ("for f in case.faults"),
+        "for f in []",
         first="test_run_exits_1_when_the_scenario_breaks_a_rule_as_it_does_from_a_saved_case",
     ),
     Mutant(
@@ -2220,14 +2216,14 @@ MUTANTS = [
     ),
     Mutant(
         "harness: the session is not closed at the hangup",
-        "src/earful/livekit/harness.py",
+        "src/earful/livekit/ports.py",
         "    closing = asyncio.ensure_future(session.aclose())\n",
         "    closing = asyncio.ensure_future(asyncio.sleep(0))\n",
         first="test_m1_fails_when_the_output_plays_on_after_the_user_has_left",
     ),
     Mutant(
         "harness: the header does not state the hangup",
-        "src/earful/livekit/harness.py",
+        "src/earful/livekit/config.py",
         (
             '        "hangup_us": None if case.hangup is None else to_us(case.hangup),\n'
             '        "intents": ['
@@ -2244,7 +2240,7 @@ MUTANTS = [
     ),
     Mutant(
         "harness: the history is read before the session has closed",
-        "src/earful/livekit/harness.py",
+        "src/earful/livekit/ports.py",
         (
             "    done, _ = await asyncio.wait({closing}, timeout=case.drain_timeout)\n"
             "    if not done:\n"
@@ -2462,7 +2458,7 @@ MUTANTS = [
     ),
     Mutant(
         "harness: a close that raises is swallowed",
-        "src/earful/livekit/harness.py",
+        "src/earful/livekit/ports.py",
         "        closing.result()  # a close that raises is the run's error, as at the end of a scenario\n",
         "        pass\n",
         first="a_close_that_raises_at_the_hangup",
@@ -2498,9 +2494,9 @@ MUTANTS = [
     ),
     Mutant(
         "harness: a run with an unpatched clock is valid",
-        "src/earful/livekit/harness.py",
-        "    if virtual:\n        harness_errors += [\n",
-        "    if False:\n        harness_errors += [\n",
+        "src/earful/scripted/kernel/run.py",
+        "patch_report().unpatched if on_virtual_clock else ()",
+        "()",
         first="cannot_be_patched",
     ),
     Mutant(
@@ -2652,16 +2648,16 @@ MUTANTS = [
     ),
     Mutant(
         "harness: a real-clock run makes its coroutine before it can be refused",
-        "src/earful/livekit/harness.py",
-        "run_real(lambda: _run(case, seed), timeout=REAL_CLOCK_TIMEOUT)",
-        "asyncio.run(asyncio.wait_for(_run(case, seed), timeout=REAL_CLOCK_TIMEOUT))",
+        "src/earful/scripted/kernel/run.py",
+        "run_real(execute, timeout=120)",
+        "asyncio.run(asyncio.wait_for(execute(), timeout=120))",
         first="started_inside_a_running_loop",
     ),
     Mutant(
         "pipecat: a real-clock run makes its coroutine before it can be refused",
-        "src/earful/pipecat/harness.py",
-        "run_real(lambda: _run(case, seed), timeout=120)",
-        "asyncio.run(asyncio.wait_for(_run(case, seed), timeout=120))",
+        "src/earful/scripted/kernel/run.py",
+        "run_real(execute, timeout=120)",
+        "asyncio.run(asyncio.wait_for(execute(), timeout=120))",
         first="pipecat_a_run_started_inside_a_running_loop",
     ),
     Mutant(
@@ -2719,7 +2715,7 @@ MUTANTS = [
     ),
     Mutant(
         "harness: what a scripted provider raises is recorded nowhere",
-        "src/earful/livekit/harness.py",
+        "src/earful/livekit/ports.py",
         "    errors_token = record_errors_in(harness_errors)\n",
         "    errors_token = record_errors_in(None)\n",
         first="exception_inside_a_scripted_provider",
@@ -2789,15 +2785,15 @@ MUTANTS = [
     ),
     Mutant(
         "harness: a run whose work left the virtual clock is valid",
-        "src/earful/livekit/harness.py",
-        "    harness_errors += left_the_clock(loop)\n",
-        "",
+        "src/earful/scripted/kernel/run.py",
+        "errors += left_the_clock(loop)",
+        "errors += []",
         first="waits_on_work_in_real_time",
     ),
     Mutant(
         "pipecat: a run whose work left the virtual clock is valid",
-        "src/earful/pipecat/harness.py",
-        "    errors += left_the_clock(loop)\n",
+        "src/earful/scripted/kernel/run.py",
+        "        errors += left_the_clock(loop)\n",
         "",
         first="function_that_starts_a_thread",
     ),
@@ -3112,21 +3108,21 @@ MUTANTS = [
     ),
     Mutant(
         "harness: an effect for a tool the agent does not have runs",
-        "src/earful/livekit/harness.py",
+        "src/earful/livekit/config.py",
         "    if unknown:\n",
         "    if False:\n",
         first="does_not_have",
     ),
     Mutant(
         "harness: the header states the tool's effect where the scenario declares one too",
-        "src/earful/livekit/harness.py",
+        "src/earful/livekit/config.py",
         "    return {**at_the_tool, **case.effects}\n",
         "    return {**case.effects, **at_the_tool}\n",
         first="another_intent",
     ),
     Mutant(
         "harness: the scenario's effects do not reach the witness",
-        "src/earful/livekit/harness.py",
+        "src/earful/livekit/ports.py",
         "    witness = tools.ToolWitness(ledger, case.effects)\n",
         "    witness = tools.ToolWitness(ledger)\n",
         first="nothing_of_earful",
@@ -3140,7 +3136,7 @@ MUTANTS = [
     ),
     Mutant(
         "harness: the header does not state the effects",
-        "src/earful/livekit/harness.py",
+        "src/earful/livekit/config.py",
         "    if effects:\n",
         "    if False:\n",
         first="names_the_tools_whose_body",
@@ -4652,14 +4648,14 @@ MUTANTS = [
     ),
     Mutant(
         "pipecat: an error the framework reports makes the run invalid",
-        "src/earful/pipecat/harness.py",
+        "src/earful/pipecat/worker.py",
         "        if frame.exception is not None or frame.fatal:\n",
         "        if True:\n",
         first="slower_than_pipecat_waits_is_judged",
     ),
     Mutant(
         "pipecat: a random id reaches the ledger",
-        "src/earful/pipecat/harness.py",
+        "src/earful/pipecat/worker.py",
         '            error=_UNSTABLE.sub("#", frame.error),\n',
         "            error=frame.error,\n",
         first="slower_than_pipecat_waits_is_judged",
@@ -4687,7 +4683,7 @@ MUTANTS = [
     ),
     Mutant(
         "pipecat: a case's own pipeline is not run",
-        "src/earful/pipecat/harness.py",
+        "src/earful/pipecat/worker.py",
         "    build = case.pipeline or pipelines.standard(*timeouts)\n",
         "    build = pipelines.standard(*timeouts)\n",
         first="runs_its_own_processors",
@@ -4806,7 +4802,7 @@ MUTANTS = [
     ),
     Mutant(
         "pipecat: turn strategies changed during a run go unnoticed",
-        "src/earful/pipecat/harness.py",
+        "src/earful/pipecat/ports.py",
         "    if changed:\n",
         "    if False:\n",
         first="strategies_changed_during_the_run",
@@ -4827,7 +4823,7 @@ MUTANTS = [
     ),
     Mutant(
         "pipecat: the input can hang past the scenario deadline",
-        "src/earful/pipecat/harness.py",
+        "src/earful/pipecat/ports.py",
         "{running, ended}, timeout=timeout, return_when=asyncio.FIRST_COMPLETED",
         "{running, ended}, return_when=asyncio.FIRST_COMPLETED",
         first="a_stalled_input_yields_invalid_evidence",
@@ -4862,7 +4858,7 @@ MUTANTS = [
     ),
     Mutant(
         "session: the environment chooses how interruptions are detected",
-        "src/earful/livekit/harness.py",
+        "src/earful/livekit/config.py",
         '                mode="vad",\n',
         "",
         first="environment_cannot_switch_interruption",
@@ -4988,7 +4984,7 @@ MUTANTS = [
     ),
     Mutant(
         "pipecat: a misspelled effect silently leaves a service call in place",
-        "src/earful/pipecat/harness.py",
+        "src/earful/pipecat/config.py",
         "    if unknown:\n",
         "    if False:\n",
         first="pipecat_rejects_unknown_tools",
@@ -5009,14 +5005,14 @@ MUTANTS = [
     ),
     Mutant(
         "pipecat: a pending turn is mistaken for an idle pipeline",
-        "src/earful/pipecat/harness.py",
+        "src/earful/pipecat/ports.py",
         "                or tap.user_speaking\n",
         "",
         first="waits_for_the_final_turn_and_slow_tool",
     ),
     Mutant(
         "pipecat: a hangup discards the backend's pending writes",
-        "src/earful/pipecat/harness.py",
+        "src/earful/pipecat/ports.py",
         "await asyncio.wait_for(backend.settle_in_flight(), timeout=case.drain_timeout)",
         "await asyncio.sleep(0)",
         first="hangup_stops_the_user_and_settles",
@@ -5387,35 +5383,35 @@ MUTANTS = [
     ),
     Mutant(
         "livekit options: the agent a run starts with is not checked",
-        "src/earful/livekit/harness.py",
+        "src/earful/livekit/ports.py",
         "    refusal = options.agent_refusal(agent, session)\n    if refusal is not None:\n        raise ValueError(refusal)\n",
         "",
         first="provider_of_its_own or header_states",
     ),
     Mutant(
         "livekit options: an agent that becomes active during the run is not checked",
-        "src/earful/livekit/harness.py",
+        "src/earful/livekit/witness.py",
         "    if any(agent is seen for seen in checked):\n        return\n",
         "    if True:\n        return\n",
         first="handed_over_to_is_held",
     ),
     Mutant(
         "livekit options: Case.allow_interruptions does not reach the session",
-        "src/earful/livekit/harness.py",
+        "src/earful/livekit/config.py",
         "                enabled=case.allow_interruptions,\n",
         "                enabled=True,\n",
         first="turns_interruptions_off",
     ),
     Mutant(
         "livekit options: Case.preemptive_generation does not reach the session",
-        "src/earful/livekit/harness.py",
+        "src/earful/livekit/config.py",
         '            "preemptive_generation": {"enabled": case.preemptive_generation},\n',
         '            "preemptive_generation": {"enabled": True},\n',
         first="preemptive_generation_off",
     ),
     Mutant(
         "livekit options: the header does not say an option is off",
-        "src/earful/livekit/harness.py",
+        "src/earful/livekit/config.py",
         "                **{name: off for name, off in _switches(case).items() if not off},\n",
         "",
         first="turns_interruptions_off or preemptive_generation_off",
@@ -5653,35 +5649,35 @@ MUTANTS = [
     ),
     Mutant(
         "livekit: a warning its logger hides is not counted",
-        "src/earful/livekit/harness.py",
+        "src/earful/livekit/witness.py",
         "        for one in self._levels:\n            one.setLevel(logging.WARNING)\n",
         "        for one in self._levels:\n            pass\n",
         first="counted_whatever_its_logger",
     ),
     Mutant(
         "livekit: the application's handlers are passed the warnings they hid",
-        "src/earful/livekit/harness.py",
+        "src/earful/livekit/witness.py",
         "        if record.levelno < self._shown(record.name):\n",
         "        if False:\n",
         first="counted_whatever_its_logger",
     ),
     Mutant(
         "livekit: the application's handlers are judged by the level of livekit.agents alone",
-        "src/earful/livekit/harness.py",
+        "src/earful/livekit/witness.py",
         "        one: logging.Logger | None = logging.getLogger(name)\n",
         "        one: logging.Logger | None = self._logger\n",
         first="counted_whatever_its_logger",
     ),
     Mutant(
         "livekit: a logger's level is not restored after the run",
-        "src/earful/livekit/harness.py",
+        "src/earful/livekit/witness.py",
         "        for one, level in self._levels.items():\n            one.setLevel(level)\n",
         "        for one, level in self._levels.items():\n            pass\n",
         first="counted_whatever_its_logger",
     ),
     Mutant(
         "livekit: the application's handlers are not passed the framework's records",
-        "src/earful/livekit/harness.py",
+        "src/earful/livekit/witness.py",
         "                if record.levelno >= handler.level:\n                    handler.handle(record)\n",
         "                if record.levelno >= handler.level:\n                    pass\n",
         first="counted_whatever_its_logger",
@@ -5695,7 +5691,7 @@ MUTANTS = [
     ),
     Mutant(
         "pipecat: a private name is read only when it is used",
-        "src/earful/pipecat/harness.py",
+        "src/earful/pipecat/worker.py",
         "        model.private(name)\n",
         "        pass\n",
         first="private_name_elsewhere",
@@ -5730,7 +5726,7 @@ MUTANTS = [
     ),
     Mutant(
         "livekit: the header leaves out the starting history",
-        "src/earful/livekit/harness.py",
+        "src/earful/livekit/config.py",
         '    if history:\n        header["history"] = history\n',
         '    if False:\n        header["history"] = history\n',
         first="starts_with_history",
@@ -5744,7 +5740,7 @@ MUTANTS = [
     ),
     Mutant(
         "pipecat: the header leaves out the starting history",
-        "src/earful/pipecat/harness.py",
+        "src/earful/pipecat/worker.py",
         '    if history:\n        header["history"] = history\n',
         '    if False:\n        header["history"] = history\n',
         first="starts_with_history",
@@ -6038,7 +6034,7 @@ MUTANTS = [
     ),
     Mutant(
         "pipecat: a processor that raises is an error the framework reports of itself",
-        "src/earful/pipecat/harness.py",
+        "src/earful/pipecat/worker.py",
         "        if frame.exception is not None or frame.fatal:\n",
         "        if frame.fatal:\n",
         first="processor_that_raises",
@@ -6080,9 +6076,9 @@ MUTANTS = [
     ),
     Mutant(
         "livekit: the session is drained with a tool or a reply still under way",
-        "src/earful/livekit/harness.py",
-        "        if busy():\n",
-        "        if False:\n",
+        "src/earful/livekit/ports.py",
+        "if not is_quiet():",
+        "if False:",
         first="still_running_when_the_scenario_is_over",
     ),
     Mutant(
@@ -6115,7 +6111,7 @@ MUTANTS = [
     ),
     Mutant(
         "livekit: a declared fault is logged with its traceback",
-        "src/earful/livekit/harness.py",
+        "src/earful/livekit/witness.py",
         "        if isinstance(raised, (BackendError, BackendTimeout)):  # a fault the scenario declared\n",
         "        if False:\n",
         first="declared_fault_is_logged_in_one_line",

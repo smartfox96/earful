@@ -1,0 +1,169 @@
+"""The session configuration and scenario header."""
+
+from __future__ import annotations
+
+import copy
+from typing import Any
+
+import livekit.agents as lk
+
+from ..core.backend import Effect
+from ..core.timebase import to_us
+from ..scripted.case import (
+    Intent,
+    declared_intents,
+)
+from . import tools
+from .case import Case
+
+
+def _session_kwargs(case: Case) -> dict[str, Any]:
+    kwargs: dict[str, Any] = {
+        "turn_handling": {
+            # The default turn detector is an acoustic model: synthetic audio cannot fire it.
+            "turn_detection": None,
+            "endpointing": lk.EndpointingOptions(
+                min_delay=case.min_endpointing_delay, max_delay=case.max_endpointing_delay
+            ),
+            "interruption": lk.InterruptionOptions(
+                enabled=case.allow_interruptions,
+                # The other mode is a model reached over the network.
+                mode="vad",
+                min_duration=case.min_interruption_duration,
+                false_interruption_timeout=case.false_interruption_timeout,
+            ),
+            "preemptive_generation": {"enabled": case.preemptive_generation},
+        },
+        "aec_warmup_duration": None,
+    }
+    kwargs.update(case.session_kwargs)
+    if "userdata" in kwargs:
+        try:
+            kwargs["userdata"] = copy.deepcopy(kwargs["userdata"])
+        except Exception as exc:
+            raise ValueError(f"session userdata cannot be copied for each run: {exc}") from exc
+    return kwargs
+
+
+def _declared_session(case: Case) -> dict[str, int | None]:
+    return {
+        "min_interruption_duration_us": to_us(case.min_interruption_duration),
+        "false_interruption_timeout_us": to_us(case.false_interruption_timeout),
+        "min_endpointing_delay_us": to_us(case.min_endpointing_delay),
+        "max_endpointing_delay_us": to_us(case.max_endpointing_delay),
+    }
+
+
+def _switches(case: Case) -> dict[str, bool]:
+    """The Case's on and off options, which the header lists among the extra ones when off."""
+    return {
+        "allow_interruptions": case.allow_interruptions,
+        "preemptive_generation": case.preemptive_generation,
+    }
+
+
+def _effective_session(session: lk.AgentSession[Any]) -> dict[str, int | bool | None]:
+    interruption, endpointing = session.options.interruption, session.options.endpointing
+
+    def us(value: float | None) -> int | None:
+        return None if value is None else to_us(value)
+
+    return {
+        "min_interruption_duration_us": us(interruption["min_duration"]),
+        "false_interruption_timeout_us": us(interruption["false_interruption_timeout"]),
+        "min_endpointing_delay_us": us(endpointing["min_delay"]),
+        "max_endpointing_delay_us": us(endpointing["max_delay"]),
+        "allow_interruptions": interruption["enabled"],
+        "preemptive_generation": session.options.preemptive_generation["enabled"],
+    }
+
+
+def _effects(case: Case, tools_found: dict[str, Effect | None]) -> dict[str, Effect]:
+    # A misspelt tool name would leave the tool's own body to run.
+    unknown = sorted(set(case.effects) - set(tools_found))
+    if unknown:
+        raise ValueError(
+            f"effects are declared for {unknown}, which are not function tools of the agent "
+            f"the run starts with; it has {sorted(tools_found)}"
+        )
+    at_the_tool = {name: found for name, found in tools_found.items() if found is not None}
+    return {**at_the_tool, **case.effects}
+
+
+def _header(
+    case: Case, tools_found: dict[str, Effect | None], history: list[dict[str, Any]]
+) -> dict[str, Any]:
+    effects = _effects(case, tools_found)
+    intents = declared_intents(case.intents, effects, case.speeches, case.contracts)
+    header = _scenario(case, sorted(tools_found), intents)
+    if history:
+        header["history"] = history
+    if effects:
+        # Stated only where there are any: a tool listed here did not run its own body.
+        header["effects"] = [
+            {"tool": tool, "intent": declared.intent} for tool, declared in sorted(effects.items())
+        ]
+    return header
+
+
+def _scenario(case: Case, witnessed_tools: list[str], intents: list[Intent]) -> dict[str, Any]:
+    return {
+        "speeches": [
+            {
+                "speech": i,
+                "start_us": sp.start_us,
+                "end_us": sp.end_us,
+                "transcript": sp.transcript,
+                "stt_delay_us": sp.stt_delay_us,
+                "expects_reply": sp.owes_reply,
+                "backchannel": sp.backchannel,
+                "retires": list(sp.retires),
+            }
+            for i, sp in enumerate(sorted(case.speeches, key=lambda sp: sp.start))
+        ],
+        "hangup_us": None if case.hangup is None else to_us(case.hangup),
+        "intents": [
+            {"intent": it.intent, "tools": list(it.tools), "authorized": it.authorized}
+            for it in intents
+        ],
+        "witnessed_tools": witnessed_tools,
+        "delays": [
+            {"of": delay.of, "nth": delay.nth, "us": to_us(delay.seconds)}
+            for delay in sorted(case.delays, key=lambda d: (d.of, d.nth))
+        ],
+        "session": {
+            **_declared_session(case),
+            # A turn ends once the VAD's silence and the endpointing delay have both passed.
+            "turn_end_delay_us": max(
+                to_us(case.vad_min_silence), to_us(case.min_endpointing_delay)
+            ),
+            "turn_detection": None,
+            "extra_options": {
+                **{name: off for name, off in _switches(case).items() if not off},
+                **{
+                    name: tools.json_value(case.session_kwargs[name])
+                    for name in sorted(case.session_kwargs)
+                },
+            },
+        },
+        "faults": [
+            {
+                "of": fault.of,
+                "nth": fault.nth,
+                "us": None if fault.seconds is None else to_us(fault.seconds),
+            }
+            for fault in sorted(case.faults, key=lambda f: (f.of, f.nth))
+        ],
+        "providers": {
+            "vad": {
+                "min_speech_us": to_us(case.vad_min_speech),
+                "min_silence_us": to_us(case.vad_min_silence),
+            },
+            "tts": {
+                "seconds_per_letter_us": to_us(case.seconds_per_letter),
+                "ttfb_us": to_us(case.tts_ttfb),
+            },
+            "sink": {"can_pause": case.sink_can_pause},
+            "backend": {"mode": case.backend_mode},
+        },
+    }

@@ -2,9 +2,13 @@
 
 from __future__ import annotations
 
-from collections.abc import Awaitable, Iterable
-from contextlib import AbstractContextManager
-from typing import Any, Protocol, TypedDict, TypeVar
+from collections.abc import Awaitable, Callable
+from contextlib import AbstractAsyncContextManager
+from dataclasses import dataclass
+from typing import TYPE_CHECKING, Any, Protocol, TypedDict, TypeVar
+
+if TYPE_CHECKING:
+    from .run import RunContext
 
 
 class Party(Protocol):
@@ -22,49 +26,28 @@ class FinalHistory(TypedDict):
     items: list[dict[str, Any]]
 
 
-class RunPorts(Protocol):
-    """One built session or pipeline, observed on the run's clock."""
+WaitForQuiet = Callable[[], Awaitable[None]]
 
-    async def start(self) -> None:
-        """Start processing and return once the framework can take input."""
-        ...
 
-    def quiet(self) -> bool:
-        """Whether the framework and its outstanding tool calls are idle right now."""
-        ...
+@dataclass
+class RunPorts:
+    """One framework instance with its bound operations and live observations."""
 
-    def closed(self) -> Awaitable[str]:
-        """Resolve with the framework's close reason when it ends on its own."""
-        ...
-
-    def config(self) -> dict[str, Any]:
-        """Read the effective configuration using the run header's field names."""
-        ...
-
-    def history(self) -> FinalHistory:
-        """Read the framework's final memory in ledger order."""
-        ...
-
-    async def close(self) -> None:
-        """Finish shutdown within the case's drain timeout."""
-        ...
+    config: Callable[[], dict[str, Any]]
+    start: Callable[[], Awaitable[None]]
+    drive: Callable[[WaitForQuiet], Awaitable[None]]
+    history: Callable[[], FinalHistory]
+    close: Callable[[], Awaitable[None]]
+    quiet: Callable[[], bool]
+    closed: Callable[[], Awaitable[str | None]]
 
 
 CaseT_contra = TypeVar("CaseT_contra", contravariant=True)
-PartiesT_contra = TypeVar("PartiesT_contra", bound=Iterable[Party], contravariant=True)
 
 
-class AdapterPorts(Protocol[CaseT_contra, PartiesT_contra]):
-    """An adapter bound to one run's ledger and witnesses."""
+class AdapterPorts(Protocol[CaseT_contra]):
+    """Prepare a fresh run and restore its application observers on every exit."""
 
-    def refusals(self, case: CaseT_contra, /) -> Iterable[str]:
-        """Give a one-line reason for each unsupported option visible before build."""
-        ...
-
-    def application_seams(self) -> AbstractContextManager[None]:
-        """Install the adapter's application observers until the context exits."""
-        ...
-
-    async def build(self, case: CaseT_contra, parties: PartiesT_contra, /) -> RunPorts:
-        """Wire the parties to a fresh framework instance through the adapter's shims."""
-        ...
+    def __call__(
+        self, case: CaseT_contra, context: RunContext, /
+    ) -> AbstractAsyncContextManager[RunPorts]: ...
