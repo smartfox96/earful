@@ -4901,7 +4901,7 @@ MUTANTS = [
     Mutant(
         "vad: a stream opened at a handoff hears what was said before it opened",
         "src/earful/scripted/parties/vad.py",
-        "if opened is not None:",
+        "if not spans or (ended is not None and number in ended):",
         "if False:",
         first="follow_a_handoff",
     ),
