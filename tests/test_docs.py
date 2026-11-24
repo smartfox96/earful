@@ -768,7 +768,12 @@ def test_every_link_between_the_pages_leads_to_a_heading_that_exists():
 
 def test_every_term_of_the_glossary_is_one_the_page_it_points_to_uses():
     in_code = "".join(
-        (SOURCE / name).read_text() for name in ("cli.py", "core/search.py", "core/bundle.py")
+        path.read_text()
+        for path in (
+            SOURCE / "cli.py",
+            SOURCE / "core/bundle.py",
+            *(SOURCE / "core/search").glob("*.py"),
+        )
     )
     terms = []
     for heading, text in _sections(GLOSSARY, "##").items():
