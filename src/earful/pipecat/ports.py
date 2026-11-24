@@ -25,6 +25,7 @@ from .case import Case
 from .providers import (
     summarize,
 )
+from .scaffold import scaffold
 from .worker import _built, _Scripted, _scripted, _worker
 
 
@@ -160,3 +161,6 @@ async def build(case: Case, run: RunContext) -> AsyncIterator[RunPorts]:
     finally:
         await s.backend.cancel_in_flight()
         backends.uninstall(token)
+
+
+__all__ = ["build", "scaffold"]

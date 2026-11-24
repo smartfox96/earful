@@ -156,6 +156,60 @@ def test_framework_private_access_and_attribute_defaults_live_in_seams(adapter):
     assert not offenders, offenders
 
 
+def test_core_only_imports_earful_core():
+    offenders = [
+        (path.relative_to(SRC), line, name)
+        for path in (SRC / "earful/core").rglob("*.py")
+        for line, name in _imports(path)
+        if name.startswith("earful.") and name.split(".")[1] != "core"
+    ]
+    assert not offenders, offenders
+
+
+def test_shared_code_reaches_adapters_through_their_entry_points():
+    root = SRC / "earful"
+    adapters = {"livekit", "pipecat"}
+    entry_points = {"Case", "RunResult", "Scenario", "ports"}
+    offenders = []
+    for path in root.rglob("*.py"):
+        if path.relative_to(root).parts[0] in adapters:
+            continue
+        for line, name in _imports(path):
+            parts = name.split(".")
+            if (
+                len(parts) > 2
+                and parts[0] == "earful"
+                and parts[1] in adapters
+                and (len(parts) > 3 or parts[2] not in entry_points)
+            ):
+                offenders.append((path.relative_to(root), line, name))
+    assert not offenders, offenders
+
+
+def test_each_module_fits_its_line_budget():
+    root = SRC / "earful"
+    budgets = {
+        "livekit/harness.py": 150,
+        "pipecat/harness.py": 150,
+        "scripted/kernel/run.py": 150,
+        "scripted/kernel/ports.py": 100,
+        "core/checker/view.py": 700,
+        "scripted/clock.py": 625,
+        "core/search/coverage.py": 550,
+        "livekit/providers.py": 575,
+    }
+    offenders = []
+    for path in sorted(root.rglob("*.py")):
+        name = path.relative_to(root).as_posix()
+        if name in {"cli.py", "core/html.py"}:
+            continue
+        budget = budgets.get(name, 500)
+        lines = len(path.read_text().splitlines())
+        if lines > budget:
+            offenders.append(f"{name} has {lines} lines, budget {budget}")
+    assert not offenders, offenders
+
+
 def test_they_import_with_every_framework_unavailable():
     modules = sorted(_module(p) for p in _sources())
     assert {"earful.core.checker", "earful.scripted.clock"} <= set(modules)

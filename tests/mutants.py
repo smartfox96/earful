@@ -18,6 +18,27 @@ class Mutant:
 
 MUTANTS = [
     Mutant(
+        "layers: the core reaches into the scripted world",
+        "src/earful/core/case.py",
+        "from __future__ import annotations",
+        "from __future__ import annotations\nfrom typing import TYPE_CHECKING\nif TYPE_CHECKING:\n    from ..scripted.case import Intent",
+        first="core_only_imports_earful_core",
+    ),
+    Mutant(
+        "layers: the fixture reaches into an adapter's harness",
+        "src/earful/pytest_plugin.py",
+        "from .livekit import RunResult as LiveKitResult",
+        "from .livekit.harness import RunResult as LiveKitResult",
+        first="shared_code_reaches_adapters_through_their_entry_points",
+    ),
+    Mutant(
+        "layers: the lifecycle outgrows its module budget",
+        "src/earful/scripted/kernel/run.py",
+        "from __future__ import annotations",
+        "from __future__ import annotations" + "\n" * 151,
+        first="each_module_fits_its_line_budget",
+    ),
+    Mutant(
         "adapter: a framework stream is read outside its seam",
         "src/earful/livekit/providers.py",
         "model = seams.model_of(self)",

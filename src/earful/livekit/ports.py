@@ -39,6 +39,7 @@ from .providers import (
     stop_recording_errors,
     summarize_item,
 )
+from .scaffold import scaffold
 from .seams import TranscriptSynchronizer, io
 from .witness import _tap, _WarningCollector
 
@@ -236,3 +237,6 @@ async def _session(case: Case, context: RunContext, witness: tools.ToolWitness) 
         context.stamp_errors, context.underruns = sink.stamp_errors, sink.underruns
 
     return RunPorts(lambda: scenario, start, drive, history, close, is_quiet, lambda: closed)
+
+
+__all__ = ["build", "scaffold"]
