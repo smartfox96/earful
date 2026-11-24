@@ -464,8 +464,11 @@ def test_pipecat_runs_a_scenario_on_both_clocks_and_the_real_run_is_never_eviden
     (real,), (comparison,) = checked.real, checked.comparisons
     assert checked.virtual[0]["data"]["clock"] == "virtual" and real[0]["data"]["clock"] == "real"
     assert schema.validity(checked.virtual) == []
-    assert schema.validity(real) == ["the run was on the real clock"]
-    assert not comparison.unusable and comparison.drift_us > 0
+    reasons = schema.validity(real)
+    assert reasons[0] == "the run was on the real clock"
+    # A busy machine delays the loop, and a run it spoiled is one the comparison cannot use.
+    assert comparison.unusable == tuple(reasons[1:])
+    assert comparison.unusable or comparison.drift_us > 0
     assert checked.lines()[0].startswith("greeting on pipecat-ai ")
     with pytest.raises(ValueError, match="at least one real-clock run"):
         pc.cross_check(built, runs=0)

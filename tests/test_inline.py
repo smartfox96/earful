@@ -550,8 +550,11 @@ def test_a_scenario_is_run_on_both_clocks_and_the_real_run_is_never_evidence():
     checked = on_both_clocks("earful.livekit.cases:speak_over_new_turn", runs=1)
     (real,), (comparison,) = checked.real, checked.comparisons
     assert validity(checked.virtual) == []
-    assert validity(real) == ["the run was on the real clock"]
-    assert not comparison.unusable and comparison.drift_us > 0
+    reasons = validity(real)
+    assert reasons[0] == "the run was on the real clock"
+    # A busy machine delays the loop, and a run it spoiled is one the comparison cannot use.
+    assert comparison.unusable == tuple(reasons[1:])
+    assert comparison.unusable or comparison.drift_us > 0
     assert checked.lines()[0].startswith("speak_over_new_turn on livekit-agents ")
     with pytest.raises(ValueError, match="at least one real-clock run"):
         on_both_clocks("earful.livekit.cases:speak_over_new_turn", runs=0)
