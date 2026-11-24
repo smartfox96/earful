@@ -8,6 +8,11 @@ formats have versions of their own
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-11-24
+
+LiveKit and Pipecat share the case fields and run lifecycle. Both reproduce the
+reference ledgers from 0.3.0.
+
 ## [0.3.0] - 2026-11-23
 
 ### Runs
@@ -232,7 +237,8 @@ The first release.
 - The formats `earful.ledger/1`, `earful.case/1` and `earful.bundle/1`, each with a
   JSON Schema.
 
-[Unreleased]: https://github.com/smartfox96/earful/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/smartfox96/earful/compare/v0.3.1...HEAD
+[0.3.1]: https://github.com/smartfox96/earful/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/smartfox96/earful/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/smartfox96/earful/compare/v0.1.1...v0.2.0
 [0.1.1]: https://github.com/smartfox96/earful/compare/v0.1.0...v0.1.1
