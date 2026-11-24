@@ -7,9 +7,7 @@ import contextlib
 import copy
 import logging
 import random
-from collections.abc import Callable, Iterable
-from dataclasses import dataclass, field
-from functools import cached_property
+from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
 import livekit.agents as lk
@@ -17,10 +15,8 @@ from livekit import rtc
 from livekit.agents import utils
 
 from ..core import backend as backends
-from ..core.backend import BackendError, BackendMode, BackendTimeout, Effect, EffectBackend
-from ..core.checker import Report, check
+from ..core.backend import BackendError, BackendTimeout, Effect, EffectBackend
 from ..core.ledger import Ledger, ledger_hash
-from ..core.predicate import Predicate
 from ..core.schema import validity
 from ..core.timebase import to_seconds, to_us
 from ..scripted.case import (
@@ -33,7 +29,6 @@ from ..scripted.case import (
     declared_intents,
 )
 from ..scripted.clock import (
-    ClockPatchReport,
     VirtualTimeLoop,
     left_the_clock,
     now_us,
@@ -44,13 +39,12 @@ from ..scripted.clock import (
 )
 from . import options, tools
 from ._compat import TranscriptSynchronizer, io
+from .case import Case, RunResult
 from .providers import (
-    Policy,
     ScriptedLLM,
     ScriptedSTT,
     ScriptedVAD,
     StampedTTS,
-    UserSpeech,
     WorldOrigin,
     record_errors_in,
     starting_history,
@@ -66,95 +60,6 @@ if TYPE_CHECKING:
 REAL_CLOCK_TIMEOUT = 120.0
 # On the real clock, VAD and STT see the first frame microseconds apart.
 REAL_CLOCK_ORIGIN_TOLERANCE_US = 5_000
-
-
-@dataclass
-class Case:
-    """Everything that defines a run: the same case and seed give the same ledger.
-    ``agent`` takes no arguments and is called once per run. Times are in seconds."""
-
-    name: str
-    agent: Callable[[], lk.Agent]
-    speeches: list[UserSpeech]
-    policy: Policy
-    intents: list[Intent] = field(default_factory=list)
-    # Tool name -> the durable write a call of that tool makes, in place of its body.
-    effects: dict[str, Effect] = field(default_factory=dict)
-    contracts: dict[str, dict[str, Any]] = field(default_factory=dict)  # id -> policy values
-    delays: list[Delay] = field(default_factory=list)
-    faults: list[Fault] = field(default_factory=list)
-    # When the user hangs up, in seconds from the origin. No speech may end after it.
-    hangup: float | None = None
-    backend_mode: BackendMode = "plain"
-    seconds_per_letter: float = 0.06  # the scripted voice: a five-letter word takes 0.3 s
-    tts_ttfb: float = 0.2
-    vad_min_speech: float = 0.05
-    vad_min_silence: float = 0.5
-    sink_can_pause: bool = True
-    min_interruption_duration: float = 0.5
-    false_interruption_timeout: float = 2.0
-    allow_interruptions: bool = True
-    preemptive_generation: bool = True
-    min_endpointing_delay: float = 0.5
-    max_endpointing_delay: float = 6.0
-    drain_delay: float = 5.0
-    # Seconds the session has to finish once the scenario is over, before it is cut off.
-    drain_timeout: float = 30.0
-    sink: type[ClockedSink] = ClockedSink  # a faulty output is a subclass
-    # Further AgentSession options, of those ``options.PASSED`` names.
-    session_kwargs: dict[str, Any] = field(default_factory=dict)
-
-    def check(self, seed: int = 0) -> None:
-        """Raise ``ValueError`` for a scenario that contradicts itself."""
-        options.refuse_session_kwargs(self.session_kwargs)
-        if not callable(self.agent):
-            raise ValueError(  # noqa: TRY004 - a case that is refused, as the others here
-                "agent is called once for each run and returns the agent, so it is a class or "
-                f"a function; got an object of {type(self.agent).__name__}. Write "
-                f"agent=lambda: {type(self.agent).__name__}(...)"
-            )
-        from .scenario import INLINE, describe
-
-        describe(self, INLINE, seed)
-
-
-@dataclass
-class RunResult:
-    case: str
-    seed: int
-    ledger: Ledger
-    hash: str
-    versions: dict[str, str]
-    clock: ClockPatchReport
-    stamp_errors: int
-    executor_calls: int | None
-    underruns: int
-    harness_errors: list[str]
-    framework_warnings: list[str]
-    invalid: list[str]  # reasons the run may not be used as evidence; empty when valid
-
-    @property
-    def events(self) -> list[dict[str, Any]]:
-        return self.ledger.events
-
-    @cached_property
-    def report(self) -> Report:
-        """The verdict of every contract for this run."""
-        return check(self.ledger.events)
-
-    def assert_contracts(
-        self, *, allow: Iterable[Predicate | str] | str = (), require: Iterable[str] | str = ()
-    ) -> None:
-        """Raise ``ContractFailure``, an ``AssertionError``, if a contract rule broke.
-        ``allow`` names rules that may break, as ``CONTRACT/RULE``. ``require`` names
-        contracts, such as ``A2``, that must get a pass or a fail."""
-        __tracebackhide__ = True  # pytest then shows the test's own line, not this one
-        framework = self.versions["livekit-agents"]
-        self.report.assert_contracts(
-            allow=allow,
-            require=require,
-            what=f"{self.case} (seed {self.seed}, livekit-agents {framework})",
-        )
 
 
 class _ScriptedAudioInput(io.AudioInput):

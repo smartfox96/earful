@@ -3,13 +3,13 @@
 from __future__ import annotations
 
 import dataclasses
-import itertools
-from dataclasses import dataclass
-from typing import Any, Protocol, get_args
+from dataclasses import dataclass, field
+from typing import Any, get_args
 
 from ..core.backend import FAULTS, BackendMode, Effect
 from ..core.checker.policy import parse_all
-from ..core.timebase import seconds, to_us
+from ..core.timebase import seconds
+from .model import Policy
 from .world import UserSpeech
 
 
@@ -54,17 +54,41 @@ class Fault:
     seconds: float | None = None  # how long the caller waits; not used by backend.error
 
 
-class CaseData(Protocol):
+@dataclass
+class Application:
+    """The application factory supplied by an adapter has the next positional field."""
+
+    name: str
+
+
+@dataclass
+class Case(Application):
+    """The scripted inputs shared by every adapter."""
+
     speeches: list[UserSpeech]
-    contracts: dict[str, dict[str, Any]]
-    delays: list[Delay]
-    faults: list[Fault]
-    intents: list[Intent]
-    hangup: float | None
-    backend_mode: BackendMode
+    policy: Policy
+    intents: list[Intent] = field(default_factory=list)
+    # Tool name -> the durable write a call of that tool makes, in place of its body.
+    effects: dict[str, Effect] = field(default_factory=dict)
+    contracts: dict[str, dict[str, Any]] = field(default_factory=dict)  # id -> policy values
+    delays: list[Delay] = field(default_factory=list)
+    faults: list[Fault] = field(default_factory=list)
+    # When the user hangs up, in seconds from the origin. No speech may end after it.
+    hangup: float | None = None
+    backend_mode: BackendMode = "plain"
+    seconds_per_letter: float = 0.06  # the scripted voice: a five-letter word takes 0.3 s
+    tts_ttfb: float = 0.2
 
 
-def check_case(case: CaseData) -> None:
+@dataclass
+class DrainOptions:
+    """How long the framework has to finish after the scripted input."""
+
+    drain_delay: float = 5.0
+    drain_timeout: float = 30.0
+
+
+def check_case(case: Case) -> None:
     """Reject contradictory speeches, contracts and backend declarations."""
     parse_all(case.contracts)  # raises PolicyError, a ValueError, on anything undefined
     for speech in case.speeches:
@@ -87,20 +111,9 @@ def check_case(case: CaseData) -> None:
             raise ValueError("intent tools must be a sequence of tool names")
         if type(intent.authorized) is not int or intent.authorized < 0:
             raise ValueError("authorized must be a nonnegative integer")
-    ordered = sorted(case.speeches, key=lambda s: s.start)
-    for speech in ordered:
-        if speech.end_us <= speech.start_us:
-            raise ValueError(
-                f"the speech at {speech.start} s ends at {speech.end} s; a speech ends after "
-                "it starts"
-            )
     modes = get_args(BackendMode)
     if case.backend_mode not in modes:
         raise ValueError(f"unknown backend mode {case.backend_mode!r}; choose from {list(modes)}")
-    for before, after in itertools.pairwise(ordered):
-        if before.end > after.start:
-            raise ValueError(f"the speeches at {before.start} s and {after.start} s overlap")
-    seen: set[tuple[str, int]] = set()
     for delay in case.delays:
         seconds("delay.seconds", delay.seconds)
         if type(delay.nth) is not int:
@@ -111,10 +124,6 @@ def check_case(case: CaseData) -> None:
             raise ValueError(
                 f"delay {delay.of} #{delay.nth}: nth counts from 1 and a delay cannot be negative"
             )
-        if (delay.of, delay.nth) in seen:
-            raise ValueError(f"delay {delay.of} #{delay.nth} is declared more than once")
-        seen.add((delay.of, delay.nth))
-    faulted: set[int] = set()
     for fault in case.faults:
         if fault.seconds is not None:
             seconds("fault.seconds", fault.seconds)
@@ -122,30 +131,10 @@ def check_case(case: CaseData) -> None:
             raise ValueError("fault.nth must be an integer")
         if fault.of not in FAULTS:
             raise ValueError(f"unknown fault {fault.of!r}; choose from {list(FAULTS)}")
-        waits = fault.of != "backend.error"
-        if (
-            fault.nth < 1
-            or (waits and (fault.seconds is None or fault.seconds < 0))
-            or (not waits and fault.seconds is not None)
-        ):
-            raise ValueError(
-                f"fault {fault.of} #{fault.nth}: nth counts from 1; a timeout or a drop says "
-                "how long the caller waits, and an error does not"
-            )
-        if fault.nth in faulted:
-            raise ValueError(f"backend write #{fault.nth} has more than one fault")
-        faulted.add(fault.nth)
+        if fault.nth < 1:
+            raise ValueError(f"fault {fault.of} #{fault.nth}: nth counts from 1")
     if case.hangup is not None:
         seconds("hangup", case.hangup)
-        if not case.speeches:
-            raise ValueError(
-                "the user hangs up after their last speech; a user who never speaks cannot"
-            )
-        late = [speech.start for speech in case.speeches if speech.end_us > to_us(case.hangup)]
-        if late:
-            raise ValueError(
-                f"the user hangs up at {case.hangup} s, before the speech at {late[0]} s is over"
-            )
     names = [it.intent for it in case.intents]
     if len(set(names)) != len(names):
         raise ValueError("an intent is declared more than once")

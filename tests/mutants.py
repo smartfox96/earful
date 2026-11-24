@@ -2153,9 +2153,9 @@ MUTANTS = [
     ),
     Mutant(
         "harness: two faults on one write run",
-        "src/earful/scripted/case.py",
-        "        if fault.nth in faulted:\n",
-        "        if False:\n",
+        "src/earful/core/case.py",
+        "if len(set(faulted)) != len(faulted):",
+        "if False:",
         first="test_a_fault_that_is_no_fault_is_refused",
     ),
     Mutant(
@@ -2237,13 +2237,9 @@ MUTANTS = [
     ),
     Mutant(
         "harness: a hangup before a speech is over runs",
-        "src/earful/scripted/case.py",
-        ('        if late:\n            raise ValueError(\n                f"the user hangs up at'),
-        (
-            "        if False:\n"
-            "            raise ValueError(\n"
-            '                f"the user hangs up at'
-        ),
+        "src/earful/core/case.py",
+        ("if late is not None:"),
+        ("if False:"),
         first="test_a_scenario_that_contradicts_itself_is_refused_before_it_runs",
     ),
     Mutant(
@@ -2366,15 +2362,15 @@ MUTANTS = [
     Mutant(
         "case: a hangup may come before the last speech ends",
         "src/earful/core/case.py",
-        '    elif case["hangup_us"] is not None and case["hangup_us"] < last_end:\n',
-        "    elif False:\n",
+        "if late is not None:",
+        "if False:",
         first="test_a_hangup_is_a_time_in_the_case_no_earlier_than_the_end_of_the_last_speech",
     ),
     Mutant(
         "case: a user who never speaks may hang up",
         "src/earful/core/case.py",
-        '    if case["hangup_us"] is not None and last_end is None:\n',
-        "    if False:\n",
+        "if not times:",
+        "if not times:\n            return errors\n        if not times:",
         first="test_a_hangup_is_a_time_in_the_case_no_earlier_than_the_end_of_the_last_speech",
     ),
     Mutant(
@@ -3398,14 +3394,14 @@ MUTANTS = [
     ),
     Mutant(
         "livekit: a run's assertion drops what the test requires",
-        "src/earful/livekit/harness.py",
+        "src/earful/scripted/result.py",
         "            require=require,\n",
         "",
         first="model_that_never_calls_the_tool",
     ),
     Mutant(
         "pipecat: a run's assertion drops what the test requires",
-        "src/earful/pipecat/harness.py",
+        "src/earful/scripted/result.py",
         "            require=require,\n",
         "",
         first="pipecat_booking_effect_is_linked",
@@ -3454,16 +3450,16 @@ MUTANTS = [
     ),
     Mutant(
         "case: a speech that ends before it starts is run",
-        "src/earful/scripted/case.py",
-        "        if speech.end_us <= speech.start_us:\n",
-        "        if False:\n",
+        "src/earful/core/case.py",
+        'if speech["end_us"] <= speech["start_us"]:',
+        'if speech["end_us"] == speech["start_us"]:',
         first="contradicts_itself_is_refused_before_its_agent_is_built",
     ),
     Mutant(
         "case: a speech with no length is run",
-        "src/earful/scripted/case.py",
-        "        if speech.end_us <= speech.start_us:\n",
-        "        if speech.end_us < speech.start_us:\n",
+        "src/earful/core/case.py",
+        'if speech["end_us"] <= speech["start_us"]:',
+        'if speech["end_us"] < speech["start_us"]:',
         first="contradicts_itself_is_refused_before_its_agent_is_built",
     ),
     Mutant(
@@ -3475,7 +3471,7 @@ MUTANTS = [
     ),
     Mutant(
         "livekit: an agent given in place of what builds one is called",
-        "src/earful/livekit/harness.py",
+        "src/earful/livekit/case.py",
         "        if not callable(self.agent):\n",
         "        if False:\n",
         first="agent_given_where_what_builds_one_is_expected",

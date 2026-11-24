@@ -5,9 +5,7 @@ from __future__ import annotations
 import asyncio
 import random
 import re
-from collections.abc import Callable, Iterable
-from dataclasses import dataclass, field
-from functools import cached_property
+from dataclasses import dataclass
 from typing import Any, ClassVar
 
 import pipecat
@@ -25,17 +23,14 @@ from pipecat.pipeline.pipeline import Pipeline
 from pipecat.pipeline.worker import PipelineParams, PipelineWorker
 from pipecat.processors.aggregators.llm_context import LLMContext
 from pipecat.processors.frame_processor import FrameDirection, FrameProcessor
-from pipecat.services.llm_service import LLMService
 from pipecat.workers.runner import WorkerRunner
 
 from ..core import backend as backends
-from ..core.backend import BackendMode, Effect, EffectBackend
-from ..core.checker import Report, check
+from ..core.backend import EffectBackend
 from ..core.ledger import Ledger, ledger_hash
-from ..core.predicate import Predicate
 from ..core.schema import validity
 from ..core.timebase import to_seconds, to_us
-from ..scripted.case import Delay, Fault, Intent, InvalidRun, check_intent_tools, declared_intents
+from ..scripted.case import InvalidRun, check_intent_tools, declared_intents
 from ..scripted.clock import (
     VirtualTimeLoop,
     left_the_clock,
@@ -45,9 +40,10 @@ from ..scripted.clock import (
     run_real,
     run_virtual,
 )
-from ..scripted.model import Policy
-from ..scripted.world import UserSpeech, WorldOrigin, sleep_until
+from ..scripted.result import RunResult
+from ..scripted.world import WorldOrigin, sleep_until
 from . import pipeline as pipelines
+from .case import Case
 from .clock import VirtualClock, wait_for_of_python_3_12
 from .pipeline import Ends
 from .providers import (
@@ -88,67 +84,6 @@ class Tap(FrameProcessor):
                 self.user_speaking = isinstance(frame, UserStartedSpeakingFrame)
             self._ledger.append("framework", f"fw.{name}")
         await self.push_frame(frame, direction)
-
-
-@dataclass
-class Case:
-    """A scenario for a Pipecat bot. ``bot`` is the application: handed the model
-    service, it registers its functions and returns the context the bot starts with.
-    ``pipeline`` is the application's pipeline around Earful's ends."""
-
-    name: str
-    bot: Callable[[LLMService], LLMContext]
-    speeches: list[UserSpeech]
-    policy: Policy
-    intents: list[Intent] = field(default_factory=list)
-    effects: dict[str, Effect] = field(default_factory=dict)
-    contracts: dict[str, dict[str, Any]] = field(default_factory=dict)
-    delays: list[Delay] = field(default_factory=list)
-    faults: list[Fault] = field(default_factory=list)
-    hangup: float | None = None
-    backend_mode: BackendMode = "plain"
-    seconds_per_letter: float = 0.06
-    tts_ttfb: float = 0.2
-    vad_start_secs: float = 0.2  # Pipecat's VADParams.start_secs
-    vad_stop_secs: float = 0.2  # Pipecat's VADParams.stop_secs
-    tts_word_timestamps: bool = False  # whether the voice says when each word starts
-    user_speech_timeout: float = 0.6  # SpeechTimeoutUserTurnStopStrategy
-    user_turn_stop_timeout: float = 5.0  # LLMUserAggregatorParams
-    drain_delay: float = 5.0
-    drain_timeout: float = 30.0
-    # The application's processors in order, around Earful's ends. None: the standard seven.
-    pipeline: pipelines.Build | None = None
-
-
-@dataclass
-class RunResult:
-    case: str
-    seed: int
-    ledger: Ledger
-    hash: str
-    invalid: list[str]
-    harness_errors: list[str]
-
-    @property
-    def events(self) -> list[dict[str, Any]]:
-        return self.ledger.events
-
-    @cached_property
-    def report(self) -> Report:
-        return check(self.ledger.events)
-
-    def assert_contracts(
-        self, *, allow: Iterable[Predicate | str] | str = (), require: Iterable[str] | str = ()
-    ) -> None:
-        """Raise ``ContractFailure``, an ``AssertionError``, if a contract rule broke.
-        ``allow`` names rules that may break, as ``CONTRACT/RULE``. ``require`` names
-        contracts, such as ``A2``, that must get a pass or a fail."""
-        __tracebackhide__ = True
-        self.report.assert_contracts(
-            allow=allow,
-            require=require,
-            what=f"{self.case} (seed {self.seed}, pipecat-ai {pipecat.__version__})",
-        )
 
 
 def _header(case: Case, tools: set[str], options: dict[str, Any]) -> dict[str, Any]:
@@ -537,3 +472,6 @@ def run_case(
     if result.invalid and require_valid:
         raise InvalidRun(result.invalid, result)
     return result
+
+
+__all__ = ["Case", "RunResult", "run_case"]

@@ -562,13 +562,34 @@ def _class(name, adapter=None):
         for node in ast.parse(path.read_text()).body
         if isinstance(node, ast.ClassDef) and node.name == name
     ]
+    if not found and adapter:
+        return _class(name)
     assert len(found) == 1, f"{len(found)} classes are named {name}"
     fields, members = {}, set()
+    shared = {
+        "ScriptedCase": "Case",
+        "ScriptedResult": "RunResult",
+        "DrainOptions": "DrainOptions",
+        "Application": "Application",
+    }
+    for base in reversed(found[0].bases):
+        if isinstance(base, ast.Name) and base.id in shared:
+            inherited, names = _class(shared[base.id], "scripted")
+        elif (
+            adapter
+            and isinstance(base, ast.Name)
+            and base.id in {"AgentFactory", "BotFactory", "SessionOptions", "PipelineOptions"}
+        ):
+            inherited, names = _class(base.id, adapter)
+        else:
+            continue
+        fields.update(inherited)
+        members.update(names)
     for node in found[0].body:
         if isinstance(node, ast.AnnAssign):
             fields[ast.unparse(node.target)] = node.value and ast.unparse(node.value)
             members.add(ast.unparse(node.target))
-        elif isinstance(node, ast.FunctionDef):
+        elif isinstance(node, ast.FunctionDef) and node.name != "__init__":
             members.add(node.name)
     return fields, members
 

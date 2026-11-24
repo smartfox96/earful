@@ -34,7 +34,7 @@ def _validator() -> Draft202012Validator:
     return IntegerValidator(schema)
 
 
-def validate(case: Any) -> list[str]:
+def validate(case: Any, *, speech_times: list[tuple[float, float]] | None = None) -> list[str]:
     """Every way ``case`` departs from earful.case/1. An empty list means valid."""
     errors = [
         f"{'/'.join(str(p) for p in error.absolute_path) or 'case'}: {error.message}"
@@ -44,24 +44,52 @@ def validate(case: Any) -> list[str]:
     ]
     if errors:
         return errors
-    last_end = None
-    for n, speech in enumerate(case["speeches"]):
+    times = (
+        speech_times
+        if speech_times is not None
+        else [(s["start_us"], s["end_us"]) for s in case["speeches"]]
+    )
+    for n, (start, end) in enumerate(times):
+        speech = case["speeches"][n]
         if speech["end_us"] <= speech["start_us"]:
-            errors.append(f"speeches/{n}: must end after it starts")
-        if last_end is not None and speech["start_us"] < last_end:
-            errors.append(f"speeches/{n}: starts before the speech before it has ended")
-        last_end = speech["end_us"]
-    if case["hangup_us"] is not None and last_end is None:
-        # The hangup is timed from the origin, which the user's first audio sets.
-        errors.append("hangup_us: a user who never speaks cannot hang up")
-    elif case["hangup_us"] is not None and case["hangup_us"] < last_end:
-        errors.append("hangup_us: the user hangs up before their last speech is over")
+            reason = (
+                "must end after it starts"
+                if speech_times is None
+                else (f"the speech at {start} s ends at {end} s; a speech ends after it starts")
+            )
+            errors.append(f"speeches/{n}: {reason}")
+        if n and start < times[n - 1][1]:
+            reason = (
+                "starts before the speech before it has ended"
+                if speech_times is None
+                else (f"the speeches at {times[n - 1][0]} s and {start} s overlap")
+            )
+            errors.append(f"speeches/{n}: {reason}")
+    if case["hangup_us"] is not None:
+        if not times:
+            errors.append("hangup_us: a user who never speaks cannot hang up")
+        else:
+            late = next(
+                (n for n, s in enumerate(case["speeches"]) if s["end_us"] > case["hangup_us"]), None
+            )
+            if late is not None:
+                reason = (
+                    "the user hangs up before their last speech is over"
+                    if speech_times is None
+                    else (
+                        f"the user hangs up at {case['hangup_us'] / 1_000_000} s, "
+                        f"before the speech at {times[late][0]} s is over"
+                    )
+                )
+                errors.append(f"hangup_us: {reason}")
     declared = [(d["of"], d["nth"]) for d in case["delays"]]
     if len(set(declared)) != len(declared):
         errors.append("delays: a delay is declared more than once")
     faulted = [f["nth"] for f in case["faults"]]
     if len(set(faulted)) != len(faulted):
-        errors.append("faults: a backend write has more than one fault")
+        duplicate = next(n for i, n in enumerate(faulted) if n in faulted[:i])
+        which = "a backend write" if speech_times is None else f"backend write #{duplicate}"
+        errors.append(f"faults: {which} has more than one fault")
     for n, fault in enumerate(case["faults"]):
         if (fault["us"] is None) != (fault["of"] == "backend.error"):
             errors.append(
