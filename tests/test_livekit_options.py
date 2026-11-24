@@ -26,6 +26,16 @@ def _session(result):
     return result.ledger.events[0]["data"]["scenario"]["session"]
 
 
+def test_run_calls_the_cases_own_check_with_its_seed():
+    class CheckedCase(Case):
+        def check(self, seed=0):
+            raise ValueError(f"application refused seed {seed}")
+
+    case = CheckedCase(**vars(_case()))
+    with pytest.raises(ValueError, match="application refused seed 19"):
+        run_case(case, seed=19)
+
+
 def test_every_option_of_the_installed_release_is_modelled_or_refused():
     session = options.PASSED.keys() | options.FROM_CASE.keys() | options.REFUSED.keys()
     agent = options.AGENT_RUN | options.AGENT_TURNS | options.AGENT_REFUSED.keys()

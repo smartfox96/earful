@@ -99,26 +99,54 @@ def test_an_adapter_imports_neither_the_other_adapter_nor_its_framework(adapter,
     assert not offenders, offenders
 
 
-def _own_private_members(tree):
-    """Private methods and instance fields introduced in Earful's own classes."""
+def _own_private_members(cls):
     members = set()
-    for cls in (node for node in ast.walk(tree) if isinstance(node, ast.ClassDef)):
-        for stmt in cls.body:
-            if isinstance(stmt, (ast.FunctionDef, ast.AsyncFunctionDef)):
-                members.add(stmt.name)
-            elif isinstance(stmt, ast.AnnAssign) and isinstance(stmt.target, ast.Name):
-                members.add(stmt.target.id)
-            elif isinstance(stmt, ast.Assign):
-                members.update(target.id for target in stmt.targets if isinstance(target, ast.Name))
-        members.update(
-            node.attr
-            for node in ast.walk(cls)
-            if isinstance(node, ast.Attribute)
-            and isinstance(node.ctx, ast.Store)
-            and isinstance(node.value, ast.Name)
-            and node.value.id == "self"
-        )
+    for stmt in cls.body:
+        if isinstance(stmt, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            members.add(stmt.name)
+        elif isinstance(stmt, ast.AnnAssign) and isinstance(stmt.target, ast.Name):
+            members.add(stmt.target.id)
+        elif isinstance(stmt, ast.Assign):
+            members.update(target.id for target in stmt.targets if isinstance(target, ast.Name))
+    members.update(
+        node.attr
+        for node in ast.walk(cls)
+        if isinstance(node, ast.Attribute)
+        and isinstance(node.ctx, ast.Store)
+        and isinstance(node.value, ast.Name)
+        and node.value.id == "self"
+    )
     return members
+
+
+def _owned_accesses(tree):
+    """Recognize Earful's fields on their declaring class or a checked provider instance."""
+    classes = [node for node in ast.walk(tree) if isinstance(node, ast.ClassDef)]
+    members = {cls.name: _own_private_members(cls) for cls in classes}
+    owned = set()
+    for cls in classes:
+        for method in cls.body:
+            if not isinstance(method, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                continue
+            owners = {"self": cls.name, "cls": cls.name}
+            for arg in method.args.args:
+                if isinstance(arg.annotation, ast.Name) and arg.annotation.id in members:
+                    owners[arg.arg] = arg.annotation.id
+            for node in ast.walk(method):
+                match node:
+                    case ast.Assert(
+                        test=ast.Call(
+                            func=ast.Name(id="isinstance"),
+                            args=[ast.Name(id=receiver), ast.Name(id=owner)],
+                        )
+                    ) if owner in members:
+                        owners[receiver] = owner
+            for node in ast.walk(method):
+                if isinstance(node, ast.Attribute) and isinstance(node.value, ast.Name):
+                    owner = owners.get(node.value.id)
+                    if owner in members and node.attr in members[owner]:
+                        owned.add(node)
+    return owned
 
 
 @pytest.mark.parametrize("adapter", ["livekit", "pipecat"])
@@ -129,13 +157,13 @@ def test_framework_private_access_and_attribute_defaults_live_in_seams(adapter):
         if path == folder / "seams.py":
             continue
         tree = ast.parse(path.read_text())
-        owned = _own_private_members(tree)
+        owned = _owned_accesses(tree)
         for node in ast.walk(tree):
             if isinstance(node, ast.Attribute):
                 if (
                     node.attr.startswith("_")
                     and not node.attr.startswith("__")
-                    and node.attr not in owned
+                    and node not in owned
                 ):
                     offenders.append((path.name, node.lineno, node.attr))
             elif (

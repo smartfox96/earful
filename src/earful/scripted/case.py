@@ -132,7 +132,10 @@ def check_case(case: Case) -> None:
         if fault.of not in FAULTS:
             raise ValueError(f"unknown fault {fault.of!r}; choose from {list(FAULTS)}")
         if fault.nth < 1:
-            raise ValueError(f"fault {fault.of} #{fault.nth}: nth counts from 1")
+            raise ValueError(
+                f"fault {fault.of} #{fault.nth}: nth counts from 1; a timeout or a drop says "
+                "how long the caller waits, and an error does not"
+            )
     if case.hangup is not None:
         seconds("hangup", case.hangup)
     names = [it.intent for it in case.intents]

@@ -45,7 +45,7 @@ def run_case(
         virtual=virtual,
         require_valid=require_valid,
         framework={"name": "livekit-agents", "version": lk.__version__},
-        validate=Case.check,
+        validate=lambda candidate, run_seed: candidate.check(run_seed),
         build=build,
         result_of=_result,
     )
