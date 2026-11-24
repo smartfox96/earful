@@ -215,7 +215,7 @@ MUTANTS = [
     ),
     Mutant(
         "model: a reply may finish before its first token",
-        "src/earful/scripted/model.py",
+        "src/earful/scripted/parties/model.py",
         "if self.ttft > self.duration:",
         "if False:",
         first="test_shape",
@@ -1797,7 +1797,7 @@ MUTANTS = [
     ),
     Mutant(
         "vad: never merges",
-        "src/earful/scripted/world.py",
+        "src/earful/scripted/parties/user.py",
         "        if segments and speech.start_us - speeches[segments[-1][-1]].end_us < min_silence_us:\n",
         "        if False:\n",
         first="test_the_search_finds_the_break_from_a_scenario_that_passes",
@@ -2107,7 +2107,7 @@ MUTANTS = [
     ),
     Mutant(
         "voice: the last word written counts as missing audio",
-        "src/earful/scripted/voice.py",
+        "src/earful/scripted/parties/voice.py",
         "    return repeated + len(short) - (1 if short and short[-1] == list(written)[-1] else 0)\n",
         "    return repeated + len(short)\n",
         first="only_the_last_word_written_may_have_less",
@@ -2827,19 +2827,12 @@ MUTANTS = [
     ),
     Mutant(
         "model: a reply is named before its first token is out",
-        "src/earful/livekit/providers.py",
+        "src/earful/scripted/parties/model.py",
         (
-            "        t0 = now_us()\n"
-            "        await _sleep_until(t0, ttft_us)\n"
-            "        # A text can be this reply only from its first token on.\n"
-            "        if words:\n"
-            "            model.register.replies[call] = words\n"
+            "    await sleep_until(t0, ttft_us)\n    words = _words(reply.text)\n    if words:\n        register.replies[call] = words"
         ),
         (
-            "        t0 = now_us()\n"
-            "        if words:\n"
-            "            model.register.replies[call] = words\n"
-            "        await _sleep_until(t0, ttft_us)\n"
+            "    words = _words(reply.text)\n    if words:\n        register.replies[call] = words\n    await sleep_until(t0, ttft_us)"
         ),
         first="names_no_reply",
     ),
@@ -2853,9 +2846,9 @@ MUTANTS = [
     # Streaming delivery, immutable final metadata, and gaps between word frames.
     Mutant(
         "streaming: all model chunks arrive at the first token",
-        "src/earful/livekit/providers.py",
-        "            await _sleep_until(t0, at_us)\n",
-        "            await _sleep_until(t0, ttft_us)\n",
+        "src/earful/scripted/parties/model.py",
+        "await sleep_until(t0, at_us)",
+        "await sleep_until(t0, ttft_us)",
         first="model_chunks_are_paced",
     ),
     Mutant(
@@ -3418,14 +3411,14 @@ MUTANTS = [
     ),
     Mutant(
         "model: a scripted call may leave out an argument the tool needs",
-        "src/earful/scripted/model.py",
+        "src/earful/scripted/parties/model.py",
         "    if set(given) <= set(takes) and set(needs) <= set(given):\n",
         "    if set(given) <= set(takes):\n",
         first="offered_tools_cannot_take",
     ),
     Mutant(
         "model: a scripted call may give an argument the tool does not take",
-        "src/earful/scripted/model.py",
+        "src/earful/scripted/parties/model.py",
         "    if set(given) <= set(takes) and set(needs) <= set(given):\n",
         "    if set(needs) <= set(given):\n",
         first="offered_tools_cannot_take",
@@ -4809,9 +4802,9 @@ MUTANTS = [
     ),
     Mutant(
         "pipecat: a late transcript holds up subsequent transcripts",
-        "src/earful/pipecat/providers.py",
-        "        for at_us, index, final in sorted(deadlines):\n",
-        "        for at_us, index, final in deadlines:\n",
+        "src/earful/scripted/parties/stt.py",
+        "sorted(deadlines) if chronological else deadlines",
+        "deadlines",
         first="transcripts_arrive_at_their_own_deadlines",
     ),
     Mutant(
@@ -4866,15 +4859,15 @@ MUTANTS = [
     Mutant(
         "vad: a segment under way at a handoff is reported to the ledger twice",
         "src/earful/livekit/providers.py",
-        "            if number not in vad._starts:\n",
-        "            if True:\n",
+        'event.kind == "start" and event.segment not in vad._starts',
+        'event.kind == "start"',
         first="follow_a_handoff",
     ),
     Mutant(
         "vad: a stream opened at a handoff hears what was said before it opened",
-        "src/earful/livekit/providers.py",
-        "            if number in vad._ends or not spans:\n",
-        "            if False:\n",
+        "src/earful/scripted/parties/vad.py",
+        "if opened is not None:",
+        "if False:",
         first="follow_a_handoff",
     ),
     Mutant(
@@ -4893,7 +4886,7 @@ MUTANTS = [
     ),
     Mutant(
         "vad: goes quiet before it reports the end of speech",
-        "src/earful/livekit/providers.py",
+        "src/earful/scripted/parties/vad.py",
         "            while tick < end_at:\n",
         "            while tick < end_at - 2 * vad._min_speech_us:\n",
         first="what_the_silero_plugin_reports",
@@ -4907,56 +4900,56 @@ MUTANTS = [
     ),
     Mutant(
         "voice: a word is counted complete with only one sample played",
-        "src/earful/scripted/voice.py",
+        "src/earful/scripted/parties/voice.py",
         'if got >= table.words[stamp]["samples"]]',
         "if got >= 1]",
         first="cancellation_counts_only_the_samples or sample_counts_once or last_sample_is_heard",
     ),
     Mutant(
         "voice: a word's audio is loud enough for the framework to hear a speaking rate",
-        "src/earful/scripted/voice.py",
+        "src/earful/scripted/parties/voice.py",
         "_BASE = 40\n",
         "_BASE = 60\n",
         first="under_the_level_livekit_reads_as_silence",
     ),
     Mutant(
         "voice: words next to each other share two digits",
-        "src/earful/scripted/voice.py",
+        "src/earful/scripted/parties/voice.py",
         "_STEP = 1 + _BASE + _BASE * _BASE\n",
         "_STEP = 1\n",
         first="share_no_sample_value",
     ),
     Mutant(
         "voice: a cut word is taken for the next one whatever came before it",
-        "src/earful/scripted/voice.py",
+        "src/earful/scripted/parties/voice.py",
         "if self._whole and _kind(self._held[0]) == 0 and self._last + 1 in fits:",
         "if self._last + 1 in fits:",
         first="cut_after_two_samples",
     ),
     Mutant(
         "voice: samples that fit several words are given to the first",
-        "src/earful/scripted/voice.py",
+        "src/earful/scripted/parties/voice.py",
         "        if len(fits) == 1:\n",
         "        if fits:\n",
         first="fit_no_one_word",
     ),
     Mutant(
         "voice: a stamp never given out is read as a word",
-        "src/earful/scripted/voice.py",
+        "src/earful/scripted/parties/voice.py",
         "            if stamp in self._table.words:\n",
         "            if True:\n",
         first="fit_no_one_word or sample_of_no_known_word",
     ),
     Mutant(
         "voice: a word too short to tell from another is stamped",
-        "src/earful/scripted/voice.py",
+        "src/earful/scripted/parties/voice.py",
         "        if samples < SHORTEST:\n",
         "        if samples < 0:\n",
         first="too_short_to_stamp",
     ),
     Mutant(
         "voice: a word joined part way is read from its first sample",
-        "src/earful/scripted/voice.py",
+        "src/earful/scripted/parties/voice.py",
         "        self._at = len(self._held) if from_its_start else -1\n",
         "        self._at = len(self._held)\n",
         first="joined_part_way",
@@ -4970,8 +4963,8 @@ MUTANTS = [
     ),
     Mutant(
         "pipecat: the model ignores a declared delay",
-        "src/earful/pipecat/providers.py",
-        "self._ttft_us.get(call, to_us(reply.ttft))",
+        "src/earful/scripted/parties/model.py",
+        "ttft.get(call, to_us(reply.ttft))",
         "to_us(reply.ttft)",
         first="pipecat_case_settings_and_delays",
     ),
@@ -5621,7 +5614,7 @@ MUTANTS = [
     ),
     Mutant(
         "scripted model: a reply cut inside a word is attributed to none",
-        "src/earful/scripted/model.py",
+        "src/earful/scripted/parties/model.py",
         '            ("prefix", lambda w: " ".join(w).startswith(said)),\n',
         '            ("prefix", lambda w: len(w) > len(words) and w[: len(words)] == words),\n',
         first="stopped_inside_a_word or cut_inside_a_word",
@@ -5642,7 +5635,7 @@ MUTANTS = [
     ),
     Mutant(
         "voice: a word written with more than its audio is not altered",
-        "src/earful/scripted/voice.py",
+        "src/earful/scripted/parties/voice.py",
         '    repeated = sum(got > table.words[stamp]["samples"] for stamp, got in written.items())\n',
         "    repeated = 0\n",
         first="none_more or written_twice",

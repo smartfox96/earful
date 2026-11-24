@@ -26,6 +26,7 @@ from earful.livekit.providers import (
 )
 from earful.scripted import clock
 from earful.scripted.clock import now_us, run_virtual
+from earful.scripted.parties.voice import Synthesis
 
 
 @pytest.mark.parametrize("ttft,duration", [(0.1, 0.4), (0, 0), (0.4, 0.4)])
@@ -209,7 +210,7 @@ def _a_bug(*args, **kwargs):
         (providers._ScriptedVADStream, "_emit", "VAD"),
         (providers._ScriptedRecognizeStream, "_send", "recognizer"),
         (providers._ScriptedLLMStream, "_chunk", "model"),
-        (providers._Synthesis, "render", "voice"),
+        (Synthesis, "render", "voice"),
     ],
 )
 def test_an_exception_inside_a_scripted_provider_makes_the_run_invalid(
@@ -229,7 +230,7 @@ def test_an_exception_while_a_whole_text_is_synthesized_is_recorded(monkeypatch)
         errors = []
         token = providers.record_errors_in(errors)
         voice = StampedTTS(Ledger(now_us, run="test"), ReplyRegister())
-        monkeypatch.setattr(providers._Synthesis, "render", _a_bug)
+        monkeypatch.setattr(Synthesis, "render", _a_bug)
         with pytest.raises(Exception, match="a bug in Earful|failed"):
             async for _ in voice.synthesize("hello"):
                 pass

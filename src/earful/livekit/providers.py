@@ -22,6 +22,10 @@ from ..core.ledger import Ledger
 from ..core.timebase import to_seconds, to_us
 from ..scripted.clock import now_us
 from ..scripted.model import Claim, Policy, Reply, ReplyRegister, ToolCall, _words, misfit
+from ..scripted.parties.model import fragments, reply_for
+from ..scripted.parties.stt import transcripts
+from ..scripted.parties.vad import detections
+from ..scripted.parties.voice import Synthesis as _Synthesis
 from ..scripted.voice import SHORTEST, StampTable, letters
 from ..scripted.world import UserSpeech, WorldOrigin, _check_speeches, vad_segments
 from ..scripted.world import sleep_until as _sleep_until
@@ -139,34 +143,28 @@ class _ScriptedVADStream(lk_vad.VADStream):
         assert vad._origin.t0_us is not None
         t0 = vad._origin.t0_us
         opened = now_us() - t0
-        for number, segment in enumerate(vad_segments(vad._speeches, vad._min_silence_us)):
-            # A stream hears only what is said after it opens, as a detector would.
-            spans = [
-                (max(vad._speeches[i].start_us, opened), vad._speeches[i].end_us)
-                for i in segment
-                if vad._speeches[i].end_us > opened
-            ]
-            if number in vad._ends or not spans:
-                continue
-            start_us, end_us = spans[0][0], spans[-1][1]
-            await _sleep_until(t0, start_us + vad._min_speech_us)
-            self._emit(lk_vad.VADEventType.START_OF_SPEECH, spans, now_us() - t0)
-            if number not in vad._starts:
-                vad._starts.add(number)
-                vad._ledger.append("world", "user.vad_start", speech=segment[0])
-
-            end_at = end_us + vad._min_silence_us
-            tick = start_us + 2 * vad._min_speech_us
-            while tick < end_at:
-                await _sleep_until(t0, tick)
-                self._emit(lk_vad.VADEventType.INFERENCE_DONE, spans, now_us() - t0)
-                tick += vad._min_speech_us
-
-            await _sleep_until(t0, end_at)
-            self._emit(lk_vad.VADEventType.END_OF_SPEECH, spans, now_us() - t0)
-            vad._ends.add(number)
-            vad._ledger.append("world", "user.vad_end", speech=segment[-1])
-
+        events = detections(
+            vad._speeches,
+            vad._min_speech_us,
+            vad._min_silence_us,
+            opened=opened,
+            ended=vad._ends,
+            ticks=True,
+        )
+        kinds = {
+            "start": lk_vad.VADEventType.START_OF_SPEECH,
+            "inference": lk_vad.VADEventType.INFERENCE_DONE,
+            "end": lk_vad.VADEventType.END_OF_SPEECH,
+        }
+        for event in events:
+            await _sleep_until(t0, event.at_us)
+            self._emit(kinds[event.kind], event.spans, now_us() - t0)
+            if event.kind == "start" and event.segment not in vad._starts:
+                vad._starts.add(event.segment)
+                vad._ledger.append("world", "user.vad_start", speech=event.speech)
+            if event.kind == "end":
+                vad._ends.add(event.segment)
+                vad._ledger.append("world", "user.vad_end", speech=event.speech)
         async for _ in self._input_ch:
             pass
 
@@ -246,19 +244,14 @@ class _ScriptedRecognizeStream(lk_stt.RecognizeStream):
         await self._input_ch.recv()  # clock starts at the first audio frame
         t0 = now_us()
         stt._origin.mark("stt", t0)
-        for i, speech in enumerate(stt._speeches):
-            final_at = speech.end_us + speech.stt_delay_us
-            if speech.transcript:
-                await _sleep_until(t0, speech.end_us + speech.stt_delay_us // 2)
-                interim = " ".join(speech.transcript.split()[:2])
-                self._send(interim, final=False)
-                await _sleep_until(t0, final_at)
-                self._send(speech.transcript, final=True)
-                stt._ledger.append(
-                    "world", "user.transcript_final", speech=i, text=speech.transcript
-                )
-            else:
-                await _sleep_until(t0, final_at)
+        for event in transcripts(stt._speeches, chronological=False):
+            await _sleep_until(t0, event.at_us)
+            if event.text:
+                self._send(event.text, final=event.final)
+                if event.final:
+                    stt._ledger.append(
+                        "world", "user.transcript_final", speech=event.speech, text=event.text
+                    )
         with contextlib.suppress(asyncio.InvalidStateError):
             stt.done.set_result(None)
 
@@ -395,13 +388,7 @@ class _ScriptedLLMStream(lk_llm.LLMStream):
         missed = unwitnessed(list(self.tools))
         if missed:
             model._errors.append(f"call {call}: the model is offered {missed} without the witness")
-        try:
-            reply = model._policy(items)
-            reply.check_timing()
-        except Exception as exc:
-            # The framework would handle this as a model failure. It is a broken scenario.
-            model._errors.append(f"policy raised on call {call}: {type(exc).__name__}: {exc}")
-            raise
+        reply = reply_for(model._policy, items, model._errors, call)
         model._errors += [f"call {call}: {wrong}" for wrong in _unfit(self.tools, reply.tool_calls)]
         unserved = _unserved(*self.asked, reply.tool_calls)
         if unserved is not None:
@@ -431,33 +418,17 @@ class _ScriptedLLMStream(lk_llm.LLMStream):
             if call_id in model._call_ids:
                 model._errors.append(f"call {call}: the policy reused tool call id {call_id!r}")
             model._call_ids.add(call_id)
-        ttft_us = model._ttft_us.get(call, to_us(reply.ttft))
-        # Generation cannot end before its first token.
-        duration_us = max(model._duration_us.get(call, to_us(reply.duration)), ttft_us)
-        model._ledger.append(
-            "llm",
-            "llm.response",
-            call=call,
-            text=reply.text,
-            tool_calls=[dataclasses.asdict(t) for t in tool_calls],
-            claims=claims,
-            ttft_us=ttft_us,
-            duration_us=duration_us,
-        )
-
-        t0 = now_us()
-        await _sleep_until(t0, ttft_us)
-        # A text can be this reply only from its first token on.
-        if words:
-            model.register.replies[call] = words
-        step = 3
-        chunks = range(0, len(reply.text), step)
-        for n, i in enumerate(chunks):
-            # Absolute integer deadlines avoid accumulating float rounding or scheduler lag.
-            at_us = ttft_us + (duration_us - ttft_us) * n // max(len(chunks) - 1, 1)
-            await _sleep_until(t0, at_us)
-            self._chunk(call, content=reply.text[i : i + step])
-        await _sleep_until(t0, duration_us)
+        async for text in fragments(
+            model._ledger,
+            call,
+            reply,
+            tool_calls,
+            claims,
+            model._ttft_us,
+            model._duration_us,
+            model.register,
+        ):
+            self._chunk(call, content=text)
         if tool_calls:
             self._chunk(
                 call,
@@ -518,46 +489,14 @@ class StampedTTS(lk_tts.TTS[NoReturn]):
 
     def _begin(self) -> _Synthesis:
         self._utterances += 1
-        return _Synthesis(self, self._utterances)
-
-
-class _Synthesis:
-    # One utterance, recorded once at its end. Only replies known at its start are eligible.
-    def __init__(self, tts: StampedTTS, utterance: int) -> None:
-        self.tts, self.utterance = tts, utterance
-        self.started_us = tts._ledger.now_us()
-        self.t0_us = now_us()
-        self.ttfb_us = tts._ttfb_by_utterance.get(utterance, tts._ttfb_us)
-        self.eligible = set(tts._register.replies)
-        self.words: list[str] = []
-        self.stamps: list[int] = []
-        self.word_samples: list[int] = []
-
-    def render(self, word: str) -> bytes:
-        tts = self.tts
-        samples = (tts.sample_rate * letters(word) * tts._letter_us + 500_000) // 1_000_000
-        stamp = tts.table.add(self.utterance, len(self.words), word, samples)
-        self.words.append(word)
-        self.stamps.append(stamp)
-        self.word_samples.append(samples)
-        return tts.table.audio(stamp).tobytes()
-
-    def finish(self) -> None:
-        text = " ".join(self.words)
-        call, attribution, candidates = self.tts._register.attribute(text, eligible=self.eligible)
-        self.tts._ledger.append(
-            "world",
-            "tts.synthesized",
-            utterance=self.utterance,
-            call=call,
-            attribution=attribution,
-            candidates=candidates,
-            text=text,
-            stamps=self.stamps,
-            word_samples=self.word_samples,
-            sample_rate=self.tts.sample_rate,
-            ttfb_us=self.ttfb_us,
-            started_us=self.started_us,
+        return _Synthesis(
+            self._utterances,
+            self._ledger,
+            self.table,
+            self._register,
+            self.sample_rate,
+            self._letter_us,
+            self._ttfb_by_utterance.get(self._utterances, self._ttfb_us),
         )
 
 
