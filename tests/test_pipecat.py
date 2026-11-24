@@ -870,9 +870,9 @@ def test_pipecat_a_function_registered_after_bot_returns_makes_the_run_invalid()
 def test_pipecat_a_release_that_keeps_a_private_name_elsewhere_is_refused_before_the_run(
     monkeypatch,
 ):
-    from earful.pipecat import worker
+    from earful.pipecat import seams
 
-    monkeypatch.setattr(worker, "PRIVATE", (*worker.PRIVATE, "_renamed_later"))
+    monkeypatch.setattr(seams, "PRIVATE", (*seams.PRIVATE, "_renamed_later"))
     keeps = r"keeps LLMService._renamed_later where Earful cannot read it, so the functions"
     with pytest.raises(ValueError, match=keeps):
         pc.run(greeting())

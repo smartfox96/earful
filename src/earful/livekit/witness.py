@@ -10,7 +10,7 @@ import livekit.agents as lk
 
 from ..core.backend import BackendError, BackendTimeout
 from ..core.ledger import Ledger
-from . import options
+from . import options, seams
 from .providers import (
     summarize_item,
 )
@@ -69,7 +69,7 @@ def _tap(
         },
     )
     on("agent_false_interruption", lambda e: {})
-    on("close", lambda e: {"reason": str(getattr(e.reason, "value", e.reason))})
+    on("close", lambda e: {"reason": seams.close_reason(e.reason)})
     on("error", lambda e: {"error": type(e.error).__name__})
 
 

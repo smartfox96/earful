@@ -26,12 +26,12 @@ from ..core.ledger import Ledger
 from ..scripted.kernel.run import RunContext
 from ..scripted.world import WorldOrigin
 from . import pipeline as pipelines
+from . import seams
 from .case import Case
 from .clock import VirtualClock
 from .config import _header
 from .pipeline import Ends
 from .providers import (
-    PRIVATE,
     SAMPLE_RATE,
     ScriptedLLM,
     ScriptedSTT,
@@ -139,8 +139,7 @@ def _built(case: Case, s: _Scripted) -> tuple[LLMContext, pipelines.Plan, dict[s
     timeouts = (case.user_speech_timeout, case.user_turn_stop_timeout)
     build = case.pipeline or pipelines.standard(*timeouts)
     plan = pipelines.inspect(build(ends), ends, *timeouts, own=case.pipeline is not None)
-    for name in PRIVATE:  # read again during the run, so a release without one is refused now
-        model.private(name)
+    seams.check_service(model)
     model.witness_tools(context.tools)
     header = _header(case, witness.names, plan.options)
     history = summarize(context.get_messages(), {}, {})

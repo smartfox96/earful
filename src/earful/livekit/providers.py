@@ -29,7 +29,8 @@ from ..scripted.parties.voice import Synthesis as _Synthesis
 from ..scripted.voice import SHORTEST, StampTable, letters
 from ..scripted.world import UserSpeech, WorldOrigin, _check_speeches, vad_segments
 from ..scripted.world import sleep_until as _sleep_until
-from ._compat import DEFAULT_API_CONNECT_OPTIONS, APIConnectOptions
+from . import seams
+from .seams import DEFAULT_API_CONNECT_OPTIONS, APIConnectOptions, summarize_item
 from .tools import unwitnessed
 
 P = ParamSpec("P")
@@ -128,13 +129,13 @@ _VAD_EVENT_FIELDS = {f.name for f in dataclasses.fields(lk_vad.VADEvent)}
 class _ScriptedVADStream(lk_vad.VADStream):
     @scripted("VAD")
     async def _main_task(self) -> None:
-        vad = self._vad
+        vad = seams.vad_of(self)
         assert isinstance(vad, ScriptedVAD)
         if not vad._speeches:
             return
         vad._streams += 1
         if vad._streams == 1:  # the scripted user's clock starts at the first audio frame
-            async for frame in self._input_ch:
+            async for frame in seams.stream_input(self):
                 if isinstance(frame, rtc.AudioFrame):
                     break
             else:
@@ -165,7 +166,7 @@ class _ScriptedVADStream(lk_vad.VADStream):
             if event.kind == "end":
                 vad._ends.add(event.segment)
                 vad._ledger.append("world", "user.vad_end", speech=event.speech)
-        async for _ in self._input_ch:
+        async for _ in seams.stream_input(self):
             pass
 
     def _emit(self, type: lk_vad.VADEventType, spans: list[tuple[int, int]], at_us: int) -> None:
@@ -186,17 +187,7 @@ class _ScriptedVADStream(lk_vad.VADStream):
             "speaking": not ended,
         }
         kwargs = {k: v for k, v in values.items() if k in _VAD_EVENT_FIELDS}
-        self._event_ch.send_nowait(lk_vad.VADEvent(**kwargs))
-
-
-def _speech_data(text: str) -> lk_stt.SpeechData:
-    language: Any = ""
-    code = getattr(lk_stt, "LanguageCode", None) or getattr(
-        __import__("livekit.agents", fromlist=["LanguageCode"]), "LanguageCode", None
-    )
-    if code is not None:
-        language = code("")
-    return lk_stt.SpeechData(text=text, language=language)
+        seams.send_event(self, lk_vad.VADEvent(**kwargs))
 
 
 # The type argument names a provider's extra events: none here (NoReturn is 3.10's Never).
@@ -226,7 +217,7 @@ class ScriptedSTT(lk_stt.STT[NoReturn]):
 class _ScriptedRecognizeStream(lk_stt.RecognizeStream):
     @scripted("recognizer")
     async def _run(self) -> None:
-        stt = self._stt
+        stt = seams.recognizer_of(self)
         assert isinstance(stt, ScriptedSTT)
         if stt._speeches and not stt.done.done():
             try:
@@ -237,11 +228,11 @@ class _ScriptedRecognizeStream(lk_stt.RecognizeStream):
                     stt.done.set_result(None)
                 raise
 
-        async for _ in self._input_ch:
+        async for _ in seams.stream_input(self):
             pass
 
     async def _script(self, stt: ScriptedSTT) -> None:
-        await self._input_ch.recv()  # clock starts at the first audio frame
+        await seams.stream_input(self).recv()  # clock starts at the first audio frame
         t0 = now_us()
         stt._origin.mark("stt", t0)
         for event in transcripts(stt._speeches, chronological=False):
@@ -261,26 +252,9 @@ class _ScriptedRecognizeStream(lk_stt.RecognizeStream):
             if final
             else lk_stt.SpeechEventType.INTERIM_TRANSCRIPT
         )
-        self._event_ch.send_nowait(lk_stt.SpeechEvent(type=kind, alternatives=[_speech_data(text)]))
-
-
-def summarize_item(item: Any) -> dict[str, Any]:
-    """A chat-context item reduced to the fields contracts care about."""
-    out: dict[str, Any] = {"type": item.type, "id": getattr(item, "id", None)}
-    if item.type == "message":
-        out["role"] = item.role
-        out["text"] = item.text_content
-        out["interrupted"] = bool(getattr(item, "interrupted", False))
-    elif item.type == "function_call":
-        out["name"] = item.name
-        out["arguments"] = item.arguments
-        out["call_id"] = item.call_id
-    elif item.type == "function_call_output":
-        out["name"] = getattr(item, "name", None)
-        out["output"] = item.output
-        out["call_id"] = item.call_id
-        out["is_error"] = bool(getattr(item, "is_error", False))
-    return out
+        seams.send_event(
+            self, lk_stt.SpeechEvent(type=kind, alternatives=[seams.speech_data(text)])
+        )
 
 
 def starting_history(items: list[Any]) -> list[dict[str, Any]]:
@@ -378,7 +352,7 @@ class _ScriptedLLMStream(lk_llm.LLMStream):
 
     @scripted("model")
     async def _run(self) -> None:
-        model = self._llm
+        model = seams.model_of(self)
         assert isinstance(model, ScriptedLLM)
         model._calls += 1
         call = model._calls
@@ -439,13 +413,14 @@ class _ScriptedLLMStream(lk_llm.LLMStream):
             )
 
     def _chunk(self, call: int, *, content: str | None = None, tool_calls: Any = None) -> None:
-        self._event_ch.send_nowait(
+        seams.send_event(
+            self,
             lk_llm.ChatChunk(
                 id=f"scripted-llm-{call}",
                 delta=lk_llm.ChoiceDelta(
                     role="assistant", content=content, tool_calls=tool_calls or []
                 ),
-            )
+            ),
         )
 
 
@@ -509,7 +484,7 @@ def _push_pcm(emitter: Any, pcm: bytes, sample_rate: int) -> None:
 class _StampedChunkedStream(lk_tts.ChunkedStream):
     @scripted("voice")
     async def _run(self, output_emitter: Any) -> None:
-        tts = self._tts
+        tts = seams.voice_of(self)
         assert isinstance(tts, StampedTTS)
         output_emitter.initialize(
             request_id=utils.shortuuid("earful_tts_"),
@@ -519,7 +494,7 @@ class _StampedChunkedStream(lk_tts.ChunkedStream):
         )
         synthesis = tts._begin()
         try:
-            pcm = b"".join(synthesis.render(word) for word in self._input_text.split())
+            pcm = b"".join(synthesis.render(word) for word in seams.input_text(self).split())
             if pcm:
                 await _sleep_until(synthesis.t0_us, synthesis.ttfb_us)
                 _push_pcm(output_emitter, pcm, tts.sample_rate)
@@ -531,7 +506,7 @@ class _StampedChunkedStream(lk_tts.ChunkedStream):
 class _StampedSynthesizeStream(lk_tts.SynthesizeStream):
     @scripted("voice")
     async def _run(self, output_emitter: Any) -> None:
-        tts = self._tts
+        tts = seams.voice_of(self)
         assert isinstance(tts, StampedTTS)
         output_emitter.initialize(
             request_id=utils.shortuuid("earful_tts_"),
@@ -549,8 +524,7 @@ class _StampedSynthesizeStream(lk_tts.SynthesizeStream):
                 first = synthesis is None
                 if synthesis is None:
                     synthesis = tts._begin()
-                    if "_mark_started" in dir(self):
-                        self._mark_started()
+                    seams.mark_started(self)
                 pcm = synthesis.render(word)
                 if first:
                     await _sleep_until(synthesis.t0_us, synthesis.ttfb_us)
@@ -558,7 +532,7 @@ class _StampedSynthesizeStream(lk_tts.SynthesizeStream):
                 _push_pcm(output_emitter, pcm, tts.sample_rate)
 
         try:
-            async for data in self._input_ch:
+            async for data in seams.stream_input(self):
                 if isinstance(data, str):
                     pending += data
                     words = pending.split()

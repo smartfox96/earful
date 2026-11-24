@@ -25,8 +25,7 @@ from ..scripted.clock import (
 )
 from ..scripted.kernel.ports import FinalHistory, RunPorts, WaitForQuiet
 from ..scripted.kernel.run import RunContext
-from . import options, tools
-from ._compat import TranscriptSynchronizer, io
+from . import options, seams, tools
 from .case import Case
 from .config import _declared_session, _effective_session, _header, _session_kwargs, _switches
 from .providers import (
@@ -40,6 +39,7 @@ from .providers import (
     stop_recording_errors,
     summarize_item,
 )
+from .seams import TranscriptSynchronizer, io
 from .witness import _tap, _WarningCollector
 
 
@@ -186,7 +186,7 @@ async def _session(case: Case, context: RunContext, witness: tools.ToolWitness) 
 
     def on_close(event: Any) -> None:
         if not closed.done():
-            closed.set_result(str(getattr(event.reason, "value", event.reason)))
+            closed.set_result(seams.close_reason(event.reason))
 
     async def start() -> None:
         _tap(session, ledger, harness_errors, checked=checked)

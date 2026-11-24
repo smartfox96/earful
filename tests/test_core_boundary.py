@@ -99,6 +99,63 @@ def test_an_adapter_imports_neither_the_other_adapter_nor_its_framework(adapter,
     assert not offenders, offenders
 
 
+def _own_private_members(tree):
+    """Private methods and instance fields introduced in Earful's own classes."""
+    members = set()
+    for cls in (node for node in ast.walk(tree) if isinstance(node, ast.ClassDef)):
+        for stmt in cls.body:
+            if isinstance(stmt, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                members.add(stmt.name)
+            elif isinstance(stmt, ast.AnnAssign) and isinstance(stmt.target, ast.Name):
+                members.add(stmt.target.id)
+            elif isinstance(stmt, ast.Assign):
+                members.update(target.id for target in stmt.targets if isinstance(target, ast.Name))
+        members.update(
+            node.attr
+            for node in ast.walk(cls)
+            if isinstance(node, ast.Attribute)
+            and isinstance(node.ctx, ast.Store)
+            and isinstance(node.value, ast.Name)
+            and node.value.id == "self"
+        )
+    return members
+
+
+@pytest.mark.parametrize("adapter", ["livekit", "pipecat"])
+def test_framework_private_access_and_attribute_defaults_live_in_seams(adapter):
+    folder = SRC / "earful" / adapter
+    offenders = []
+    for path in sorted(folder.rglob("*.py")):
+        if path == folder / "seams.py":
+            continue
+        tree = ast.parse(path.read_text())
+        owned = _own_private_members(tree)
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Attribute):
+                if (
+                    node.attr.startswith("_")
+                    and not node.attr.startswith("__")
+                    and node.attr not in owned
+                ):
+                    offenders.append((path.name, node.lineno, node.attr))
+            elif (
+                isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Name)
+                and node.func.id in {"getattr", "setattr", "hasattr"}
+                and len(node.args) >= 2
+            ):
+                name = node.args[1]
+                private = (
+                    isinstance(name, ast.Constant)
+                    and isinstance(name.value, str)
+                    and name.value.startswith("_")
+                    and not name.value.startswith("__")
+                )
+                if private or (node.func.id == "getattr" and len(node.args) == 3):
+                    offenders.append((path.name, node.lineno, ast.unparse(node)))
+    assert not offenders, offenders
+
+
 def test_they_import_with_every_framework_unavailable():
     modules = sorted(_module(p) for p in _sources())
     assert {"earful.core.checker", "earful.scripted.clock"} <= set(modules)

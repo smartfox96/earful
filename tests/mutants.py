@@ -18,6 +18,20 @@ class Mutant:
 
 MUTANTS = [
     Mutant(
+        "adapter: a framework stream is read outside its seam",
+        "src/earful/livekit/providers.py",
+        "model = seams.model_of(self)",
+        "model = self._llm",
+        first="framework_private_access_and_attribute_defaults_live_in_seams",
+    ),
+    Mutant(
+        "adapter: a missing context field is given a default outside its seam",
+        "src/earful/pipecat/scaffold.py",
+        "tools = seams.advertised_tools(context)",
+        'tools = getattr(context, "tools", None)',
+        first="framework_private_access_and_attribute_defaults_live_in_seams",
+    ),
+    Mutant(
         "kernel: every party needs the scripted model's reply register",
         "src/earful/scripted/kernel/ports.py",
         "class Party(Protocol):",
@@ -3074,7 +3088,7 @@ MUTANTS = [
     Mutant(
         "witness: a tool is recorded under its function's name",
         "src/earful/livekit/tools.py",
-        '        called_as = getattr(call, "name", None) or tool_name\n',
+        "        called_as = seams.called_name(call) or tool_name\n",
         "        called_as = tool_name\n",
         first="name_the_model_calls_it_by",
     ),
@@ -3094,7 +3108,7 @@ MUTANTS = [
     ),
     Mutant(
         "witness: a tool does not say which effect it declares",
-        "src/earful/livekit/tools.py",
+        "src/earful/livekit/seams.py",
         "    setattr(wrapper, _EFFECT, effect)\n",
         "    setattr(wrapper, _EFFECT, None)\n",
         first="declares_its_own_effect",
@@ -4628,7 +4642,7 @@ MUTANTS = [
     Mutant(
         "pipecat: a tool the context advertises is not witnessed",
         "src/earful/pipecat/providers.py",
-        '            self.private("_sync_registered_tool_handlers")(advertised)\n',
+        "            seams.sync_handlers(self, advertised)\n",
         "            pass\n",
         first="witnesses_a_tool_however_it_is_registered",
     ),
@@ -4768,14 +4782,14 @@ MUTANTS = [
     Mutant(
         "pipecat: summaries of the context are asked of a model that is not scripted",
         "src/earful/pipecat/pipeline.py",
-        "    if getattr(kept, _SUMMARIES, False):\n",
+        "    if seams.summaries_enabled(kept):\n",
         "    if False:\n",
         first="cannot_run_or_describe_is_refused",
     ),
     Mutant(
         "pipecat: the header leaves out that a start strategy does not interrupt",
         "src/earful/pipecat/pipeline.py",
-        '    if not _setting(strategy, "_enable_interruptions"):\n',
+        "    if not seams.interruptions_enabled(strategy):\n",
         "    if False:\n",
         first="does_not_interrupt_is_stated",
     ),
@@ -5342,7 +5356,7 @@ MUTANTS = [
     Mutant(
         "livekit options: an agent with a provider of its own is run",
         "src/earful/livekit/options.py",
-        "        if _sets(option, _private(agent, held_as)):\n",
+        "        if _sets(option, seams.agent_option(agent, option)):\n",
         "        if False:\n",
         first="provider_of_its_own or agent_option_earful_does_not_model",
     ),
@@ -5685,8 +5699,8 @@ MUTANTS = [
     Mutant(
         "pipecat: a private name is read only when it is used",
         "src/earful/pipecat/worker.py",
-        "        model.private(name)\n",
-        "        pass\n",
+        "    seams.check_service(model)\n",
+        "",
         first="private_name_elsewhere",
     ),
     Mutant(
@@ -5993,8 +6007,8 @@ MUTANTS = [
     Mutant(
         "pipecat scaffold: a function registered by name alone is not found",
         "src/earful/pipecat/scaffold.py",
-        "            found.setdefault(name, None)\n",
-        "            pass\n",
+        "        found.setdefault(name, None)\n",
+        "        pass\n",
         first="needs_more_than_its_model",
     ),
     Mutant(

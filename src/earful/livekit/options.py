@@ -9,6 +9,8 @@ from typing import Any
 import livekit.agents as lk
 from livekit.agents.utils import is_given
 
+from . import seams
+
 # AgentSession options a case passes in session_kwargs as they are. The header lists them.
 PASSED = {
     "tools": "tools every agent is given; each call is witnessed",
@@ -127,16 +129,6 @@ def refuse_session_kwargs(given: Mapping[str, Any]) -> None:
             )
 
 
-def _private(agent: lk.Agent, name: str) -> Any:
-    try:
-        return getattr(agent, name)
-    except AttributeError:
-        raise ValueError(
-            f"this livekit-agents release keeps Agent.{name} where Earful cannot read it, so "
-            "the run's header could not state the agent's options"
-        ) from None
-
-
 def _sets(option: str, value: Any) -> bool:
     if not is_given(value):
         return False
@@ -150,11 +142,10 @@ def agent_refusal(agent: lk.Agent, session: lk.AgentSession[Any]) -> str | None:
     for option, why in AGENT_REFUSED.items():
         if option not in agent_options():
             continue
-        held_as = "_async_tool_options" if option == "tool_handling" else option
-        if _sets(option, _private(agent, held_as)):
+        if _sets(option, seams.agent_option(agent, option)):
             return f"{name} sets its own {option}, which {why}"
     held: Mapping[str, Any] = session.options.turn_handling
-    for group, value in _private(agent, "_turn_handling").items():
+    for group, value in seams.turn_handling(agent).items():
         if group == "turn_detection":
             if value not in _DEFAULT_TURNS:
                 return (

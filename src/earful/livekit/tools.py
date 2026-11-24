@@ -15,10 +15,9 @@ from livekit.agents import llm as lk_llm
 
 from ..core.backend import Arguments, Effect, current_tool
 from ..core.ledger import Ledger, json_value
+from . import seams
 
 _CONTEXT_PARAM = "earful_run_context"
-_MARK = "__earful_witnessed__"
-_EFFECT = "__earful_effect__"
 
 
 def _plain(value: Any) -> bool:
@@ -80,7 +79,7 @@ def expects_reply(outcome: Any) -> bool:
     shown, _ = parts
     if shown is None:
         return False
-    required = getattr(shown, "reply_required", None)
+    required = seams.reply_required(shown)
     return True if required is None else bool(required)
 
 
@@ -167,28 +166,21 @@ def _is_run_context(hint: Any) -> bool:
     return isinstance(origin, type) and issubclass(origin, lk.RunContext)
 
 
-def _hints(fn: Callable[..., Any]) -> dict[str, Any]:
-    try:
-        return typing.get_type_hints(fn, include_extras=True)
-    except Exception:  # noqa: BLE001 - unresolvable forward references
-        return dict(getattr(fn, "__annotations__", {}))
-
-
 def witnessed(
     fn: Callable[..., Any], *, name: str | None = None, effect: Effect | None = None
 ) -> Callable[..., Any]:
     """Wrap an async tool so that each call in a run is recorded. Wrapping twice is a no-op.
     With ``effect``, a call in a run makes that write in place of calling ``fn``.
     Raises ``TypeError`` for a function that is not async."""
-    if getattr(fn, _MARK, False):
+    if seams.is_witnessed(fn):
         return fn
     if inspect.isfunction(fn) and not inspect.iscoroutinefunction(fn):
         raise TypeError("witnessed tools must be async functions")
 
     # Written with ``if``: mypy reads ``name or getattr(...)`` as a name that may be None.
-    tool_name = name if name else getattr(fn, "__name__", type(fn).__name__)
+    tool_name = name if name else seams.tool_name(fn)
     signature = inspect.signature(fn)
-    hints = _hints(fn)
+    hints = seams.hints(fn)
     declared = next((n for n in signature.parameters if _is_run_context(hints.get(n))), None)
     receiver = next(iter(signature.parameters), None)
     receiver = receiver if receiver in ("self", "cls") else None
@@ -213,10 +205,10 @@ def witnessed(
         context = bound.pop(declared, None) if declared is not None else injected
         if receiver is not None:
             bound.pop(receiver, None)
-        call = getattr(context, "function_call", None)
+        call = seams.function_call(context)
         # The name the model called the tool by, which may differ from the function's.
-        called_as = getattr(call, "name", None) or tool_name
-        tool = witness.called(called_as, getattr(call, "call_id", None), bound)
+        called_as = seams.called_name(call) or tool_name
+        tool = witness.called(called_as, seams.call_id(call), bound)
         write = witness.effects.get(called_as, effect)
         token = current_tool.set(tool)
         try:
@@ -256,8 +248,7 @@ def witnessed(
     # In this order: on Python 3.14 (PEP 649) assigning ``__annotations__`` clears ``__annotate__``.
     wrapper.__annotations__ = annotations
     wrapper.__annotate__ = lambda _format=1: dict(annotations)  # type: ignore[attr-defined]
-    setattr(wrapper, _MARK, True)
-    setattr(wrapper, _EFFECT, effect)
+    seams.mark_witnessed(wrapper, effect)
     return wrapper
 
 
@@ -275,9 +266,9 @@ def effect_tool(
     declared = Effect(intent, payload=payload, key=key, result=result, latency=latency)
 
     def decorate(fn: Callable[..., Any]) -> Callable[..., Any]:
-        if getattr(fn, _MARK, False):
+        if seams.is_witnessed(fn):
             raise TypeError(
-                f"{getattr(fn, '__name__', fn)!r} is already witnessed: "
+                f"{seams.display_name(fn)!r} is already witnessed: "
                 "effect_tool witnesses the tool itself, so it replaces @witnessed"
             )
         return witnessed(fn, effect=declared)
@@ -287,7 +278,7 @@ def effect_tool(
 
 def declared_effect(tool: Any) -> Effect | None:
     """The write ``effect_tool`` declared for a framework function tool, if it did."""
-    found = getattr(tool, _EFFECT, None)
+    found = seams.declared_effect(tool)
     return found if isinstance(found, Effect) else None
 
 
@@ -295,7 +286,7 @@ def witness_tool(tool: Any) -> Any:
     """A recording copy of a framework function tool; any other tool is returned as is."""
     if not isinstance(tool, (lk_llm.FunctionTool, lk_llm.RawFunctionTool)):
         return tool
-    if getattr(tool, _MARK, False):
+    if seams.is_witnessed(tool):
         return tool
     # The constructor ``function_tool`` uses, so the copy keeps the tool's info on every release.
     return type(tool)(witnessed(tool, name=tool.info.name), tool.info)  # type: ignore[arg-type]
@@ -349,7 +340,7 @@ def unwitnessed(tools: list[Any]) -> list[str]:
         t.info.name
         for t in tools
         if isinstance(t, (lk_llm.FunctionTool, lk_llm.RawFunctionTool))
-        and not getattr(t, _MARK, False)
+        and not seams.is_witnessed(t)
     )
 
 

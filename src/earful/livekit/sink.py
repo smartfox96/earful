@@ -13,8 +13,8 @@ from livekit import rtc
 from ..core.ledger import Ledger
 from ..core.timebase import US_PER_SECOND, to_seconds
 from ..scripted.voice import StampReader, StampTable, words_altered, words_heard
-from ._compat import io
 from .providers import scripted, scripted_call
+from .seams import io
 
 
 class _Segment:

@@ -49,6 +49,7 @@ from ..scripted.parties.vad import detections
 from ..scripted.parties.voice import Synthesis
 from ..scripted.voice import SHORTEST, StampTable
 from ..scripted.world import UserSpeech, WorldOrigin, sleep_until
+from . import seams
 from .tools import ToolWitness
 
 SAMPLE_RATE = 24000
@@ -207,7 +208,6 @@ def summarize(
 
 
 # The names pipecat-ai keeps private that the scripted model reads to witness functions.
-PRIVATE = ("_functions", "_cancel_tool_names", "_sync_registered_tool_handlers")
 
 
 class ScriptedLLM(LLMService):
@@ -250,23 +250,13 @@ class ScriptedLLM(LLMService):
         self.generating = 0
         self.register = ReplyRegister()
 
-    def private(self, name: str) -> Any:
-        """One of the names in ``PRIVATE``. Raises ``ValueError`` on a release without it."""
-        try:
-            return getattr(self, name)
-        except AttributeError:
-            raise ValueError(
-                f"this pipecat-ai release keeps LLMService.{name} where Earful cannot read it, "
-                "so the functions the bot registers could not be witnessed"
-            ) from None
-
     def witness_tools(self, advertised: Any = None) -> None:
         """Put the witness around every function the application has registered, however
         it did so. ``advertised`` is a context's tools, whose handlers Pipecat registers
         when it first sees the context."""
-        functions, cancel = self.private("_functions"), self.private("_cancel_tool_names")
+        functions, cancel = seams.registered(self), seams.cancel_tools(self)
         if advertised is not None:
-            self.private("_sync_registered_tool_handlers")(advertised)
+            seams.sync_handlers(self, advertised)
         for name, item in functions.items():
             if name in cancel or item.handler in self._witnessed:
                 continue  # Pipecat's own tool, or one already wrapped
