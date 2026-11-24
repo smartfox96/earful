@@ -18,6 +18,20 @@ class Mutant:
 
 MUTANTS = [
     Mutant(
+        "kernel: every party needs the scripted model's reply register",
+        "src/earful/scripted/kernel/ports.py",
+        "class Party(Protocol):",
+        "from ..model import ReplyRegister\n\n\nclass Party(ReplyRegister):",
+        first="the_kernel_imports_no_concrete_party",
+    ),
+    Mutant(
+        "kernel: a party must expose a voice-specific idle signal",
+        "src/earful/scripted/kernel/ports.py",
+        'def quiet(self) -> bool:\n        """Whether the party',
+        'def voice_quiet(self) -> bool:\n        """Whether the party',
+        first="the_kernel_addresses_parties_without_naming_a_provider_kind",
+    ),
+    Mutant(
         "checker: a failed verdict drops its lost evidence",
         "src/earful/core/checker/report.py",
         "for code, why in missing if CODES[code] == LOST",

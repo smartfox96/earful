@@ -12,6 +12,7 @@ import pytest
 TESTS = Path(__file__).resolve().parent
 SRC = TESTS.parent / "src"
 PORTABLE = (SRC / "earful" / "core", SRC / "earful" / "scripted")
+KERNEL = SRC / "earful" / "scripted" / "kernel"
 FORBIDDEN = ("livekit", "pipecat", "earful.livekit", "earful.pipecat")
 
 
@@ -49,6 +50,38 @@ def test_the_core_and_the_scripted_world_import_no_framework():
         for line, name in _imports(path)
         if any(name == f or name.startswith(f + ".") for f in FORBIDDEN)
     ]
+    assert not offenders, offenders
+
+
+def test_the_kernel_imports_no_concrete_party():
+    implementations = tuple(
+        f"earful.scripted.{name}" for name in ("model", "parties", "playbook", "voice", "world")
+    )
+    sources = sorted(KERNEL.rglob("*.py"))
+    assert KERNEL / "ports.py" in sources
+    offenders = [
+        f"{path.relative_to(SRC)}:{line} imports {name}"
+        for path in sources
+        for line, name in _imports(path)
+        if any(name == impl or name.startswith(impl + ".") for impl in implementations)
+    ]
+    assert not offenders, offenders
+
+
+def test_the_kernel_addresses_parties_without_naming_a_provider_kind():
+    """Catch a named port such as voice_quiet or a lookup such as parties['stt']."""
+    roles = {"stt", "vad", "llm", "model", "tts", "voice"}
+    offenders = []
+    for path in KERNEL.rglob("*.py"):
+        for node in ast.walk(ast.parse(path.read_text())):
+            for field, name in ast.iter_fields(node):
+                if (
+                    field in {"id", "arg", "attr", "name", "value"}
+                    and isinstance(name, str)
+                    and name.isidentifier()
+                    and roles.intersection(name.lower().split("_"))
+                ):
+                    offenders.append(f"{path.relative_to(SRC)}:{node.lineno} names {name}")
     assert not offenders, offenders
 
 
