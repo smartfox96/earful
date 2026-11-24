@@ -1,4 +1,4 @@
-"""Virtual time for a real LiveKit AgentSession: the event loop clock and wall-clock reads.
+"""Virtual time for adapter runs, including the event loop and wall-clock reads.
 Adapted from ``tests/virtual_time.py`` in livekit/agents (Apache-2.0, see NOTICE)."""
 
 from __future__ import annotations

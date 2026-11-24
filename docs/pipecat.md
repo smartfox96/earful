@@ -193,9 +193,9 @@ case's data, a search and a bundle carry them, and a pipeline built with another
 is refused. The run's header records the rest under `session.extra_options`: the start
 and stop strategies by name, the pipeline's processors by class name in order, and each
 setting of the aggregators that is not Earful's own default, such as
-`user_mute_strategies`. Pipecat answers a turn without words that cut the bot off;
-Earful's seven turn that off, and a pipeline of yours has it unless you pass
-`empty_user_turn=None`.
+`user_mute_strategies`. Pipecat can answer when the user interrupts without saying any words. Earful's
+standard pipeline disables that reply by passing `empty_user_turn=None` to the user
+aggregator. Set the same option in your own pipeline to reproduce that behavior.
 
 A setting changes what the contracts find. With a mute strategy or with
 `VADUserTurnStartStrategy(enable_interruptions=False)` the bot talks on while the user

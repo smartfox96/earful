@@ -1,10 +1,9 @@
 # Writing an adapter
 
-An adapter runs one voice framework on Earful's virtual clock, in place of its providers,
-and writes what happened as a ledger. Everything else is shared: the contracts, the
-search, the shrinker, the bundle, the report and the command line read the ledger and the
-case data, and never import a framework. Two adapters exist, `earful.livekit` and
-`earful.pipecat`. Read both before starting a third.
+The shared kernel drives one case and writes the ledger. Each adapter supplies the
+operations that require a real session or pipeline. Start with the smallest case that
+produces an observable reply, then compare the recorded inputs, playout and final
+history with the contract you expect that case to exercise.
 
 ## The ledger it writes
 
@@ -25,34 +24,67 @@ Two rules decide most of the design:
   every timeout runs on `earful.scripted.clock`. Work that leaves the clock, a thread or
   a socket, makes the run invalid and says so, because its timing is real and unrepeatable.
 
-## The parts
+## Binding a run
 
-An adapter is a package of the same parts as `src/earful/livekit/` and
-`src/earful/pipecat/`:
+The public `run_case` entry point in `harness.py` passes the framework name and version,
+case validator, builder and result constructor to `earful.scripted.kernel.run.run`.
+Keep adapter options on the adapter's `Case` in `case.py`. The shared case holds the
+script, and the shared result supplies the ledger, verdicts and contract assertions.
 
-| Module | What it does |
+Implement `build(case, context)` in `ports.py` as an async context manager. It receives
+the run's ledger, backend, declared delays, clock choice and error list. Construct a
+fresh session or worker, install observers and yield the following bound operations.
+Restore every installed observer and backend binding when the context exits, including
+after an exception.
+
+| Operation | What the adapter supplies |
 | --- | --- |
-| `__init__.py` | Imports the framework and refuses a release outside the supported range in one line (`earful.scripted.releases`). Exports the public names, the same as the other adapters' where they mean the same |
-| `harness.py` | `Case`, the scenario as code, and `run_case`, which builds the framework's session or pipeline around Earful's providers, runs it on the virtual clock, writes the header and returns a `RunResult` with the ledger and the report |
-| `providers.py` | The scripted speech-to-text and VAD (the user's side), the scripted model, and the voice, each in the shape the framework expects a provider to have |
-| `sink.py` | The output: consumes audio on the virtual clock, reads each word's stamp back out of the samples, and writes `playout.*` and `sink.*` events |
-| `tools.py` | The tool witness: wraps every tool or function the application registers and writes `tool.*` events, and stands in for a declared effect |
-| `clock.py` | Only where the framework needs more than the shared virtual clock: Pipecat's binds Pipecat's own clock to the virtual loop |
-| `scenario.py` | `Scenario`, a case and how to rebuild it, and the conversion between a `Case` and `earful.case/1` data, so a search can move its times and add faults |
-| `api.py` | `run`, `explore`, `keep`, `replay` and `cross_check`, an `earful.scripted.api.AdapterAPI` given the adapter's `run_case` and scenario module |
-| `scaffold.py` | What `earful init` writes for the framework, from `earful.scripted.scaffold` |
+| `config()` | The scenario header read from the built application, including starting history and effective options |
+| `start()` | Start the session or worker and enable scripted input |
+| `drive(wait)` | Deliver the scenario, handle hangup and drain according to the framework. Await `wait()` when waiting for the framework to become idle |
+| `quiet()` | Read live activity, including outstanding tools and playout. The kernel polls this query on its clock |
+| `closed()` | An awaitable for the framework's own shutdown, with the reason when available |
+| `history()` | The final memory as `read_from` and ordered `items` |
+| `close()` | Finish shutdown and collect output diagnostics |
 
-Most of what a run needs is already shared, in `earful.scripted`:
+The kernel writes `run.start` before startup, `history.final` after driving the input,
+and `run.end` after leaving the builder's context. It checks the completed ledger and
+returns the result. The LiveKit harness adds its clock and warning diagnostics.
 
-| Module | What it gives |
+## Connecting the framework
+
+- `earful.scripted.parties` supplies the scripted user, timed voice-activity events,
+  transcripts, model fragments and stamped synthesis. Translate these into framework
+  frames or stream items in `providers.py`. Keep the order in which the framework
+  receives an event and the independent witness records it.
+- `sink.py` reads the stamps out of the audio and records playout. `tools.py` wraps the
+  functions the application registers and records invocations and outcomes.
+- Put each read of private framework state, release-specific import and attribute
+  fallback behind a named operation in `seams.py`. Exercise it on every supported
+  release. `tests/test_core_boundary.py` checks the source boundaries.
+- Pipecat also binds its worker clock in `clock.py` and inspects the application's
+  processor graph in `pipeline.py`.
+
+## Connecting search and replay
+
+In `api.py`, pass four arguments to `earful.scripted.api.AdapterAPI` in order. Supply the
+scenario module, `run_case`, a module-level worker function that accepts case data and
+returns ledger events, and a context manager that silences the framework during search.
+The fourth argument defaults to `nullcontext`. Export the resulting `run`, `explore`,
+`keep`, `replay` and `cross_check` functions through the package.
+
+The scenario module supplies these operations to the API and its callers.
+
+| Name | Responsibility |
 | --- | --- |
-| `clock` | The virtual event loop, the wall-clock patches, and the count of work that left the clock |
-| `world` | The scripted user: each `UserSpeech`, the origin every true time is measured from, and the VAD's segments |
-| `model` | Replies, claims and tool calls, and `ReplyRegister`, which attributes a synthesized text to the reply it came from |
-| `playbook` | `ScriptedModel` and its conditions |
-| `voice` | Stamped audio: each word's samples carry its stamp, and `StampReader` reads them back |
-| `case` | Intents, delays and faults, and the checks a case passes before it runs |
-| `scenario`, `api`, `releases`, `scaffold` | Resolving `module:function`, the public calls, the release range, the text of a first test |
+| `Scenario.of(source)` | Accept a case, factory or module reference. The instance provides `make`, `reference`, `default(seed)`, `build(data)` and `run(data)` |
+| `describe(case, reference, seed)` and `build(data, make)` | Convert between the adapter's case and `earful.case/1` using its settings table |
+| `default(reference, seed)` | Describe the author's original case for reduction |
+| `run(data)` | Run a saved case and return its events, including evidence of an invalid run |
+| `importable(reference, purpose)` | Require a reference a separate process can resolve |
+| `pool(workers)` | Create the worker pool |
+| `environment()` | Identify the installed environment in a saved bundle |
+| `fingerprint(reference)` | Identify the scenario's source for replay |
 
 ## The order to build it in
 
@@ -81,17 +113,18 @@ Most of what a run needs is already shared, in `earful.scripted`:
 
 ## Registering it
 
-- `earful.scripted.releases.SUPPORT`: the package name, the adapter module, the extra,
-  the tested releases and the range the extra accepts.
-- `pyproject.toml`: the extra, with the same range.
-- `earful._adapters`: the framework's package name and the adapter module, so the
-  command line and a bundle find it.
-- `earful.cli`: the short name a kept bundle's directory starts with.
-- `scripts/repeat.py`: the framework, so its reference ledgers can be checked and
-  updated.
-- [`compatibility.md`](compatibility.md): the releases tested and what CI runs.
-- CI: a job that runs every test in an environment with only that framework installed,
-  where a skip other than a file that needs another framework fails the job.
+1. Record the package, module, extra, supported range and tested releases in
+   `releases.toml`. Align `scripted.releases.SUPPORT`, the `pyproject.toml` extra, lock
+   files, CI matrix and compatibility table with that list.
+2. Register the package in `earful._adapters` for dispatch and in
+   `earful.scripted.scenario._FRAMEWORKS` for missing-dependency messages. Export the
+   adapter's public case, scenario, result and API from its package.
+3. In `earful.cli`, connect `_init` to the adapter's scaffold through its ports and
+   supply the short name for bundle directories. Update the fixture's type imports in
+   `pytest_plugin.py` so typed callers can pass the new case or scenario.
+4. Add the reference cases to `scripts/repeat.py`, register the framework in
+   `scripts/ran_every_test.sh`, and run a CI cell with only that framework installed.
+   Record the tested releases and checks in the compatibility guide. [Compatibility](compatibility.md)
 
 ## Tests
 
