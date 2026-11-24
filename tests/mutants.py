@@ -6210,6 +6210,13 @@ MUTANTS = [
         first="changed_path_runs_what_its_rule_selects",
     ),
     Mutant(
+        "scope: a change to the virtual timers runs nothing on macOS",
+        "scripts/ci_scope.py",
+        '    ("src/earful/scripted/timers.py", "clock"),\n',
+        "",
+        first="changed_path_runs_what_its_rule_selects",
+    ),
+    Mutant(
         "scope: a change to the core runs no Pipecat cell",
         "scripts/ci_scope.py",
         '    "core": ("livekit", "pipecat", "wheel"),',
