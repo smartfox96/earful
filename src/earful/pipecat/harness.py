@@ -30,6 +30,7 @@ def run_case(
         return run(
             case,
             seed,
+            drain=case,
             virtual=virtual,
             require_valid=require_valid,
             framework={"name": "pipecat-ai", "version": pipecat.__version__},

@@ -195,7 +195,7 @@ and stop strategies by name, the pipeline's processors by class name in order, a
 setting of the aggregators that is not Earful's own default, such as
 `user_mute_strategies`. Pipecat can answer when the user interrupts without saying any words. Earful's
 standard pipeline disables that reply by passing `empty_user_turn=None` to the user
-aggregator. Set the same option in your own pipeline to reproduce that behavior.
+aggregator. Set the same option in your own pipeline to reproduce that behaviour.
 
 A setting changes what the contracts find. With a mute strategy or with
 `VADUserTurnStartStrategy(enable_interruptions=False)` the bot talks on while the user

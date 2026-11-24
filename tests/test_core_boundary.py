@@ -221,10 +221,6 @@ def test_each_module_fits_its_line_budget():
         "pipecat/harness.py": 150,
         "scripted/kernel/run.py": 150,
         "scripted/kernel/ports.py": 100,
-        "core/checker/view.py": 700,
-        "scripted/clock.py": 625,
-        "core/search/coverage.py": 550,
-        "livekit/providers.py": 575,
     }
     offenders = []
     for path in sorted(root.rglob("*.py")):

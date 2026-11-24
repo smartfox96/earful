@@ -18,6 +18,27 @@ class Mutant:
 
 MUTANTS = [
     Mutant(
+        "kernel: drain ignores a participant with work pending",
+        "src/earful/scripted/kernel/lifecycle.py",
+        "return any(not party.quiet() for party in ports.parties)",
+        "return False",
+        first="kernel_waits_for_party_work",
+    ),
+    Mutant(
+        "kernel: a disconnect is sent before the user leaves",
+        "src/earful/scripted/kernel/lifecycle.py",
+        "await sleep_until(run.origin.t0_us, to_us(case.hangup))",
+        "await sleep_until(run.origin.t0_us, 0)",
+        first="kernel_disconnects_on_the_declared_instant",
+    ),
+    Mutant(
+        "kernel: an independent worker ending early is treated as valid input",
+        "src/earful/scripted/kernel/lifecycle.py",
+        'run.errors.append("the pipeline ended before the scenario did")',
+        "pass",
+        first="kernel_observes_worker_completion",
+    ),
+    Mutant(
         "layers: the core reaches into the scripted world",
         "src/earful/core/case.py",
         "from __future__ import annotations",
@@ -861,23 +882,23 @@ MUTANTS = [
     ),
     Mutant(
         "readings: none are offered",
-        "src/earful/core/checker/view.py",
-        "    return found if len(found) <= MAX_READINGS else [{}]\n",
+        "src/earful/core/checker/attribution.py",
+        "    return found if len(found) <= limit else [{}]\n",
         "    return [{}]\n",
         first="generated_twice or generates_twice or reading_gives",
     ),
     Mutant(
         "readings: one more than the limit is still read every way",
-        "src/earful/core/checker/view.py",
-        "    return found if len(found) <= MAX_READINGS else [{}]\n",
-        "    return found if len(found) <= MAX_READINGS + 1 else [{}]\n",
+        "src/earful/core/checker/attribution.py",
+        "    return found if len(found) <= limit else [{}]\n",
+        "    return found if len(found) <= limit + 1 else [{}]\n",
         first="up_to_512_readings",
     ),
     Mutant(
         "readings: a ledger with exactly the limit is not read",
-        "src/earful/core/checker/view.py",
-        "    return found if len(found) <= MAX_READINGS else [{}]\n",
-        "    return found if len(found) < MAX_READINGS else [{}]\n",
+        "src/earful/core/checker/attribution.py",
+        "    return found if len(found) <= limit else [{}]\n",
+        "    return found if len(found) < limit else [{}]\n",
         first="up_to_512_readings",
     ),
     Mutant(
@@ -889,21 +910,21 @@ MUTANTS = [
     ),
     Mutant(
         "readings: a text takes a reply that an earlier text holds",
-        "src/earful/core/checker/view.py",
+        "src/earful/core/checker/attribution.py",
         "        if other is not None and other < text:\n            return False\n",
         "",
         first="reading_gives or every_assignment_in_the_order",
     ),
     Mutant(
         "readings: a choice is followed without housing the text it displaces",
-        "src/earful/core/checker/view.py",
+        "src/earful/core/checker/attribution.py",
         "        if house(other, text + 1):\n            return True\n",
         "        if house(other, 0):\n            return True\n",
         first="every_assignment_in_the_order or cannot_each_have_a_reply",
     ),
     Mutant(
         "readings: a choice that leaves a later text without a reply is kept",
-        "src/earful/core/checker/view.py",
+        "src/earful/core/checker/attribution.py",
         (
             "        reply[other], holder[call] = call, other\n"
             "        reply[text], holder[mine] = mine, text\n"
@@ -914,7 +935,7 @@ MUTANTS = [
     ),
     Mutant(
         "readings: texts that cannot all be housed leave no reading at all",
-        "src/earful/core/checker/view.py",
+        "src/earful/core/checker/attribution.py",
         "    if not all(house(text, 0) for text in range(len(texts))):\n        return [{}]\n",
         "    if not all(house(text, 0) for text in range(len(texts))):\n        return []\n",
         first="cannot_each_have_a_reply",
@@ -1612,8 +1633,8 @@ MUTANTS = [
     Mutant(
         "case: a delay declared twice",
         "src/earful/core/case.py",
-        "    if len(set(declared)) != len(declared):\n",
-        "    if False:\n",
+        'if any(rules.repeated((d["of"], d["nth"]), declared) for d in case["delays"]):',
+        "if False:",
         first="test_a_case_is_validated_against_its_schema",
     ),
     Mutant(
@@ -1875,9 +1896,9 @@ MUTANTS = [
     ),
     Mutant(
         "model: call ids not unique",
-        "src/earful/livekit/providers.py",
-        '            t.call_id if t.call_id is not None else f"call-{call}-{n}"\n',
-        '            t.call_id if t.call_id is not None else "call"\n',
+        "src/earful/scripted/parties/model.py",
+        'else f"call-{call}-{n}"',
+        'else "call"',
         first="test_as_shipped_the_conversation_passes_and_the_search_finds_a_second_booking",
     ),
     # Backend faults.
@@ -1918,7 +1939,7 @@ MUTANTS = [
     ),
     Mutant(
         "view: any outcome is a commit",
-        "src/earful/core/checker/view.py",
+        "src/earful/core/checker/records.py",
         'return self.outcome if self.outcome and self.outcome["kind"] == "effect.committed" else None',
         "return self.outcome",
         first="test_run_exits_1_when_the_scenario_breaks_a_rule_as_it_does_from_a_saved_case",
@@ -2002,15 +2023,15 @@ MUTANTS = [
     Mutant(
         "case: two faults on one write validate",
         "src/earful/core/case.py",
-        "    if len(set(faulted)) != len(faulted):\n",
-        "    if False:\n",
+        'if any(rules.repeated(f["nth"], faulted) for f in case["faults"]):',
+        "if False:",
         first="test_a_fault_is_data_for_one_write",
     ),
     Mutant(
         "case: a timeout needs no wait",
-        "src/earful/core/case.py",
-        '        if (fault["us"] is None) != (fault["of"] == "backend.error"):\n',
-        "        if False:\n",
+        "src/earful/core/case_rules.py",
+        'return (wait is None) != (kind == "backend.error")',
+        "return False",
         first="test_a_fault_is_data_for_one_write",
     ),
     Mutant(
@@ -2184,8 +2205,8 @@ MUTANTS = [
     ),
     Mutant(
         "harness: two faults on one write run",
-        "src/earful/core/case.py",
-        "if len(set(faulted)) != len(faulted):",
+        "src/earful/scripted/case.py",
+        "if rules.repeated(fault.nth, faulted):",
         "if False:",
         first="test_a_fault_that_is_no_fault_is_refused",
     ),
@@ -2258,7 +2279,7 @@ MUTANTS = [
     ),
     Mutant(
         "harness: the header does not state the hangup",
-        "src/earful/livekit/config.py",
+        "src/earful/scripted/header.py",
         (
             '        "hangup_us": None if case.hangup is None else to_us(case.hangup),\n'
             '        "intents": ['
@@ -2268,20 +2289,18 @@ MUTANTS = [
     ),
     Mutant(
         "harness: a hangup before a speech is over runs",
-        "src/earful/core/case.py",
-        ("if late is not None:"),
-        ("if False:"),
+        "src/earful/core/case_rules.py",
+        ("return end > hangup"),
+        ("return False"),
         first="test_a_scenario_that_contradicts_itself_is_refused_before_it_runs",
     ),
     Mutant(
         "harness: the history is read before the session has closed",
         "src/earful/livekit/ports.py",
         (
-            "    done, _ = await asyncio.wait({closing}, timeout=case.drain_timeout)\n"
-            "    if not done:\n"
-            "        # Some releases"
+            "done, _ = await asyncio.wait({closing}, timeout=case.drain_timeout)\n        if not done:"
         ),
-        ("    done = True\n    if not done:\n        # Some releases"),
+        ("done = True\n        if not done:"),
         first="test_l1_owes_nothing_to_a_user_who_hung_up_before_it_was_due",
     ),
     Mutant(
@@ -2393,15 +2412,15 @@ MUTANTS = [
     Mutant(
         "case: a hangup may come before the last speech ends",
         "src/earful/core/case.py",
-        "if late is not None:",
-        "if False:",
+        'and rules.after_hangup(last_end, case["hangup_us"])',
+        "and False",
         first="test_a_hangup_is_a_time_in_the_case_no_earlier_than_the_end_of_the_last_speech",
     ),
     Mutant(
         "case: a user who never speaks may hang up",
         "src/earful/core/case.py",
-        "if not times:",
-        "if not times:\n            return errors\n        if not times:",
+        'errors.append("hangup_us: a user who never speaks cannot hang up")',
+        "pass",
         first="test_a_hangup_is_a_time_in_the_case_no_earlier_than_the_end_of_the_last_speech",
     ),
     Mutant(
@@ -2494,8 +2513,8 @@ MUTANTS = [
     Mutant(
         "harness: a close that raises is swallowed",
         "src/earful/livekit/ports.py",
-        "        closing.result()  # a close that raises is the run's error, as at the end of a scenario\n",
-        "        pass\n",
+        "            closing.result()",
+        "            pass",
         first="a_close_that_raises_at_the_hangup",
     ),
     # The runner's ledgers and the clock patch.
@@ -2613,7 +2632,7 @@ MUTANTS = [
     ),
     Mutant(
         "clock: two reads of time.perf_counter_ns at one instant are equal",
-        "src/earful/scripted/clock.py",
+        "src/earful/scripted/timers.py",
         "        self._read_ns = max(self._read_ns + 1, self._ticks * 1000)\n",
         "        self._read_ns = max(self._read_ns, self._ticks * 1000)\n",
         first="reads_the_loop_during_a_run",
@@ -2641,7 +2660,7 @@ MUTANTS = [
     ),
     Mutant(
         "clock: a log record is stamped with the loop's time, behind reads already made",
-        "src/earful/scripted/clock.py",
+        "src/earful/scripted/timers.py",
         "            return max(now, self._read)\n",
         "            return now\n",
         first="log_record_reads_the_clock_without_moving_it",
@@ -2684,15 +2703,15 @@ MUTANTS = [
     Mutant(
         "harness: a real-clock run makes its coroutine before it can be refused",
         "src/earful/scripted/kernel/run.py",
-        "run_real(execute, timeout=120)",
-        "asyncio.run(asyncio.wait_for(execute(), timeout=120))",
+        "run_real(execute, timeout=REAL_CLOCK_TIMEOUT)",
+        "asyncio.run(asyncio.wait_for(execute(), timeout=REAL_CLOCK_TIMEOUT))",
         first="started_inside_a_running_loop",
     ),
     Mutant(
         "pipecat: a real-clock run makes its coroutine before it can be refused",
         "src/earful/scripted/kernel/run.py",
-        "run_real(execute, timeout=120)",
-        "asyncio.run(asyncio.wait_for(execute(), timeout=120))",
+        "run_real(execute, timeout=REAL_CLOCK_TIMEOUT)",
+        "asyncio.run(asyncio.wait_for(execute(), timeout=REAL_CLOCK_TIMEOUT))",
         first="pipecat_a_run_started_inside_a_running_loop",
     ),
     Mutant(
@@ -2712,12 +2731,8 @@ MUTANTS = [
     Mutant(
         "providers: a recognizer that broke leaves the run waiting for its last transcript",
         "src/earful/livekit/providers.py",
-        (
-            "                with contextlib.suppress(asyncio.InvalidStateError):\n"
-            "                    stt.done.set_result(None)\n"
-            "                raise\n"
-        ),
-        "                raise\n",
+        ("                stt.script.finish()\n                raise"),
+        "                raise",
         first="exception_inside_a_scripted_provider",
     ),
     Mutant(
@@ -2743,7 +2758,7 @@ MUTANTS = [
     ),
     Mutant(
         "providers: a policy that raises is recorded twice",
-        "src/earful/livekit/providers.py",
+        "src/earful/scripted/provider_errors.py",
         "    if errors is not None and not (errors and errors[-1].endswith(said)):\n",
         "    if errors is not None:\n",
         first="policy_that_raises_is_recorded_once",
@@ -2841,14 +2856,14 @@ MUTANTS = [
     ),
     Mutant(
         "readings: a text may be a reply with no token out yet",
-        "src/earful/core/checker/view.py",
+        "src/earful/core/checker/attribution.py",
         'if c not in taken and first_token[c] <= e["data"]["started_us"]',
         "if c not in taken",
         first="first_token_came or causally_possible or stays_unattributed",
     ),
     Mutant(
         "readings: a first token out as the text is synthesized is too late",
-        "src/earful/core/checker/view.py",
+        "src/earful/core/checker/attribution.py",
         'first_token[c] <= e["data"]["started_us"]',
         'first_token[c] < e["data"]["started_us"]',
         first="first_token_came or causally_possible",
@@ -2896,20 +2911,20 @@ MUTANTS = [
     Mutant(
         "streaming: first audio ignores the voice TTFB",
         "src/earful/livekit/providers.py",
-        "                    await _sleep_until(synthesis.t0_us, synthesis.ttfb_us)\n",
-        "                    await _sleep_until(synthesis.t0_us, 0)\n",
+        "if first:\n                        await _sleep_until(synthesis.t0_us, synthesis.ttfb_us)",
+        "if first:\n                        await _sleep_until(synthesis.t0_us, 0)",
         first="voice_emits_complete_words",
     ),
     Mutant(
         "streaming: cancellation loses the utterance metadata",
         "src/earful/livekit/providers.py",
-        "            if synthesis is not None:\n                synthesis.finish()\n",
-        "            if False:\n                synthesis.finish()\n",
+        "finally:\n                if synthesis is not None:\n                    synthesis.finish()",
+        "finally:\n                pass",
         first="cancelled_voice_records_one_prefix",
     ),
     Mutant(
         "streaming: attribution uses finalization instead of synthesis start",
-        "src/earful/core/checker/view.py",
+        "src/earful/core/checker/attribution.py",
         'first_token[c] <= e["data"]["started_us"]',
         'first_token[c] <= e["t_us"]',
         first="first_token_came",
@@ -2923,7 +2938,7 @@ MUTANTS = [
     ),
     Mutant(
         "streaming: a pause of zero length silences the segment",
-        "src/earful/core/checker/view.py",
+        "src/earful/core/checker/records.py",
         '        return [(p, r) for p, r in self.pauses if r is None or r["t_us"] != p["t_us"]]\n',
         "        return list(self.pauses)\n",
         first="pause_of_zero_length",
@@ -3164,7 +3179,7 @@ MUTANTS = [
     ),
     Mutant(
         "harness: the header does not state the effects",
-        "src/earful/livekit/config.py",
+        "src/earful/scripted/header.py",
         "    if effects:\n",
         "    if False:\n",
         first="names_the_tools_whose_body",
@@ -3474,16 +3489,16 @@ MUTANTS = [
     ),
     Mutant(
         "case: a speech that ends before it starts is run",
-        "src/earful/core/case.py",
-        'if speech["end_us"] <= speech["start_us"]:',
-        'if speech["end_us"] == speech["start_us"]:',
+        "src/earful/core/case_rules.py",
+        "return end <= start",
+        "return end == start",
         first="contradicts_itself_is_refused_before_its_agent_is_built",
     ),
     Mutant(
         "case: a speech with no length is run",
-        "src/earful/core/case.py",
-        'if speech["end_us"] <= speech["start_us"]:',
-        'if speech["end_us"] < speech["start_us"]:',
+        "src/earful/core/case_rules.py",
+        "return end <= start",
+        "return end < start",
         first="contradicts_itself_is_refused_before_its_agent_is_built",
     ),
     Mutant(
@@ -3663,7 +3678,7 @@ MUTANTS = [
     ),
     Mutant(
         "search: the runs that found the cases do not count against the budget",
-        "src/earful/core/search/coverage.py",
+        "src/earful/core/search/results.py",
         "        return min(self.to_run, max(self.max_runs - self.runs, 0))\n",
         "        return min(self.to_run, self.max_runs)\n",
         first="stops_at_its_budget",
@@ -4851,9 +4866,9 @@ MUTANTS = [
     ),
     Mutant(
         "pipecat: the input can hang past the scenario deadline",
-        "src/earful/pipecat/ports.py",
-        "{running, ended}, timeout=timeout, return_when=asyncio.FIRST_COMPLETED",
-        "{running, ended}, return_when=asyncio.FIRST_COMPLETED",
+        "src/earful/scripted/kernel/lifecycle.py",
+        "{completion, ended}, timeout=allowed, return_when=asyncio.FIRST_COMPLETED",
+        "{completion, ended}, return_when=asyncio.FIRST_COMPLETED",
         first="a_stalled_input_yields_invalid_evidence",
     ),
     Mutant(
@@ -5034,14 +5049,14 @@ MUTANTS = [
     Mutant(
         "pipecat: a pending turn is mistaken for an idle pipeline",
         "src/earful/pipecat/ports.py",
-        "                or tap.user_speaking\n",
+        "                Observed(lambda: tap.user_speaking),\n",
         "",
         first="waits_for_the_final_turn_and_slow_tool",
     ),
     Mutant(
         "pipecat: a hangup discards the backend's pending writes",
-        "src/earful/pipecat/ports.py",
-        "await asyncio.wait_for(backend.settle_in_flight(), timeout=case.drain_timeout)",
+        "src/earful/scripted/kernel/lifecycle.py",
+        "await asyncio.wait_for(run.backend.settle_in_flight(), timeout=timeout)",
         "await asyncio.sleep(0)",
         first="hangup_stops_the_user_and_settles",
     ),
@@ -5495,7 +5510,7 @@ MUTANTS = [
     ),
     Mutant(
         "search: a refused run made to find where to put things fails the search",
-        "src/earful/core/search/coverage.py",
+        "src/earful/core/search/results.py",
         '        return self.outcome.why_not in ("error", "invalid")\n',
         "        return self.outcome.why_not is not None\n",
         first="find_where_to_put_the_hangup",
@@ -5726,7 +5741,7 @@ MUTANTS = [
     ),
     Mutant(
         "view: the starting history is left in a model's context",
-        "src/earful/core/checker/view.py",
+        "src/earful/core/checker/records.py",
         '        return unseeded(self.request["data"]["items"], self.seeded)\n',
         '        return self.request["data"]["items"]\n',
         first="history_an_agent or starts_with_history",
@@ -5740,14 +5755,14 @@ MUTANTS = [
     ),
     Mutant(
         "view: a starting item is looked for from the start each time",
-        "src/earful/core/checker/view.py",
+        "src/earful/core/checker/records.py",
         "            del out[found]\n            at = found\n",
         "            del out[found]\n            at = 0\n",
         first="first_like_it",
     ),
     Mutant(
         "view: a starting message is matched by its role alone",
-        "src/earful/core/checker/view.py",
+        "src/earful/core/checker/records.py",
         '    "message": ("role", "text"),\n',
         '    "message": ("role",),\n',
         first="first_like_it",
@@ -5957,14 +5972,14 @@ MUTANTS = [
     ),
     Mutant(
         "view: a text and a reply share a word only in the same case",
-        "src/earful/core/checker/view.py",
+        "src/earful/core/checker/records.py",
         '        return {"".join(ch for ch in w.lower() if ch.isalnum()) for w in words} - {""}\n',
         '        return {"".join(ch for ch in w if ch.isalnum()) for w in words} - {""}\n',
         first="share_a_word",
     ),
     Mutant(
         "view: punctuation alone is a word a text and a reply can share",
-        "src/earful/core/checker/view.py",
+        "src/earful/core/checker/records.py",
         '        return {"".join(ch for ch in w.lower() if ch.isalnum()) for w in words} - {""}\n',
         '        return {"".join(ch for ch in w.lower() if ch.isalnum()) for w in words}\n',
         first="share_a_word",
@@ -6104,9 +6119,9 @@ MUTANTS = [
     ),
     Mutant(
         "livekit: the session is drained with a tool or a reply still under way",
-        "src/earful/livekit/ports.py",
-        "if not is_quiet():",
-        "if False:",
+        "src/earful/scripted/kernel/lifecycle.py",
+        "if completion is not None or busy():",
+        "if completion is not None:",
         first="still_running_when_the_scenario_is_over",
     ),
     Mutant(

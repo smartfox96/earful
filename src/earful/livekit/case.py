@@ -8,11 +8,10 @@ from typing import Any
 
 import livekit.agents as lk
 
-from ..core.ledger import Ledger
 from ..scripted.case import Application, DrainOptions
 from ..scripted.case import Case as ScriptedCase
 from ..scripted.clock import ClockPatchReport
-from ..scripted.result import RunResult as ScriptedResult
+from ..scripted.result import RunEvidence
 from . import options
 from .sink import ClockedSink
 
@@ -58,8 +57,8 @@ class Case(DrainOptions, SessionOptions, ScriptedCase, AgentFactory):
         describe(self, INLINE, seed)
 
 
-@dataclass(init=False)
-class RunResult(ScriptedResult):
+@dataclass
+class RunResult(RunEvidence):
     """A run with the LiveKit clock and output diagnostics."""
 
     versions: dict[str, str]
@@ -67,27 +66,6 @@ class RunResult(ScriptedResult):
     stamp_errors: int
     executor_calls: int | None
     underruns: int
+    harness_errors: list[str]
     framework_warnings: list[str]
-
-    def __init__(
-        self,
-        case: str,
-        seed: int,
-        ledger: Ledger,
-        hash: str,
-        versions: dict[str, str],
-        clock: ClockPatchReport,
-        stamp_errors: int,
-        executor_calls: int | None,
-        underruns: int,
-        harness_errors: list[str],
-        framework_warnings: list[str],
-        invalid: list[str],
-    ) -> None:
-        super().__init__(case, seed, ledger, hash, invalid, harness_errors)
-        self.versions = versions
-        self.clock = clock
-        self.stamp_errors = stamp_errors
-        self.executor_calls = executor_calls
-        self.underruns = underruns
-        self.framework_warnings = framework_warnings
+    invalid: list[str]

@@ -181,9 +181,7 @@ def describe(
         },
         "contracts": copy.deepcopy(case.contracts),
     }
-    if errors := case_format.validate_authored(
-        data, [(s.start, s.end) for s in ordered], case.hangup
-    ):
+    if errors := case_format.schema_errors(data):
         raise CaseRefused("not an earful.case/1 document: " + "; ".join(errors))
     _check_settings(data["settings"], times, plain)
     return data

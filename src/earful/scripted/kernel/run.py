@@ -12,21 +12,24 @@ from ...core.backend import EffectBackend
 from ...core.ledger import Ledger, ledger_hash
 from ...core.schema import validity
 from ...core.timebase import to_us
-from ..case import Case, InvalidRun
+from ..case import Case, DrainOptions, InvalidRun
 from ..clock import (
     VirtualTimeLoop,
     left_the_clock,
     now_us,
     patch_report,
-    quiet,
     run_real,
     run_virtual,
 )
-from ..result import RunResult
-from .ports import AdapterPorts, Party
+from ..result import RunEvidence, RunResult
+from ..timing import REAL_CLOCK_ORIGIN_TOLERANCE_US, WorldOrigin
+from .lifecycle import drive
+from .ports import AdapterPorts
+
+REAL_CLOCK_TIMEOUT = 120.0
 
 CaseT = TypeVar("CaseT", bound=Case)
-ResultT = TypeVar("ResultT", bound=RunResult)
+ResultT = TypeVar("ResultT", bound=RunEvidence)
 
 
 @dataclass
@@ -36,20 +39,19 @@ class RunContext:
     errors: list[str]
     backend: EffectBackend
     declared_us: Callable[[str], dict[int, int]]
+    origin: WorldOrigin
+    disconnected: asyncio.Event
     warnings: list[str] = field(default_factory=list)
     stamp_errors: int = 0
     underruns: int = 0
     executor_calls: int | None = None
 
 
-async def wait_for_quiet(party: Party) -> None:
-    await quiet(lambda: not party.quiet())
-
-
 def run(
     case: CaseT,
     seed: int,
     *,
+    drain: DrainOptions,
     virtual: bool,
     require_valid: bool,
     framework: dict[str, str],
@@ -83,7 +85,12 @@ def run(
                 f.nth: (f.of, None if f.seconds is None else to_us(f.seconds)) for f in case.faults
             },
         )
-        context = RunContext(ledger, on_virtual_clock, errors, backend, declared_us)
+        origin = WorldOrigin(
+            ledger, errors, tolerance_us=0 if on_virtual_clock else REAL_CLOCK_ORIGIN_TOLERANCE_US
+        )
+        context = RunContext(
+            ledger, on_virtual_clock, errors, backend, declared_us, origin, asyncio.Event()
+        )
         async with build(case, context) as ports:
             ledger.append(
                 "harness",
@@ -95,8 +102,8 @@ def run(
                 scenario=ports.config(),
                 contracts=case.contracts,
             )
-            await ports.start()
-            await ports.drive(lambda: wait_for_quiet(ports))
+            completion = await ports.start()
+            await drive(case, drain, context, ports, completion)
             ledger.append("harness", "history.final", **ports.history())
             await ports.close()
 
@@ -116,7 +123,7 @@ def run(
         )
         return result_of(result, context)
 
-    result = run_virtual(execute) if virtual else run_real(execute, timeout=120)
+    result = run_virtual(execute) if virtual else run_real(execute, timeout=REAL_CLOCK_TIMEOUT)
     if result.invalid and require_valid:
         raise InvalidRun(result.invalid, result)
     return result

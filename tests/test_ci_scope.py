@@ -196,7 +196,7 @@ _EXAMPLES = {
     "examples/pipecat_booking/**": "examples/pipecat_booking/test_bot.py",
     "tests/golden/pc-*": "tests/golden/pc-1.16.0.x.jsonl",
     "tests/shapes/pipecat/**": "tests/shapes/pipecat/booking.py",
-    "src/earful/livekit/**": "src/earful/livekit/_compat.py",
+    "src/earful/livekit/**": "src/earful/livekit/seams.py",
     "examples/booking/**": "examples/booking/test_booking.py",
     "skills/**": "skills/earful/SKILL.md",
     "tests/golden/lk-*": "tests/golden/lk-1.5.6.x.jsonl",

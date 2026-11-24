@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Awaitable, Callable
 from contextlib import AbstractAsyncContextManager
 from dataclasses import dataclass
@@ -19,6 +20,15 @@ class Party(Protocol):
         ...
 
 
+class ScriptedInput(Party, Protocol):
+    done: asyncio.Future[None]
+
+    @property
+    def last_us(self) -> int:
+        """The last input deadline, relative to the scenario origin."""
+        ...
+
+
 class FinalHistory(TypedDict):
     """The fields of history.final, including where the adapter read the items."""
 
@@ -26,20 +36,18 @@ class FinalHistory(TypedDict):
     items: list[dict[str, Any]]
 
 
-WaitForQuiet = Callable[[], Awaitable[None]]
-
-
 @dataclass
 class RunPorts:
-    """One framework instance with its bound operations and live observations."""
+    """Operations on a session and the participants whose work it must finish."""
 
     config: Callable[[], dict[str, Any]]
-    start: Callable[[], Awaitable[None]]
-    drive: Callable[[WaitForQuiet], Awaitable[None]]
+    start: Callable[[], Awaitable[asyncio.Future[None] | None]]
+    input: ScriptedInput
+    parties: tuple[Party, ...]
+    drain: Callable[[], Awaitable[None]]
+    disconnect: Callable[[], Awaitable[None]]
     history: Callable[[], FinalHistory]
     close: Callable[[], Awaitable[None]]
-    quiet: Callable[[], bool]
-    closed: Callable[[], Awaitable[str | None]]
 
 
 CaseT_contra = TypeVar("CaseT_contra", contravariant=True)

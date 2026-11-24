@@ -95,9 +95,9 @@ class _Scripted:
 def _scripted(case: Case, context: RunContext) -> _Scripted:
     ledger, errors, virtual = context.ledger, context.errors, context.virtual
     backend, declared_us = context.backend, context.declared_us
-    origin = WorldOrigin(ledger, errors, tolerance_us=0 if virtual else 5_000)
+    origin = context.origin
     witness = ToolWitness(ledger, case.effects)
-    left = asyncio.Event()
+    left = context.disconnected
     user = ScriptedUser(
         ledger,
         case.speeches,

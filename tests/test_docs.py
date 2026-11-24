@@ -558,7 +558,7 @@ def _class(name, adapter=None):
         node
         for path in sorted((SOURCE / adapter if adapter else SOURCE).rglob("*.py"))
         # The checker's view of a ledger has an Effect of its own.
-        if adapter or (path.parent.name not in ("livekit", "pipecat") and path.name != "view.py")
+        if adapter or (path.parent.name not in ("livekit", "pipecat") and path.name != "records.py")
         for node in ast.parse(path.read_text()).body
         if isinstance(node, ast.ClassDef) and node.name == name
     ]
@@ -568,7 +568,7 @@ def _class(name, adapter=None):
     fields, members = {}, set()
     shared = {
         "ScriptedCase": "Case",
-        "ScriptedResult": "RunResult",
+        "RunEvidence": "RunEvidence",
         "DrainOptions": "DrainOptions",
         "Application": "Application",
     }

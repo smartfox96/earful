@@ -5,7 +5,8 @@ from __future__ import annotations
 from typing import Any
 
 from ..core.timebase import to_us
-from ..scripted.case import check_intent_tools, declared_intents
+from ..scripted.case import check_intent_tools
+from ..scripted.header import declarations
 from .case import Case
 
 
@@ -17,41 +18,8 @@ def _header(case: Case, tools: set[str], options: dict[str, Any]) -> dict[str, A
             f"it registers {sorted(tools)}"
         )
     check_intent_tools(case.intents, tools)
-    intents = declared_intents(case.intents, case.effects, case.speeches, case.contracts)
     return {
-        "speeches": [
-            {
-                "speech": i,
-                "start_us": sp.start_us,
-                "end_us": sp.end_us,
-                "transcript": sp.transcript,
-                "stt_delay_us": sp.stt_delay_us,
-                "expects_reply": sp.owes_reply,
-                "backchannel": sp.backchannel,
-                "retires": list(sp.retires),
-            }
-            for i, sp in enumerate(sorted(case.speeches, key=lambda sp: sp.start))
-        ],
-        "hangup_us": None if case.hangup is None else to_us(case.hangup),
-        "intents": [
-            {"intent": it.intent, "tools": list(it.tools), "authorized": it.authorized}
-            for it in intents
-        ],
-        "witnessed_tools": sorted(tools),
-        **(
-            {
-                "effects": [
-                    {"tool": name, "intent": effect.intent}
-                    for name, effect in sorted(case.effects.items())
-                ]
-            }
-            if case.effects
-            else {}
-        ),
-        "delays": [
-            {"of": d.of, "nth": d.nth, "us": to_us(d.seconds)}
-            for d in sorted(case.delays, key=lambda d: (d.of, d.nth))
-        ],
+        **declarations(case, tools, case.effects),
         "session": {
             # Pipecat interrupts when the turn starts, which the VAD strategy does as
             # soon as the VAD reports speech: after start_secs of it, and no later.
@@ -64,10 +32,6 @@ def _header(case: Case, tools: set[str], options: dict[str, Any]) -> dict[str, A
             "turn_detection": None,
             "extra_options": options,
         },
-        "faults": [
-            {"of": f.of, "nth": f.nth, "us": None if f.seconds is None else to_us(f.seconds)}
-            for f in sorted(case.faults, key=lambda f: (f.of, f.nth))
-        ],
         "providers": {
             "vad": {
                 "min_speech_us": to_us(case.vad_start_secs),

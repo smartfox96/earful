@@ -12,6 +12,7 @@ from typing import Any
 
 from jsonschema import Draft202012Validator
 
+from . import case_rules as rules
 from .schema import IntegerValidator
 
 SCHEMA = "earful.case/1"
@@ -34,84 +35,44 @@ def _validator() -> Draft202012Validator:
     return IntegerValidator(schema)
 
 
-def validate(case: Any) -> list[str]:
-    """Every way a saved case departs from the case format."""
-    return _validate(case, None, None)
-
-
-def validate_authored(
-    case: Case, speech_times: list[tuple[float, float]], hangup: float | None
-) -> list[str]:
-    """Check encoded data and report contradictions using the author's units."""
-    return _validate(case, speech_times, hangup)
-
-
-def _validate(
-    case: Any, speech_times: list[tuple[float, float]] | None, hangup: float | None
-) -> list[str]:
-    errors = [
+def schema_errors(case: Any) -> list[str]:
+    """Structural errors in an encoded case."""
+    return [
         f"{'/'.join(str(p) for p in error.absolute_path) or 'case'}: {error.message}"
         for error in sorted(
             _validator().iter_errors(case), key=lambda e: list(map(str, e.absolute_path))
         )
     ]
-    if errors:
+
+
+def validate(case: Any) -> list[str]:
+    """Every reason a saved case is invalid, in document order."""
+    if errors := schema_errors(case):
         return errors
-    times = (
-        speech_times
-        if speech_times is not None
-        else [(s["start_us"], s["end_us"]) for s in case["speeches"]]
-    )
-    for n, (start, end) in enumerate(times):
-        speech = case["speeches"][n]
-        if speech["end_us"] <= speech["start_us"]:
-            if speech_times is not None:
-                raise ValueError(
-                    f"the speech at {start} s ends at {end} s; a speech ends after it starts"
-                )
+    last_end = None
+    for n, speech in enumerate(case["speeches"]):
+        if rules.empty_speech(speech["start_us"], speech["end_us"]):
             errors.append(f"speeches/{n}: must end after it starts")
-        if n and start < times[n - 1][1]:
-            if speech_times is not None:
-                raise ValueError(f"the speeches at {times[n - 1][0]} s and {start} s overlap")
+        if last_end is not None and rules.overlaps(last_end, speech["start_us"]):
             errors.append(f"speeches/{n}: starts before the speech before it has ended")
-    if case["hangup_us"] is not None:
-        if not times:
-            if speech_times is not None:
-                raise ValueError(
-                    "the user hangs up after their last speech; a user who never speaks cannot"
-                )
-            errors.append("hangup_us: a user who never speaks cannot hang up")
-        else:
-            late = next(
-                (n for n, s in enumerate(case["speeches"]) if s["end_us"] > case["hangup_us"]), None
-            )
-            if late is not None:
-                if speech_times is not None:
-                    raise ValueError(
-                        f"the user hangs up at {hangup} s, "
-                        f"before the speech at {times[late][0]} s is over"
-                    )
-                errors.append("hangup_us: the user hangs up before their last speech is over")
-    declared = [(d["of"], d["nth"]) for d in case["delays"]]
-    if len(set(declared)) != len(declared):
-        if speech_times is not None:
-            of, nth = next(key for i, key in enumerate(declared) if key in declared[:i])
-            raise ValueError(f"delay {of} #{nth} is declared more than once")
+        last_end = speech["end_us"]
+    if case["hangup_us"] is not None and last_end is None:
+        # The hangup is timed from the origin, which the user's first audio sets.
+        errors.append("hangup_us: a user who never speaks cannot hang up")
+    elif (
+        case["hangup_us"] is not None
+        and last_end is not None
+        and rules.after_hangup(last_end, case["hangup_us"])
+    ):
+        errors.append("hangup_us: the user hangs up before their last speech is over")
+    declared: set[tuple[str, int]] = set()
+    if any(rules.repeated((d["of"], d["nth"]), declared) for d in case["delays"]):
         errors.append("delays: a delay is declared more than once")
-    faulted = [f["nth"] for f in case["faults"]]
-    if len(set(faulted)) != len(faulted):
-        if speech_times is not None:
-            duplicate = next(n for i, n in enumerate(faulted) if n in faulted[:i])
-            raise ValueError(f"backend write #{duplicate} has more than one fault")
+    faulted: set[int] = set()
+    if any(rules.repeated(f["nth"], faulted) for f in case["faults"]):
         errors.append("faults: a backend write has more than one fault")
     for n, fault in enumerate(case["faults"]):
-        if (fault["us"] is None) != (fault["of"] == "backend.error"):
-            if speech_times is not None:
-                raise ValueError(
-                    f"fault {fault['of']} #{fault['nth']}: nth counts from 1; "
-                    "a timeout or a drop says "
-                    "how long the caller waits, and an error does not"
-                )
+        if rules.wrong_wait(fault["of"], fault["us"]):
             errors.append(
                 f"faults/{n}: a timeout or a drop says how long the caller waits; an error does not"
             )

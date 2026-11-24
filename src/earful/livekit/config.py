@@ -9,10 +9,7 @@ import livekit.agents as lk
 
 from ..core.backend import Effect
 from ..core.timebase import to_us
-from ..scripted.case import (
-    Intent,
-    declared_intents,
-)
+from ..scripted.header import declarations
 from . import tools
 from .case import Case
 
@@ -94,43 +91,11 @@ def _header(
     case: Case, tools_found: dict[str, Effect | None], history: list[dict[str, Any]]
 ) -> dict[str, Any]:
     effects = _effects(case, tools_found)
-    intents = declared_intents(case.intents, effects, case.speeches, case.contracts)
-    header = _scenario(case, sorted(tools_found), intents)
+    header = declarations(case, tools_found, effects)
     if history:
         header["history"] = history
-    if effects:
-        # Stated only where there are any: a tool listed here did not run its own body.
-        header["effects"] = [
-            {"tool": tool, "intent": declared.intent} for tool, declared in sorted(effects.items())
-        ]
-    return header
-
-
-def _scenario(case: Case, witnessed_tools: list[str], intents: list[Intent]) -> dict[str, Any]:
     return {
-        "speeches": [
-            {
-                "speech": i,
-                "start_us": sp.start_us,
-                "end_us": sp.end_us,
-                "transcript": sp.transcript,
-                "stt_delay_us": sp.stt_delay_us,
-                "expects_reply": sp.owes_reply,
-                "backchannel": sp.backchannel,
-                "retires": list(sp.retires),
-            }
-            for i, sp in enumerate(sorted(case.speeches, key=lambda sp: sp.start))
-        ],
-        "hangup_us": None if case.hangup is None else to_us(case.hangup),
-        "intents": [
-            {"intent": it.intent, "tools": list(it.tools), "authorized": it.authorized}
-            for it in intents
-        ],
-        "witnessed_tools": witnessed_tools,
-        "delays": [
-            {"of": delay.of, "nth": delay.nth, "us": to_us(delay.seconds)}
-            for delay in sorted(case.delays, key=lambda d: (d.of, d.nth))
-        ],
+        **header,
         "session": {
             **_declared_session(case),
             # A turn ends once the VAD's silence and the endpointing delay have both passed.
@@ -146,14 +111,6 @@ def _scenario(case: Case, witnessed_tools: list[str], intents: list[Intent]) -> 
                 },
             },
         },
-        "faults": [
-            {
-                "of": fault.of,
-                "nth": fault.nth,
-                "us": None if fault.seconds is None else to_us(fault.seconds),
-            }
-            for fault in sorted(case.faults, key=lambda f: (f.of, f.nth))
-        ],
         "providers": {
             "vad": {
                 "min_speech_us": to_us(case.vad_min_speech),

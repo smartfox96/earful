@@ -222,7 +222,7 @@ def test_pipecat_a_stalled_input_yields_invalid_evidence(monkeypatch):
 
     async def late(stt):
         await asyncio.sleep(100)
-        stt.done.set_result(None)
+        stt.script.finish()
 
     monkeypatch.setattr(ScriptedSTT, "_script", late)
     built = greeting()

@@ -4,14 +4,14 @@ from __future__ import annotations
 
 import dataclasses
 import json
-from collections.abc import AsyncIterator, Callable, Iterable
+from collections.abc import AsyncIterator, Callable, Iterable, Iterator
 from dataclasses import dataclass, field
 from typing import Any
 
 from ...core.ledger import Ledger
 from ...core.timebase import seconds, to_us
 from ..clock import now_us
-from .user import sleep_until
+from ..timing import sleep_until
 
 
 @dataclass(frozen=True)
@@ -117,6 +117,29 @@ def reply_for(policy: Policy, items: list[dict[str, Any]], errors: list[str], ca
     except Exception as exc:
         errors.append(f"policy raised on call {call}: {type(exc).__name__}: {exc}")
         raise
+
+
+def identified_calls(
+    call: int, calls: tuple[ToolCall, ...], used: set[str], errors: list[str]
+) -> Iterator[ToolCall]:
+    for n, tool in enumerate(calls, 1):
+        call_id = tool.call_id if tool.call_id is not None else f"call-{call}-{n}"
+        if call_id in used:
+            errors.append(f"call {call}: the policy reused tool call id {call_id!r}")
+        used.add(call_id)
+        yield tool if tool.call_id is not None else dataclasses.replace(tool, call_id=call_id)
+
+
+def claim_spans(reply: Reply, call: int, errors: list[str] | None = None) -> list[dict[str, Any]]:
+    words = _words(reply.text)
+    claims = []
+    for claim in reply.claims:
+        last = len(words) - 1 if claim.last_word is None else claim.last_word
+        if errors is not None and not 0 <= claim.first_word <= last < len(words):
+            errors.append(f"call {call}: claim {claim} does not fit reply {reply.text!r}")
+            continue
+        claims.append({"intent": claim.intent, "first_word": claim.first_word, "last_word": last})
+    return claims
 
 
 async def fragments(

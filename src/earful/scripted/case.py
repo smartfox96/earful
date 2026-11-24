@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import dataclasses
+import itertools
 from dataclasses import dataclass, field
 from typing import Any, get_args
 
+from ..core import case_rules as rules
 from ..core.backend import FAULTS, BackendMode, Effect
 from ..core.checker.policy import parse_all
-from ..core.timebase import seconds
+from ..core.timebase import seconds, to_us
 from .model import Policy
 from .world import UserSpeech
 
@@ -111,9 +113,20 @@ def check_case(case: Case) -> None:
             raise ValueError("intent tools must be a sequence of tool names")
         if type(intent.authorized) is not int or intent.authorized < 0:
             raise ValueError("authorized must be a nonnegative integer")
+    ordered = sorted(case.speeches, key=lambda s: s.start)
+    for speech in ordered:
+        if rules.empty_speech(speech.start_us, speech.end_us):
+            raise ValueError(
+                f"the speech at {speech.start} s ends at {speech.end} s; a speech ends after "
+                "it starts"
+            )
     modes = get_args(BackendMode)
     if case.backend_mode not in modes:
         raise ValueError(f"unknown backend mode {case.backend_mode!r}; choose from {list(modes)}")
+    for before, after in itertools.pairwise(ordered):
+        if rules.overlaps(before.end, after.start):
+            raise ValueError(f"the speeches at {before.start} s and {after.start} s overlap")
+    seen: set[tuple[str, int]] = set()
     for delay in case.delays:
         seconds("delay.seconds", delay.seconds)
         if type(delay.nth) is not int:
@@ -124,6 +137,9 @@ def check_case(case: Case) -> None:
             raise ValueError(
                 f"delay {delay.of} #{delay.nth}: nth counts from 1 and a delay cannot be negative"
             )
+        if rules.repeated((delay.of, delay.nth), seen):
+            raise ValueError(f"delay {delay.of} #{delay.nth} is declared more than once")
+    faulted: set[int] = set()
     for fault in case.faults:
         if fault.seconds is not None:
             seconds("fault.seconds", fault.seconds)
@@ -131,13 +147,28 @@ def check_case(case: Case) -> None:
             raise ValueError("fault.nth must be an integer")
         if fault.of not in FAULTS:
             raise ValueError(f"unknown fault {fault.of!r}; choose from {list(FAULTS)}")
-        if fault.nth < 1:
+        if fault.nth < 1 or rules.wrong_wait(fault.of, fault.seconds):
             raise ValueError(
                 f"fault {fault.of} #{fault.nth}: nth counts from 1; a timeout or a drop says "
                 "how long the caller waits, and an error does not"
             )
+        if rules.repeated(fault.nth, faulted):
+            raise ValueError(f"backend write #{fault.nth} has more than one fault")
     if case.hangup is not None:
         seconds("hangup", case.hangup)
+        if not case.speeches:
+            raise ValueError(
+                "the user hangs up after their last speech; a user who never speaks cannot"
+            )
+        late = [
+            speech.start
+            for speech in case.speeches
+            if rules.after_hangup(speech.end_us, to_us(case.hangup))
+        ]
+        if late:
+            raise ValueError(
+                f"the user hangs up at {case.hangup} s, before the speech at {late[0]} s is over"
+            )
     names = [it.intent for it in case.intents]
     if len(set(names)) != len(names):
         raise ValueError("an intent is declared more than once")

@@ -40,15 +40,19 @@ after an exception.
 | Operation | What the adapter supplies |
 | --- | --- |
 | `config()` | The scenario header read from the built application, including starting history and effective options |
-| `start()` | Start the session or worker and enable scripted input |
-| `drive(wait)` | Deliver the scenario, handle hangup and drain according to the framework. Await `wait()` when waiting for the framework to become idle |
-| `quiet()` | Read live activity, including outstanding tools and playout. The kernel polls this query on its clock |
-| `closed()` | An awaitable for the framework's own shutdown, with the reason when available |
+| `start()` | Enable scripted input. Return a running worker's completion future if it runs independently, or `None` for a session driven by its caller |
+| `input` | The scripted input's completion future and last scheduled time in microseconds from the origin |
+| `parties` | The participants the kernel polls for `quiet()`, including active generation, synthesis, tools and framework playout |
+| `drain()` | Ask the session to drain or enqueue the worker's end frame |
+| `disconnect()` | Translate the user's departure into a session close or worker cancellation |
 | `history()` | The final memory as `read_from` and ordered `items` |
 | `close()` | Finish shutdown and collect output diagnostics |
 
-The kernel writes `run.start` before startup, `history.final` after driving the input,
-and `run.end` after leaving the builder's context. It checks the completed ledger and
+The kernel starts the run, waits for the scripted input, gives active parties time to
+finish and asks the framework to drain. On hangup it waits until the declared instant,
+signals disconnection and settles pending writes. A worker that exits before its input
+finishes makes the run invalid. The kernel reads final history before closing the ports
+and writes `run.end` after leaving the builder's context. It checks the completed ledger and
 returns the result. The LiveKit harness adds its clock and warning diagnostics.
 
 ## Connecting the framework

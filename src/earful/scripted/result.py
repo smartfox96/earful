@@ -12,14 +12,17 @@ from ..core.ledger import Ledger
 from ..core.predicate import Predicate
 
 
+class _Diagnostics:
+    invalid: list[str]
+    harness_errors: list[str]
+
+
 @dataclass
-class RunResult:
+class RunEvidence(_Diagnostics):
     case: str
     seed: int
     ledger: Ledger
     hash: str
-    invalid: list[str]
-    harness_errors: list[str]
 
     @property
     def events(self) -> list[dict[str, Any]]:
@@ -43,3 +46,9 @@ class RunResult:
             require=require,
             what=f"{self.case} (seed {self.seed}, {framework['name']} {framework['version']})",
         )
+
+
+@dataclass
+class RunResult(RunEvidence):
+    invalid: list[str]
+    harness_errors: list[str]
