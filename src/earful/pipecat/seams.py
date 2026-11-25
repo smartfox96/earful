@@ -53,6 +53,7 @@ def service_member(service: Any, name: str) -> Any:
 
 
 def check_service(service: Any) -> None:
+    cancel_tools(service)
     for name in PRIVATE:
         service_member(service, name)
 
@@ -62,6 +63,8 @@ def registered(service: Any) -> Any:
 
 
 def cancel_tools(service: Any) -> Any:
+    if hasattr(service, "_extension_tool_names"):  # 1.17 moved cancellation into extensions
+        return service_member(service, "_extension_tool_names")
     return service_member(service, "_cancel_tool_names")
 
 
@@ -74,7 +77,7 @@ def advertised_tools(context: Any) -> Any:
 
 
 def declared_functions(reader: Any) -> list[str]:
-    cancel: set[str] = getattr(reader, "_cancel_tool_names", set())
+    cancel: set[str] = cancel_tools(reader)
     return [
         name
         for name in getattr(reader, "_functions", {})

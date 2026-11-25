@@ -28,6 +28,7 @@ for entry in "${RELEASES[@]}"; do
 done
 
 scripts/lint.sh
+scripts/make_pipecat_env.sh 1.16.0 2026-11-18
 scripts/make_pipecat_env.sh
 scripts/wheel_smoke.sh
 scripts/quickstart_check.sh
@@ -73,6 +74,8 @@ if [ "${1:-}" = "--update" ]; then
   side_by_side update
   echo "=== updating reference ledgers: pipecat-ai 1.16.0"
   .venvs/pc-1.16.0/bin/python scripts/repeat.py --update "$GOLDEN" | grep -E '"(case|identical)"'
+  echo "=== updating reference ledgers: pipecat-ai 1.17.0"
+  .venvs/pc-1.17.0/bin/python scripts/repeat.py --update "$GOLDEN" | grep -E '"(case|identical)"'
   # The reference bundles are made on the oldest release, which has both known defects.
   echo "=== updating reference bundles: livekit-agents 1.5.6"
   rm -rf "$BUNDLES"
@@ -87,6 +90,9 @@ fi
 echo "=== pipecat-ai 1.16.0"
 scripts/ran_every_test.sh --without livekit .venvs/pc-1.16.0/bin/python
 .venvs/pc-1.16.0/bin/python scripts/repeat.py --check "$GOLDEN" | grep -E '"(case|distinct_hashes|identical|matches_committed)"'
+echo "=== pipecat-ai 1.17.0"
+scripts/ran_every_test.sh --without livekit .venvs/pc-1.17.0/bin/python
+.venvs/pc-1.17.0/bin/python scripts/repeat.py --check "$GOLDEN" | grep -E '"(case|distinct_hashes|identical|matches_committed)"'
 side_by_side check
 
 echo "=== negative control: real clock, nothing patched (must give different hashes)"

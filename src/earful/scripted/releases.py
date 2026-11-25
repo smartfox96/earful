@@ -37,9 +37,9 @@ SUPPORT = {
     "pipecat-ai": Support(
         adapter="earful.pipecat",
         extra="pipecat",
-        tested=("1.16.0",),
+        tested=("1.16.0", "1.17.0"),
         lowest="1.16",
-        below="1.17",
+        below="1.18",
     ),
 }
 

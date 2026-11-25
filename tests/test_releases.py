@@ -43,7 +43,7 @@ def test_a_release_inside_the_range_and_not_tested_is_warned_about():
         ("livekit-agents", "2.0.0b1"),
         ("livekit-agents", "unknown"),
         ("pipecat-ai", "1.15.9"),
-        ("pipecat-ai", "1.17.0"),
+        ("pipecat-ai", "1.18.0"),
     ],
 )
 def test_a_release_outside_the_range_is_refused_in_one_line(package, installed):

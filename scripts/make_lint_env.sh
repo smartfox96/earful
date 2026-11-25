@@ -9,6 +9,6 @@ cd "$(dirname "$0")/.."
 
 env_dir=.venvs/lint
 [ -x "$env_dir/bin/python" ] || uv venv -q --python 3.13 "$env_dir"
-VIRTUAL_ENV="$env_dir" uv pip install -q --exclude-newer 2026-11-18 \
-  -e '.[pipecat]' "pipecat-ai==1.16.0" "livekit-agents==1.8.13" --group test
+VIRTUAL_ENV="$env_dir" uv pip install -q --exclude-newer 2026-11-24 \
+  -e '.[pipecat]' "pipecat-ai==1.17.0" "livekit-agents==1.8.13" --group test
 VIRTUAL_ENV="$env_dir" uv pip install -q --exclude-newer 2026-11-18 --group lint

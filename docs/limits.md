@@ -192,12 +192,12 @@ other work on the machine shows as drift
 | | Tested |
 | --- | --- |
 | livekit-agents | 1.5.6, 1.5.7, 1.6.5, 1.6.6, 1.8.12, 1.8.13 |
-| pipecat-ai | 1.16.0 |
+| pipecat-ai | 1.16.0, 1.17.0 |
 | Python | 3.10 to 3.14 with livekit-agents, 3.11 to 3.13 with pipecat-ai |
 | Systems | Linux and macOS. Windows is not tested |
 
 A release inside an extra's range that is not in the table is accepted with a warning.
-A release outside the range is refused. Supported pipecat-ai series: 1.16. See the
+A release outside the range is refused. Supported pipecat-ai series: 1.16, 1.17. See the
 release table ([`compatibility.md`](compatibility.md)).
 
 A search of your own agent on a release that has one of the two known defects can meet

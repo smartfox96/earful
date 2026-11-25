@@ -303,7 +303,7 @@ earful report tests/bundles/lk-1.5.6.book_then_interrupt.A2-rule -o report.html
 ## Supported
 
 livekit-agents 1.5.6, 1.5.7, 1.6.5, 1.6.6, 1.8.12 and 1.8.13, on Linux and macOS,
-Python 3.10 to 3.14. pipecat-ai 1.16.0, on Linux and macOS, Python 3.11 to 3.13.
+Python 3.10 to 3.14. pipecat-ai 1.16.0, 1.17.0, on Linux and macOS, Python 3.11 to 3.13.
 [`docs/compatibility.md`](https://github.com/smartfox96/earful/blob/main/docs/compatibility.md) has the exact dependency sets
 and what CI runs for each.
 

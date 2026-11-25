@@ -6,6 +6,7 @@ import re
 import shutil
 import sys
 import types
+from importlib.metadata import version
 from pathlib import Path
 
 import pytest
@@ -56,12 +57,13 @@ def test_pipecat_as_shipped_the_conversation_passes_and_the_search_finds_a_secon
     )
     kept = example.path / ".earful" / "test_booking.py-test_every_timing_and_fault_near_it"
     assert (kept / "search-1.booking.A2-rule.case.json").exists()
-    # The page quotes the failure line for line.
+    # Each supported release prints its own installed version in the quoted report.
     (quoted,) = [
         block
         for block in re.findall(r"```text\n(.*?)```", PAGE, flags=re.DOTALL)
         if "ContractFailure" in block
     ]
+    quoted = quoted.replace("pipecat-ai 1.17.0", f"pipecat-ai {version('pipecat-ai')}")
     said = result.stdout.str()
     for line in filter(None, (line.strip() for line in quoted.splitlines())):
         assert line in said, line

@@ -410,10 +410,11 @@ cd examples/pipecat_booking
 pytest -q
 ```
 
-The conversation as written passes. The search fails with three rules:
+The conversation as written passes. On Pipecat 1.17.0, the search reports three broken rules.
 
 ```text
-ContractFailure: booking on pipecat-ai 1.16.0: 753 cases tried, 753 judged, 3 contract rule(s) broken
+ContractFailure: booking on pipecat-ai 1.17.0: 753 cases tried, 753 judged, 3 contract rule(s) broken
+Earful ran the case's bot with Earful's standard pipeline, scripted recognition, model replies and voice. Application entry code was not run.
     886 run(s): 6 to find where to put things, 749 for the cases, 129 to measure the failures, 2 to read an example of each
     by contract: pass, fail, nothing to judge, evidence lost
     A1      0     0   753     0

@@ -15,9 +15,9 @@ as of. `docs/compatibility.md` lists the supported releases with their dates. Th
 is installed editable, so the `earful` command and the pytest plugin in that environment
 run the code in your checkout.
 
-For the Pipecat-only environment, run `scripts/make_pipecat_env.sh` and
-`.venvs/pc-1.16.0/bin/python -m pytest -q`. The script takes a pipecat-ai release and a
-date the same way, and with no arguments builds the supported release. Each environment
+For Pipecat 1.17.0, run `scripts/make_pipecat_env.sh` and
+`.venvs/pc-1.17.0/bin/python -m pytest -q`. Use
+`scripts/make_pipecat_env.sh 1.16.0 2026-11-18` for the earlier release. Each environment
 runs the tests of the core and of its own framework, and pytest reports the test files
 of the other framework as skipped.
 
@@ -294,7 +294,7 @@ job fails from the day such a release is on PyPI.
 
 ## Adding a pipecat-ai release
 
-Supported pipecat-ai series: 1.16. The release and resolution date are in `releases.toml`.
+Supported pipecat-ai series: 1.16, 1.17. The release and resolution date are in `releases.toml`.
 
 1. `EARFUL_LOCK=write scripts/make_pipecat_env.sh <version> <date>`, with a date a few
    days after the release. This builds `.venvs/pc-<version>` and writes

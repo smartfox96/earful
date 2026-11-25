@@ -12,6 +12,7 @@ formats have versions of their own
 - L1 accepts intentional tool waits in `tool_wait_us`.
 - Handoffs with uncertain context ownership report `handoff-context`. Later turns are still checked.
 - First tests exercise a conversation. Declare a durable write with `earful init --write TOOL`.
+- Pipecat 1.16.0 and 1.17.0 are supported.
 
 ## [0.3.1] - 2026-11-24
 

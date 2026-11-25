@@ -18,6 +18,13 @@ class Mutant:
 
 MUTANTS = [
     Mutant(
+        "pipecat: extension tools are exposed as application functions on newer releases",
+        "src/earful/pipecat/seams.py",
+        'return service_member(service, "_extension_tool_names")',
+        "return set()",
+        first="framework_owned_functions_are_excluded",
+    ),
+    Mutant(
         "init: an unsupported application class is diagnosed as a missing framework",
         "src/earful/cli.py",
         "        if named is not None:\n",
@@ -370,8 +377,8 @@ MUTANTS = [
     Mutant(
         "releases: the Pipecat range includes an untested series",
         "releases.toml",
-        'below = "1.17"',
         'below = "1.18"',
+        'below = "1.19"',
         first="release_metadata_and_ci_match",
     ),
     Mutant(

@@ -213,12 +213,14 @@ def test_the_compatibility_page_names_every_clock_read_a_run_takes_from_the_loop
 
 def test_the_supported_pipecat_release_is_the_same_everywhere_it_is_listed():
     section = _section("pipecat-ai")
-    ((release, as_of),) = re.findall(_PINNED, section, re.MULTILINE)
-    assert (release,) == SUPPORT["pipecat-ai"].tested
-    assert f"`compat/pc-{release}.lock.txt`" in section
-    locks = [path.name for path in (ROOT / "compat").glob("pc-*.lock.txt")]
-    assert locks == [f"pc-{release}.lock.txt"]
-    assert f"pipecat-ai=={release}\n" in (ROOT / "compat" / locks[0]).read_text()
+    pinned = dict(re.findall(_PINNED, section, re.MULTILINE))
+    assert tuple(pinned) == SUPPORT["pipecat-ai"].tested
+    locks = sorted((ROOT / "compat").glob("pc-*.lock.txt"))
+    assert [p.name for p in locks] == [f"pc-{release}.lock.txt" for release in pinned]
+    for release, path in zip(pinned, locks):
+        assert f"`compat/{path.name}`" in section
+        assert f"pipecat-ai=={release}\n" in path.read_text()
+    release, as_of = next(reversed(pinned.items()))
     script = (ROOT / "scripts" / "make_pipecat_env.sh").read_text()
     assert f'version="${{1:-{release}}}"\nas_of="${{2:-{as_of}}}"\n' in script
     assert f"pipecat-ai {release} as of {as_of}, in .venvs/pc-{release}" in script
@@ -228,7 +230,7 @@ def test_the_supported_pipecat_release_is_the_same_everywhere_it_is_listed():
 
 def test_a_lock_file_is_the_list_the_environment_scripts_write():
     locks = sorted((ROOT / "compat").glob("*.lock.txt"))
-    assert len(locks) == 7
+    assert len(locks) == sum(len(s.tested) for s in SUPPORT.values())
     for path in locks:
         lines = path.read_text().splitlines()
         assert all(re.fullmatch(r"[a-z0-9][a-z0-9.-]*==[^\s=]+", line) for line in lines), path
@@ -254,7 +256,8 @@ def test_each_extra_accepts_the_releases_the_page_and_the_adapter_say_it_does():
     assert said in _section("livekit-agents")
     # The Pipecat extra takes the minor series of the tested release, where pipecat-ai installs.
     major, minor = (int(part) for part in pipecat.tested[0].split(".")[:2])
-    assert (pipecat.lowest, pipecat.below) == (f"{major}.{minor}", f"{major}.{minor + 1}")
+    newest_minor = int(pipecat.tested[-1].split(".")[1])
+    assert (pipecat.lowest, pipecat.below) == (f"{major}.{minor}", f"{major}.{newest_minor + 1}")
     accepted = f"pipecat-ai{pipecat.requirement}"
     assert f"pipecat = [\"{accepted}; python_version >= '3.11'\"]" in project
     said = f"from {pipecat.lowest} up to, and not\nincluding, {pipecat.below}, on Python 3.11"
@@ -271,10 +274,11 @@ def test_the_compatibility_page_says_what_an_adapter_does_with_the_installed_rel
 
 
 def test_the_pipecat_table_on_the_compatibility_page_is_what_the_workflow_runs():
-    ((release, as_of),) = re.findall(_PINNED, _section("pipecat-ai"), re.MULTILINE)
-    assert ci_scope.PIPECAT == {release: as_of}
-    cells = [(c.system, c.python, c.source) for c in FULL_TIER if c.framework == "pc"]
-    cells.sort(key=lambda cell: (cell[1], cell[0]))
+    pinned = dict(re.findall(_PINNED, _section("pipecat-ai"), re.MULTILINE))
+    assert ci_scope.PIPECAT == pinned
+    cells = sorted(
+        (c.version, c.python, c.system, c.source) for c in FULL_TIER if c.framework == "pc"
+    )
     systems = {"linux": "Linux", "macos": "macOS"}
     sources = {"checkout": "the checkout", "wheel": "the built wheel"}
     table = re.findall(
@@ -282,15 +286,15 @@ def test_the_pipecat_table_on_the_compatibility_page_is_what_the_workflow_runs()
         _section("What CI runs for Pipecat"),
         re.MULTILINE,
     )
-    assert table == [
-        (release, python, systems[os], sources[source]) for os, python, source in cells
-    ]
+    assert table == [(v, py, systems[os], sources[source]) for v, py, os, source in cells]
     # Every Python from the extra's marker to the newest, both systems, and the wheel once.
-    pythons = sorted({python for _, python, _ in cells})
+    pythons = sorted({py for _, py, _, _ in cells})
     assert pythons == ["3.11", "3.12", "3.13"]
-    assert {os for os, _, _ in cells} == set(systems)
-    assert [source for _, _, source in cells].count("wheel") == 1
-    supported = f"pipecat-ai {release}, on Linux and macOS, Python {pythons[0]} to {pythons[-1]}."
+    assert {os for _, _, os, _ in cells} == set(systems)
+    assert [source for _, _, _, source in cells].count("wheel") == len(pinned)
+    supported = (
+        f"pipecat-ai {', '.join(pinned)}, on Linux and macOS, Python {pythons[0]} to {pythons[-1]}."
+    )
     assert supported in README
 
 
