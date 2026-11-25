@@ -2235,3 +2235,30 @@ def test_an_exit_or_os_error_names_the_reason_a_search_case_was_refused(exc):
 
     outcome = evaluate(refused, a_case(BOOK))
     assert outcome.why_not == "refused" and outcome.reason
+
+
+def test_an_untested_release_stays_visible_in_the_report_and_kept_bundle(tmp_path):
+    from earful.core.ledger import Ledger
+    from earful.scripted.releases import framework_info
+
+    def untested(case):
+        events = answers(INTERRUPTS)(case)
+        at = 0
+        recording = Ledger(lambda: at)
+        for event in events:
+            at = event["t_us"]
+            data = dict(event["data"])
+            if event["kind"] == "run.start":
+                data["framework"] = framework_info("livekit-agents", "1.8.999")
+            recording.append(event["source"], event["kind"], **data)
+        return recording.events
+
+    events = untested(FOUND)
+    assert {event["schema_minor"] for event in events} == {2}
+    report = check(events)
+    assert "Untested framework release: livekit-agents 1.8.999" in report.session_scope
+    assert report.session_scope in report.lines()
+    assert report.to_json()["session_scope"] == report.session_scope
+    manifest = bundle.capture(tmp_path / "kept", FOUND, untested, A2, repeats=1, max_runs=1)
+    assert manifest["framework"]["support"] == "untested"
+    assert manifest["schema_minor"] == 2 and not bundle.validate(manifest)

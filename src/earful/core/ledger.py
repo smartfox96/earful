@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any
 
 SCHEMA = "earful.ledger/1"
-SCHEMA_MINOR = 1  # 1 added tool.returned.handoff and two fields of the header
+SCHEMA_MINOR = 2  # revision 2 records an untested release in run.start.framework
 
 # Who observed the event. The checker treats these as independent witnesses.
 SOURCES = ("world", "llm", "sink", "backend", "framework", "harness")
@@ -58,6 +58,10 @@ def session_scope(header: dict[str, Any]) -> str:
         return ""
     session = scenario.get("session") if isinstance(scenario, dict) else None
     lines = []
+    if framework.get("support") == "untested":
+        lines.append(
+            f"Untested framework release: {framework.get('name')} {framework.get('version')}."
+        )
     if framework.get("name") == "pipecat-ai" and isinstance(session, dict):
         options = session.get("extra_options")
         custom = isinstance(options, dict) and "pipeline" in options
@@ -85,6 +89,7 @@ class Ledger:
 
     def __init__(self, clock_us: Callable[[], int], *, run: str | None = None) -> None:
         self._clock_us = clock_us
+        self._minor = 1  # preserve the bytes of runs that need only the previous revision
         self.run = run  # set by run.start unless given
         self.events: list[dict[str, Any]] = []
 
@@ -101,13 +106,20 @@ class Ledger:
             raise TypeError(f"{kind}: event data must be plain JSON ({exc})") from exc
         if self.events and self.events[-1]["kind"] == "run.end":
             raise ValueError(f"{kind}: the ledger has ended; nothing follows run.end")
+        framework = snapshot.get("framework")
+        if (
+            kind == "run.start"
+            and isinstance(framework, dict)
+            and framework.get("support") == "untested"
+        ):
+            self._minor = SCHEMA_MINOR
         if kind == "run.start" and self.run is None:
             self.run = run_id(snapshot)
         if self.run is None:
             raise ValueError("the first event of a ledger must be run.start")
         event = {
             "schema": SCHEMA,
-            "schema_minor": SCHEMA_MINOR,
+            "schema_minor": self._minor,
             "run": self.run,
             "seq": len(self.events),
             "t_us": self._clock_us(),

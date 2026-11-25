@@ -136,6 +136,15 @@ def test_a_realtime_provider_on_the_agent_or_case_is_refused_by_name(application
     assert "VoiceModel is a speech-to-speech model" in capsys.readouterr().err
 
 
+def test_a_livekit_run_records_the_installed_untested_release(application, monkeypatch):
+    import livekit.agents as lk
+
+    monkeypatch.setattr(lk, "__version__", "1.8.999")
+    result = run(application.scripted)
+    assert result.events[0]["data"]["framework"]["support"] == "untested"
+    assert "Untested framework release: livekit-agents 1.8.999" in result.report.session_scope
+
+
 @pytest.mark.parametrize("wiring", ["variable", "positional", "generic", "try"])
 def test_alternative_realtime_wiring_refuses_both_init_and_run(application, capsys, wiring):
     from pathlib import Path

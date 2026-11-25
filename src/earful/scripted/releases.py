@@ -49,6 +49,13 @@ def _numbers(version: str) -> tuple[int, ...] | None:
     return tuple(int(part) for part in leading.group().split(".")) if leading else None
 
 
+def framework_info(package: str, installed: str) -> dict[str, str]:
+    info = {"name": package, "version": installed}
+    if installed not in SUPPORT[package].tested:
+        info["support"] = "untested"
+    return info
+
+
 def admit(package: str, installed: str) -> None:
     """Refuse a release outside the range, and warn about one inside it that is not tested."""
     support = SUPPORT[package]

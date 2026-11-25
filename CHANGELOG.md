@@ -16,6 +16,7 @@ formats have versions of their own
 - Pipecat refuses late or conflicting function registrations, catch-all effects and dedicated summary models.
 - Results name tools that raised.
 - Setup and search results explain unsupported providers, turn handling and original-only failures.
+- Results, replays and kept bundles identify untested framework releases.
 
 ## [0.3.1] - 2026-11-24
 

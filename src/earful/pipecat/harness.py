@@ -5,6 +5,7 @@ from __future__ import annotations
 import pipecat
 
 from ..scripted.kernel.run import run
+from ..scripted.releases import framework_info
 from ..scripted.result import RunResult
 from .case import Case
 from .clock import wait_for_of_python_3_12
@@ -37,7 +38,7 @@ def run_case(
             drain=case,
             virtual=virtual,
             require_valid=require_valid,
-            framework={"name": "pipecat-ai", "version": pipecat.__version__},
+            framework=framework_info("pipecat-ai", pipecat.__version__),
             validate=validate,
             build=build,
             result_of=lambda result, _: result,

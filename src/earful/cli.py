@@ -343,6 +343,8 @@ def _replay(args: argparse.Namespace) -> int:
             breaks = "in some runs" if result.broke else "no"
         gave = ["not valid evidence" if one is None else one for one in result.outcomes]
         print(f"{kept.predicate}, kept on {made.get('name')} {made.get('version')}")
+        if made.get("support") == "untested":
+            print("The recorded failure was kept on an untested framework release.")
         print(f"replayed {args.repeats} times on {on.get('name')} {on.get('version')}")
         if result.session_scope:
             print(result.session_scope)

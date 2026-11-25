@@ -144,6 +144,20 @@ MUTANTS = [
         first="a_rule_the_case_breaks_as_given",
     ),
     Mutant(
+        "bundle: untested releases are written with the old schema revision",
+        "src/earful/core/bundle.py",
+        'SCHEMA_MINOR if header["framework"].get("support") == "untested" else 1',
+        "1",
+        first="untested_release_stays_visible",
+    ),
+    Mutant(
+        "ledger: untested releases use the old revision",
+        "src/earful/core/ledger.py",
+        "self._minor = SCHEMA_MINOR",
+        "self._minor = 1",
+        first="untested_release_stays_visible",
+    ),
+    Mutant(
         "report: tool failures disappear from JSON",
         "src/earful/core/checker/report.py",
         "if not self.tool_errors:",
@@ -198,6 +212,13 @@ MUTANTS = [
         'return getattr(summary, "llm", None) is not None',
         "return False",
         first="manual_summary_with_its_own_model",
+    ),
+    Mutant(
+        "releases: the result omits the untested marker",
+        "src/earful/scripted/releases.py",
+        "if installed not in SUPPORT[package].tested:",
+        "if False:",
+        first="untested_release_stays_visible",
     ),
     Mutant(
         "report: recorded tool exceptions are silent",

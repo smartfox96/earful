@@ -1111,3 +1111,14 @@ def test_a_pipecat_function_that_exits_is_refused_in_one_line():
     )
     assert done.returncode == 2 and not done.stdout
     assert done.stderr.splitlines() == ["earful: tool 'stop' called sys.exit(0)"]
+
+
+def test_a_pipecat_run_records_the_installed_untested_release(monkeypatch):
+    import pipecat
+
+    from earful.pipecat.cases import greeting
+
+    monkeypatch.setattr(pipecat, "__version__", "1.17.999")
+    result = pc.run(greeting)
+    assert result.events[0]["data"]["framework"]["support"] == "untested"
+    assert "Untested framework release: pipecat-ai 1.17.999" in result.report.session_scope

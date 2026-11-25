@@ -51,6 +51,10 @@
         "version"
       ],
       "properties": {
+        "support": {
+          "description": "The installed release was outside the tested matrix when this run was recorded.",
+          "const": "untested"
+        },
         "name": {
           "type": "string"
         },

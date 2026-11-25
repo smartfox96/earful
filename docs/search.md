@@ -544,3 +544,7 @@ the one way they change.
   lost, and the user can hang up once their last speech is over. A hangup in the middle
   of a speech, a provider that stalls and a caller that sends a write twice cannot be
   declared yet.
+
+The bundle copies the capture-time framework metadata. On an untested release,
+its `framework` contains `support` set to `untested` and its `schema_minor` is 2.
+Replay prints the status of the recorded release and of the replay environment.

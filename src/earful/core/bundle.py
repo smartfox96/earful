@@ -24,7 +24,7 @@ from .search import Run, Runner, judged
 from .shrink import shrink
 
 SCHEMA = "earful.bundle/1"
-SCHEMA_MINOR = 1  # 1 added case_digest
+SCHEMA_MINOR = 2  # 2 records framework.support in bundles captured on an untested release
 SCHEMA_FILE = "earful.bundle-1.schema.json"
 MANIFEST = "manifest.json"
 FILES = {
@@ -104,7 +104,7 @@ def capture(
     header = minimal_events[0]["data"]
     manifest = {
         "schema": SCHEMA,
-        "schema_minor": SCHEMA_MINOR,
+        "schema_minor": SCHEMA_MINOR if header["framework"].get("support") == "untested" else 1,
         "predicate": {"contract": predicate.contract, "rule": predicate.rule},
         "framework": header["framework"],
         "clock": header["clock"],
