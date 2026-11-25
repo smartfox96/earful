@@ -15,6 +15,7 @@ formats have versions of their own
 - Pipecat 1.16.0 and 1.17.0 are supported.
 - Pipecat refuses late or conflicting function registrations, catch-all effects and dedicated summary models.
 - Results name tools that raised.
+- Setup and search results explain unsupported providers, turn handling and original-only failures.
 
 ## [0.3.1] - 2026-11-24
 

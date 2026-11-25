@@ -88,6 +88,20 @@ MUTANTS = [
         first="manual_summary_with_its_own_model",
     ),
     Mutant(
+        "pipecat: realtime is reported as a missing recognizer",
+        "src/earful/pipecat/pipeline.py",
+        "if isinstance(processor, LLMService) and any(",
+        "if False and any(",
+        first="pipeline_earful_cannot_run_or_describe",
+    ),
+    Mutant(
+        "pipecat: a second service is reported as reaching the network",
+        "src/earful/pipecat/pipeline.py",
+        "a second provider has no scripted inputs or witnessed output",
+        "this reaches the network",
+        first="pipeline_earful_cannot_run_or_describe",
+    ),
+    Mutant(
         "init: a coroutine is diagnosed as a missing context",
         "src/earful/pipecat/case.py",
         "if inspect.iscoroutine(result):",
@@ -114,6 +128,20 @@ MUTANTS = [
         "only registrations visible during setup are listed",
         "all registrations are listed",
         first="says_what_to_do_next",
+    ),
+    Mutant(
+        "livekit: a session turn model is reported as selectable",
+        "src/earful/livekit/options.py",
+        'if name == "turn_handling":',
+        "if False:",
+        first="option_a_case_field_sets",
+    ),
+    Mutant(
+        "search: an original-only failure is attributed to candidates",
+        "src/earful/core/search/coverage.py",
+        '"the original case only" if not breaking else',
+        '"nothing: it breaks as written" if not breaking else',
+        first="a_rule_the_case_breaks_as_given",
     ),
     Mutant(
         "report: tool failures disappear from JSON",

@@ -120,6 +120,12 @@ def refuse_session_kwargs(given: Mapping[str, Any]) -> None:
     for name in sorted(given):
         if name == "llm" and (reason := realtime_provider_refusal(given[name])):
             raise ValueError(f"session_kwargs {name!r}: {reason}")
+        if name == "turn_handling":
+            raise ValueError(
+                "session_kwargs may not set 'turn_handling': Case exposes endpointing delays, "
+                "interruption duration, timeout, allow_interruptions and preemptive_generation; "
+                "turn models and minimum word counts are unsupported"
+            )
         if name in FROM_CASE:
             raise ValueError(f"session_kwargs may not set {name!r}: use Case.{FROM_CASE[name]}")
         if name in REFUSED:

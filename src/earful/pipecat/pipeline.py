@@ -72,7 +72,7 @@ _UNRUNNABLE: tuple[tuple[type | tuple[type, ...], str], ...] = (
         AIService,
         (
             "is a Pipecat service: Earful supplies the speech-to-text, the model and the "
-            "voice, and runs none that reaches the network"
+            "voice; a second provider has no scripted inputs or witnessed output"
         ),
     ),
     (
@@ -247,6 +247,16 @@ def inspect(
         raise ValueError("pipeline returns its processors in order, or a Pipeline of them")
     nested = [held for processor in top for held in _inside(processor)]
     ours = {name: getattr(ends, name) for name in _ENDS}
+    for processor in (*top, *nested):
+        if isinstance(processor, LLMService) and any(
+            cls.__module__.startswith("pipecat.services.")
+            and cls.__name__.endswith(("RealtimeLLMService", "LiveLLMService"))
+            for cls in type(processor).__mro__
+        ):
+            raise ValueError(
+                f"{type(processor).__name__} is a speech-to-speech model; "
+                "Earful scripts separate recognition, model and voice services"
+            )
     places = []
     for name, end in ours.items():
         if sum(p is end for p in top) != 1 or any(p is end for p in nested):

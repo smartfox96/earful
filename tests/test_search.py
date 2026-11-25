@@ -598,8 +598,8 @@ def test_a_rule_the_case_breaks_as_given_is_found_where_no_case_tried_breaks_it(
     assert found.tried and found.breaking(A2) == [] and A2 in found.predicates()
     one = found.breaks()[0]
     assert (one.predicate, one.candidates, one.example) == (A2, 0, case)
-    assert one.what == "nothing: it breaks as written" and not one.everywhere
-    with pytest.raises(ContractFailure, match="A2/rule  in 0 case"):
+    assert one.what == "the original case only" and not one.everywhere
+    with pytest.raises(ContractFailure, match="A2/rule  in the original case only"):
         found.assert_contracts()
     alone = explore(case, answers(lambda moved: True), variables=[], faults=[])
     assert alone.tried == [] and alone.nothing_judged

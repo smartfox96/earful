@@ -322,7 +322,24 @@ def _named(start=None, **stop):
     return lambda: turns(start=start, **stop)
 
 
+def _realtime_without_recognizer(ends):
+    from pipecat.services.llm_service import LLMService
+
+    # Provider extras are optional in both pinned environments. Match the base class
+    # identity used by the adapter, then test a user subclass with a different name.
+    base = type("GeminiLiveLLMService", (LLMService,), {"__module__": "pipecat.services.google"})
+
+    class AppVoice(base):
+        pass
+
+    return [ends.input, AppVoice(), ends.output]
+
+
 REFUSED = {
+    "a speech-to-speech pipeline": (
+        _realtime_without_recognizer,
+        "AppVoice is a speech-to-speech model",
+    ),
     "an end left out": (lambda ends: around()(ends)[1:], "hold ends.input once"),
     "an end inside another processor": (_outside_the_top_level, "hold ends.tts once"),
     "ends out of order": (_out_of_order, "in order and at its top level, ends.input, ends.stt"),
@@ -332,7 +349,7 @@ REFUSED = {
     ),
     "another context": (_another_context, "built on ends.context"),
     "a second user aggregator": (_a_second_user_aggregator, "LLMUserAggregator decides turns"),
-    "a service": (_a_voice, "StampedTTS is a Pipecat service"),
+    "a service": (_a_voice, "a second provider has no scripted inputs or witnessed output"),
     "a transport": (
         lambda ends: [*around()(ends), ClockedOutput(NOTHING, NOTHING)],
         "ClockedOutput is a transport",
