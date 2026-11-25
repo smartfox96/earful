@@ -39,8 +39,23 @@ def check(events: list[dict[str, Any]]) -> Report:
     run = events[0].get("run") if events and isinstance(events[0], dict) else None
     data = events[0].get("data") if events and isinstance(events[0], dict) else None
     scope = session_scope(data) if isinstance(data, dict) else ""
+    errors = tuple(
+        f"Tool {info['name']} raised {info['error']}: {info['message']}"
+        for event in events
+        if isinstance(event, dict) and event.get("kind") == "tool.raised"
+        for info in [event.get("data")]
+        if isinstance(info, dict)
+        and all(isinstance(info.get(key), str) for key in ("name", "error", "message"))
+    )
     if reasons:
-        return Report(run=run, valid=False, invalid=tuple(reasons), results={}, session_scope=scope)
+        return Report(
+            run=run,
+            valid=False,
+            invalid=tuple(reasons),
+            results={},
+            session_scope=scope,
+            tool_errors=errors,
+        )
     reading, possible, results = _judge(events)
     return Report(
         run=run,
@@ -49,6 +64,7 @@ def check(events: list[dict[str, Any]]) -> Report:
         results=results,
         reading=reading,
         readings=possible,
+        tool_errors=errors,
         session_scope=scope,
     )
 

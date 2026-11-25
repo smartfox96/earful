@@ -116,6 +116,13 @@ MUTANTS = [
         first="says_what_to_do_next",
     ),
     Mutant(
+        "report: tool failures disappear from JSON",
+        "src/earful/core/checker/report.py",
+        "if not self.tool_errors:",
+        "if True:",
+        first="for_a_tool_that_raised_is_not_judged",
+    ),
+    Mutant(
         "handoff: identical words always belong to the previous user turn",
         "src/earful/core/checker/memory.py",
         "return old == current",
@@ -163,6 +170,13 @@ MUTANTS = [
         'return getattr(summary, "llm", None) is not None',
         "return False",
         first="manual_summary_with_its_own_model",
+    ),
+    Mutant(
+        "report: recorded tool exceptions are silent",
+        "src/earful/core/checker/report.py",
+        "        out.extend(self.tool_errors)\n",
+        "",
+        first="for_a_tool_that_raised_is_not_judged",
     ),
     Mutant(
         "report: the choice of scripted turn detection is hidden",

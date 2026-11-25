@@ -163,6 +163,7 @@ class Report:
     schema: str = REPORT
     contracts: str = CONTRACTS
     session_scope: str = ""
+    tool_errors: tuple[str, ...] = ()
 
     def outcome(self, contract: str) -> str:
         return self.results[contract].outcome
@@ -178,6 +179,8 @@ class Report:
 
     def to_json(self) -> dict[str, Any]:
         data = asdict(self)
+        if not self.tool_errors:
+            del data["tool_errors"]
         if not self.session_scope:
             del data["session_scope"]
         return data
@@ -201,6 +204,7 @@ class Report:
     def lines(self, *, measures: bool = False, passes: bool = False) -> list[str]:
         """The report as text: one line per contract and per verdict that is not a plain pass."""
         out = [self.session_scope] if self.session_scope else []
+        out.extend(self.tool_errors)
         if not self.valid:
             return [*out, *(f"invalid: {reason}" for reason in self.invalid)]
         for name, result in self.results.items():

@@ -1417,6 +1417,9 @@ def test_m2_what_the_model_is_shown_for_a_tool_that_raised_is_not_judged(fixed):
         "message": "",
         "expects_reply": False,
     }
+    report = check(fixed)
+    assert "Tool create_reservation raised StopResponse:" in "\n".join(report.lines())
+    assert report.to_json()["tool_errors"] == report.tool_errors
     shown(fixed, 2, "function_call_output")["output"] = ""
     assert check(copy.deepcopy(fixed)).outcome("M2") == PASS
     # older releases keep neither the call nor a result for it

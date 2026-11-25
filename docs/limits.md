@@ -279,7 +279,7 @@ application under `tests/shapes/`. They change a verdict on LiveKit, and none on
 | Behaviour | LiveKit | Pipecat |
 | --- | --- | --- |
 | A write in flight at the end settles | The write has no outcome in the ledger | Holds |
-| An exception in application code is recorded | It is in neither the run's reasons nor the ledger | It is in neither the run's reasons nor the ledger |
+| An exception in application code is recorded | A callback can raise without a recorded error. Witnessed tool errors appear in the result and in `tool.raised` | A processor callback can raise without a recorded error. Witnessed function errors appear in the result and in `tool.raised` |
 | A closed session ends the run | The run does not end | The run is invalid, where it should be judged |
 | A stuck pipeline hits the ceiling | The run is judged, and L1 fails milestone 2 | The run does not end |
 | `tool_choice` is honoured | Holds | A call the request did not allow is judged as any other |

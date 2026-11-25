@@ -14,6 +14,7 @@ formats have versions of their own
 - First tests exercise a conversation. Declare a durable write with `earful init --write TOOL`.
 - Pipecat 1.16.0 and 1.17.0 are supported.
 - Pipecat refuses late or conflicting function registrations, catch-all effects and dedicated summary models.
+- Results name tools that raised.
 
 ## [0.3.1] - 2026-11-24
 
