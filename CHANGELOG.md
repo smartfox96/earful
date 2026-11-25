@@ -11,6 +11,7 @@ formats have versions of their own
 - Existing LiveKit cases disclose the scripted providers and turn detection. Recognized realtime setups are refused by model name.
 - L1 accepts intentional tool waits in `tool_wait_us`.
 - Handoffs with uncertain context ownership report `handoff-context`. Later turns are still checked.
+- First tests exercise a conversation. Declare a durable write with `earful init --write TOOL`.
 
 ## [0.3.1] - 2026-11-24
 

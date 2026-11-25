@@ -18,6 +18,13 @@ class Mutant:
 
 MUTANTS = [
     Mutant(
+        "init: an unsupported application class is diagnosed as a missing framework",
+        "src/earful/cli.py",
+        "        if named is not None:\n",
+        "        if False:\n",
+        first="application_class_names_the_required_entry",
+    ),
+    Mutant(
         "livekit: a model assigned before session construction is missed",
         "src/earful/livekit/application.py",
         "return bindings.get(_name(node))",
@@ -67,6 +74,34 @@ MUTANTS = [
         first="rejects_an_invalid_per_tool_wait",
     ),
     Mutant(
+        "init: a coroutine is diagnosed as a missing context",
+        "src/earful/pipecat/case.py",
+        "if inspect.iscoroutine(result):",
+        "if False:",
+        first="coroutine_entrypoint_and_an_illegal_module",
+    ),
+    Mutant(
+        "init: an illegal module name is silently passed to import",
+        "src/earful/cli.py",
+        "if separator and not all(",
+        "if False and not all(",
+        first="coroutine_entrypoint_and_an_illegal_module",
+    ),
+    Mutant(
+        "init: a Python keyword passes as an object name",
+        "src/earful/cli.py",
+        'if separator and keyword.iskeyword(args.agent.partition(":")[2]):',
+        "if False:",
+        first="coroutine_entrypoint_and_an_illegal_module",
+    ),
+    Mutant(
+        "init: setup reports an exhaustive function list",
+        "src/earful/cli.py",
+        "only registrations visible during setup are listed",
+        "all registrations are listed",
+        first="says_what_to_do_next",
+    ),
+    Mutant(
         "handoff: identical words always belong to the previous user turn",
         "src/earful/core/checker/memory.py",
         "return old == current",
@@ -86,6 +121,13 @@ MUTANTS = [
         "if len(suffix.stray) < len(best.stray):",
         "if False:",
         first="a_fresh_handoff_still_checks_later_turns",
+    ),
+    Mutant(
+        "scaffold: infers durable writes from tool discovery",
+        "src/earful/scripted/scaffold.py",
+        "return list(dict.fromkeys(writes))",
+        "return list(names)",
+        first="default_scaffold_exercises",
     ),
     Mutant(
         "report: the choice of scripted turn detection is hidden",
@@ -376,8 +418,8 @@ MUTANTS = [
     ),
     Mutant(
         "pipecat: a bot may omit its context",
-        "src/earful/pipecat/worker.py",
-        "if not isinstance(context, LLMContext):",
+        "src/earful/pipecat/case.py",
+        "if not isinstance(result, LLMContext):",
         "if False:",
         first="test_shape",
     ),
@@ -4708,7 +4750,7 @@ MUTANTS = [
         "src/earful/scripted/scaffold.py",
         "            for name in names\n",
         "            for name in names[:1]\n",
-        first="writes_a_test_from_the_agents_tools",
+        first="all_explicit_writes_are_in_the_generated_case",
     ),
     Mutant(
         "scaffold: an agent that needs arguments is not built to find its tools",
@@ -5308,9 +5350,9 @@ MUTANTS = [
     Mutant(
         "scaffold: an agent None does not build is not reported",
         "src/earful/livekit/scaffold.py",
-        '        unbuilt = f"{type(exc).__name__}: {exc}"\n',
-        "",
-        first="none_does_not_build_gets_a_test_that_says_so",
+        'raise ValueError(\n            f"{agent.__name__}({given}) raised',
+        'raise RuntimeError(\n            f"{agent.__name__}({given}) raised',
+        first="none_does_not_build_is_refused",
     ),
     Mutant(
         "scaffold: a tool no call can be written for stops the others being tried",
@@ -5322,8 +5364,8 @@ MUTANTS = [
     Mutant(
         "cli: init does not say that the search it wrote will fail",
         "src/earful/cli.py",
-        '    if made.tools:\n        print("           its search fails (A2)',
-        '    if False:\n        print("           its search fails (A2)',
+        '    if args.write:\n        print("           its search',
+        '    if False:\n        print("           its search',
         first="says_what_to_do_next",
     ),
     # What the properties of tests/test_properties.py hold on generated inputs.
@@ -6148,8 +6190,8 @@ MUTANTS = [
     Mutant(
         "pipecat scaffold: a bot that needs more than its model is called without it",
         "src/earful/pipecat/scaffold.py",
-        "        context = bot(reader, *positional, **named)\n",
-        "        context = bot(reader)\n",
+        "context = bot_context(bot, reader, *positional, **named)",
+        "context = bot_context(bot, reader)",
         first="needs_more_than_its_model",
     ),
     Mutant(
@@ -6169,8 +6211,8 @@ MUTANTS = [
     Mutant(
         "cli: init calls a bot's functions tools",
         "src/earful/cli.py",
-        "        print(f\"{made.noun:<11}{', '.join(made.tools)}\")\n",
-        "        print(f\"{'tools':<11}{', '.join(made.tools)}\")\n",
+        "{made.noun:<11}",
+        "{'tools':<11}",
         first="writes_a_test_from_the_functions",
     ),
     Mutant(

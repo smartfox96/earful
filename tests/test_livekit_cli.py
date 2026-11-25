@@ -744,10 +744,7 @@ def test_without_the_framework_ledgers_are_checked_and_a_run_is_refused_with_wha
     done = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, check=False)
     assert done.returncode == 0, done.stderr
     assert 'pip install "earful[livekit]"' in done.stderr
-    assert (
-        "earful: myapp.agent:SupportAgent needs livekit-agents, which is not installed. "
-        'Install it with: pip install "earful[livekit]"'
-    ) in done.stderr
+    assert "cannot import module 'myapp.agent' for 'myapp.agent:SupportAgent'" in done.stderr
 
 
 def test_run_exits_3_for_a_run_that_is_not_valid_evidence_and_still_writes_its_ledger(

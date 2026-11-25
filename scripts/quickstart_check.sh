@@ -81,7 +81,7 @@ earful replay "$kept" --expect clean >/dev/null || fail "the kept failure still 
 echo "ok"
 
 echo "=== after it: earful init writes a first test, whose search fails until the key is declared"
-earful init agent:BookingAgent >/dev/null || fail "earful init refused the example's agent"
+earful init --scripted-turns --write create_reservation agent:BookingAgent >/dev/null || fail "earful init refused the example's agent"
 status=0
 output="$(pytest -q test_booking_agent.py 2>&1)" || status=$?
 [ "$status" -eq 1 ] || fail "pytest on the test earful init wrote exited $status, not 1: $output"

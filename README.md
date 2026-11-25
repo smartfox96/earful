@@ -239,12 +239,11 @@ earful init myapp.agent:SupportAgent    # writes test_support_agent.py
 pytest test_support_agent.py
 ```
 
-The test it writes runs as it is. Every tool is declared an effect, so no tool body runs
-and nothing reaches a real service. The scripted model calls the first tool, and calls it
-once more if the call fails. With no tool body run, Earful cannot see whether a write
-carries an idempotency key, so the search fails on the repeated write (A2) until the file
-declares the key the tool sends. The file marks that and what else to change: what the
-user says, which tool the model calls, and which tools only read. [`docs/testing.md`](https://github.com/smartfox96/earful/blob/main/docs/testing.md) covers
+The generated test asks for a spoken reply and checks L1. Setup lists the tools visible
+on the constructed agent. To test a durable write, name it with `--write TOOL`. The
+generated scenario then checks the write, its confirmation and a retry. Declare the
+idempotency key your service honours to make that retry safe.
+[`docs/testing.md`](https://github.com/smartfox96/earful/blob/main/docs/testing.md) covers
 the rest.
 
 ## With a coding assistant

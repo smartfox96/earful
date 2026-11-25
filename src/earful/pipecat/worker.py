@@ -27,7 +27,7 @@ from ..scripted.kernel.run import RunContext
 from ..scripted.world import WorldOrigin
 from . import pipeline as pipelines
 from . import seams
-from .case import Case
+from .case import Case, bot_context
 from .clock import VirtualClock
 from .config import _header
 from .pipeline import Ends
@@ -130,11 +130,7 @@ def _scripted(case: Case, context: RunContext) -> _Scripted:
 def _built(case: Case, s: _Scripted) -> tuple[LLMContext, pipelines.Plan, dict[str, Any]]:
     """The bot's context, the pipeline as inspected, and the header of the run."""
     model, witness = s.model, s.witness
-    context = case.bot(model)
-    if not isinstance(context, LLMContext):
-        raise ValueError(  # noqa: TRY004 - invalid cases are refused with ValueError
-            f"bot must return an LLMContext, got {type(context).__name__}"
-        )
+    context = bot_context(case.bot, model)
     ends = Ends(s.user, s.stt, model, s.voice, s.output, context)
     timeouts = (case.user_speech_timeout, case.user_turn_stop_timeout)
     build = case.pipeline or pipelines.standard(*timeouts)

@@ -31,12 +31,13 @@ def written(path):
 
 
 def test_init_writes_a_test_from_the_functions_a_bot_registers(here, capsys):
-    status, out, _ = init(capsys, "scaffolded_bots:booking_bot")
+    status, out, _ = init(capsys, "scaffolded_bots:booking_bot", "--write", "create_reservation")
     assert status == OK
     assert out.splitlines() == [
         "wrote      test_booking_bot.py",
         "functions  create_reservation",
-        "           each is declared an effect; delete those that only read",
+        "           only registrations visible during setup are listed",
+        "writes     create_reservation",
         "next       pytest test_booking_bot.py",
         "           its search fails (A2) while a write has no idempotency key declared;",
         "           the file says where to declare one",
@@ -54,7 +55,7 @@ def test_init_writes_a_test_from_the_functions_a_bot_registers(here, capsys):
 @pytest.mark.parametrize("bot", ["booking_bot", "handed_bot"])
 def test_the_test_init_writes_for_a_bot_runs_as_it_is(here, capsys, bot):
     """The bots' functions fail a test that reaches their bodies."""
-    assert init(capsys, f"scaffolded_bots:{bot}")[0] == OK
+    assert init(capsys, f"scaffolded_bots:{bot}", "--write", "create_reservation")[0] == OK
     module = written(here / f"test_{bot}.py")
     result = pc.run(getattr(module, f"{bot}_scenario"))
     assert module.REQUIRED == ["A2", "A3", "L1"]
@@ -64,7 +65,7 @@ def test_the_test_init_writes_for_a_bot_runs_as_it_is(here, capsys, bot):
 
 
 def test_a_bot_that_needs_more_than_its_model_is_handed_none_and_says_so(here, capsys):
-    assert init(capsys, "scaffolded_bots:handed_bot")[0] == OK
+    assert init(capsys, "scaffolded_bots:handed_bot", "--write", "create_reservation")[0] == OK
     source = (here / "test_handed_bot.py").read_text()
     assert "    return handed_bot(llm, reservations=None)\n" in source
     assert "# handed_bot is called with: reservations.\n" in source
@@ -94,13 +95,37 @@ def test_what_init_cannot_read_a_bot_from_is_refused_in_one_line(reference, why)
         scaffold(reference)
 
 
-def test_a_class_named_where_livekit_agents_is_absent_is_refused_with_what_to_install(here, capsys):
-    if importlib.util.find_spec("livekit") is not None:
-        pytest.skip("livekit-agents is installed here")
+def test_an_application_class_names_the_required_entry_even_without_livekit(
+    here, capsys, monkeypatch
+):
+    from earful import cli
+
+    def missing(framework):
+        assert framework == "livekit-agents"
+        raise ImportError("missing SDK")
+
+    monkeypatch.setattr(cli._adapters, "by_framework", missing)
     status, out, err = init(capsys, "scaffolded_bots:NotABot")
     assert status == REFUSED and not out
-    assert err == (
-        "earful: scaffolded_bots:NotABot needs livekit-agents, which is not installed. "
-        'Install it with: pip install "earful[livekit]"\n'
-    )
+    assert "must be a LiveKit Agent subclass or a Pipecat bot function" in err
     assert not list(here.iterdir())
+
+
+def test_a_coroutine_entrypoint_and_an_illegal_module_name_leave_no_output(
+    here, capsys, monkeypatch
+):
+    import scaffolded_bots
+
+    async def entry(llm):
+        raise AssertionError("the coroutine body must not run")
+
+    monkeypatch.setattr(scaffolded_bots, "entry", entry, raising=False)
+    for target, reason in [
+        ("scaffolded_bots:entry", "must be synchronous"),
+        ("bot-openai:entry", "Python module name"),
+        ("class.example:entry", "Python module name"),
+        ("scaffolded_bots:class", "object name is a Python keyword"),
+    ]:
+        status, _, err = init(capsys, target)
+        assert status == REFUSED and reason in err
+        assert not list(here.iterdir())

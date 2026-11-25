@@ -93,12 +93,10 @@ earful init mybot.bot:booking_bot    # writes test_booking_bot.py
 
 It calls that function with a model service of its own, and `None` for each argument
 after it, to see which functions it registers and which tools its context advertises.
-The scripted model calls the first of them, with a value for each argument the context's
-schema requires, and once more if the call fails. Every function is declared an effect,
-so no function body runs. A function registered without a schema gets a call with no
-arguments, and the file says to give it the ones it reads. Both tests require A2, A3 and
-L1 to reach a verdict, and the search fails on a write the model repeats until the file
-declares that write's idempotency key, as on LiveKit.
+Setup can only list the functions visible at that point. The first test asks for a reply
+and requires L1. Pass `--write create_reservation` to model a specific durable write and
+its retry. The generated test then requires A2, A3 and L1. A bot must synchronously return
+an LLMContext. Give the command an importable dotted module name.
 
 ## Your own pipeline
 

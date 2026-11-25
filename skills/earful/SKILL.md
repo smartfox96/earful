@@ -52,10 +52,8 @@ Run it with `pytest`. `earful` is a pytest fixture the package installs. Without
 `from earful.livekit import run, explore` are the same calls.
 
 `earful init module:Class` writes a file of this shape from the agent's own tools, with
-placeholder words and arguments. Start from it when there is no test yet, then replace
-the placeholders with a conversation the agent is for. Its search fails on A2 until the
-file declares the idempotency key a write is sent with: no tool body runs, so the key has
-to be declared.
+a scripted conversation that requires L1. Add `--write TOOL` for a durable write you
+know the application makes. The generated retry test then requires A2, A3 and L1.
 
 ## Rules for writing one
 

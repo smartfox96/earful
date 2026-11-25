@@ -18,9 +18,11 @@ from ..scripted.scaffold import (
     literal,
     model_lines,
     placeholder,
+    select_writes,
     tests_lines,
 )
 from . import seams
+from .case import bot_context
 
 _REFERENCE = re.compile(r"^[A-Za-z_][A-Za-z0-9_.]*:[A-Za-z_][A-Za-z0-9_]*$")
 
@@ -52,7 +54,12 @@ def _needs(bot: Any) -> list[inspect.Parameter]:
     parameters = list(inspect.signature(bot).parameters.values())
     if not parameters:
         raise ValueError(f"{bot.__name__} takes no model service: a bot is called as bot(llm)")
-    return [p for p in parameters[1:] if p.default is inspect.Parameter.empty]
+    return [
+        p
+        for p in parameters[1:]
+        if p.default is inspect.Parameter.empty
+        and p.kind not in (inspect.Parameter.VAR_POSITIONAL, inspect.Parameter.VAR_KEYWORD)
+    ]
 
 
 def _given(needs: list[inspect.Parameter]) -> tuple[list[Any], dict[str, Any]]:
@@ -67,7 +74,7 @@ def _functions(bot: Any, needs: list[inspect.Parameter]) -> dict[str, dict[str, 
     reader = _Reader()
     positional, named = _given(needs)
     try:
-        context = bot(reader, *positional, **named)
+        context = bot_context(bot, reader, *positional, **named)
     except Exception as exc:
         given = ", ".join(["llm", *("None" for _ in positional), *(f"{k}=None" for k in named)])
         raise ValueError(
@@ -110,25 +117,26 @@ def _call(functions: dict[str, dict[str, Any] | None]) -> tuple[str, dict[str, A
     raise refused[0]
 
 
-def scaffold(reference: str) -> Scaffold:
+def scaffold(reference: str, *, writes: tuple[str, ...] = ()) -> Scaffold:
     """The first test of the bot ``reference`` names, as ``module:function``. Raises
     ``ValueError`` for a reference that does not name a bot function."""
     module, name, bot = _resolve(reference)
     needs = _needs(bot)
     functions = _functions(bot, needs)
     names = list(functions)
-    called, arguments = _call(functions) if functions else ("", {})
+    selected = select_writes(writes, names)
+    called, arguments = _call({n: functions[n] for n in selected}) if selected else ("", {})
     scenario = f"{name}_scenario"
-    uses = ["Case", "Effect", "ScriptedModel", "UserSpeech"] if names else None
+    uses = ["Case", "Effect", "ScriptedModel", "UserSpeech"] if selected else None
     lines = [
         f'"""A first Earful test of {name}, written by `earful init`. Edit what is marked."""',
         "",
         f"from earful.pipecat import {', '.join(uses or ['Case', 'ScriptedModel', 'UserSpeech'])}",
     ]
-    if names:
-        lines += ["from earful.pipecat import tool_failed, tool_succeeded"]
+    if selected:
+        lines += ["from earful.pipecat import tool_failed, tool_succeeded, user_said"]
     lines += ["", f"from {module} import {name}", ""]
-    if names:
+    if selected:
         block = model_lines(called, arguments, noun="function", owner="your bot")
         if functions[called] is None:
             at = next(n for n, line in enumerate(block) if line.startswith("CALL = "))
@@ -151,8 +159,7 @@ def scaffold(reference: str) -> Scaffold:
         lines += [
             "def bot(llm):",
             f"    # {name} is called with: {', '.join(p.name for p in needs)}.",
-            "    # None works while every function is an effect below. Give a stand-in for what",
-            "    # a function calls when you take that function out of `effects`.",
+            "    # Supply a stand-in for dependencies your test exercises.",
             f"    return {name}(llm, {given})",
             "",
             "",
@@ -163,8 +170,8 @@ def scaffold(reference: str) -> Scaffold:
         f"        name={literal(name)},",
         f"        bot={'bot' if needs else name},",
     ]
-    if names:
-        lines += effects_lines(names, noun="function", owner="the bot")
+    if selected:
+        lines += effects_lines(selected, noun="function", owner="the bot")
     lines += [
         "        # What the user says, in seconds from the start.",
         "        speeches=[",
@@ -174,10 +181,10 @@ def scaffold(reference: str) -> Scaffold:
         "    )",
         "",
         "",
-        *tests_lines(scenario, ["A2", "A3", "L1"] if names else ["L1"]),
+        *tests_lines(scenario, ["A2", "A3", "L1"] if selected else ["L1"]),
     ]
     source = "\n".join(lines) + "\n"
-    return Scaffold(f"test_{name}.py", source, tuple(names), None, noun="functions")
+    return Scaffold(f"test_{name}.py", source, tuple(names), noun="functions")
 
 
 __all__ = ["scaffold"]

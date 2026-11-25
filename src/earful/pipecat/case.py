@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import inspect
 from collections.abc import Callable
 from dataclasses import dataclass
+from typing import Any
 
 from pipecat.processors.aggregators.llm_context import LLMContext
 from pipecat.services.llm_service import LLMService
@@ -14,6 +16,20 @@ from ..scripted.case import (
 )
 from ..scripted.case import Case as ScriptedCase
 from . import pipeline as pipelines
+
+
+def bot_context(
+    bot: Callable[..., Any], model: LLMService, *args: Any, **kwargs: Any
+) -> LLMContext:
+    result = bot(model, *args, **kwargs)
+    if inspect.iscoroutine(result):
+        result.close()
+        raise ValueError(
+            "bot must be synchronous and return an LLMContext; it returned a coroutine"
+        )
+    if not isinstance(result, LLMContext):
+        raise ValueError(f"bot must return an LLMContext, got {type(result).__name__}")  # noqa: TRY004
+    return result
 
 
 @dataclass

@@ -14,9 +14,15 @@ class Scaffold:
 
     filename: str
     source: str
-    tools: tuple[str, ...]  # its tools or functions, each declared an effect
-    unbuilt: str | None = None  # why it could not be built to read them
+    tools: tuple[str, ...]  # tools or functions visible during construction
     noun: str = "tools"  # what the framework calls them
+
+
+def select_writes(writes: tuple[str, ...], names: list[str]) -> list[str]:
+    missing = sorted(set(writes) - set(names))
+    if missing:
+        raise ValueError(f"unknown declared write(s) {missing}; visible tools: {names}")
+    return list(dict.fromkeys(writes))
 
 
 def snake(name: str) -> str:
@@ -110,7 +116,8 @@ def model_lines(
         '        say="Sorry, I could not do that.",',
         "    )",
         '    .when(tool_failed(), say="One moment, let me try that again.", call=CALL)',
-        '    .otherwise(say="One moment.", call=CALL)',
+        '    .when(user_said("Please help me with this."), say="One moment.", call=CALL)',
+        '    .otherwise(say="How can I help?")',
         ")",
     ]
 
@@ -135,7 +142,7 @@ def effects_lines(names: list[str], *, noun: str = "tool", owner: str = "the age
     """The ``effects=`` of a first test: each tool or function is one durable write."""
     return [
         f"        # Each {noun} here is one durable write: in a run its body does not run.",
-        f"        # Delete the line of a {noun} that only reads, and hand {owner} a stand-in.",
+        "        # These writes were named with --write when the test was generated.",
         "        # No write has an idempotency key, so the call the model makes again after a",
         f"        # timeout writes twice, and the search fails on A2. If the {noun} sends a key",
         "        # its service honours, declare both: Effect(..., key=...) here, and",

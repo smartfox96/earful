@@ -723,6 +723,8 @@ registers the bot's functions on its model service and returns its `LLMContext`.
 | Option | Meaning |
 | --- | --- |
 | `-o`, `--output FILE` | Write there. The default is `test_<agent>.py`, or `test_<function>.py` for a bot |
+| `--write` | Name a durable write for the generated scenario. Repeat for additional writes. |
+| `--scripted-turns` | Optional for LiveKit. Writes the choice of silence-based turn detection into the case. |
 
 ### `earful check`
 
