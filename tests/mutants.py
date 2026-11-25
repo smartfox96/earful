@@ -46,6 +46,20 @@ MUTANTS = [
         first="alternative_realtime_wiring",
     ),
     Mutant(
+        "M1: a handoff hides the reason for missing playout context",
+        "src/earful/core/checker/m1.py",
+        "a handoff intervened since playout",
+        "playout was lost",
+        first="a_fresh_handoff_still_checks_later_turns",
+    ),
+    Mutant(
+        "M2: a new agent context is silently treated as complete",
+        "src/earful/core/checker/m2.py",
+        "elif fresh:",
+        "elif False:",
+        first="a_fresh_handoff_still_checks_later_turns",
+    ),
+    Mutant(
         "L1: a negative per-tool wait is accepted",
         "src/earful/core/checker/policy.py",
         "type(wait) is int and wait >= 0",
@@ -53,11 +67,25 @@ MUTANTS = [
         first="rejects_an_invalid_per_tool_wait",
     ),
     Mutant(
+        "handoff: identical words always belong to the previous user turn",
+        "src/earful/core/checker/memory.py",
+        "return old == current",
+        "return True",
+        first="identical_new_turn_after_a_handoff",
+    ),
+    Mutant(
         "L1: a declared tool wait is ignored",
         "src/earful/core/checker/l1.py",
         " + latency + wait",
         " + latency",
         first="only_the_called_tools_wait",
+    ),
+    Mutant(
+        "handoff: the old context owns every subsequent turn",
+        "src/earful/core/checker/memory.py",
+        "if len(suffix.stray) < len(best.stray):",
+        "if False:",
+        first="a_fresh_handoff_still_checks_later_turns",
     ),
     Mutant(
         "report: the choice of scripted turn detection is hidden",
@@ -939,8 +967,8 @@ MUTANTS = [
     Mutant(
         "checker: M2 writes to the ledger it reads",
         "src/earful/core/checker/m2.py",
-        "        turns = user_turns(items, delivered)\n",
-        '        turns = user_turns(items, delivered)\n        event["data"]["x"] = 1\n',
+        "        turns, delivered, fresh = context_turns(view, event, items)\n",
+        '        turns, delivered, fresh = context_turns(view, event, items)\n        event["data"]["x"] = 1\n',
         first="never_changes_the_ledger",
     ),
     Mutant(
@@ -1230,9 +1258,9 @@ MUTANTS = [
     ),
     Mutant(
         "L1: a model call requested as a transcript arrives, before it, sees the turn",
-        "src/earful/core/checker/l1.py",
-        'call.items, [s for s in view.delivered if s.delivery["seq"] < call.request["seq"]]\n',
-        'call.items, [s for s in view.delivered if s.delivery["t_us"] <= call.request["t_us"]]\n',
+        "src/earful/core/checker/memory.py",
+        's.delivery["seq"] < event["seq"]',
+        's.delivery["t_us"] <= event["t_us"]',
         first="transcript_delivered_as_a_model_call",
     ),
     # The edges of M2, rules a to e.
@@ -1246,8 +1274,8 @@ MUTANTS = [
     Mutant(
         "M2: a transcript delivered as a context is requested, after it, is in it",
         "src/earful/core/checker/m2.py",
-        '        delivered = [s for s in view.delivered if s.delivery["seq"] < event["seq"]]\n',
-        '        delivered = [s for s in view.delivered if s.delivery["t_us"] <= event["t_us"]]\n',
+        "turns, delivered, fresh = context_turns(view, event, items)",
+        'turns, delivered, fresh = context_turns(view, dict(event, seq=event["seq"] + 2), items)',
         first="transcript_delivered_as_a_model_call",
     ),
     Mutant(

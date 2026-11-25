@@ -6,7 +6,7 @@ import json
 from dataclasses import dataclass, field
 
 from . import policy as policies
-from .memory import Alignment, Item, UserTurns, align, user_turns
+from .memory import Alignment, Item, UserTurns, align, context_turns
 from .report import ContractResult, Finding, result, verdict
 from .view import Event, Speech, Spoken, ToolInvocation, View
 
@@ -55,7 +55,11 @@ def _no_loss(view: View, policy: policies.M2, context: _Context) -> None:
     """Rule b: a delivered transcript is not lost once the user's turn can be over."""
     event = context.event
     for speech in context.delivered:
-        if speech.index in context.present or speech.backchannel:
+        if (
+            speech.index in context.present
+            or speech.index in context.turns.ambiguous
+            or speech.backchannel
+        ):
             continue
         context.used.append(speech.delivery)
         late = event["t_us"] - view.turn_over_us(speech)
@@ -360,9 +364,26 @@ def _as_asked(view: View, context: _Context) -> None:
 def check(view: View, policy: policies.M2) -> ContractResult:
     contexts = []
     for label, event, items in view.contexts:
-        delivered = [s for s in view.delivered if s.delivery["seq"] < event["seq"]]
-        turns = user_turns(items, delivered)
-        contexts.append(_Context(label, event, items, delivered, turns, used=[event]))
+        turns, delivered, fresh = context_turns(view, event, items)
+        context = _Context(label, event, items, delivered, turns, used=[event])
+        if turns.ambiguous:
+            context.unknown.append(
+                (
+                    "handoff-context",
+                    "identical words across a handoff lack a message ID to distinguish the turns",
+                )
+            )
+        elif fresh:
+            context.unknown.append(
+                (
+                    "handoff-context",
+                    (
+                        "the receiving agent supplied its own "
+                        "context; earlier conversation cannot be attributed"
+                    ),
+                )
+            )
+        contexts.append(context)
     by_request = {c.event["seq"]: c for c in contexts}
 
     verdicts = []

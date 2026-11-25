@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import livekit.agents as lk
-from invariants import HISTORY
 
 from earful.livekit import Case, ScriptedModel, UserSpeech, tool_returned
 from shapes.corpus import judged, raises
@@ -39,4 +38,3 @@ if CLOSE_RECURSES:
 else:
     # The closed session is held to the reply the tool's result would have had.
     DEFECT = judged(M2="rule d", L1="milestone 2, milestone 3")
-    DEFECT_VARIED = {HISTORY: judged(M2="rule b, rule d", L1="milestone 2, milestone 3")}

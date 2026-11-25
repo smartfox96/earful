@@ -4,7 +4,6 @@ way through its reply."""
 from __future__ import annotations
 
 import livekit.agents as lk
-from invariants import HISTORY
 
 from earful.livekit import Case, ScriptedModel, UserSpeech, user_said
 from shapes.corpus import judged
@@ -27,6 +26,3 @@ def case() -> Case:
 
 SHOULD = judged(M1="pass", M2="pass")
 DEFECT = judged(M1="unobservable", M2="rule c")  # the cut is by character, and words are compared
-DEFECT_VARIED = {
-    HISTORY: judged(M1="unobservable", M2="rule a, rule b, rule c"),
-}

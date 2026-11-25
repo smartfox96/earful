@@ -6,7 +6,6 @@ from __future__ import annotations
 import asyncio
 
 import livekit.agents as lk
-from invariants import HISTORY
 
 from earful.livekit import Case, Intent, ScriptedModel, UserSpeech, effect, tool_returned
 from shapes.corpus import judged
@@ -48,6 +47,3 @@ def case() -> Case:
 SHOULD = judged(A2="unobservable")
 # The run ends between the two writes, and A2 passes.
 DEFECT = judged()
-DEFECT_VARIED = {
-    HISTORY: judged(M2="rule b"),
-}

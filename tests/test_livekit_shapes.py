@@ -97,3 +97,43 @@ def test_every_shape_is_declared_whole():
 def test_every_variation_applies_or_says_why_not():
     assert [variation.name for variation in VARIATIONS] == list(invariants.NAMES)
     assert all(variation.vary or variation.why for variation in VARIATIONS)
+
+
+def test_a_fresh_handoff_still_checks_later_turns():
+    from shapes.livekit.hands_off_to_a_fresh_agent import case
+
+    from earful.core.checker import check
+
+    report = check(run_case(case()).events)
+    assert report.outcome("L1") == "pass"
+    assert report.lost() == ["M1/handoff-context", "M2/handoff-context"]
+    assert report.broken() == []
+    messages = "\n".join(report.lines())
+    assert "a handoff intervened since playout" in messages
+    assert "earlier conversation cannot be attributed" in messages
+
+
+def test_an_identical_new_turn_after_a_handoff_is_attributed_by_message_id():
+    from shapes.livekit.hands_off_to_a_fresh_agent import case
+
+    from earful.core.checker import check
+    from earful.livekit import Reply, ToolCall
+
+    scenario = case()
+    scenario.speeches[1] = dataclasses.replace(
+        scenario.speeches[1], transcript=scenario.speeches[0].transcript
+    )
+    replies = iter(
+        [Reply(tool_calls=(ToolCall("to_billing", "{}", "handoff"),)), Reply(text="Billing here.")]
+    )
+    scenario.policy = lambda items: next(replies)
+    events = run_case(scenario).events
+    assert check(events).outcome("L1") == "pass"
+    for event in events:
+        if event["kind"] in ("llm.request", "history.final"):
+            for item in event["data"]["items"]:
+                if item.get("role") == "user":
+                    item["id"] = None
+    report = check(events)
+    assert report.valid and "L1/handoff-context" in report.lost()
+    assert not any(v.contract == "L1" for v in report.failures)

@@ -4,7 +4,7 @@ the booking contracts judge cannot be observed."""
 from __future__ import annotations
 
 import livekit.agents as lk
-from invariants import HISTORY, TWO_PARTS
+from invariants import TWO_PARTS
 
 from earful.livekit import Case, Intent, ScriptedModel, UserSpeech, tool_succeeded, user_ever_said
 from shapes.corpus import judged
@@ -45,6 +45,5 @@ def case() -> Case:
 
 SHOULD = judged(A2="unobservable", A3="unobservable")
 DEFECT_VARIED = {
-    HISTORY: judged(A2="unobservable", A3="unobservable", M2="rule b"),
     TWO_PARTS: judged(A2="unobservable", A3="unobservable", M1="rule 2, rule 5"),
 }

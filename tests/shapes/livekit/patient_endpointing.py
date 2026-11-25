@@ -4,7 +4,7 @@ seconds of silence before it takes the turn."""
 from __future__ import annotations
 
 import livekit.agents as lk
-from invariants import HISTORY, LONGER
+from invariants import LONGER
 
 from earful.livekit import Case, ScriptedModel, UserSpeech
 from shapes.corpus import judged
@@ -30,7 +30,4 @@ def case() -> Case:
 SHOULD = judged()
 # The deadline is held to the endpointing the run started with.
 DEFECT = judged(L1="milestone 3")
-DEFECT_VARIED = {
-    HISTORY: judged(M1="rule 2", M2="rule b", L1="milestone 3"),
-}
 NOT_VARIED = {LONGER: "its L1 fail is the defect itself, so a slower run tells nothing"}

@@ -4,7 +4,7 @@ whole second turn."""
 from __future__ import annotations
 
 import livekit.agents as lk
-from invariants import HISTORY, TWO_PARTS
+from invariants import TWO_PARTS
 
 from earful.livekit import Case, ScriptedModel, UserSpeech, user_said
 from earful.livekit.cases import LONG_REPLY
@@ -29,6 +29,5 @@ def case() -> Case:
 SHOULD = judged(M2="rule b", L1="milestone 1", L2="not_exercised")
 DEFECT = judged(M2="rule b", L1="milestone 1", L2="pass")  # said to be silent while it spoke
 DEFECT_VARIED = {
-    HISTORY: judged(M1="rule 2", M2="rule b", L1="milestone 1", L2="pass"),
     TWO_PARTS: judged(M1="rule 2, rule 3, rule 5", M2="rule b", L1="milestone 1", L2="pass"),
 }

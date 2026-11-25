@@ -4,7 +4,6 @@ turn's context as an assistant message, as the livekit-agents docs show retrieva
 from __future__ import annotations
 
 import livekit.agents as lk
-from invariants import HISTORY
 from livekit.agents import llm
 
 from earful.livekit import Case, ScriptedModel, UserSpeech
@@ -33,4 +32,3 @@ def case() -> Case:
 
 SHOULD = judged(M1="pass", M2="pass", L1="pass")
 DEFECT = judged(M2="rule c")  # the added message is read as a reply nobody heard
-DEFECT_VARIED = {HISTORY: judged(M1="rule 2", M2="rule b, rule c")}

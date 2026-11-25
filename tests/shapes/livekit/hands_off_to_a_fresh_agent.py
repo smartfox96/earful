@@ -50,6 +50,5 @@ def case() -> Case:
 
 
 # The fresh context is the application's choice: no memory the framework lost.
-SHOULD = judged()
-# The turn the new agent answers is said to reach no model call.
-DEFECT = judged(M1="rule 2", M2="rule a, rule b", L1="milestone 1")
+SHOULD = judged(M1="pass", M2="pass", L1="pass")
+DEFECT = judged(M1="unobservable", M2="unobservable", L1="pass")

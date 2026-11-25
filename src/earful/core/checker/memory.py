@@ -7,7 +7,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
 
-from .view import Speech, Spoken
+from .view import Event, Speech, Spoken, View
 
 Item = dict[str, Any]
 Score = tuple[int, int, int]  # (stray words, -turns found, -transcripts found); least is best
@@ -24,6 +24,7 @@ class UserTurns:
     ended_at: dict[int, int] = field(default_factory=dict)  # speech index -> item of its last word
     # Turns no other reading could place elsewhere: none before them was read as absent.
     placed: set[int] = field(default_factory=set)
+    ambiguous: set[int] = field(default_factory=set)  # identical turns across a handoff
     stray: list[str] = field(default_factory=list)  # user words that match no delivered turn
 
 
@@ -89,6 +90,63 @@ def user_turns(items: list[Item], delivered: list[Speech]) -> UserTurns:
             found.placed.add(speech.index)
     found.stray = texts[at:]
     return found
+
+
+def _retained_user_message(
+    view: View, boundary: Event, seen: UserTurns, items: list[Item], earlier: list[Speech]
+) -> bool | None:
+    """Whether a message matched as a pre-handoff turn carries its earlier witnessed ID."""
+    for speech in earlier:
+        current = items[seen.began_at[speech.index]].get("id")
+        if not current:
+            continue
+        for call in reversed(list(view.calls.values())):
+            seq = call.request["seq"]
+            if not speech.delivery["seq"] < seq < boundary["seq"]:
+                continue
+            preceding = [s for s in view.delivered if s.delivery["seq"] < seq]
+            turns = user_turns(call.items, preceding)
+            if speech.index not in turns.placed:
+                continue
+            old = call.items[turns.began_at[speech.index]].get("id")
+            if old:
+                return old == current
+    return None
+
+
+def context_turns(
+    view: View, event: Event, items: list[Item]
+) -> tuple[UserTurns, list[Speech], bool]:
+    """A new agent can start its own context. Only change the attribution when a
+    post-handoff transcript actually explains user words the full history cannot."""
+    delivered = [s for s in view.delivered if s.delivery["seq"] < event["seq"]]
+    original = user_turns(items, delivered)
+    if not view.handoffs or (not original.stray and len(original.present) == len(delivered)):
+        return original, delivered, False
+    best, kept = original, delivered
+    for boundary in view.handoffs:
+        if boundary["seq"] >= event["seq"]:
+            break
+        later = [s for s in delivered if s.delivery["seq"] > boundary["seq"]]
+        suffix = user_turns(items, later)
+        if not suffix.present or len(suffix.stray) > len(best.stray):
+            continue
+        if len(suffix.stray) < len(best.stray):
+            best, kept = suffix, later
+            continue
+        # Equal words can belong to two speakers' turns even when the new agent
+        # answered. A repeated transcript alone cannot identify its message.
+        old_turns = [s for s in best.present if s.delivery["seq"] < boundary["seq"]]
+        alternatives = {s.index for s in suffix.present} ^ {s.index for s in best.present}
+        if not old_turns or not alternatives:
+            continue
+        retained = _retained_user_message(view, boundary, best, items, old_turns)
+        if retained is False:
+            best, kept = suffix, later
+        elif retained is None:
+            best.ambiguous.update(alternatives)
+            best.placed.difference_update(alternatives)
+    return best, kept, best is not original
 
 
 @dataclass

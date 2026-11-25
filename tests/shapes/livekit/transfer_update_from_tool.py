@@ -6,7 +6,7 @@ from __future__ import annotations
 from typing import Any
 
 import livekit.agents as lk
-from invariants import HISTORY, TWO_PARTS
+from invariants import TWO_PARTS
 
 from earful.livekit import Case, Reply, ToolCall, UserSpeech
 from shapes.corpus import judged
@@ -46,6 +46,5 @@ SHOULD = judged()
 # The update is read as a reply that does not show the tool's result.
 DEFECT = judged(M2="rule d")
 DEFECT_VARIED = {
-    HISTORY: judged(M2="rule b, rule d"),
     TWO_PARTS: judged(M1="rule 2, rule 5", M2="rule d"),
 }

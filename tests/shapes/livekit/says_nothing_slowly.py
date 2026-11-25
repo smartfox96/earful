@@ -4,7 +4,6 @@ user's question is never answered."""
 from __future__ import annotations
 
 import livekit.agents as lk
-from invariants import HISTORY
 
 from earful.livekit import Case, Delay, Reply, ScriptedModel, UserSpeech
 from shapes.corpus import judged
@@ -22,6 +21,3 @@ def case() -> Case:
 
 SHOULD = judged(L1="fail")
 DEFECT = judged(L1="not_exercised")  # the deadline falls after the run ends
-DEFECT_VARIED = {
-    HISTORY: judged(M2="rule b"),
-}

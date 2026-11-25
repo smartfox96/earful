@@ -209,6 +209,8 @@ The report draws one run. Its framework lane explains the run and decides no ver
 The page is tested in Chromium only
 ([`report.md`](report.md#what-the-report-does-not-claim)).
 
+A witnessed handoff may switch to a fresh agent context. M1 and M2 report `handoff-context` where ownership of earlier conversation is unknown. L1 still checks later turns.
+
 ## Known defects of Earful
 
 Earful reports a wrong result in the situations below. Each one is in the repository as a
@@ -225,8 +227,6 @@ Earful is right. A test holds this list to them.
 | [An agent that awaits an `AgentTask` in `on_enter`](../tests/shapes/livekit/consent_task_on_enter.py) | The run does not end | The run ends and none fails |
 | [A tool that speaks a fixed line with `session.say`, sharing a word with a reply the user talked over before it played](../tests/shapes/livekit/filler_after_discarded_reply.py) | L1 and M1 are unobservable | L1 and M1 pass |
 | [A tool that starts a filler line with `session.say` and returns without waiting for it](../tests/shapes/livekit/filler_from_tool.py) | M1 is unobservable and M2 fails rule c | None fails |
-| [A handoff to an agent built with a context of its own](../tests/shapes/livekit/hands_off_to_a_fresh_agent.py) | L1 fails milestone 1, M1 rule 2, M2 rules a and b | None fails |
-| [A handoff from a tool, after a few words, to an agent that greets the caller](../tests/shapes/livekit/hands_off_to_billing.py) | M1 fails rule 2 | M1 passes |
 | [A tool that moves the call to another agent with `session.update_agent`](../tests/shapes/livekit/hands_off_with_update_agent.py) | M1 fails rule 2 and M2 rule d | None fails |
 | [A tool that awaits `session.aclose()`](../tests/shapes/livekit/hangs_up_with_aclose.py) | From livekit-agents 1.6 the run raises `RecursionError`. On 1.5 M2 fails rule d and L1 milestones 2 and 3 | None fails |
 | [A reply in a language written without spaces, interrupted part way](../tests/shapes/livekit/menu_in_chinese_interrupted.py) | M1 is unobservable and M2 fails rule c | M1 and M2 pass |
@@ -241,6 +241,8 @@ Earful is right. A test holds this list to them.
 | [A scripted model with a rule for none of five user turns](../tests/shapes/livekit/runs_out_of_script.py) | The run does not end | The run is invalid within seconds and names `NoRule` |
 | [A model that takes four seconds over each call and then says nothing](../tests/shapes/livekit/says_nothing_slowly.py) | L1 has nothing to judge | L1 fails |
 | [A tool that asks the session's model a side question with a context of its own](../tests/shapes/livekit/side_question_to_the_model.py) | M2 fails rule a | M2 passes |
+| [A front desk that passes its context to billing](../tests/shapes/livekit/hands_off_to_billing.py) | M1 reports `handoff-context` | M1 passes when the receiving agent retains the shared context |
+| [A handoff to a fresh billing agent](../tests/shapes/livekit/hands_off_to_a_fresh_agent.py) | M1 and M2 report `handoff-context` | Both pass when the independent context is identified |
 | [A tool that awaits an `AgentTask`](../tests/shapes/livekit/sign_up_task_in_tool.py) | The run is invalid: a tool runs without a witness | None fails |
 | [A voice activity detector that needs 0.35 s of speech before it reports any](../tests/shapes/livekit/slow_voice_detection.py) | L2 fails rule a | L2 passes |
 | [A user who takes a question back before the answer plays, after which the agent rightly says nothing](../tests/shapes/livekit/takes_it_back.py) | L1 fails milestone 3 | L1 passes |
@@ -289,7 +291,6 @@ application under `tests/shapes/`. They change a verdict on LiveKit, and none on
 | --- | --- |
 | A second run on another thread reads the real clock | Two runs at once each give the ledger of a run alone |
 | An infinite timeout overflows the virtual clock | `asyncio.wait_for` and `call_later` take an infinite timeout as a real loop does |
-| A starting history is taken out of the run by its words | A turn the final history holds twice is found, also behind an earlier turn of the same words |
 | A replay whose kept fault never applies is clean | The replay names the fault that did not apply and is not clean |
 | The scripted VAD reports a sound shorter than its start time | On Pipecat a sound shorter than the VAD's start time is no speech |
 | An enumeration is recorded by its type | A tool argument from an enumeration is recorded by its value |

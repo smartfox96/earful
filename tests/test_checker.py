@@ -9,7 +9,6 @@ import re
 from pathlib import Path
 
 import pytest
-from shapes.corpus import KnownDefect
 
 from earful.core.checker import (
     FAIL,
@@ -2560,11 +2559,6 @@ def test_the_history_an_agent_started_with_is_left_out_of_every_context():
     assert recorded.valid and recorded.outcomes() == check(events).outcomes()
 
 
-@pytest.mark.xfail(
-    strict=True,
-    raises=KnownDefect,
-    reason="Earful: a starting history is taken out of the run by its words",
-)
 def test_a_turn_the_final_history_holds_twice_is_found_behind_an_earlier_turn_of_its_words():
     events = load("1.8.13", "book_then_interrupt")
     final = of(events, "history.final")["data"]["items"]
@@ -2577,8 +2571,7 @@ def test_a_turn_the_final_history_holds_twice_is_found_behind_an_earlier_turn_of
         if e["kind"] == "llm.request":  # the model is shown it, the final history is not
             items = e["data"]["items"]
             items.insert(next(n for n, i in enumerate(items) if i.get("role") != "system"), earlier)
-    if rules(check(seal(events)), "M2") != ["rule a", "rule b"]:
-        raise KnownDefect("the turn held twice passes")
+    assert rules(check(seal(events)), "M2") == ["rule a", "rule b"]
 
 
 def test_each_item_of_the_starting_history_takes_out_the_first_like_it_in_order():

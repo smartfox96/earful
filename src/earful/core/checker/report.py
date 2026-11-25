@@ -38,6 +38,7 @@ CODES: dict[str, str] = {
     "readings-over-cap": LOST,
     "word-start-unknown": LOST,
     "memory-unaligned": LOST,
+    "handoff-context": LOST,
     "history-before-playout": LOST,
     "no-stable-text": LOST,
     "tool-unwitnessed": LOST,

@@ -4,7 +4,7 @@ eight seconds later, and which tries again with no idempotency key."""
 from __future__ import annotations
 
 import livekit.agents as lk
-from invariants import HISTORY, TWO_PARTS
+from invariants import TWO_PARTS
 
 from earful.livekit import (
     Case,
@@ -54,6 +54,5 @@ SHOULD = judged(A2="rule")
 # The first write is cancelled at the end of the run, and one booking is seen.
 DEFECT = judged()
 DEFECT_VARIED = {
-    HISTORY: judged(M2="rule b"),
     TWO_PARTS: judged(M1="rule 2, rule 5"),
 }
