@@ -81,6 +81,13 @@ MUTANTS = [
         first="rejects_an_invalid_per_tool_wait",
     ),
     Mutant(
+        "pipecat: an external summary on a frame is ignored",
+        "src/earful/pipecat/worker.py",
+        "params, frame.config",
+        "params, None",
+        first="manual_summary_with_its_own_model",
+    ),
+    Mutant(
         "init: a coroutine is diagnosed as a missing context",
         "src/earful/pipecat/case.py",
         "if inspect.iscoroutine(result):",
@@ -135,6 +142,27 @@ MUTANTS = [
         "return list(dict.fromkeys(writes))",
         "return list(names)",
         first="default_scaffold_exercises",
+    ),
+    Mutant(
+        "pipecat: a catch-all effect silently does nothing",
+        "src/earful/pipecat/harness.py",
+        'if "*" in case.effects:',
+        "if False:",
+        first="catch_all_effect_is_refused",
+    ),
+    Mutant(
+        "pipecat: a placeholder takes precedence over the advertised handler",
+        "src/earful/pipecat/providers.py",
+        "and handler != self._explicit[tool.name]",
+        "and False",
+        first="another_handler_is_refused",
+    ),
+    Mutant(
+        "pipecat: manual summaries invoke the foreign model",
+        "src/earful/pipecat/seams.py",
+        'return getattr(summary, "llm", None) is not None',
+        "return False",
+        first="manual_summary_with_its_own_model",
     ),
     Mutant(
         "report: the choice of scripted turn detection is hidden",

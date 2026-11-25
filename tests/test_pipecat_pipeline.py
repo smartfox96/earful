@@ -472,3 +472,69 @@ def test_a_case_with_its_own_pipeline_is_searched_and_built_again_from_its_data(
     assert pc.run(menu_with_a_listener, data=data).hash == pc.run(menu_with_a_listener()).hash
     kept = menu_with_a_listener()
     assert pc.run(kept).hash == pc.run(kept).hash  # the pipeline is built for each run
+
+
+@pytest.mark.parametrize("on_frame", [True, False])
+def test_a_manual_summary_with_its_own_model_is_refused_before_inference(on_frame):
+    from pipecat.frames.frames import LLMSummarizeContextFrame
+    from pipecat.services.llm_service import LLMService
+    from pipecat.utils.context.llm_context_summarization import (
+        LLMAutoContextSummarizationConfig,
+        LLMContextSummaryConfig,
+    )
+
+    invoked = []
+
+    class ForeignModel(LLMService):
+        async def run_inference(self, *args, **kwargs):
+            invoked.append(True)
+            return "unreachable"
+
+    class Request(FrameProcessor):
+        async def process_frame(self, frame, direction):
+            await super().process_frame(frame, direction)
+            await self.push_frame(frame, direction)
+            if isinstance(frame, StartFrame):
+                await self.push_frame(
+                    LLMSummarizeContextFrame(config=foreign if on_frame else None)
+                )
+
+    foreign = LLMContextSummaryConfig(llm=ForeignModel())
+    assistant = LLMAssistantAggregatorParams(
+        auto_context_summarization_config=LLMAutoContextSummarizationConfig(
+            summary_config=LLMContextSummaryConfig() if on_frame else foreign
+        )
+    )
+    pipeline = around(after_output=[Request], assistant=assistant)
+    with pytest.raises(ValueError, match="LLMSummarizeContextFrame uses its own summary model"):
+        pc.run(menu(pipeline=pipeline))
+    assert not invoked
+
+
+def test_a_function_advertised_with_another_handler_is_refused_before_either_runs():
+    from pipecat.adapters.llm.schemas.function_schema import FunctionSchema
+    from pipecat.adapters.llm.schemas.tools_schema import ToolsSchema
+
+    invoked = []
+
+    async def placeholder(params):
+        invoked.append("placeholder")
+
+    async def real(params):
+        invoked.append("real")
+
+    def bot(llm):
+        llm.register_function("book", placeholder)
+        tool = FunctionSchema(
+            name="book", description="Book", properties={}, required=[], handler=real
+        )
+        return LLMContext(tools=ToolsSchema(standard_tools=[tool]))
+
+    with pytest.raises(ValueError, match="different handler"):
+        pc.run(replace(menu(), bot=bot, policy=pc.ScriptedModel().otherwise(call="book")))
+    assert not invoked
+
+
+def test_a_catch_all_effect_is_refused_before_the_bot_runs():
+    with pytest.raises(ValueError, match="catch-all effect"):
+        pc.run(replace(menu(), effects={"*": pc.Effect("anything")}))

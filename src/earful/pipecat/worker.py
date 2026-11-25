@@ -13,6 +13,7 @@ from pipecat.frames.frames import (
     ErrorFrame,
     Frame,
     InterruptionFrame,
+    LLMSummarizeContextFrame,
     UserStartedSpeakingFrame,
     UserStoppedSpeakingFrame,
 )
@@ -135,6 +136,21 @@ def _built(case: Case, s: _Scripted) -> tuple[LLMContext, pipelines.Plan, dict[s
     timeouts = (case.user_speech_timeout, case.user_turn_stop_timeout)
     build = case.pipeline or pipelines.standard(*timeouts)
     plan = pipelines.inspect(build(ends), ends, *timeouts, own=case.pipeline is not None)
+    # Manual summary frames reach this aggregator even when automatic summaries are off.
+    params = seams.aggregator_params(plan.assistant)
+    process = plan.assistant.process_frame
+
+    async def guard_summary(frame: Frame, direction: FrameDirection) -> None:
+        if isinstance(frame, LLMSummarizeContextFrame) and seams.external_summary_model(
+            params, frame.config
+        ):
+            witness.refusal = (
+                "LLMSummarizeContextFrame uses its own summary model, which Earful cannot script"
+            )
+            return
+        await process(frame, direction)
+
+    plan.assistant.process_frame = guard_summary  # type: ignore[method-assign]
     seams.check_service(model)
     model.witness_tools(context.tools)
     header = _header(case, witness.names, plan.options)

@@ -275,11 +275,16 @@ The greeting is a reply like any other. It is model call 1, made before the user
 said anything, so the scripted model's `otherwise` gives it. M1 holds it to what played,
 and a user who speaks over it is an interruption L2 judges.
 
+A manual `LLMSummarizeContextFrame` using a dedicated model is refused before inference.
+Catch-all handlers can be witnessed, but a durable effect must name the actual function.
+
 Three things a bot can do that do not fit a scenario:
 
 - **Pipecat Flows.** A flow manager is built around the pipeline's task, which is
   Earful's, and moves the conversation between nodes outside the model service. Test
-  the functions and the prompts of one node as a bot of its own.
+  a node handler as a standalone bot if that is the scope of the test. Registering a
+  placeholder in `bot()` can shadow the real flow handler. Earful refuses conflicting
+  handlers and functions first registered after setup.
 - **A handler that holds the worker or the transport**, such as one that queues frames
   on the task or reads the client's state. Neither is the application's in a run, so a
   scenario cannot hand it to such code.

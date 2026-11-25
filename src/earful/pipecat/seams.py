@@ -35,11 +35,21 @@ def speech_timeout(obj: object) -> Any:
     return _setting(obj, "_user_speech_timeout")
 
 
+def schema_handlers(tools: Any) -> list[Any]:
+    return [tool for tool in getattr(tools, "standard_tools", ()) if getattr(tool, "handler", None)]
+
+
+def external_summary_model(params: object, override: object | None) -> bool:
+    config = getattr(params, "auto_context_summarization_config", None)
+    summary = override or getattr(config, "summary_config", None)
+    return getattr(summary, "llm", None) is not None
+
+
 def summaries_enabled(params: object) -> bool:
     return bool(getattr(params, "enable_auto_context_summarization", False))
 
 
-PRIVATE = ("_functions", "_cancel_tool_names", "_sync_registered_tool_handlers")
+PRIVATE = ("_functions", "_sync_registered_tool_handlers")
 
 
 def service_member(service: Any, name: str) -> Any:

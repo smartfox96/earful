@@ -844,7 +844,7 @@ def test_pipecat_a_scripted_call_no_registered_function_can_take_makes_the_run_i
     assert refused.value.reasons == [f"harness error: call 1: the scripted model called {why}"]
 
 
-def test_pipecat_a_function_registered_after_bot_returns_makes_the_run_invalid():
+def test_pipecat_a_function_registered_after_bot_returns_is_refused():
     """The header is written before the run, so it could not name the function."""
 
     def bot(llm):
@@ -866,7 +866,7 @@ def test_pipecat_a_function_registered_after_bot_returns_makes_the_run_invalid()
     )
     case = pc.Case("late", bot, [pc.UserSpeech(0.5, 1.5, "Look it up.")], model)
     late = r"the bot registered 'confirm' after bot\(\) returned, so the run's header does not list"
-    with pytest.raises(pc.InvalidRun, match=late):
+    with pytest.raises(ValueError, match=late):
         pc.run(case)
 
 

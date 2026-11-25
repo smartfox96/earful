@@ -12,6 +12,10 @@ from .ports import build
 
 
 def validate(case: Case, seed: int) -> None:
+    if "*" in case.effects:
+        raise ValueError(
+            "effects must name the function that writes; a catch-all effect '*' is ambiguous"
+        )
     if not callable(case.bot):
         raise ValueError(  # noqa: TRY004 - a case that is refused, as check_case refuses one
             "bot is a function that is handed the model service and returns the context; "
