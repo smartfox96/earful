@@ -46,6 +46,20 @@ MUTANTS = [
         first="alternative_realtime_wiring",
     ),
     Mutant(
+        "L1: a negative per-tool wait is accepted",
+        "src/earful/core/checker/policy.py",
+        "type(wait) is int and wait >= 0",
+        "type(wait) is int",
+        first="rejects_an_invalid_per_tool_wait",
+    ),
+    Mutant(
+        "L1: a declared tool wait is ignored",
+        "src/earful/core/checker/l1.py",
+        " + latency + wait",
+        " + latency",
+        first="only_the_called_tools_wait",
+    ),
+    Mutant(
         "report: the choice of scripted turn detection is hidden",
         "src/earful/core/checker/__init__.py",
         '    scope = session_scope(data) if isinstance(data, dict) else ""',
@@ -1042,8 +1056,8 @@ MUTANTS = [
     Mutant(
         "L1: the audio of a reply that asks for tools is not in the budget of what follows",
         "src/earful/core/checker/l1.py",
-        '    turn.elapsed += data["duration_us"] + audio + latency\n',
-        '    turn.elapsed += data["duration_us"] + latency\n',
+        " + audio + latency + wait",
+        " + latency + wait",
         first="deadline_adds_the_delays",
     ),
     Mutant(

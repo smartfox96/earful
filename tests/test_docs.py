@@ -141,12 +141,15 @@ def test_the_policy_defaults_are_those_the_contracts_page_states():
                 for name, value in re.findall(r"`(\w+)` \(default ([\d ]+)\)", row)
             },
             **dict(re.findall(r"`(\w+)`: `(\w+)` \(default\)", row)),
+            **{name: {} for name in re.findall(r"`(\w+)` \(default `\{\}`", row)},
         }
         for contract, row in rows.items()
     }
     assert stated == {
         contract: {
-            f.name: f.default for f in dataclasses.fields(cls) if not isinstance(f.default, tuple)
+            f.name: getattr(cls(), f.name)
+            for f in dataclasses.fields(cls)
+            if not isinstance(f.default, tuple)
         }
         for contract, cls in POLICIES.items()
     }

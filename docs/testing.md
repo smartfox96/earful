@@ -76,6 +76,11 @@ this test. Speech-to-speech sessions are unsupported.
 The remaining fields set the scripted voice, the VAD and the session's turn handling.
 The `Case` class lists them with their defaults.
 
+A tool that deliberately waits can declare its completion allowance in microseconds.
+For a three-second availability lookup, pass
+`contracts={"L1": {"tool_wait_us": {"look_up_availability": 3_000_000}}}` to `Case`.
+The allowance starts at the tool's finish check and applies only in a round that called it.
+
 ## 2. The model
 
 The model is scripted. A reply depends only on the context the framework shows the

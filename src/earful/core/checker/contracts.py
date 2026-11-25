@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 
 @dataclass(frozen=True)
@@ -38,6 +38,7 @@ class M2:
 class L1:
     slack_us: int = 1_000_000
     max_steps: int = 4
+    tool_wait_us: dict[str, int] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)

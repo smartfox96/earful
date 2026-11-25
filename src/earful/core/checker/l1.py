@@ -152,7 +152,8 @@ def _tool_round(
     )
     # The framework finishes speaking a reply before it takes the next step.
     audio = turn.ttfb_of(asking) + view.audio_us(asking) if asking.words else 0
-    turn.elapsed += data["duration_us"] + audio + latency
+    wait = max((turn.policy.tool_wait_us.get(t.name, 0) for t in ran), default=0)
+    turn.elapsed += data["duration_us"] + audio + latency + wait
     outcomes = [t.outcome for t in ran if t.outcome is not None]
     done = len(outcomes) == len(ran) and all(o["kind"] != "tool.cancelled" for o in outcomes)
     finished = max([o["t_us"] for o in outcomes] + [asked for _ in refused]) if done else None

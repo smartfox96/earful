@@ -34,7 +34,12 @@ def parse(contract: str, declared: dict[str, Any] | None) -> Any:
     values: dict[str, Any] = {}
     for name, value in declared.items():
         default = known[name].default
-        if isinstance(default, bool):
+        if (contract, name) == ("L1", "tool_wait_us"):
+            ok = isinstance(value, dict) and all(
+                isinstance(tool, str) and tool and type(wait) is int and wait >= 0
+                for tool, wait in value.items()
+            )
+        elif isinstance(default, bool):
             ok = isinstance(value, bool)
         elif isinstance(default, int):
             ok = isinstance(value, int) and not isinstance(value, bool) and value >= 0

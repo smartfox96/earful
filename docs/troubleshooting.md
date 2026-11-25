@@ -108,7 +108,7 @@ earful: unknown backend mode 'idempotent'; choose from ['plain', 'keyed']
 ```
 
 ```text
-earful: L1: unknown policy values ['slack']; it defines ['max_steps', 'slack_us']
+earful: L1: unknown policy values ['slack']; it defines ['max_steps', 'slack_us', 'tool_wait_us']
 ```
 
 Each names what is wrong and what is accepted. A search does not build such cases: a

@@ -134,8 +134,8 @@ What the contracts leave alone:
 - A2 does not judge too few effects.
 - M2 does not judge whether a reply is in the context at all, or the order of tool calls
   among themselves.
-- L1 does not put a tool's own running time on a turn's budget. A turn whose tool takes
-  long by design needs a larger `slack_us`.
+- L1 uses the time budget the scenario declares. A tool that waits by design can receive
+  an allowance in `L1.tool_wait_us`. The allowance applies only when that tool runs.
 - Across a handoff between agents, M2 does not judge what the agent handed over to is
   told of the handoff itself: the application builds that agent's context. The rest of
   the conversation is owed there as anywhere

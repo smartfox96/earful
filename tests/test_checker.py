@@ -2738,3 +2738,25 @@ def test_m2_a_tool_that_ran_without_a_call_id_is_lost_only_where_the_model_asked
     assert why == "create_reservation ran without a call id to link it to call 'call-1-1'"
     itself = check(_unlinked_and_dropped(copy.deepcopy(fixed), asked=False))
     assert "M2/tool-unwitnessed" not in itself.lost() and itself.outcome("M2") != UNOBSERVABLE
+
+
+@pytest.mark.parametrize(
+    "declared,extra", [({"create_reservation": 3_000_000}, 3_000_000), ({"other": 9_000_000}, 0)]
+)
+def test_l1_only_the_called_tools_wait_extends_the_finish_deadline(affected, declared, extra):
+    steps = _steps(_second_turn(_nothing_to_spare(affected, tool_wait_us=declared)))
+    assert [(name, due) for name, _, due in steps] == [
+        (SEEN, 6_500_000),
+        (MADE, 6_800_000),
+        (FINISHES, 11_977_647 + extra),
+        (FOLLOWS, 11_977_647 + extra),
+        (AUDIO, 6_817_647),
+    ]
+
+
+@pytest.mark.parametrize("bad", [{"t": True}, {"": 1}, {"t": -1}, {"t": 0.5}, []])
+def test_l1_rejects_an_invalid_per_tool_wait(bad):
+    from earful.core.checker.policy import PolicyError, parse
+
+    with pytest.raises(PolicyError, match="tool_wait_us"):
+        parse("L1", {"tool_wait_us": bad})
