@@ -50,6 +50,35 @@ def run_id(header: dict[str, Any]) -> str:
     return "run-" + hashlib.sha256(_canonical(header).encode("ascii")).hexdigest()[:16]
 
 
+def session_scope(header: dict[str, Any]) -> str:
+    """Framework support and the scripted session or pipeline that supplied the evidence."""
+    framework = header.get("framework")
+    scenario = header.get("scenario")
+    if not isinstance(framework, dict):
+        return ""
+    session = scenario.get("session") if isinstance(scenario, dict) else None
+    lines = []
+    if framework.get("name") == "pipecat-ai" and isinstance(session, dict):
+        options = session.get("extra_options")
+        custom = isinstance(options, dict) and "pipeline" in options
+        pipeline = "the case's pipeline factory" if custom else "Earful's standard pipeline"
+        lines.append(
+            f"Earful ran the case's bot with {pipeline}, scripted recognition, model "
+            "replies and voice. Application entry code was not run."
+        )
+    if (
+        framework.get("name") == "livekit-agents"
+        and isinstance(session, dict)
+        and "turn_detection" in session
+        and session["turn_detection"] is None
+    ):
+        lines.append(
+            "Earful built the session with scripted speech recognition, model replies, "
+            "speech synthesis and silence-based turn detection. Application entry code was not run."
+        )
+    return " ".join(lines)
+
+
 class Ledger:
     """Ordered list of events. ``seq`` is assigned on append and is the total order.
     ``append`` snapshots its data as JSON and raises ``TypeError`` for data JSON cannot hold."""

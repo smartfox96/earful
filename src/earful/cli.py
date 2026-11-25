@@ -328,6 +328,8 @@ def _replay(args: argparse.Namespace) -> int:
         "unverified": list(result.unverified),
         "invalid": list(result.invalid),
     }
+    if result.session_scope:
+        outcome["session_scope"] = result.session_scope
     if args.json:
         print(json.dumps(outcome, indent=2))
     else:
@@ -341,6 +343,8 @@ def _replay(args: argparse.Namespace) -> int:
         gave = ["not valid evidence" if one is None else one for one in result.outcomes]
         print(f"{kept.predicate}, kept on {made.get('name')} {made.get('version')}")
         print(f"replayed {args.repeats} times on {on.get('name')} {on.get('version')}")
+        if result.session_scope:
+            print(result.session_scope)
         if kept.predicate.lost:
             print(f"  loses the evidence    {breaks}")
         else:
@@ -486,6 +490,8 @@ def _init(args: argparse.Namespace) -> int:
             'pip install "earful[livekit]"'
         ) from exc
 
+    if bot and args.scripted_turns:
+        raise Refused("--scripted-turns applies to LiveKit agent classes")
     made = scaffold(args.agent)
     target: Path = args.output or Path(made.filename)
     if target.exists():
@@ -558,6 +564,11 @@ def _parser() -> argparse.ArgumentParser:
         "agent",
         metavar="AGENT",
         help="module:Class for a LiveKit agent or module:function for a Pipecat bot",
+    )
+    sub.add_argument(
+        "--scripted-turns",
+        action="store_true",
+        help="test a LiveKit agent with scripted providers and silence-based turn detection",
     )
     sub.add_argument(
         "-o", "--output", type=Path, metavar="FILE", help="write here, not test_<agent>.py"

@@ -331,6 +331,8 @@ class Exploration:
                 f"{counts['ran']} judged, {len(decision.broken)} contract rule(s) broken"
             )
         ]
+        if self.original.session_scope:
+            lines.append(self.original.session_scope)
         made = self.runner.by_purpose
         purposes = [f"{made[p]} {why}" for p, why in _PURPOSES.items() if made.get(p)]
         lines.append(f"    {self.runs} run(s): {', '.join(purposes)}")
@@ -428,6 +430,11 @@ class Exploration:
             counts[tried.outcome.why_not or "ran"] += 1
         return {
             "candidates": len(self.tried),
+            **(
+                {"session_scope": self.original.session_scope}
+                if self.original.session_scope
+                else {}
+            ),
             **counts,
             "impossible_placements": len(self.impossible),
             "runs": self.runs,

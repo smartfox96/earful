@@ -57,6 +57,10 @@ def test_a_booking_is_made_once_and_confirmed_truthfully():
 A `Case` holds everything that defines a run. The same case and seed give the same
 ledger.
 
+Earful builds the LiveKit session with separate scripted providers and lets silence
+end a turn. Each result states which services and turn detection Earful used. If your application uses a turn-taking model, its decisions are outside
+this test. Speech-to-speech sessions are unsupported.
+
 | Field | What it is |
 | --- | --- |
 | `name` | Names the case in the ledger and in messages |

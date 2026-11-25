@@ -267,10 +267,11 @@ def test_a_cross_check_says_how_many_runs_agree_and_how_each_differs():
     checked = cross_check(VIRTUAL, [as_real(VIRTUAL), as_real(VIRTUAL, change=cut(3))])
     assert not checked.agrees and not checked.unusable
     assert [c.agrees for c in checked.comparisons] == [True, False]
-    assert checked.lines()[:5] == [
+    assert checked.lines()[:6] == [
         "book_then_interrupt on livekit-agents 1.5.6",
         "on the virtual clock it breaks A2/rule, M2/rule d",
         "1 of 2 real-clock runs agree with the virtual run, within 100 ms and 1 word(s)",
+        checked.to_json()["session_scope"],
         "run 1: agrees; breaks A2/rule, M2/rule d; largest drift 0.0 ms",
         "run 2: differs; breaks A2/rule, M2/rule d; largest drift 0.0 ms",
     ]

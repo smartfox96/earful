@@ -21,6 +21,7 @@ from ..scripted.scaffold import (
     snake,
     tests_lines,
 )
+from .application import check_session, realtime_provider_refusal
 
 _REFERENCE = re.compile(r"^[A-Za-z_][A-Za-z0-9_.]*:[A-Za-z_][A-Za-z0-9_]*$")
 _TOOLS = (lk_llm.FunctionTool, lk_llm.RawFunctionTool)
@@ -69,7 +70,8 @@ def _tools(agent: type[lk.Agent], needs: list[inspect.Parameter]) -> tuple[list[
     positional, named = _given(needs)
     unbuilt = None
     try:
-        found = build(*positional, **named).tools
+        instance = build(*positional, **named)
+        found = instance.tools
     except Exception as exc:
         if not needs:
             raise ValueError(
@@ -78,6 +80,9 @@ def _tools(agent: type[lk.Agent], needs: list[inspect.Parameter]) -> tuple[list[
             ) from exc
         unbuilt = f"{type(exc).__name__}: {exc}"
         found = lk_llm.find_function_tools(object.__new__(agent))  # the tools its class declares
+    else:
+        if reason := realtime_provider_refusal(instance.llm):
+            raise ValueError(f"{agent.__name__} sets its own llm: {reason}")
     tools = sorted((t for t in found if isinstance(t, _TOOLS)), key=lambda t: t.info.name)
     return tools, unbuilt
 
@@ -126,10 +131,11 @@ def _call(tools: list[Any]) -> tuple[str, dict[str, Any]]:
     raise refused[0]
 
 
-def scaffold(reference: str) -> Scaffold:
+def scaffold(reference: str, *, scripted_turns: bool = True) -> Scaffold:
     """The first test of the agent ``reference`` names, as ``module:Class``. Raises
     ``ValueError`` for a reference that does not name a class of agent."""
     module, name, agent = _resolve(reference)
+    check_session(agent, scripted_turns, declaration="earful init --scripted-turns")
     needs = _needs(agent)
     tools, unbuilt = _tools(agent, needs)
     names = [tool.info.name for tool in tools]
@@ -179,6 +185,7 @@ def scaffold(reference: str) -> Scaffold:
         "    return Case(",
         f"        name={literal(scenario)},",
         f"        agent={'build' if needs else name},",
+        "        scripted_turns=True,",
     ]
     if tools:
         lines += effects_lines(names)

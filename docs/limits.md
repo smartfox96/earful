@@ -32,6 +32,12 @@ a defect of the framework, of the application or of the test is decided by a per
   ([`contracts.md`](contracts.md#m1-played-vs-remembered)).
 - **Turns.** A turn ends on the scripted VAD's silence. A turn detector that is a model,
   and interruption detection that is a model, are outside.
+  LiveKit results identify this substitute. Earful can
+  recognize a realtime model assigned to a local variable or constructed in an
+  `AgentSession` that starts the selected agent in its module. This includes typed
+  sessions, positional starts, guarded starts and sessions returned by a local factory.
+  Setup in another module or selected dynamically can escape this check. The author
+  must verify that the application uses separate recognition, model and voice services.
 - **The backend.** A write can fail, time out for its caller or be lost. A provider that
   stalls and a caller that sends one write twice cannot be declared
   ([`search.md`](search.md#7-limits)).

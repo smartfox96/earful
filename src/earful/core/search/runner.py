@@ -31,6 +31,7 @@ class Outcome:
     invalid: tuple[str, ...] = ()  # the run is not valid evidence
     refused: str | None = None  # the adapter would not run the case
     error: str | None = None
+    session_scope: str = ""
 
     @property
     def ran(self) -> bool:
@@ -57,7 +58,12 @@ def judged(case: cases.Case, events: list[Event]) -> Outcome:
     """What the ledger of running ``case`` comes to. An invalid run has no failures."""
     report = check(events)
     if not report.valid:
-        return Outcome(case, invalid=report.invalid, hash=ledger_hash(events))
+        return Outcome(
+            case,
+            invalid=report.invalid,
+            hash=ledger_hash(events),
+            session_scope=report.session_scope,
+        )
     missing = {
         name: tuple(dict.fromkeys(f.code for v in r.verdicts for f in v.findings if f.code))
         for name, r in report.results.items()
@@ -68,6 +74,7 @@ def judged(case: cases.Case, events: list[Event]) -> Outcome:
         report.outcomes(),
         ledger_hash(events),
         missing=missing,
+        session_scope=report.session_scope,
     )
 
 

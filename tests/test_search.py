@@ -448,6 +448,7 @@ def test_a_search_requires_a_contract_of_the_case_as_given():
     assert ran < tried  # a case already run to read the boundaries is not run again
     assert head.splitlines() == [
         f"book_then_interrupt on livekit-agents 1.8.12: {summary}",
+        found.original.session_scope,
         f"    {read + ran} run(s): {read} to find where to put things, {ran} for the cases",
         "    by contract: pass, fail, nothing to judge, evidence lost",
         *(f"    {name}  {0:>5} {0:>5} {tried:>5} {0:>5}" for name in ("A1", "A2", "A3")),
@@ -575,7 +576,8 @@ def test_a_search_that_could_judge_nothing_it_tried_fails_and_says_why_with_an_e
         found.assert_contracts()
     head, said = str(caught.value).split("\n\n")
     tried = len(found.tried)
-    first, runs = head.splitlines()
+    first, scope, runs = head.splitlines()
+    assert scope == found.original.session_scope
     assert first.endswith(f": {tried} cases tried, 0 judged, 0 contract rule(s) broken")
     assert runs == f"    {tried + 2} run(s): 2 to find where to put things, {tried} for the cases"
     assert said.splitlines() == [
@@ -614,6 +616,7 @@ def test_a_search_that_tried_no_case_fails():
     head, said = str(caught.value).split("\n\n")
     assert head.endswith(
         ": 0 cases tried, 0 judged, 0 contract rule(s) broken\n"
+        f"{clean.original.session_scope}\n"
         "    1 run(s): 1 to find where to put things"
     )
     assert said == "no case was tried, which leaves the search with no result"

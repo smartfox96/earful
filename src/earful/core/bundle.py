@@ -262,6 +262,7 @@ class Replay:
 
     loss_judged: bool = False
     other_losses: tuple[str, ...] = ()
+    session_scope: str = ""
 
     @property
     def judged(self) -> bool:
@@ -312,6 +313,7 @@ def replay(
         recorded=bundle.manifest["minimal"]["hash"],
         framework=framework,
         scenario_changed=changed,
+        session_scope=outcomes[0].session_scope,
         invalid=invalid,
         clean=all(outcome == PASS for outcome in contract),
         unverified=bundle.unverified,

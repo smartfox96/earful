@@ -18,6 +18,62 @@ class Mutant:
 
 MUTANTS = [
     Mutant(
+        "livekit: a model assigned before session construction is missed",
+        "src/earful/livekit/application.py",
+        "return bindings.get(_name(node))",
+        "return None if isinstance(bindings.get(_name(node)), type) and bindings.get(_name(node)) is not agent else bindings.get(_name(node))",
+        first="alternative_realtime_wiring",
+    ),
+    Mutant(
+        "livekit: only keyword agent starts are inspected",
+        "src/earful/livekit/application.py",
+        "if selected is None and expr.args:",
+        "if False:",
+        first="alternative_realtime_wiring",
+    ),
+    Mutant(
+        "livekit: generic session constructors are skipped",
+        "src/earful/livekit/application.py",
+        "node.func.value if isinstance(node.func, ast.Subscript) else node.func",
+        "node.func",
+        first="alternative_realtime_wiring",
+    ),
+    Mutant(
+        "livekit: guarded starts are skipped",
+        "src/earful/livekit/application.py",
+        "normal = visit(stmt.body, bindings.copy())",
+        "normal = bindings.copy()",
+        first="alternative_realtime_wiring",
+    ),
+    Mutant(
+        "report: the choice of scripted turn detection is hidden",
+        "src/earful/core/checker/__init__.py",
+        '    scope = session_scope(data) if isinstance(data, dict) else ""',
+        '    scope = ""',
+        first="existing_cases_and_init_disclose",
+    ),
+    Mutant(
+        "livekit: a known realtime session is judged on separate scripted providers",
+        "src/earful/livekit/application.py",
+        "if model := realtime_session(agent):",
+        "if (model := realtime_session(agent)) and not scripted_turns:",
+        first="realtime_application_is_refused_by_name",
+    ),
+    Mutant(
+        "livekit: a case declining scripted turns is silently judged",
+        "src/earful/livekit/application.py",
+        "if scripted_turns is not True:",
+        "if False:",
+        first="declines_scripted_turns_is_refused",
+    ),
+    Mutant(
+        "livekit: existing scenarios require a new turn selection",
+        "src/earful/livekit/case.py",
+        "scripted_turns: bool = True",
+        "scripted_turns: bool = False",
+        first="existing_cases_and_init_disclose",
+    ),
+    Mutant(
         "kernel: drain ignores a participant with work pending",
         "src/earful/scripted/kernel/lifecycle.py",
         "return any(not party.quiet() for party in ports.parties)",
@@ -4615,8 +4671,8 @@ MUTANTS = [
     Mutant(
         "scaffold: an agent that needs arguments is not built to find its tools",
         "src/earful/livekit/scaffold.py",
-        "        found = build(*positional, **named).tools\n",
-        "        found = build().tools\n",
+        "        instance = build(*positional, **named)\n",
+        "        instance = build()\n",
         first="tools_handed_to_the_constructor_are_found",
     ),
     Mutant(
@@ -5392,7 +5448,7 @@ MUTANTS = [
     Mutant(
         "livekit options: an agent with a provider of its own is run",
         "src/earful/livekit/options.py",
-        "        if _sets(option, seams.agent_option(agent, option)):\n",
+        "        if _sets(option, value):\n",
         "        if False:\n",
         first="provider_of_its_own or agent_option_earful_does_not_model",
     ),

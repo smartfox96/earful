@@ -6,6 +6,7 @@ from collections.abc import Callable
 from importlib import import_module
 from typing import Any
 
+from ..ledger import session_scope
 from ..schema import validity
 from .contracts import DECLARED
 from .policy import PolicyError, parse_all
@@ -36,11 +37,19 @@ def check(events: list[dict[str, Any]]) -> Report:
     """
     reasons = validity(events)
     run = events[0].get("run") if events and isinstance(events[0], dict) else None
+    data = events[0].get("data") if events and isinstance(events[0], dict) else None
+    scope = session_scope(data) if isinstance(data, dict) else ""
     if reasons:
-        return Report(run=run, valid=False, invalid=tuple(reasons), results={})
+        return Report(run=run, valid=False, invalid=tuple(reasons), results={}, session_scope=scope)
     reading, possible, results = _judge(events)
     return Report(
-        run=run, valid=True, invalid=(), results=results, reading=reading, readings=possible
+        run=run,
+        valid=True,
+        invalid=(),
+        results=results,
+        reading=reading,
+        readings=possible,
+        session_scope=scope,
     )
 
 

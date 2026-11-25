@@ -54,6 +54,7 @@ def booking(model, **changes) -> Case:
     fields = {
         "name": "inline_booking",
         "agent": TalksToItsServiceItself,
+        "scripted_turns": True,
         "effects": {"create_reservation": BOOKING},
         "speeches": [UserSpeech(start=0.5, end=2.5, transcript="Book a table for six tonight.")],
         "policy": model,

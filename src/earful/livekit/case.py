@@ -42,6 +42,8 @@ class Case(DrainOptions, SessionOptions, ScriptedCase, AgentFactory):
     sink: type[ClockedSink] = ClockedSink  # a faulty output is a subclass
     # Further AgentSession options, of those ``options.PASSED`` names.
     session_kwargs: dict[str, Any] = field(default_factory=dict)
+    # LiveKit cases have always run with scripted turns. The report states that scope.
+    scripted_turns: bool = True
 
     def check(self, seed: int = 0) -> None:
         """Raise ``ValueError`` for a scenario that contradicts itself."""

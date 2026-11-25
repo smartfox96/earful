@@ -20,6 +20,7 @@ from ..scripted.kernel.ports import FinalHistory, RunPorts
 from ..scripted.kernel.run import RunContext
 from ..scripted.parties.activity import Observed
 from . import options, tools
+from .application import check_session
 from .case import Case
 from .config import _declared_session, _effective_session, _header, _session_kwargs, _switches
 from .providers import (
@@ -131,6 +132,7 @@ async def _session(case: Case, context: RunContext, witness: tools.ToolWitness) 
     refusal = options.agent_refusal(agent, session)
     if refusal is not None:
         raise ValueError(refusal)
+    check_session(type(agent), case.scripted_turns, declaration="Case(scripted_turns=True)")
     found = {**tools.witness_session_tools(session), **await tools.witness_agent_tools(agent)}
     scenario = _header(case, found, starting_history(agent.chat_ctx.items))
 

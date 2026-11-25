@@ -8,6 +8,8 @@ formats have versions of their own
 
 ## [Unreleased]
 
+- Existing LiveKit cases disclose the scripted providers and turn detection. Recognized realtime setups are refused by model name.
+
 ## [0.3.1] - 2026-11-24
 
 LiveKit and Pipecat share the case fields and run lifecycle. Both reproduce the

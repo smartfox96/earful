@@ -35,7 +35,9 @@ def truncated(tmp_path):
 def test_check_prints_each_contract_and_exits_0_when_nothing_broke(capsys):
     status, out, _ = earful(capsys, "check", CLEAN)
     assert status == OK
-    assert out.startswith(f"== {CLEAN.name}\n   A1  not_exercised\n   A2  pass\n")
+    title, scope, *verdicts = out.splitlines()
+    assert title == f"== {CLEAN.name}" and "silence-based turn detection" in scope
+    assert verdicts[:2] == ["   A1  not_exercised", "   A2  pass"]
 
 
 def test_check_exits_1_when_a_rule_broke_and_says_which(capsys):

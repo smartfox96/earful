@@ -199,7 +199,9 @@ def test_a_required_contract_that_was_not_exercised_fails_the_assertion_and_says
         report.assert_contracts(require=["A2", "A1"], what="the booking")
     said = str(caught.value).split("\n\n")
     assert said[0] == "the booking has no pass or fail for the required A1"
-    assert said[1].startswith(f"A1 {why}") and said[2].startswith("A1  not_exercised\nA2  pass")
+    assert said[1].startswith(f"A1 {why}") and said[2].startswith(
+        f"{report.session_scope}\nA1  not_exercised\nA2  pass"
+    )
 
 
 def test_a_required_contract_that_is_unobservable_fails_the_assertion_and_says_why(affected):
