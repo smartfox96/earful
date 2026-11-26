@@ -34,7 +34,11 @@ _ENDS = {
 
 
 def _end(end: str, unjudged: str | None) -> str:
-    return f"a run beyond it could not be judged, {unjudged}" if unjudged else _ENDS[end]
+    if unjudged is None:
+        return _ENDS[end]
+    if unjudged.startswith(("invalid:", "refused:", "error:")):
+        return f"a run beyond it could not be judged, {unjudged}"
+    return unjudged  # what the rule's contract made of the run beyond it
 
 
 # What a search's runs were for, in the order its report lists them.

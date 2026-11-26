@@ -8,7 +8,7 @@ from typing import Any
 
 from .. import case as cases
 from ..case import Variable
-from ..checker import FAIL, PASS
+from ..checker import FAIL, NOT_EXERCISED, PASS
 from ..predicate import Predicate
 from .runner import Runner
 
@@ -100,9 +100,10 @@ def window(
             return True
         judged = outcome.outcomes.get(predicate.contract)
         if judged not in (PASS, FAIL):
-            # The run ended before the rule could be judged, or lost what it needed.
+            # The behaviour is not reached beyond this end, or its evidence is lost there.
             codes = ", ".join(outcome.missing.get(predicate.contract, ())) or "no instance"
-            return f"{predicate.contract} {str(judged).replace('_', ' ')} ({codes})"
+            what = "had nothing to judge" if judged == NOT_EXERCISED else "lost its evidence"
+            return f"{predicate.contract} {what} beyond it ({codes})"
         return False
 
     def end(direction: int, resolution: int, reach: int) -> _End:

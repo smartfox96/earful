@@ -2288,4 +2288,4 @@ def test_a_window_end_passes_only_where_the_contract_was_judged():
 
     found = window(Runner(run), a_case(BOOK, WINDOW), SECOND, A2)
     assert (found.lo_end, found.hi_end) == ("passes", "blocked")
-    assert found.hi_unjudged == "A2 not exercised (no instance)"
+    assert found.hi_unjudged == "A2 had nothing to judge beyond it (no instance)"
