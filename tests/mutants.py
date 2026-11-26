@@ -349,8 +349,8 @@ MUTANTS = [
     Mutant(
         "search: a window probes past its reach",
         "src/earful/core/search/windows.py",
-        "            step = min(step, reach)\n",
-        "            pass\n",
+        "            probe = at + direction * min(step, reach)\n",
+        "            probe = at + direction * step\n",
         first="stops_at_its_reach_and_no_further",
     ),
     Mutant(
@@ -1931,10 +1931,10 @@ MUTANTS = [
         first="test_each_end_of_a_window_says_why_the_search_stopped_there",
     ),
     Mutant(
-        "window: reach ignored",
+        "window: an end at the reach is reported as an edge of the failure",
         "src/earful/core/search/windows.py",
-        ('            if step >= reach:\n                return good, "reach", None\n'),
-        ('            if step >= reach * 1000:\n                return good, "reach", None\n'),
+        '                return good, "reach", None\n',
+        '                return good, "passes", None\n',
         first="test_each_end_of_a_window_says_why_the_search_stopped_there",
     ),
     Mutant(
@@ -5387,7 +5387,7 @@ MUTANTS = [
         "src/earful/pipecat/ports.py",
         '                "the pipeline holds the user\'s turn open": Observed(lambda: tap.user_speaking),\n',
         "",
-        first="as_shipped_the_conversation_passes",
+        first="final_turn_the_pipeline_holds_open",
     ),
     Mutant(
         "kernel: the writes still under way at the end have no outcome",

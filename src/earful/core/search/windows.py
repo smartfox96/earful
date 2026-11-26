@@ -111,8 +111,7 @@ def window(
         run beyond could not be judged."""
         good, step = at, resolution
         while True:
-            step = min(step, reach)
-            probe = at + direction * step
+            probe = at + direction * min(step, reach)
             result = breaks(probe)
             if result is not True:
                 bad, stopped = probe, result

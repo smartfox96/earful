@@ -217,6 +217,15 @@ def test_pipecat_waits_for_the_final_turn_and_slow_tool():
     result.assert_contracts()
 
 
+def test_pipecat_waits_for_a_final_turn_the_pipeline_holds_open():
+    built = booking()
+    built.drain_delay = 0
+    built.user_speech_timeout = 2.2  # the turn ends 2.2 s after the user stops
+    built.speeches = [replace(s, expects_reply=False) for s in built.speeches]  # no L1 deadline
+    result = pc.run(built)
+    assert len(events(result, "effect.committed")) == 1
+
+
 def test_pipecat_a_stalled_input_yields_invalid_evidence(monkeypatch):
     from earful.pipecat.providers import ScriptedSTT
 

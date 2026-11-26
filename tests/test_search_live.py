@@ -194,9 +194,10 @@ def test_the_search_finds_nothing_in_the_control(searched):
 def test_the_window_of_a_break_is_measured_not_guessed(searched):
     (found,) = searched.windows(SLOW_TO_STOP)
     assert found.variable == STOP and not found.instant
-    assert (found.lo_end, found.hi_end) == (
-        "passes",
-        "passes",
+    assert found.hi_end == "passes"
+    # Earlier the user interrupts nothing: on some releases no reply is under way yet.
+    assert found.lo_end == "passes" or (
+        found.lo_unjudged == "L2 had nothing to judge beyond it (no-reply-under-way)"
     )
     assert REPLY_STARTS_US - 500_000 <= found.lo_us <= REPLY_STARTS_US
     assert found.width_us > 6_500_000 and found.resolution_us == 1_000
