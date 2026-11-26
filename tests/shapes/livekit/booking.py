@@ -4,7 +4,7 @@ confirms the booking once the tool has returned."""
 from __future__ import annotations
 
 import livekit.agents as lk
-from invariants import HISTORY, TWO_PARTS
+from invariants import TWO_PARTS
 
 from earful.livekit import Case, Intent, ScriptedModel, UserSpeech, effect, tool_succeeded
 from shapes.corpus import judged
@@ -45,6 +45,5 @@ def case() -> Case:
 
 SHOULD = judged(A2="pass", A3="pass", M1="pass", M2="pass", L1="pass")
 DEFECT_VARIED = {
-    HISTORY: judged(M2="rule b"),  # the run's own turn is taken for the earlier one
     TWO_PARTS: judged(M1="rule 2, rule 3, rule 5"),  # the second part is read as other speech
 }

@@ -18,19 +18,21 @@ from ci_scope import LIVEKIT, OTHER_PYTHONS, PIPECAT
 
 CHECKS = (ROOT / ".github" / "workflows" / "checks.yml").read_text()
 OLDEST, *_, NEWEST = LIVEKIT
-(PC,) = PIPECAT
+PC = next(iter(PIPECAT))
 
 
 def lk(version, system="Linux", python="3.13"):
     return f"lk {version} / {system} / py{python}"
 
 
-def pc(python, system="Linux", wheel=False):
-    return f"pc {PC} / {system} / py{python}" + (" / the wheel" if wheel else "")
+def pc(python, system="Linux", wheel=False, version=PC):
+    return f"pc {version} / {system} / py{python}" + (" / the wheel" if wheel else "")
 
 
 EVERY_LK = {lk(v) for v in LIVEKIT}
-PC_CHANGE = {pc("3.11"), pc("3.13")}
+PC_CHANGE = {pc(py, version=v) for v in PIPECAT for py in ("3.11", "3.13")}
+PC_MAC = {pc("3.13", "macOS", version=v) for v in PIPECAT}
+PC_WHEEL = {pc("3.12", wheel=True, version=v) for v in PIPECAT}
 PROSE: tuple[set[str], set[str]] = ({"prose"}, set())
 PIPECAT_ = ({"lint"}, PC_CHANGE)
 LIVEKIT_ = ({"lint", "quickstart"}, EVERY_LK)
@@ -38,16 +40,12 @@ CORE = ({"lint", "quickstart", "wheel"}, EVERY_LK | PC_CHANGE)
 OTHERS = {lk(v, python=py) for py, v in OTHER_PYTHONS.items()}
 CLOCK = (
     CORE[0],
-    CORE[1] | {lk(OLDEST, "macOS"), lk(NEWEST, "macOS"), pc("3.13", "macOS")} | OTHERS,
+    CORE[1] | {lk(OLDEST, "macOS"), lk(NEWEST, "macOS")} | PC_MAC | OTHERS,
 )
-BUILD = ({"lint", "wheel", "quickstart"}, {lk(OLDEST), lk(NEWEST), pc("3.12", wheel=True)})
+BUILD = ({"lint", "wheel", "quickstart"}, {lk(OLDEST), lk(NEWEST)} | PC_WHEEL)
 FULL = (
     {"lint", "wheel", "quickstart", "report", "bare"},
-    EVERY_LK
-    | {lk(v, "macOS") for v in LIVEKIT}
-    | OTHERS
-    | PC_CHANGE
-    | {pc("3.12", wheel=True), pc("3.13", "macOS")},
+    EVERY_LK | {lk(v, "macOS") for v in LIVEKIT} | OTHERS | PC_CHANGE | PC_WHEEL | PC_MAC,
 )
 
 

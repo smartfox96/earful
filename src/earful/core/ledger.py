@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any
 
 SCHEMA = "earful.ledger/1"
-SCHEMA_MINOR = 1  # 1 added tool.returned.handoff and two fields of the header
+SCHEMA_MINOR = 2  # revision 2 records an untested release in run.start.framework
 
 # Who observed the event. The checker treats these as independent witnesses.
 SOURCES = ("world", "llm", "sink", "backend", "framework", "harness")
@@ -50,12 +50,46 @@ def run_id(header: dict[str, Any]) -> str:
     return "run-" + hashlib.sha256(_canonical(header).encode("ascii")).hexdigest()[:16]
 
 
+def session_scope(header: dict[str, Any]) -> str:
+    """Framework support and the scripted session or pipeline that supplied the evidence."""
+    framework = header.get("framework")
+    scenario = header.get("scenario")
+    if not isinstance(framework, dict):
+        return ""
+    session = scenario.get("session") if isinstance(scenario, dict) else None
+    lines = []
+    if framework.get("support") == "untested":
+        lines.append(
+            f"Untested framework release: {framework.get('name')} {framework.get('version')}."
+        )
+    if framework.get("name") == "pipecat-ai" and isinstance(session, dict):
+        options = session.get("extra_options")
+        custom = isinstance(options, dict) and "pipeline" in options
+        pipeline = "the case's pipeline factory" if custom else "Earful's standard pipeline"
+        lines.append(
+            f"Earful ran the case's bot with {pipeline}, scripted recognition, model "
+            "replies and voice. Application entry code was not run."
+        )
+    if (
+        framework.get("name") == "livekit-agents"
+        and isinstance(session, dict)
+        and "turn_detection" in session
+        and session["turn_detection"] is None
+    ):
+        lines.append(
+            "Earful built the session with scripted speech recognition, model replies, "
+            "speech synthesis and silence-based turn detection. Application entry code was not run."
+        )
+    return " ".join(lines)
+
+
 class Ledger:
     """Ordered list of events. ``seq`` is assigned on append and is the total order.
     ``append`` snapshots its data as JSON and raises ``TypeError`` for data JSON cannot hold."""
 
     def __init__(self, clock_us: Callable[[], int], *, run: str | None = None) -> None:
         self._clock_us = clock_us
+        self._minor = 1  # preserve the bytes of runs that need only the previous revision
         self.run = run  # set by run.start unless given
         self.events: list[dict[str, Any]] = []
 
@@ -72,13 +106,20 @@ class Ledger:
             raise TypeError(f"{kind}: event data must be plain JSON ({exc})") from exc
         if self.events and self.events[-1]["kind"] == "run.end":
             raise ValueError(f"{kind}: the ledger has ended; nothing follows run.end")
+        framework = snapshot.get("framework")
+        if (
+            kind == "run.start"
+            and isinstance(framework, dict)
+            and framework.get("support") == "untested"
+        ):
+            self._minor = SCHEMA_MINOR
         if kind == "run.start" and self.run is None:
             self.run = run_id(snapshot)
         if self.run is None:
             raise ValueError("the first event of a ledger must be run.start")
         event = {
             "schema": SCHEMA,
-            "schema_minor": SCHEMA_MINOR,
+            "schema_minor": self._minor,
             "run": self.run,
             "seq": len(self.events),
             "t_us": self._clock_us(),

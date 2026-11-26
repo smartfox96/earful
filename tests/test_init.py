@@ -20,7 +20,7 @@ def here(tmp_path, monkeypatch):
 
 
 def init(capsys, *argv):
-    status = main(["init", *(str(arg) for arg in argv)])
+    status = main(["init", "--scripted-turns", *(str(arg) for arg in argv)])
     captured = capsys.readouterr()
     return status, captured.out, captured.err
 
@@ -34,33 +34,44 @@ def written(path):
 
 
 def test_init_writes_a_test_from_the_agents_tools_and_says_what_to_do_next(here, capsys):
-    status, out, _ = init(capsys, "scaffolded:SupportAgent")
+    status, out, _ = init(capsys, "scaffolded:SupportAgent", "--write", "issue_refund")
     assert status == OK
     assert out.splitlines() == [
         "wrote      test_support_agent.py",
         "tools      issue_refund, look_up",
-        "           each is declared an effect; delete those that only read",
+        "           only registrations visible during setup are listed",
+        "writes     issue_refund",
         "next       pytest test_support_agent.py",
         "           its search fails (A2) while a write has no idempotency key declared;",
         "           the file says where to declare one",
     ]
     source = (here / "test_support_agent.py").read_text()
     assert "from scaffolded import SupportAgent\n" in source
-    # Every tool is an effect, so no tool body runs until the author says which may.
+    # Only the declared write is replaced by the backend.
     case = written(here / "test_support_agent.py").support_agent()
     assert {tool: effect.intent for tool, effect in case.effects.items()} == {
         "issue_refund": "issue-refund",
-        "look_up": "look-up",
     }
     assert case.name == "support_agent"
+
+
+def test_all_explicit_writes_are_in_the_generated_case(here, capsys):
+    status, _, _ = init(
+        capsys, "scaffolded:SupportAgent", "--write", "look_up", "--write", "issue_refund"
+    )
+    assert status == OK
+    case = written(here / "test_support_agent.py").support_agent()
+    assert set(case.effects) == {"issue_refund", "look_up"}
 
 
 def test_the_test_init_writes_runs_as_it_is(here, capsys):
     """The tools of these agents fail a test that reaches their bodies."""
     for agent, tool in (("SupportAgent", "issue_refund"), ("BookingAgent", "create_reservation")):
-        assert init(capsys, f"scaffolded:{agent}")[0] == OK
-        module = written(here / scaffold(f"scaffolded:{agent}").filename)
-        scenario = getattr(module, scaffold(f"scaffolded:{agent}").filename[5:-3])
+        assert init(capsys, f"scaffolded:{agent}", "--write", tool)[0] == OK
+        module = written(here / scaffold(f"scaffolded:{agent}", scripted_turns=True).filename)
+        scenario = getattr(
+            module, scaffold(f"scaffolded:{agent}", scripted_turns=True).filename[5:-3]
+        )
         result = run(scenario)
         assert module.REQUIRED == ["A2", "A3", "L1"]
         result.assert_contracts(require=module.REQUIRED)
@@ -78,7 +89,7 @@ def test_the_test_init_writes_runs_as_it_is(here, capsys):
 
 
 def test_the_test_init_writes_fails_on_a_write_the_model_repeats_without_a_key(here, capsys):
-    assert init(capsys, "scaffolded:BookingAgent")[0] == OK
+    assert init(capsys, "scaffolded:BookingAgent", "--write", "create_reservation")[0] == OK
     module = written(here / "test_booking_agent.py")
 
     def timed_out(keyed):
@@ -101,7 +112,9 @@ def test_the_test_init_writes_fails_on_a_write_the_model_repeats_without_a_key(h
 
 def test_the_model_calls_a_tool_with_a_value_for_each_argument_the_tool_requires():
     """An argument that has a default is left out."""
-    source = scaffold("scaffolded:SupportAgent").source
+    source = scaffold(
+        "scaffolded:SupportAgent", scripted_turns=True, writes=("issue_refund",)
+    ).source
     assert 'CALL = ("issue_refund", {"order": "example", "amount": 1})\n' in source
     assert 'claims=["issue-refund"]' in source
     from scaffolded import SupportAgent
@@ -113,7 +126,7 @@ def test_the_model_calls_a_tool_with_a_value_for_each_argument_the_tool_requires
 
 
 def test_a_model_a_date_and_an_identifier_each_get_a_value_the_tool_accepts(here, capsys):
-    assert init(capsys, "scaffolded:TravelAgent")[0] == OK
+    assert init(capsys, "scaffolded:TravelAgent", "--write", "book_trip")[0] == OK
     source = (here / "test_travel_agent.py").read_text()
     assert max(len(line) for line in source.splitlines()) <= 100
     module = written(here / "test_travel_agent.py")
@@ -156,54 +169,65 @@ def test_a_model_a_date_and_an_identifier_each_get_a_value_the_tool_accepts(here
     ],
 )
 def test_an_agent_init_cannot_write_a_test_for_is_refused_in_one_line(here, capsys, agent, why):
-    status, out, err = init(capsys, f"scaffolded:{agent}")
+    tool = {"TakesACode": "redeem", "DeclaresAPattern": "redeem_coded"}.get(agent)
+    status, out, err = init(capsys, f"scaffolded:{agent}", *(["--write", tool] if tool else []))
     assert status == REFUSED and not out and not list(here.iterdir())
     assert err.startswith(f"earful: {why}") and err.count("\n") == 1
 
 
 def test_a_tool_that_declares_its_own_schema_is_called_with_what_the_schema_takes(here, capsys):
-    assert init(capsys, "scaffolded:DeclaresASchema")[0] == OK
+    assert init(capsys, "scaffolded:DeclaresASchema", "--write", "redeem_plain")[0] == OK
     module = written(here / "test_declares_a_schema.py")
     assert module.CALL == ("redeem_plain", {"code": "example"})
     run(module.declares_a_schema).assert_contracts(require=module.REQUIRED)
 
 
 def test_the_model_calls_the_first_tool_a_call_can_be_written_for(here, capsys):
-    made = scaffold("scaffolded:DeclaresBoth")
+    made = scaffold(
+        "scaffolded:DeclaresBoth", scripted_turns=True, writes=("redeem_coded", "redeem_plain")
+    )
     assert made.tools == ("redeem_coded", "redeem_plain")
     assert 'CALL = ("redeem_plain", {"code": "example"})\n' in made.source
     assert '"redeem_coded": Effect("redeem-coded"),' in made.source
 
 
 def test_tools_handed_to_the_constructor_are_found(here, capsys):
-    made = scaffold("scaffolded:HandedItsTools")
-    assert made.tools == ("send_invoice",) and made.unbuilt is None
+    made = scaffold("scaffolded:HandedItsTools", scripted_turns=True)
+    assert made.tools == ("send_invoice",)
     assert init(capsys, "scaffolded:HandedItsTools")[0] == OK
     module = written(here / "test_handed_its_tools.py")
     run(module.handed_its_tools).assert_contracts(require=module.REQUIRED)
 
 
-def test_an_agent_that_none_does_not_build_gets_a_test_that_says_so(here, capsys):
-    status, out, _ = init(capsys, "scaffolded:NeedsItsService")
-    assert status == OK
-    assert out.splitlines()[3:5] == [
-        "build      None for each argument does not build the agent "
-        + "(ValueError: a service is needed)",
-        "           give build() in the file a stand-in for each before running it",
-    ]
-    source = (here / "test_needs_its_service.py").read_text()
-    assert "    # None does not build it: give a stand-in for each, and for what a\n" in source
-    assert '"cancel_order": Effect("cancel-order"),' in source  # read from the class
-    assert "does not build" not in init(capsys, "scaffolded:BookingAgent")[1]
+def test_an_agent_that_none_does_not_build_is_refused_before_writing(here, capsys):
+    status, _, err = init(capsys, "scaffolded:NeedsItsService")
+    assert status == REFUSED and "a service is needed" in err
+    assert not list(here.iterdir())
+
+
+def test_default_scaffold_exercises_conversation_without_declaring_writes(here, capsys):
+    status, out, _ = init(capsys, "scaffolded:SupportAgent")
+    assert status == OK and "only registrations visible" in out
+    module = written(here / "test_support_agent.py")
+    case = module.support_agent()
+    assert module.REQUIRED == ["L1"] and not case.effects
+    result = run(case)
+    result.assert_contracts(require=module.REQUIRED)
+    assert not any(e["kind"] == "tool.called" for e in result.events)
+
+
+def test_unknown_declared_write_is_refused_before_writing(here, capsys):
+    status, _, err = init(capsys, "scaffolded:SupportAgent", "--write", "typo")
+    assert status == REFUSED and "unknown declared write" in err and not list(here.iterdir())
 
 
 def test_an_agent_that_cannot_be_built_without_arguments_is_built_with_none_for_each():
-    made = scaffold("scaffolded:BookingAgent")
+    made = scaffold("scaffolded:BookingAgent", scripted_turns=True)
     assert made.tools == ("create_reservation",)  # found without building the agent
     assert "    return BookingAgent(None, greeting=None)\n" in made.source
     assert "        agent=build,\n" in made.source
     assert "is built with: reservations, greeting." in made.source
-    assert "agent=SupportAgent," in scaffold("scaffolded:SupportAgent").source
+    assert "agent=SupportAgent," in scaffold("scaffolded:SupportAgent", scripted_turns=True).source
 
 
 def test_init_does_not_write_over_a_file_and_writes_where_it_is_told(here, capsys):
@@ -227,7 +251,7 @@ def test_init_does_not_write_over_a_file_and_writes_where_it_is_told(here, capsy
     [
         ("scaffolded", "is named as module:Class"),
         ("scaffolded:SupportAgent.look_up", "is named as module:Class"),
-        ("no_such_module:Agent", "no agent 'no_such_module:Agent'"),
+        ("no_such_module:Agent", "cannot import module 'no_such_module'"),
         ("scaffolded:Missing", "no agent 'scaffolded:Missing'"),
         # A function is read as a Pipecat bot where pipecat-ai is installed.
         (
@@ -240,8 +264,9 @@ def test_init_does_not_write_over_a_file_and_writes_where_it_is_told(here, capsy
     ],
 )
 def test_what_does_not_name_a_class_of_agent_is_refused(here, capsys, reference, why):
-    status, out, err = init(capsys, reference)
-    assert status == REFUSED and not out and why in err
+    status = main(["init", reference])
+    captured = capsys.readouterr()
+    assert status == REFUSED and not captured.out and why in captured.err
     assert not list(here.iterdir())
 
 

@@ -462,6 +462,12 @@ change to the type or meaning of an existing field, or a change to a rule that s
 events is a new major version, with its own schema file. A change that alters what a
 recorded ledger hashes to regenerates the reference ledgers.
 
+Revision 2 adds optional `support` inside `framework` with the value `untested`. A run on an
+untested release records revision 2 on every event. A kept failure copies the framework
+metadata into its revision 2 manifest. Runs on tested releases still use revision 1,
+so their saved ledgers keep the same hashes. Older files cannot establish whether their
+release was tested at recording time.
+
 Four optional fields are at `schema_minor` 1: `handoff` on `tool.returned`,
 `turn_end_delay_us` in the header's `session`, `word_timestamps` in its
 `providers.tts`, and `history` in its `scenario`.

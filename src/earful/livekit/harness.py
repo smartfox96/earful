@@ -16,6 +16,7 @@ from ..scripted.clock import (
     patch_report,
 )
 from ..scripted.kernel.run import RunContext, run
+from ..scripted.releases import framework_info
 from ..scripted.result import RunResult as ScriptedResult
 from .case import Case, RunResult
 from .ports import build
@@ -45,7 +46,7 @@ def run_case(
         drain=case,
         virtual=virtual,
         require_valid=require_valid,
-        framework={"name": "livekit-agents", "version": lk.__version__},
+        framework=framework_info("livekit-agents", lk.__version__),
         validate=lambda candidate, run_seed: candidate.check(run_seed),
         build=build,
         result_of=_result,

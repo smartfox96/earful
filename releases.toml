@@ -12,7 +12,8 @@ below = "1.9"
 
 [pipecat-ai]
 lowest = "1.16"
-below = "1.17"
+below = "1.18"
 
 [pipecat-ai.tested]
 "1.16.0" = "2026-11-18"
+"1.17.0" = "2026-11-24"

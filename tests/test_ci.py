@@ -690,13 +690,14 @@ def test_a_file_that_skips_itself_for_the_framework_named_absent_is_left_out(tmp
     assert done.stdout.endswith("2 files need no_such_framework or no_other_framework\n")
 
 
-def test_the_reference_ledgers_of_both_frameworks_are_repeated_and_compared():
+@pytest.mark.parametrize("release", ["1.16.0", "1.17.0"])
+def test_the_reference_ledgers_of_both_frameworks_are_repeated_and_compared(release):
     repeated = "bin/python scripts/repeat.py\n          --check tests/golden --out evidence\n"
     jobs = _jobs(CHECKS)
     assert ".venvs/lk-${{ matrix.cell.version }}/" + repeated in jobs["livekit"]
     assert ".venvs/pc-${{ matrix.cell.version }}/" + repeated in jobs["pipecat"]
     everything = (SCRIPTS / "check_all.sh").read_text()
-    pipecat = ".venvs/pc-1.16.0/bin/python scripts/repeat.py"
+    pipecat = f".venvs/pc-{release}/bin/python scripts/repeat.py"
     for command in (
         '".venvs/lk-$1/bin/python" scripts/repeat.py --update "$GOLDEN" | grep ',
         '"$py" scripts/repeat.py --check "$GOLDEN" | grep ',
@@ -705,7 +706,7 @@ def test_the_reference_ledgers_of_both_frameworks_are_repeated_and_compared():
     ):
         assert command in everything, command
     # Recorded before the Pipecat tests compare a run with them.
-    tests = "scripts/ran_every_test.sh --without livekit .venvs/pc-1.16.0/bin/python\n"
+    tests = f"scripts/ran_every_test.sh --without livekit .venvs/pc-{release}/bin/python\n"
     assert everything.index(f"{pipecat} --update") < everything.index(tests)
 
 
@@ -720,7 +721,7 @@ def test_where_livekit_is_absent_every_other_test_runs_and_a_skip_fails_the_job(
     assert every in (SCRIPTS / "check_all.sh").read_text()
     # A change to prose alone runs the one Pipecat file that reads docs/.
     assert (
-        "scripts/ran_every_test.sh .venvs/pc-1.16.0/bin/python tests/test_pipecat.py\n"
+        "scripts/ran_every_test.sh .venvs/pc-1.17.0/bin/python tests/test_pipecat.py\n"
         in (jobs["prose"])
     )
     # And with no framework, none of the files that need one.

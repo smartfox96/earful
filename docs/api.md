@@ -101,6 +101,7 @@ and every run calls it first.
 | `drain_timeout` | `30.0` | How long the agent then has to fall quiet, and the session to finish, before it is cut off |
 | `sink` | `ClockedSink` | The class of the audio output. A subclass models a faulty output |
 | `session_kwargs` | `{}` | Further `AgentSession` options, of those [`compatibility.md`](compatibility.md#the-options-earful-models-on-livekit) lists. Any other is refused |
+| `scripted_turns` | `True` | Earful uses separate scripted providers and silence-based turn detection. The result describes the session. Setting this to `False` refuses a session whose turn detector Earful cannot run. |
 
 ### `Case` for Pipecat
 
@@ -547,6 +548,7 @@ What the checker returns for one ledger.
 | Attribute | Meaning |
 | --- | --- |
 | `run` | The run id |
+| `session_scope` | What the LiveKit ledger records about the scripted session. Empty when the header does not identify one. |
 | `valid` | Whether the run is valid evidence |
 | `invalid` | Why it is not. An invalid run has no results |
 | `results` | Contract id to its result: `outcome`, `policy`, `verdicts` and `notes` |
@@ -642,6 +644,7 @@ the `minimal` and `original` cases, and `ledger(which)`.
 | `invalid` | Why a run was not valid evidence |
 | `unverified` | The case files the manifest records no digest of |
 | `framework` | The release it was replayed on |
+| `session_scope` | The scripted session used for the replay, when identified by its ledger |
 
 ### `CrossCheck`
 
@@ -720,6 +723,8 @@ registers the bot's functions on its model service and returns its `LLMContext`.
 | Option | Meaning |
 | --- | --- |
 | `-o`, `--output FILE` | Write there. The default is `test_<agent>.py`, or `test_<function>.py` for a bot |
+| `--write` | Name a durable write for the generated scenario. Repeat for additional writes. |
+| `--scripted-turns` | Optional for LiveKit. Writes the choice of silence-based turn detection into the case. |
 
 ### `earful check`
 

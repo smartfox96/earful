@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from . import policy as policies
-from .memory import align, favourable
+from .memory import align, context_turns, favourable
 from .report import ContractResult, Finding, result, verdict
 from .view import Event, Playout, Spoken, View
 
@@ -154,6 +154,21 @@ def check(view: View, policy: policies.M1) -> ContractResult:
             )
         return read[label]
 
+    def handoff_explains(item: Spoken, context: Event, items: list[dict[str, Any]]) -> bool:
+        between = [
+            outcome
+            for outcome in view.handoffs
+            if item.born["seq"] < outcome["seq"] < context["seq"]
+        ]
+        if not between:
+            return False
+        for outcome in between:
+            tool = view.tools[outcome["data"]["tool"]]
+            asking = view.request_of.get(tool.call_id or "")
+            if asking is not None and asking.call == item.call:
+                return True
+        return context_turns(view, context, items)[2]
+
     verdicts = []
     for item in view.spoken:
         playout = playouts[item.key]
@@ -197,6 +212,17 @@ def check(view: View, policy: policies.M1) -> ContractResult:
                 continue
             chosen = chosen or item.key in ambiguous
             at = matched.get(item.key)
+            if at is None and played and handoff_explains(item, _event, items):
+                unknown.append(
+                    (
+                        "handoff-context",
+                        (
+                            f"{label}: a handoff intervened since playout; "
+                            "the receiving agent's context may omit the earlier reply"
+                        ),
+                    )
+                )
+                continue
             row, found = _compare(
                 view, policy, item, playout, items[at] if at is not None else None, context
             )
@@ -236,6 +262,7 @@ def check(view: View, policy: policies.M1) -> ContractResult:
                 + (f"; remembered {rows[0]['remembered']}" if rows else ""),
                 events=events,
                 findings=findings,
+                missing=unknown,
                 measures=measures,
                 flags=flags,
             )

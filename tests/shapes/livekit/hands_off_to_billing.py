@@ -6,7 +6,6 @@ from __future__ import annotations
 from typing import Any
 
 import livekit.agents as lk
-from invariants import HISTORY
 
 from earful.livekit import Case, Reply, ToolCall, UserSpeech
 from shapes.corpus import judged
@@ -57,8 +56,5 @@ def case() -> Case:
     )
 
 
-SHOULD = judged(M1="pass")
-DEFECT = judged(M1="rule 2")  # the words before the handoff are looked for in the new agent
-DEFECT_VARIED = {
-    HISTORY: judged(M1="rule 2", M2="rule a, rule b"),
-}
+SHOULD = judged(M1="pass", L1="pass")
+DEFECT = judged(M1="unobservable", L1="pass")

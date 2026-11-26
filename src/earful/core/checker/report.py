@@ -38,6 +38,7 @@ CODES: dict[str, str] = {
     "readings-over-cap": LOST,
     "word-start-unknown": LOST,
     "memory-unaligned": LOST,
+    "handoff-context": LOST,
     "history-before-playout": LOST,
     "no-stable-text": LOST,
     "tool-unwitnessed": LOST,
@@ -161,6 +162,8 @@ class Report:
     readings: int = 1
     schema: str = REPORT
     contracts: str = CONTRACTS
+    session_scope: str = ""
+    tool_errors: tuple[str, ...] = ()
 
     def outcome(self, contract: str) -> str:
         return self.results[contract].outcome
@@ -175,7 +178,12 @@ class Report:
         return tuple(v for r in self.results.values() for v in r.failures)
 
     def to_json(self) -> dict[str, Any]:
-        return asdict(self)
+        data = asdict(self)
+        if not self.tool_errors:
+            del data["tool_errors"]
+        if not self.session_scope:
+            del data["session_scope"]
+        return data
 
     def broken(self) -> list[str]:
         """Every rule a failed verdict names, as ``CONTRACT/RULE``, sorted."""
@@ -195,9 +203,10 @@ class Report:
 
     def lines(self, *, measures: bool = False, passes: bool = False) -> list[str]:
         """The report as text: one line per contract and per verdict that is not a plain pass."""
+        out = [self.session_scope] if self.session_scope else []
+        out.extend(self.tool_errors)
         if not self.valid:
-            return [f"invalid: {reason}" for reason in self.invalid]
-        out: list[str] = []
+            return [*out, *(f"invalid: {reason}" for reason in self.invalid)]
         for name, result in self.results.items():
             out.append(f"{name}  {result.outcome}")
             for v in result.verdicts:

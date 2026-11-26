@@ -32,6 +32,15 @@ a defect of the framework, of the application or of the test is decided by a per
   ([`contracts.md`](contracts.md#m1-played-vs-remembered)).
 - **Turns.** A turn ends on the scripted VAD's silence. A turn detector that is a model,
   and interruption detection that is a model, are outside.
+  LiveKit results identify this substitute. In the selected agent's module, Earful traces
+  typed and untyped `AgentSession` constructors, local variables, and module functions
+  or methods that return a model or session. It checks positional and keyword starts,
+  including guarded starts, starts in loops, assigned results and calls wrapped in
+  `asyncio.create_task`.
+  If every branch selects a realtime model, the refusal names each possible model.
+  If a branch allows a cascade, the case can run with scripted turns.
+  Setup in another module or selected dynamically can escape this check. The author
+  must verify that the application uses separate recognition, model and voice services.
 - **The backend.** A write can fail, time out for its caller or be lost. A provider that
   stalls and a caller that sends one write twice cannot be declared
   ([`search.md`](search.md#7-limits)).
@@ -128,8 +137,8 @@ What the contracts leave alone:
 - A2 does not judge too few effects.
 - M2 does not judge whether a reply is in the context at all, or the order of tool calls
   among themselves.
-- L1 does not put a tool's own running time on a turn's budget. A turn whose tool takes
-  long by design needs a larger `slack_us`.
+- L1 uses the time budget the scenario declares. A tool that waits by design can receive
+  an allowance in `L1.tool_wait_us`. The allowance applies only when that tool runs.
 - Across a handoff between agents, M2 does not judge what the agent handed over to is
   told of the handoff itself: the application builds that agent's context. The rest of
   the conversation is owed there as anywhere
@@ -186,12 +195,12 @@ other work on the machine shows as drift
 | | Tested |
 | --- | --- |
 | livekit-agents | 1.5.6, 1.5.7, 1.6.5, 1.6.6, 1.8.12, 1.8.13 |
-| pipecat-ai | 1.16.0 |
+| pipecat-ai | 1.16.0, 1.17.0 |
 | Python | 3.10 to 3.14 with livekit-agents, 3.11 to 3.13 with pipecat-ai |
 | Systems | Linux and macOS. Windows is not tested |
 
 A release inside an extra's range that is not in the table is accepted with a warning.
-A release outside the range is refused. Supported pipecat-ai series: 1.16. See the
+A release outside the range is refused. Supported pipecat-ai series: 1.16, 1.17. See the
 release table ([`compatibility.md`](compatibility.md)).
 
 A search of your own agent on a release that has one of the two known defects can meet
@@ -202,6 +211,8 @@ it. [`compatibility.md`](compatibility.md#livekit-agents) says which releases ha
 The report draws one run. Its framework lane explains the run and decides no verdict.
 The page is tested in Chromium only
 ([`report.md`](report.md#what-the-report-does-not-claim)).
+
+A witnessed handoff may switch to a fresh agent context. M1 and M2 report `handoff-context` where ownership of earlier conversation is unknown. L1 still checks later turns.
 
 ## Known defects of Earful
 
@@ -219,8 +230,6 @@ Earful is right. A test holds this list to them.
 | [An agent that awaits an `AgentTask` in `on_enter`](../tests/shapes/livekit/consent_task_on_enter.py) | The run does not end | The run ends and none fails |
 | [A tool that speaks a fixed line with `session.say`, sharing a word with a reply the user talked over before it played](../tests/shapes/livekit/filler_after_discarded_reply.py) | L1 and M1 are unobservable | L1 and M1 pass |
 | [A tool that starts a filler line with `session.say` and returns without waiting for it](../tests/shapes/livekit/filler_from_tool.py) | M1 is unobservable and M2 fails rule c | None fails |
-| [A handoff to an agent built with a context of its own](../tests/shapes/livekit/hands_off_to_a_fresh_agent.py) | L1 fails milestone 1, M1 rule 2, M2 rules a and b | None fails |
-| [A handoff from a tool, after a few words, to an agent that greets the caller](../tests/shapes/livekit/hands_off_to_billing.py) | M1 fails rule 2 | M1 passes |
 | [A tool that moves the call to another agent with `session.update_agent`](../tests/shapes/livekit/hands_off_with_update_agent.py) | M1 fails rule 2 and M2 rule d | None fails |
 | [A tool that awaits `session.aclose()`](../tests/shapes/livekit/hangs_up_with_aclose.py) | From livekit-agents 1.6 the run raises `RecursionError`. On 1.5 M2 fails rule d and L1 milestones 2 and 3 | None fails |
 | [A reply in a language written without spaces, interrupted part way](../tests/shapes/livekit/menu_in_chinese_interrupted.py) | M1 is unobservable and M2 fails rule c | M1 and M2 pass |
@@ -235,6 +244,8 @@ Earful is right. A test holds this list to them.
 | [A scripted model with a rule for none of five user turns](../tests/shapes/livekit/runs_out_of_script.py) | The run does not end | The run is invalid within seconds and names `NoRule` |
 | [A model that takes four seconds over each call and then says nothing](../tests/shapes/livekit/says_nothing_slowly.py) | L1 has nothing to judge | L1 fails |
 | [A tool that asks the session's model a side question with a context of its own](../tests/shapes/livekit/side_question_to_the_model.py) | M2 fails rule a | M2 passes |
+| [A front desk that passes its context to billing](../tests/shapes/livekit/hands_off_to_billing.py) | M1 reports `handoff-context` | M1 passes when the receiving agent retains the shared context |
+| [A handoff to a fresh billing agent](../tests/shapes/livekit/hands_off_to_a_fresh_agent.py) | M1 and M2 report `handoff-context` | Both pass when the independent context is identified |
 | [A tool that awaits an `AgentTask`](../tests/shapes/livekit/sign_up_task_in_tool.py) | The run is invalid: a tool runs without a witness | None fails |
 | [A voice activity detector that needs 0.35 s of speech before it reports any](../tests/shapes/livekit/slow_voice_detection.py) | L2 fails rule a | L2 passes |
 | [A user who takes a question back before the answer plays, after which the agent rightly says nothing](../tests/shapes/livekit/takes_it_back.py) | L1 fails milestone 3 | L1 passes |
@@ -271,7 +282,7 @@ application under `tests/shapes/`. They change a verdict on LiveKit, and none on
 | Behaviour | LiveKit | Pipecat |
 | --- | --- | --- |
 | A write in flight at the end settles | The write has no outcome in the ledger | Holds |
-| An exception in application code is recorded | It is in neither the run's reasons nor the ledger | It is in neither the run's reasons nor the ledger |
+| An exception in application code is recorded | A callback can raise without a recorded error. Witnessed tool errors appear in the result and in `tool.raised` | A processor callback can raise without a recorded error. Witnessed function errors appear in the result and in `tool.raised` |
 | A closed session ends the run | The run does not end | The run is invalid, where it should be judged |
 | A stuck pipeline hits the ceiling | The run is judged, and L1 fails milestone 2 | The run does not end |
 | `tool_choice` is honoured | Holds | A call the request did not allow is judged as any other |
@@ -283,7 +294,6 @@ application under `tests/shapes/`. They change a verdict on LiveKit, and none on
 | --- | --- |
 | A second run on another thread reads the real clock | Two runs at once each give the ledger of a run alone |
 | An infinite timeout overflows the virtual clock | `asyncio.wait_for` and `call_later` take an infinite timeout as a real loop does |
-| A starting history is taken out of the run by its words | A turn the final history holds twice is found, also behind an earlier turn of the same words |
 | A replay whose kept fault never applies is clean | The replay names the fault that did not apply and is not clean |
 | The scripted VAD reports a sound shorter than its start time | On Pipecat a sound shorter than the VAD's start time is no speech |
 | An enumeration is recorded by its type | A tool argument from an enumeration is recorded by its value |

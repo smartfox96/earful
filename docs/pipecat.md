@@ -93,12 +93,10 @@ earful init mybot.bot:booking_bot    # writes test_booking_bot.py
 
 It calls that function with a model service of its own, and `None` for each argument
 after it, to see which functions it registers and which tools its context advertises.
-The scripted model calls the first of them, with a value for each argument the context's
-schema requires, and once more if the call fails. Every function is declared an effect,
-so no function body runs. A function registered without a schema gets a call with no
-arguments, and the file says to give it the ones it reads. Both tests require A2, A3 and
-L1 to reach a verdict, and the search fails on a write the model repeats until the file
-declares that write's idempotency key, as on LiveKit.
+Setup can only list the functions visible at that point. The first test asks for a reply
+and requires L1. Pass `--write create_reservation` to model a specific durable write and
+its retry. The generated test then requires A2, A3 and L1. A bot must synchronously return
+an LLMContext. Give the command an importable dotted module name.
 
 ## Your own pipeline
 
@@ -277,11 +275,16 @@ The greeting is a reply like any other. It is model call 1, made before the user
 said anything, so the scripted model's `otherwise` gives it. M1 holds it to what played,
 and a user who speaks over it is an interruption L2 judges.
 
+A manual `LLMSummarizeContextFrame` using a dedicated model is refused before inference.
+Catch-all handlers can be witnessed, but a durable effect must name the actual function.
+
 Three things a bot can do that do not fit a scenario:
 
 - **Pipecat Flows.** A flow manager is built around the pipeline's task, which is
   Earful's, and moves the conversation between nodes outside the model service. Test
-  the functions and the prompts of one node as a bot of its own.
+  a node handler as a standalone bot if that is the scope of the test. Registering a
+  placeholder in `bot()` can shadow the real flow handler. Earful refuses conflicting
+  handlers and functions first registered after setup.
 - **A handler that holds the worker or the transport**, such as one that queues frames
   on the task or reads the client's state. Neither is the application's in a run, so a
   scenario cannot hand it to such code.
@@ -412,10 +415,11 @@ cd examples/pipecat_booking
 pytest -q
 ```
 
-The conversation as written passes. The search fails with three rules:
+The conversation as written passes. On Pipecat 1.17.0, the search reports three broken rules.
 
 ```text
-ContractFailure: booking on pipecat-ai 1.16.0: 753 cases tried, 753 judged, 3 contract rule(s) broken
+ContractFailure: booking on pipecat-ai 1.17.0: 753 cases tried, 753 judged, 3 contract rule(s) broken
+Earful ran the case's bot with Earful's standard pipeline, scripted recognition, model replies and voice. Application entry code was not run.
     886 run(s): 6 to find where to put things, 749 for the cases, 129 to measure the failures, 2 to read an example of each
     by contract: pass, fail, nothing to judge, evidence lost
     A1      0     0   753     0

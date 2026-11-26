@@ -8,6 +8,7 @@ import contextlib
 import importlib
 import inspect
 import json
+import keyword
 import os
 import sys
 import sysconfig
@@ -328,6 +329,8 @@ def _replay(args: argparse.Namespace) -> int:
         "unverified": list(result.unverified),
         "invalid": list(result.invalid),
     }
+    if result.session_scope:
+        outcome["session_scope"] = result.session_scope
     if args.json:
         print(json.dumps(outcome, indent=2))
     else:
@@ -340,7 +343,11 @@ def _replay(args: argparse.Namespace) -> int:
             breaks = "in some runs" if result.broke else "no"
         gave = ["not valid evidence" if one is None else one for one in result.outcomes]
         print(f"{kept.predicate}, kept on {made.get('name')} {made.get('version')}")
+        if made.get("support") == "untested":
+            print("The recorded failure was kept on an untested framework release.")
         print(f"replayed {args.repeats} times on {on.get('name')} {on.get('version')}")
+        if result.session_scope:
+            print(result.session_scope)
         if kept.predicate.lost:
             print(f"  loses the evidence    {breaks}")
         else:
@@ -463,12 +470,21 @@ def _named(reference: str) -> Any:
     module, _, name = reference.partition(":")
     try:
         return getattr(importlib.import_module(module), name) if module and name else None
-    except (ImportError, AttributeError, ValueError):
+    except ImportError as exc:
+        raise Refused(f"cannot import module {module!r} for {reference!r}: {exc}") from exc
+    except (AttributeError, ValueError):
         return None
 
 
 def _init(args: argparse.Namespace) -> int:
     # A livekit-agents agent is a class; a Pipecat bot is the function that sets it up.
+    module, separator, _ = args.agent.partition(":")
+    if separator and not all(
+        part.isidentifier() and not keyword.iskeyword(part) for part in module.split(".")
+    ):
+        raise Refused(f"{module!r} is not a Python module name; use an importable dotted name")
+    if separator and keyword.iskeyword(args.agent.partition(":")[2]):
+        raise Refused("the object name is a Python keyword and cannot appear in an import")
     named = _named(args.agent)
     bot = named is not None and not inspect.isclass(named) and callable(named)
     try:
@@ -481,31 +497,36 @@ def _init(args: argparse.Namespace) -> int:
                 "As a function it would be a Pipecat bot, and pipecat-ai is not installed. "
                 'Install it with: pip install "earful[pipecat]"'
             ) from exc
+        if named is not None:
+            raise Refused(
+                f"{args.agent} must be a LiveKit Agent subclass or a Pipecat bot function"
+            ) from exc
         raise Refused(
             f"{args.agent} needs livekit-agents, which is not installed. Install it with: "
             'pip install "earful[livekit]"'
         ) from exc
 
-    made = scaffold(args.agent)
+    if bot and args.scripted_turns:
+        raise Refused("--scripted-turns applies to LiveKit agent classes")
+    made = scaffold(args.agent, writes=tuple(args.write))
     target: Path = args.output or Path(made.filename)
     if target.exists():
         raise Refused(f"{target} is already there; move it, or name another file with -o")
     try:
-        target.write_text(made.source, encoding="utf-8")
+        with target.open("x", encoding="utf-8") as stream:
+            stream.write(made.source)
     except OSError as exc:
         raise Refused(f"cannot write {target}: {exc.strerror or exc}") from exc
     print(f"wrote      {target}")
-    if made.tools:
-        print(f"{made.noun:<11}{', '.join(made.tools)}")
-        print("           each is declared an effect; delete those that only read")
-    if made.unbuilt:
-        print(f"build      None for each argument does not build the agent ({made.unbuilt})")
-        print("           give build() in the file a stand-in for each before running it")
+    print(f"{made.noun:<11}{', '.join(made.tools) or 'none visible'}")
+    print("           only registrations visible during setup are listed")
+    if args.write:
+        print(f"writes     {', '.join(dict.fromkeys(args.write))}")
     done = _ignored(Path.cwd())
     if done:
         print(f"ignored    .earful/ ({done})")
     print(f"next       pytest {target}")
-    if made.tools:
+    if args.write:
         print("           its search fails (A2) while a write has no idempotency key declared;")
         print("           the file says where to declare one")
     return OK
@@ -558,6 +579,18 @@ def _parser() -> argparse.ArgumentParser:
         "agent",
         metavar="AGENT",
         help="module:Class for a LiveKit agent or module:function for a Pipecat bot",
+    )
+    sub.add_argument(
+        "--write",
+        action="append",
+        default=[],
+        metavar="TOOL",
+        help="declare this tool a durable write in the generated test (repeatable)",
+    )
+    sub.add_argument(
+        "--scripted-turns",
+        action="store_true",
+        help="test a LiveKit agent with scripted providers and silence-based turn detection",
     )
     sub.add_argument(
         "-o", "--output", type=Path, metavar="FILE", help="write here, not test_<agent>.py"

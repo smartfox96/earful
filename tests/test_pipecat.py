@@ -844,7 +844,7 @@ def test_pipecat_a_scripted_call_no_registered_function_can_take_makes_the_run_i
     assert refused.value.reasons == [f"harness error: call 1: the scripted model called {why}"]
 
 
-def test_pipecat_a_function_registered_after_bot_returns_makes_the_run_invalid():
+def test_pipecat_a_function_registered_after_bot_returns_is_refused():
     """The header is written before the run, so it could not name the function."""
 
     def bot(llm):
@@ -866,8 +866,19 @@ def test_pipecat_a_function_registered_after_bot_returns_makes_the_run_invalid()
     )
     case = pc.Case("late", bot, [pc.UserSpeech(0.5, 1.5, "Look it up.")], model)
     late = r"the bot registered 'confirm' after bot\(\) returned, so the run's header does not list"
-    with pytest.raises(pc.InvalidRun, match=late):
+    with pytest.raises(ValueError, match=late):
         pc.run(case)
+
+
+@pytest.mark.parametrize("field", ["_cancel_tool_names", "_extension_tool_names"])
+def test_pipecat_framework_owned_functions_are_excluded_on_both_supported_minors(field):
+    from types import SimpleNamespace
+
+    from earful.pipecat import seams
+
+    service = SimpleNamespace(_functions={"book": object(), "cancel": object()})
+    setattr(service, field, {"cancel"})
+    assert seams.declared_functions(service) == ["book"]
 
 
 def test_pipecat_a_release_that_keeps_a_private_name_elsewhere_is_refused_before_the_run(
@@ -1045,7 +1056,7 @@ def test_pipecat_adapter_warns_once_when_it_is_imported_on_an_untested_release(i
 
 
 def test_pipecat_outside_the_range_is_refused_by_the_command_before_the_adapter_loads(imported_on):
-    imported_on("pipecat-ai", "1.17.0").is_refused()
+    imported_on("pipecat-ai", "1.18.0").is_refused()
 
 
 def test_pipecat_a_name_an_untested_release_lacks_is_reported_with_the_tested_release(imported_on):
@@ -1054,7 +1065,7 @@ def test_pipecat_a_name_an_untested_release_lacks_is_reported_with_the_tested_re
         "ImportError: earful.pipecat cannot be imported on pipecat-ai 1.16.999, which is not a "
         "tested release (import of pipecat.clocks.base_clock halted"
     )
-    assert said.endswith("The tested releases are: 1.16.0")
+    assert said.endswith("The tested releases are: 1.16.0, 1.17.0")
 
 
 def test_pipecat_help_shows_each_public_function_as_a_function_of_the_adapter():
@@ -1100,3 +1111,14 @@ def test_a_pipecat_function_that_exits_is_refused_in_one_line():
     )
     assert done.returncode == 2 and not done.stdout
     assert done.stderr.splitlines() == ["earful: tool 'stop' called sys.exit(0)"]
+
+
+def test_a_pipecat_run_records_the_installed_untested_release(monkeypatch):
+    import pipecat
+
+    from earful.pipecat.cases import greeting
+
+    monkeypatch.setattr(pipecat, "__version__", "1.17.999")
+    result = pc.run(greeting)
+    assert result.events[0]["data"]["framework"]["support"] == "untested"
+    assert "Untested framework release: pipecat-ai 1.17.999" in result.report.session_scope

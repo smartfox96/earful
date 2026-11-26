@@ -4,7 +4,6 @@ waiting for it."""
 from __future__ import annotations
 
 import livekit.agents as lk
-from invariants import HISTORY
 
 from earful.livekit import Case, ScriptedModel, UserSpeech, tool_returned, user_ever_said
 from shapes.corpus import judged
@@ -36,6 +35,3 @@ def case() -> Case:
 SHOULD = judged()
 # The filler is read as an unscripted reply.
 DEFECT = judged(M1="unobservable", M2="rule c")
-DEFECT_VARIED = {
-    HISTORY: judged(M1="unobservable", M2="rule b, rule c"),
-}

@@ -208,6 +208,7 @@ section 6 defines. An instance gets one of four verdicts.
 | `audio-unattributed` | evidence lost | A3, M1, L1 | A reply's audio cannot be told apart from a text that was not attributed and shares a word with it (`docs/ledger.md`, attribution) |
 | `readings-over-cap` | evidence lost | A3, M1, L1 | The same, because the ledger has more readings than the checker tries (section 2.5) |
 | `word-start-unknown` | evidence lost | A3 | The start of the claim's first word cannot be derived |
+| `handoff-context` | evidence lost | L1, M1, M2 | After a witnessed handoff, the receiving agent may supply its own context. M1 cannot establish retention across that boundary. M2 checks later delivered turns against their own transcript when the new context starts with them |
 | `memory-unaligned` | evidence lost | M1 | No context lines up with what was said (M2, rule c) |
 | `history-before-playout` | evidence lost | M1 | The final history was read before the playout finished |
 | `no-stable-text` | evidence lost | M2 | A tool's result has no stable text form to compare (rule d) |
@@ -295,6 +296,8 @@ The user does not hear that an action succeeded before the backend has recorded 
 ### M1. Played vs. remembered
 
 What the agent remembers having said matches what was played.
+
+After a handoff, `handoff-context` identifies a comparison that lacks evidence of shared memory.
 
 M1 judges everything the agent was scripted to say: each reply the model gave, and each
 text the application spoke itself (a greeting, a fixed phrase). For one such text with
@@ -386,13 +389,18 @@ expect of it and it leaves alone.
 | Rule f, tool items | A call item or a result item belongs to a call the model had made, found by its call id, and shows that call as the model made it. A call item carries the model's tool name and arguments. A result item carries the model's tool name; one whose name the ledger does not give (null) is not compared. Arguments are equal as text, or as JSON where both parse, so a framework that writes the same arguments out again is not penalized. A call item whose id the model had not given when the context was requested fails. A result item with such an id is rule d |
 | Discard policies | `noise`: speech with no transcript leaves no turn. `backchannel`: its transcript may be present or absent; where its words could equally be the start of the next turn, the reading that explains the most user text is taken. `cancelled_tool`: a call cancelled before it returned needs no result |
 | Policy | `user_commit_lag_us` (default 1 000 000): how long after the turn can be over a transcript may still be missing. In every reference ledger a transcript is in the first context requested after its delivery |
-| Evidence lost | `tool-unwitnessed`: rule d for a tool that was not witnessed, or that ran without a call id to link it by. `no-stable-text`: the value comparison in rule d, for a result with no stable text form (`text` is null); presence and order are still checked |
+| Evidence lost | `handoff-context`: attribution of conversation before a handoff to a fresh context. `tool-unwitnessed`: rule d for a tool that was not witnessed, or that ran without a call id to link it by. `no-stable-text`: the value comparison in rule d, for a result with no stable text form (`text` is null); presence and order are still checked |
 | Always reported | `stand_in_results`: results shown for calls that had not returned, and error results shown for a handoff. `refused_calls`: error results for calls no tool received |
 | Not judged | Whether a reply is in the context at all, and how much of an interrupted reply is kept. That is M1. The order of tool calls among themselves, and of a tool call against a reply. Where a reply sits among the user turns, beyond rule e. How often a call item appears for a call no tool received |
 | Deliberate break | A public agent hook that removes tool results from the context before the model call. Further variants repeat a user turn, show a tool call with other arguments, and show the tool calls before the turn that led to them |
 | Clean control | The unmodified agent |
 
 ### L1. Progress
+
+When two user turns across a handoff have identical words, the checker uses witnessed
+message IDs to distinguish them. If the context omits those IDs and both readings fit,
+`handoff-context` marks the affected progress verdict as unobservable.
+
 
 A turn that is owed a response gets one within its budget, and nothing blocks the turns
 after it.
@@ -406,9 +414,9 @@ after it.
 | Milestone 3 | The first word of a reply to the turn starts playing. Any reply will do, including one the framework generated again for the same turn (after a backchannel, or because what it had generated ahead of time was out of date); the one heard first counts. However the chain ends (the rounds run out, a call is never answered, the model says nothing), the turn is still owed this, unless its tools asked for silence |
 | Rule | Fail if a milestone has not occurred by its deadline. The deadline is the start of the clock, plus the declared end-of-turn delay, plus the scripted provider delays on the chain so far, plus `slack_us`. A finding names the milestone that was missed (`milestone 1`, `milestone 2`, `milestone 3`), so that a failure to call the model and a reply that never plays are different failures |
 | End-of-turn delay | The scripted VAD's `min_silence_us` plus the session's `min_endpointing_delay_us`: the latest the framework can decide the turn is over |
-| Delays on the chain | For each step already taken: the model's `duration_us`; if it spoke, the `ttfb_us` of its own utterance plus the length of its audio, since the framework finishes speaking before the next step; and, for each write its tools made, the backend `latency_us`, or the wait before the caller was told the write timed out. A tool's own running time is not on the chain: the scenario's code decides it and nothing declares it. A turn whose tool takes long by design needs a larger `slack_us` |
+| Delays on the chain | For each step already taken: the model's `duration_us`; if it spoke, the `ttfb_us` of its own utterance plus the length of its audio, since the framework finishes speaking before the next step; and, for each write its tools made, the backend `latency_us`, or the wait before the caller was told the write timed out. Declare intentional waiting or speech inside a tool in `tool_wait_us`, keyed by tool name. Each round uses the largest allowance among tools actually called, from the finish deadline onward |
 | Excused | The user began speaking again before the milestone was due. If that speech expects a reply it carries the obligation, and this turn has no verdict. If it is noise or a backchannel, the turn keeps the obligation and its clock restarts when that speech ends plus the false-interruption timeout. A header whose `false_interruption_timeout_us` is null adds nothing: Pipecat declares none, because it does not resume a reply. The user hung up before the milestone was due: the turn has no verdict. A milestone that was already overdue when the user left still fails |
-| Policy | `slack_us` (default 1 000 000). `max_steps` (default 4) |
+| Policy | `slack_us` (default 1 000 000). `max_steps` (default 4). `tool_wait_us` (default `{}`, microseconds) |
 | Nothing to judge | `run-ended`: the scenario ended (the final history was read) at or before the deadline, where the milestone could still have been met (section 2.3) |
 | Evidence lost | `tool-unwitnessed`: a tool the model called was not witnessed. `audio-unattributed` (or `readings-over-cap`): a reply's audio cannot be attributed, and it may have come first |
 | Flags | `silenced_by_a_tool`: the turn got no spoken reply because its tools asked for none. A turn that was spoken to all the same, by the reply that called the tool or by the agent handed over to, does not carry it. `most_favourable_reading`: which of the turn's replies was voiced is a reading (section 2.5) |

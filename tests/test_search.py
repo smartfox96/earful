@@ -448,6 +448,7 @@ def test_a_search_requires_a_contract_of_the_case_as_given():
     assert ran < tried  # a case already run to read the boundaries is not run again
     assert head.splitlines() == [
         f"book_then_interrupt on livekit-agents 1.8.12: {summary}",
+        found.original.session_scope,
         f"    {read + ran} run(s): {read} to find where to put things, {ran} for the cases",
         "    by contract: pass, fail, nothing to judge, evidence lost",
         *(f"    {name}  {0:>5} {0:>5} {tried:>5} {0:>5}" for name in ("A1", "A2", "A3")),
@@ -575,7 +576,8 @@ def test_a_search_that_could_judge_nothing_it_tried_fails_and_says_why_with_an_e
         found.assert_contracts()
     head, said = str(caught.value).split("\n\n")
     tried = len(found.tried)
-    first, runs = head.splitlines()
+    first, scope, runs = head.splitlines()
+    assert scope == found.original.session_scope
     assert first.endswith(f": {tried} cases tried, 0 judged, 0 contract rule(s) broken")
     assert runs == f"    {tried + 2} run(s): 2 to find where to put things, {tried} for the cases"
     assert said.splitlines() == [
@@ -596,8 +598,8 @@ def test_a_rule_the_case_breaks_as_given_is_found_where_no_case_tried_breaks_it(
     assert found.tried and found.breaking(A2) == [] and A2 in found.predicates()
     one = found.breaks()[0]
     assert (one.predicate, one.candidates, one.example) == (A2, 0, case)
-    assert one.what == "nothing: it breaks as written" and not one.everywhere
-    with pytest.raises(ContractFailure, match="A2/rule  in 0 case"):
+    assert one.what == "the original case only" and not one.everywhere
+    with pytest.raises(ContractFailure, match="A2/rule  in the original case only"):
         found.assert_contracts()
     alone = explore(case, answers(lambda moved: True), variables=[], faults=[])
     assert alone.tried == [] and alone.nothing_judged
@@ -614,6 +616,7 @@ def test_a_search_that_tried_no_case_fails():
     head, said = str(caught.value).split("\n\n")
     assert head.endswith(
         ": 0 cases tried, 0 judged, 0 contract rule(s) broken\n"
+        f"{clean.original.session_scope}\n"
         "    1 run(s): 1 to find where to put things"
     )
     assert said == "no case was tried, which leaves the search with no result"
@@ -2232,3 +2235,30 @@ def test_an_exit_or_os_error_names_the_reason_a_search_case_was_refused(exc):
 
     outcome = evaluate(refused, a_case(BOOK))
     assert outcome.why_not == "refused" and outcome.reason
+
+
+def test_an_untested_release_stays_visible_in_the_report_and_kept_bundle(tmp_path):
+    from earful.core.ledger import Ledger
+    from earful.scripted.releases import framework_info
+
+    def untested(case):
+        events = answers(INTERRUPTS)(case)
+        at = 0
+        recording = Ledger(lambda: at)
+        for event in events:
+            at = event["t_us"]
+            data = dict(event["data"])
+            if event["kind"] == "run.start":
+                data["framework"] = framework_info("livekit-agents", "1.8.999")
+            recording.append(event["source"], event["kind"], **data)
+        return recording.events
+
+    events = untested(FOUND)
+    assert {event["schema_minor"] for event in events} == {2}
+    report = check(events)
+    assert "Untested framework release: livekit-agents 1.8.999" in report.session_scope
+    assert report.session_scope in report.lines()
+    assert report.to_json()["session_scope"] == report.session_scope
+    manifest = bundle.capture(tmp_path / "kept", FOUND, untested, A2, repeats=1, max_runs=1)
+    assert manifest["framework"]["support"] == "untested"
+    assert manifest["schema_minor"] == 2 and not bundle.validate(manifest)

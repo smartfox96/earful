@@ -20,7 +20,7 @@ from earful import __version__
 from earful.cli import BROKEN, NO_VERDICT, OK, REFUSED, main
 from earful.core import bundle
 from earful.core import case as cases
-from earful.core.ledger import ledger_hash, read_jsonl
+from earful.core.ledger import ledger_hash, read_jsonl, session_scope
 from earful.core.schema import validate, validity
 from earful.livekit import Case, ScriptedModel, UserSpeech, scenario, tool_returned, user_ever_said
 
@@ -513,6 +513,7 @@ def test_a_search_that_could_judge_nothing_it_tried_exits_3_and_gives_the_reason
     assert status == NO_VERDICT
     assert out.endswith(
         ": 1 cases tried, 0 judged, 0 contract rule(s) broken\n"
+        f"{session_scope(read_jsonl(CLEAN)[0]['data'])}\n"
         "    2 run(s): 2 to find where to put things\n\n"
         "not judged: 1 of 1 cases, which leaves the search with no result\n"
         "    1 refused: this adapter cannot fail a write\n"
@@ -702,7 +703,8 @@ def test_crosscheck_runs_a_kept_failure_on_both_clocks_and_writes_every_ledger(c
     assert lines[0] == f"speak_over_new_turn on livekit-agents {lk.__version__}"
     assert lines[1].startswith("on the virtual clock it breaks ")
     assert "real-clock runs agree with the virtual run, within 2000 ms and 40 word(s)" in lines[2]
-    assert lines[3].startswith("run 1: ")
+    assert "silence-based turn detection" in lines[3]
+    assert lines[4].startswith("run 1: ")
     assert validity(read_jsonl(tmp_path / "virtual.ledger.jsonl")) == []
     assert validity(read_jsonl(tmp_path / "real-1.ledger.jsonl")) == [
         "the run was on the real clock"
@@ -742,10 +744,7 @@ def test_without_the_framework_ledgers_are_checked_and_a_run_is_refused_with_wha
     done = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, check=False)
     assert done.returncode == 0, done.stderr
     assert 'pip install "earful[livekit]"' in done.stderr
-    assert (
-        "earful: myapp.agent:SupportAgent needs livekit-agents, which is not installed. "
-        'Install it with: pip install "earful[livekit]"'
-    ) in done.stderr
+    assert "cannot import module 'myapp.agent' for 'myapp.agent:SupportAgent'" in done.stderr
 
 
 def test_run_exits_3_for_a_run_that_is_not_valid_evidence_and_still_writes_its_ledger(
@@ -867,6 +866,7 @@ class _EndsTheProcess(lk.Agent):
 def ends_the_process() -> Case:
     return Case(
         name="ends_the_process",
+        scripted_turns=True,
         agent=_EndsTheProcess,
         speeches=[UserSpeech(start=0.5, end=2.5, transcript="A table for four tonight, please.")],
         policy=ScriptedModel()

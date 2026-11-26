@@ -1501,6 +1501,8 @@ def _header(run: _Run, report: Report | None, error: str, title: str, digest: st
         ("events", f"{len(run.evs)}, over {_sec(run.t_hi - run.t_lo)}"),
         ("origin", origin),
     ]
+    if report is not None and report.session_scope:
+        facts.append(("session", report.session_scope))
     rows = "".join(f"<div><dt>{_e(k)}</dt><dd>{_e(v)}</dd></div>" for k, v in facts)
     chips = ""
     if report is not None and report.valid:

@@ -38,6 +38,7 @@ class Agent(lk.Agent):
 def booking(**changes):
     fields = dict(
         name="booking",
+        scripted_turns=True,
         agent=Agent,
         effects={"create_reservation": Effect("book-table")},
         speeches=[UserSpeech(start=0.5, end=2.5, transcript="Book a table for six tonight.")],

@@ -42,22 +42,24 @@ across the handoff ([`contracts.md`](contracts.md#m2-turn-integrity), rule d).
 
 ## pipecat-ai
 
-Supported pipecat-ai series: 1.16. The table gives the release and resolution date
+Supported pipecat-ai series: 1.16, 1.17. The table gives the release and resolution date
 used by `scripts/make_pipecat_env.sh`.
 
 | pipecat-ai | Dependencies as of | Lock file |
 | --- | --- | --- |
 | 1.16.0 | 2026-11-18 | `compat/pc-1.16.0.lock.txt` |
+| 1.17.0 | 2026-11-24 | `compat/pc-1.17.0.lock.txt` |
 
 `pip install "earful[pipecat]"` accepts pipecat-ai from 1.16 up to, and not
-including, 1.17, on Python 3.11 or later. pipecat-ai does not support Python 3.10, and
+including, 1.18, on Python 3.11 or later. pipecat-ai does not support Python 3.10, and
 there the extra installs Earful alone. `earful.pipecat` warns once when it is imported on
-a 1.16 release other than 1.16.0, and refuses to import on a release outside the range.
+a release inside the range that is absent from the table, and refuses to import on a release outside the range.
 
 The adapter uses Pipecat's VAD turn-start and speech-timeout turn-stop strategies.
-The scripted model reads three private names of `LLMService`: `_functions`,
-`_cancel_tool_names` and `_sync_registered_tool_handlers`. A release that keeps one of
-them elsewhere is refused in one line before a run.
+The scripted model reads `LLMService._functions` and `_sync_registered_tool_handlers`.
+It excludes framework-owned functions through `_cancel_tool_names` on 1.16 and
+`_extension_tool_names` on 1.17. The run, report and kept bundle identify an untested
+installed release.
 [Writing a Pipecat scenario](pipecat.md)
 
 ## The options Earful models on LiveKit
@@ -158,6 +160,10 @@ the two rows on Linux from the checkout.
 | 1.16.0 | 3.12 | Linux | the built wheel |
 | 1.16.0 | 3.13 | Linux | the checkout |
 | 1.16.0 | 3.13 | macOS | the checkout |
+| 1.17.0 | 3.11 | Linux | the checkout |
+| 1.17.0 | 3.12 | Linux | the built wheel |
+| 1.17.0 | 3.13 | Linux | the checkout |
+| 1.17.0 | 3.13 | macOS | the checkout |
 
 The reference ledgers are the same on every row. On Python 3.11 pipecat-ai replaces
 `asyncio.wait_for` with the one from the `wait_for2` package, which takes more steps of

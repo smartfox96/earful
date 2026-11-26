@@ -10,6 +10,7 @@ import livekit.agents as lk
 from livekit.agents.utils import is_given
 
 from . import seams
+from .application import realtime_provider_refusal
 
 # AgentSession options a case passes in session_kwargs as they are. The header lists them.
 PASSED = {
@@ -117,6 +118,14 @@ def agent_options() -> frozenset[str]:
 def refuse_session_kwargs(given: Mapping[str, Any]) -> None:
     """Raise ``ValueError`` in one line for the first option Earful does not pass as it is."""
     for name in sorted(given):
+        if name == "llm" and (reason := realtime_provider_refusal(given[name])):
+            raise ValueError(f"session_kwargs {name!r}: {reason}")
+        if name == "turn_handling":
+            raise ValueError(
+                "session_kwargs may not set 'turn_handling': Case exposes endpointing delays, "
+                "interruption duration, timeout, allow_interruptions and preemptive_generation; "
+                "turn models and minimum word counts are unsupported"
+            )
         if name in FROM_CASE:
             raise ValueError(f"session_kwargs may not set {name!r}: use Case.{FROM_CASE[name]}")
         if name in REFUSED:
@@ -142,7 +151,10 @@ def agent_refusal(agent: lk.Agent, session: lk.AgentSession[Any]) -> str | None:
     for option, why in AGENT_REFUSED.items():
         if option not in agent_options():
             continue
-        if _sets(option, seams.agent_option(agent, option)):
+        value = seams.agent_option(agent, option)
+        if _sets(option, value):
+            if option == "llm" and (reason := realtime_provider_refusal(value)):
+                return f"{name} sets its own llm: {reason}"
             return f"{name} sets its own {option}, which {why}"
     held: Mapping[str, Any] = session.options.turn_handling
     for group, value in seams.turn_handling(agent).items():

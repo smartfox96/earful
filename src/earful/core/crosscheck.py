@@ -9,6 +9,7 @@ from typing import Any
 
 from .checker import _judge
 from .checker.report import broken_rules
+from .ledger import session_scope
 from .schema import validity
 
 Event = dict[str, Any]
@@ -348,6 +349,8 @@ class CrossCheck:
                 f"{self.tolerance.words} word(s)"
             ),
         ]
+        if scope := session_scope(header):
+            out.append(scope)
         for number, comparison in enumerate(self.comparisons, 1):
             if comparison.unusable:
                 out.append(f"run {number}: cannot be compared")
@@ -368,6 +371,7 @@ class CrossCheck:
         header = self.virtual[0]["data"]
         return {
             "case": header["case"],
+            **({"session_scope": scope} if (scope := session_scope(header)) else {}),
             "framework": header["framework"],
             "tolerance": {"time_us": self.tolerance.time_us, "words": self.tolerance.words},
             "agrees": self.agrees,

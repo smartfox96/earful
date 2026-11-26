@@ -37,9 +37,9 @@ SUPPORT = {
     "pipecat-ai": Support(
         adapter="earful.pipecat",
         extra="pipecat",
-        tested=("1.16.0",),
+        tested=("1.16.0", "1.17.0"),
         lowest="1.16",
-        below="1.17",
+        below="1.18",
     ),
 }
 
@@ -47,6 +47,13 @@ SUPPORT = {
 def _numbers(version: str) -> tuple[int, ...] | None:
     leading = re.match(r"\d+(?:\.\d+)*", version)
     return tuple(int(part) for part in leading.group().split(".")) if leading else None
+
+
+def framework_info(package: str, installed: str) -> dict[str, str]:
+    info = {"name": package, "version": installed}
+    if installed not in SUPPORT[package].tested:
+        info["support"] = "untested"
+    return info
 
 
 def admit(package: str, installed: str) -> None:

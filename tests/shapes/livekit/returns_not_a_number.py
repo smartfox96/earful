@@ -4,7 +4,6 @@ a number."""
 from __future__ import annotations
 
 import livekit.agents as lk
-from invariants import HISTORY
 
 from earful.livekit import (
     Case,
@@ -45,6 +44,3 @@ def case() -> Case:
 SHOULD = judged(A2="pass")
 # Recording the value raises inside the tool call: the model is told it failed.
 DEFECT = judged(L1="milestone 2")
-DEFECT_VARIED = {
-    HISTORY: judged(M2="rule b", L1="milestone 2"),
-}

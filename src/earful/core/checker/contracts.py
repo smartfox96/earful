@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 
 @dataclass(frozen=True)
@@ -38,6 +38,7 @@ class M2:
 class L1:
     slack_us: int = 1_000_000
     max_steps: int = 4
+    tool_wait_us: dict[str, int] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -109,6 +110,7 @@ DECLARED: dict[str, Contract] = {
                 "audio-unattributed",
                 "readings-over-cap",
                 "memory-unaligned",
+                "handoff-context",
                 "history-before-playout",
             ),
             exercised_by="reply or spoken text whose playout finished or was abandoned",
@@ -120,7 +122,7 @@ DECLARED: dict[str, Contract] = {
             "order.",
             policy=M2,
             rules=("rule a", "rule b", "rule c", "rule d", "rule e", "rule f"),
-            codes=("no-stable-text", "tool-unwitnessed"),
+            codes=("no-stable-text", "tool-unwitnessed", "handoff-context"),
             exercised_by="model call",
         ),
         Contract(
@@ -129,7 +131,13 @@ DECLARED: dict[str, Contract] = {
             statement="A turn that is owed a response gets one within its budget.",
             policy=L1,
             rules=("milestone 1", "milestone 2", "milestone 3"),
-            codes=("run-ended", "audio-unattributed", "readings-over-cap", "tool-unwitnessed"),
+            codes=(
+                "run-ended",
+                "audio-unattributed",
+                "readings-over-cap",
+                "handoff-context",
+                "tool-unwitnessed",
+            ),
             exercised_by="delivered speech that expects a reply",
         ),
         Contract(

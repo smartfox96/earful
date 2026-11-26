@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import importlib
 import inspect
 import re
@@ -12,15 +13,21 @@ import livekit.agents as lk
 import pydantic
 from livekit.agents import llm as lk_llm
 
+from ..scripted.playbook import ScriptedModel
 from ..scripted.scaffold import (
     Scaffold,
     effects_lines,
     literal,
     model_lines,
     placeholder,
+    select_writes,
     snake,
     tests_lines,
 )
+from .application import check_session
+from .case import Case
+from .config import _session_kwargs
+from .options import agent_refusal
 
 _REFERENCE = re.compile(r"^[A-Za-z_][A-Za-z0-9_.]*:[A-Za-z_][A-Za-z0-9_]*$")
 _TOOLS = (lk_llm.FunctionTool, lk_llm.RawFunctionTool)
@@ -63,23 +70,29 @@ def _given(needs: list[inspect.Parameter]) -> tuple[list[Any], dict[str, Any]]:
     return positional, named
 
 
-def _tools(agent: type[lk.Agent], needs: list[inspect.Parameter]) -> tuple[list[Any], str | None]:
+def _tools(agent: type[lk.Agent], needs: list[inspect.Parameter]) -> list[Any]:
     """The agent's tools, read from one built as the test will build it, and why if it cannot be."""
     build: Any = agent
     positional, named = _given(needs)
-    unbuilt = None
     try:
-        found = build(*positional, **named).tools
+        instance = build(*positional, **named)
+        found = instance.tools
     except Exception as exc:
-        if not needs:
-            raise ValueError(
-                f"{agent.__name__}() raised {type(exc).__name__}: {exc}. "
-                "`earful init` builds the agent to read its tools"
-            ) from exc
-        unbuilt = f"{type(exc).__name__}: {exc}"
-        found = lk_llm.find_function_tools(object.__new__(agent))  # the tools its class declares
+        given = ", ".join([*("None" for _ in positional), *(f"{k}=None" for k in named)])
+        raise ValueError(
+            f"{agent.__name__}({given}) raised {type(exc).__name__}: {exc}. "
+            "`earful init` builds the agent to read its tools"
+        ) from exc
+    case = Case(name="init", agent=agent, speeches=[], policy=ScriptedModel(), scripted_turns=True)
+    loop = asyncio.new_event_loop()
+    try:
+        session = lk.AgentSession(loop=loop, **_session_kwargs(case))
+        if reason := agent_refusal(instance, session):
+            raise ValueError(reason)
+    finally:
+        loop.close()
     tools = sorted((t for t in found if isinstance(t, _TOOLS)), key=lambda t: t.info.name)
-    return tools, unbuilt
+    return tools
 
 
 def _arguments(tool: Any) -> dict[str, Any]:
@@ -126,13 +139,18 @@ def _call(tools: list[Any]) -> tuple[str, dict[str, Any]]:
     raise refused[0]
 
 
-def scaffold(reference: str) -> Scaffold:
+def scaffold(
+    reference: str, *, scripted_turns: bool = True, writes: tuple[str, ...] = ()
+) -> Scaffold:
     """The first test of the agent ``reference`` names, as ``module:Class``. Raises
     ``ValueError`` for a reference that does not name a class of agent."""
     module, name, agent = _resolve(reference)
+    check_session(agent, scripted_turns, declaration="earful init --scripted-turns")
     needs = _needs(agent)
-    tools, unbuilt = _tools(agent, needs)
-    names = [tool.info.name for tool in tools]
+    offered = _tools(agent, needs)
+    names = [tool.info.name for tool in offered]
+    selected = select_writes(writes, names)
+    tools = [tool for tool in offered if tool.info.name in selected]
     called, arguments = _call(tools) if tools else ("", {})
     scenario = snake(name)
     uses = ["Case", "Effect", "ScriptedModel", "UserSpeech"] if tools else None
@@ -142,7 +160,7 @@ def scaffold(reference: str) -> Scaffold:
         f"from earful.livekit import {', '.join(uses or ['Case', 'ScriptedModel', 'UserSpeech'])}",
     ]
     if tools:
-        lines += ["from earful.livekit import tool_failed, tool_succeeded"]
+        lines += ["from earful.livekit import tool_failed, tool_succeeded, user_said"]
     lines += ["", f"from {module} import {name}", ""]
 
     if tools:
@@ -159,16 +177,10 @@ def scaffold(reference: str) -> Scaffold:
             "None" if p.kind is inspect.Parameter.POSITIONAL_ONLY else f"{p.name}=None"
             for p in needs
         )
-        works = (
-            "    # None works while every tool is an effect below. Give a stand-in for what a"
-            if unbuilt is None
-            else "    # None does not build it: give a stand-in for each, and for what a"
-        )
         lines += [
             f"def build() -> {name}:",
             f"    # {name} is built with: {', '.join(p.name for p in needs)}.",
-            works,
-            "    # tool calls when you take that tool out of `effects`.",
+            "    # Supply a stand-in for dependencies your test exercises.",
             f"    return {name}({given})",
             "",
             "",
@@ -179,9 +191,10 @@ def scaffold(reference: str) -> Scaffold:
         "    return Case(",
         f"        name={literal(scenario)},",
         f"        agent={'build' if needs else name},",
+        "        scripted_turns=True,",
     ]
     if tools:
-        lines += effects_lines(names)
+        lines += effects_lines(selected)
     lines += [
         "        # What the user says, in seconds from the start.",
         "        speeches=[",
@@ -193,7 +206,7 @@ def scaffold(reference: str) -> Scaffold:
         "",
         *tests_lines(scenario, ["A2", "A3", "L1"] if tools else ["L1"]),
     ]
-    return Scaffold(f"test_{scenario}.py", "\n".join(lines) + "\n", tuple(names), unbuilt)
+    return Scaffold(f"test_{scenario}.py", "\n".join(lines) + "\n", tuple(names))
 
 
 __all__ = ["Scaffold", "scaffold"]

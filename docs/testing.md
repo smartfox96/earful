@@ -57,6 +57,10 @@ def test_a_booking_is_made_once_and_confirmed_truthfully():
 A `Case` holds everything that defines a run. The same case and seed give the same
 ledger.
 
+Earful builds the LiveKit session with separate scripted providers and lets silence
+end a turn. Each result states which services and turn detection Earful used. If your application uses a turn-taking model, its decisions are outside
+this test. Speech-to-speech sessions are unsupported.
+
 | Field | What it is |
 | --- | --- |
 | `name` | Names the case in the ledger and in messages |
@@ -71,6 +75,11 @@ ledger.
 
 The remaining fields set the scripted voice, the VAD and the session's turn handling.
 The `Case` class lists them with their defaults.
+
+A tool that deliberately waits can declare its completion allowance in microseconds.
+For a three-second availability lookup, pass
+`contracts={"L1": {"tool_wait_us": {"look_up_availability": 3_000_000}}}` to `Case`.
+The allowance starts at the tool's finish check and applies only in a round that called it.
 
 ## 2. The model
 
@@ -481,7 +490,7 @@ earful report failures/lk-1.8.13.booking.A3-rule -o report.html
 
 | Command | Does |
 | --- | --- |
-| `earful init AGENT` | Writes a first test for a livekit-agents agent, named as `module:Class`, into `test_<agent>.py` (`-o FILE` names another). The scripted model calls the agent's first tool with a value for each argument the tool requires, and once more if the call fails. Every tool is declared an effect, so no tool body runs. Both tests require A2, A3 and L1 to reach a verdict, and the search fails on a write the model repeats until the file declares that write's idempotency key. The file marks what to change. An agent that cannot be built without arguments is built with `None` for each. A tool it cannot write a call for, because no value it has is one the tool accepts, is refused. Named as `module:function`, a Pipecat bot gets the same test, written from the functions it registers and the tools its context advertises ([`pipecat.md`](pipecat.md#a-first-test-of-your-bot)). Adds `.earful/` to an existing `.gitignore`, or creates one at a Git root |
+| `earful init AGENT` | Writes a first conversation test requiring L1. Use an importable `module:Class` for LiveKit, or `module:function` for Pipecat. Setup lists the tools it can see. Declare durable writes by name with `--write TOOL` (repeatable) to generate a write and retry test requiring A2, A3 and L1. Required constructor or bot arguments receive `None`; setup refuses a factory that cannot run this way. Use `-o FILE` to choose the destination. |
 | `earful check LEDGER...` | Prints the verdicts for recorded ledgers. `--measures` adds what each verdict measured, `--json` prints one report per line |
 | `earful run SCENARIO` | Runs a scenario once and prints its verdicts. `--case FILE` runs a saved case, `--ledger FILE` writes the ledger |
 | `earful search SCENARIO` | Searches a scenario, in one worker process per processor unless `--workers` says otherwise. Where worker processes cannot be started, as in some sandboxes and containers, it says so and searches in its own process; with `--workers N` given it refuses. `--keep CONTRACT/RULE --out DIR` writes a bundle for a rule that broke, in a directory of `DIR` named after the framework release, the scenario's function and the rule: `lk-1.8.12.booking.A3-rule` on livekit-agents, `pc-1.16.0.booking.A3-rule` on pipecat-ai. `--variables`, `--faults`, `--pairs`, `--profiles`, `--no-words` and `--no-windows` narrow or widen the search. It prints how many cases it is about to run on standard error, and `--max-runs N` stops it after N runs: a search cut short is incomplete and exits 3 unless a rule broke. With `--no-windows` a rule that breaks only at single instants counts as broken, and the output names the rules that were not measured |

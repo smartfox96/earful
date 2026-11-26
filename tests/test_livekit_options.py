@@ -20,7 +20,7 @@ from earful.scripted.playbook import ScriptedModel, tool_succeeded
 def _case(agent=lambda: lk.Agent(instructions="t"), **fields):
     fields.setdefault("speeches", [UserSpeech(0.5, 1.5, "Hello.")])
     fields.setdefault("policy", ScriptedModel().otherwise(say="Hi."))
-    return Case(name="options", agent=agent, **fields)
+    return Case(name="options", scripted_turns=True, agent=agent, **fields)
 
 
 def _session(result):
@@ -69,7 +69,12 @@ def test_every_option_of_the_installed_release_is_modelled_or_refused():
 
 @pytest.mark.parametrize("name", sorted(options.FROM_CASE))
 def test_an_option_a_case_field_sets_is_refused_in_session_kwargs(name):
-    with pytest.raises(ValueError, match=rf"may not set '{name}': use Case\."):
+    why = (
+        "minimum word counts are unsupported"
+        if name == "turn_handling"
+        else rf"may not set '{name}': use Case\."
+    )
+    with pytest.raises(ValueError, match=why):
         _case(session_kwargs={name: 1}).check()
 
 

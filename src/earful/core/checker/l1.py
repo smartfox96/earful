@@ -6,7 +6,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from . import policy as policies
-from .memory import user_turns
+from .memory import context_turns
 from .report import CODES, ContractResult, Finding, result, verdict
 from .view import Event, ModelCall, Speech, View
 
@@ -152,7 +152,8 @@ def _tool_round(
     )
     # The framework finishes speaking a reply before it takes the next step.
     audio = turn.ttfb_of(asking) + view.audio_us(asking) if asking.words else 0
-    turn.elapsed += data["duration_us"] + audio + latency
+    wait = max((turn.policy.tool_wait_us.get(t.name, 0) for t in ran), default=0)
+    turn.elapsed += data["duration_us"] + audio + latency + wait
     outcomes = [t.outcome for t in ran if t.outcome is not None]
     done = len(outcomes) == len(ran) and all(o["kind"] != "tool.cancelled" for o in outcomes)
     finished = max([o["t_us"] for o in outcomes] + [asked for _ in refused]) if done else None
@@ -255,17 +256,37 @@ def check(view: View, policy: policies.L1) -> ContractResult:
     calls = list(view.calls.values())
     # A model call belongs to the latest turn in its context that is owed a reply.
     latest_turn: dict[int, int | None] = {}
+    uncertain: dict[int, list[Event]] = {}
     for call in calls:
-        seen = user_turns(
-            call.items, [s for s in view.delivered if s.delivery["seq"] < call.request["seq"]]
-        )
+        seen, _, _ = context_turns(view, call.request, call.items)
         owed = [s.index for s in seen.present if s.expects_reply]
-        latest_turn[call.call] = owed[-1] if owed else None
+        latest_turn[call.call] = owed[-1] if owed and owed[-1] not in seen.ambiguous else None
+        for index in seen.ambiguous:
+            uncertain.setdefault(index, []).append(call.request)
 
     for speech in view.delivered:
         if not speech.expects_reply:
             continue
         chain = [c for c in calls if latest_turn[c.call] == speech.index]
+        if not chain and speech.index in uncertain:
+            verdicts.append(
+                verdict(
+                    "L1",
+                    {"speech": speech.index},
+                    "cannot attribute an identical transcript across a handoff",
+                    events=[speech.delivery, *uncertain[speech.index]],
+                    missing=[
+                        (
+                            "handoff-context",
+                            (
+                                "the context contains the words but lacks "
+                                "a message ID that distinguishes the two turns"
+                            ),
+                        )
+                    ],
+                )
+            )
+            continue
         turn = _milestones(view, policy, speech, chain, calls)
         budget, steps, used = turn.budget, turn.steps, turn.used
         instance = {"speech": speech.index}

@@ -6,7 +6,6 @@ from __future__ import annotations
 from typing import Any
 
 import livekit.agents as lk
-from invariants import HISTORY
 from livekit.agents import llm
 
 from earful.livekit import Case, Claim, Intent, Reply, ToolCall, UserSpeech, effect
@@ -58,6 +57,3 @@ def case() -> Case:
 
 SHOULD = judged(M2="pass")
 DEFECT = judged(M2="rule a")  # the side question is read as a turn of the conversation
-DEFECT_VARIED = {
-    HISTORY: judged(M2="rule a, rule b"),
-}

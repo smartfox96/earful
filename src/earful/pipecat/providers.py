@@ -238,6 +238,7 @@ class ScriptedLLM(LLMService):
         self._ttft_us, self._duration_us = ttft_us, duration_us
         self._call_ids: set[str] = set()
         self._calls = 0
+        self._explicit: dict[str, Any] = {}
         self._witnessed: list[object] = []  # handlers the witness is already around
         self.listed: frozenset[str] | None = None  # the functions the header names, once written
         self.activity = Activity()
@@ -249,6 +250,7 @@ class ScriptedLLM(LLMService):
         when it first sees the context."""
         functions, cancel = seams.registered(self), seams.cancel_tools(self)
         if advertised is not None:
+            self._explicit = {name: item.handler for name, item in functions.items() if name}
             seams.sync_handlers(self, advertised)
         for name, item in functions.items():
             if name in cancel or item.handler in self._witnessed:
@@ -261,19 +263,35 @@ class ScriptedLLM(LLMService):
                 self._witnessed.append(item.handler)
         names = {name or "*" for name in functions if name not in cancel}
         if self.listed is not None:
-            for name in sorted(names - self.listed - self._witness.names):
-                self._errors.append(
-                    f"the bot registered {name!r} after bot() returned, so the run's header "
-                    "does not list it: register every function in bot()"
+            new = sorted(names - self.listed)
+            if new:
+                self._witness.refusal = (
+                    f"the bot registered {new[0]!r} after bot() returned, so the run's header "
+                    "does not list it; dynamically registered handlers cannot be tested"
                 )
         self._witness.names = names
 
     async def process_frame(self, frame: Frame, direction: FrameDirection) -> None:
+        if isinstance(frame, LLMContextFrame):
+            for tool in seams.schema_handlers(frame.context.tools):
+                handler = tool.handler
+                if (
+                    handler is not None
+                    and tool.name in self._explicit
+                    and handler != self._explicit[tool.name]
+                ):
+                    self._witness.refusal = (
+                        f"bot() registered {tool.name!r} ahead of a different handler advertised "
+                        "by the pipeline; Pipecat would call the bot's handler in its place"
+                    )
+                    return
         await super().process_frame(frame, direction)
         if not isinstance(frame, LLMContextFrame):
             await self.push_frame(frame, direction)
             return
         self.witness_tools()  # the base class has just registered what this context advertises
+        if self._witness.refusal:
+            return
         await self.push_frame(LLMFullResponseStartFrame())
         try:
             with self.activity.working():

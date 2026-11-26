@@ -50,7 +50,7 @@ class View:
         self.effects: dict[int, Effect] = {}
         self.commands: list[Event] = []
         self.history: Event | None = None
-        self.seeded: list[dict[str, Any]] = self.scenario.get("history", [])
+        self.seeded: list[dict[str, Any]] = [dict(i) for i in self.scenario.get("history", [])]
         self.intents: dict[str, dict[str, Any]] = {
             it["intent"]: it for it in self.scenario["intents"]
         }
@@ -67,6 +67,9 @@ class View:
             elif kind in ("user.vad_start", "user.vad_end", "user.transcript_final"):
                 speech_events.setdefault(d["speech"], {})[kind] = e
             elif kind == "llm.request":
+                if self.seeded and not self.calls:
+                    # IDs distinguish a seeded message from a later identical transcript.
+                    unseeded(d["items"], self.seeded, identify=True)
                 self.calls[d["call"]] = ModelCall(d["call"], e, seeded=self.seeded)
             elif kind == "llm.response":
                 self.calls[d["call"]].response = e
@@ -245,6 +248,19 @@ class View:
     @cached_property
     def delivered(self) -> list[Speech]:
         return sorted((s for s in self.speeches if s.final), key=lambda s: s.delivery["seq"])
+
+    @cached_property
+    def handoffs(self) -> list[Event]:
+        return sorted(
+            (
+                t.outcome
+                for t in self.tools.values()
+                if t.outcome is not None
+                and t.outcome["kind"] == "tool.returned"
+                and t.outcome["data"].get("handoff")
+            ),
+            key=lambda e: e["seq"],
+        )
 
     @cached_property
     def contexts(self) -> list[tuple[str, Event, list[dict[str, Any]]]]:

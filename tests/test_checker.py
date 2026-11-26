@@ -9,7 +9,6 @@ import re
 from pathlib import Path
 
 import pytest
-from shapes.corpus import KnownDefect
 
 from earful.core.checker import (
     FAIL,
@@ -199,7 +198,9 @@ def test_a_required_contract_that_was_not_exercised_fails_the_assertion_and_says
         report.assert_contracts(require=["A2", "A1"], what="the booking")
     said = str(caught.value).split("\n\n")
     assert said[0] == "the booking has no pass or fail for the required A1"
-    assert said[1].startswith(f"A1 {why}") and said[2].startswith("A1  not_exercised\nA2  pass")
+    assert said[1].startswith(f"A1 {why}") and said[2].startswith(
+        f"{report.session_scope}\nA1  not_exercised\nA2  pass"
+    )
 
 
 def test_a_required_contract_that_is_unobservable_fails_the_assertion_and_says_why(affected):
@@ -1416,6 +1417,9 @@ def test_m2_what_the_model_is_shown_for_a_tool_that_raised_is_not_judged(fixed):
         "message": "",
         "expects_reply": False,
     }
+    report = check(fixed)
+    assert "Tool create_reservation raised StopResponse:" in "\n".join(report.lines())
+    assert report.to_json()["tool_errors"] == report.tool_errors
     shown(fixed, 2, "function_call_output")["output"] = ""
     assert check(copy.deepcopy(fixed)).outcome("M2") == PASS
     # older releases keep neither the call nor a result for it
@@ -2558,11 +2562,6 @@ def test_the_history_an_agent_started_with_is_left_out_of_every_context():
     assert recorded.valid and recorded.outcomes() == check(events).outcomes()
 
 
-@pytest.mark.xfail(
-    strict=True,
-    raises=KnownDefect,
-    reason="Earful: a starting history is taken out of the run by its words",
-)
 def test_a_turn_the_final_history_holds_twice_is_found_behind_an_earlier_turn_of_its_words():
     events = load("1.8.13", "book_then_interrupt")
     final = of(events, "history.final")["data"]["items"]
@@ -2575,8 +2574,7 @@ def test_a_turn_the_final_history_holds_twice_is_found_behind_an_earlier_turn_of
         if e["kind"] == "llm.request":  # the model is shown it, the final history is not
             items = e["data"]["items"]
             items.insert(next(n for n, i in enumerate(items) if i.get("role") != "system"), earlier)
-    if rules(check(seal(events)), "M2") != ["rule a", "rule b"]:
-        raise KnownDefect("the turn held twice passes")
+    assert rules(check(seal(events)), "M2") == ["rule a", "rule b"]
 
 
 def test_each_item_of_the_starting_history_takes_out_the_first_like_it_in_order():
@@ -2736,3 +2734,25 @@ def test_m2_a_tool_that_ran_without_a_call_id_is_lost_only_where_the_model_asked
     assert why == "create_reservation ran without a call id to link it to call 'call-1-1'"
     itself = check(_unlinked_and_dropped(copy.deepcopy(fixed), asked=False))
     assert "M2/tool-unwitnessed" not in itself.lost() and itself.outcome("M2") != UNOBSERVABLE
+
+
+@pytest.mark.parametrize(
+    "declared,extra", [({"create_reservation": 3_000_000}, 3_000_000), ({"other": 9_000_000}, 0)]
+)
+def test_l1_only_the_called_tools_wait_extends_the_finish_deadline(affected, declared, extra):
+    steps = _steps(_second_turn(_nothing_to_spare(affected, tool_wait_us=declared)))
+    assert [(name, due) for name, _, due in steps] == [
+        (SEEN, 6_500_000),
+        (MADE, 6_800_000),
+        (FINISHES, 11_977_647 + extra),
+        (FOLLOWS, 11_977_647 + extra),
+        (AUDIO, 6_817_647),
+    ]
+
+
+@pytest.mark.parametrize("bad", [{"t": True}, {"": 1}, {"t": -1}, {"t": 0.5}, []])
+def test_l1_rejects_an_invalid_per_tool_wait(bad):
+    from earful.core.checker.policy import PolicyError, parse
+
+    with pytest.raises(PolicyError, match="tool_wait_us"):
+        parse("L1", {"tool_wait_us": bad})

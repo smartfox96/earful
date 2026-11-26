@@ -37,7 +37,7 @@ Issues = "https://github.com/smartfox96/earful/issues"
 # The releases tested: docs/compatibility.md.
 livekit = ["livekit-agents>=1.5.6,<1.9"]
 # pipecat-ai needs Python 3.11: on 3.10 the extra installs nothing.
-pipecat = ["pipecat-ai>=1.16,<1.17; python_version >= '3.11'"]
+pipecat = ["pipecat-ai>=1.16,<1.18; python_version >= '3.11'"]
 
 [project.scripts]
 earful = "earful.cli:main"

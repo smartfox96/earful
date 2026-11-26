@@ -256,7 +256,8 @@ class Exploration:
                 return (2 if tried.candidate.base else 1, moved)
 
             if predicate in self.original.failures:
-                example, what = self.case, "nothing: it breaks as written"
+                example = self.case
+                what = "the original case only" if not breaking else "nothing: it breaks as written"
             else:
                 nearest = min(breaking, key=distance)
                 example, what = nearest.candidate.case, self._what(nearest.candidate)
@@ -331,6 +332,8 @@ class Exploration:
                 f"{counts['ran']} judged, {len(decision.broken)} contract rule(s) broken"
             )
         ]
+        if self.original.session_scope:
+            lines.append(self.original.session_scope)
         made = self.runner.by_purpose
         purposes = [f"{made[p]} {why}" for p, why in _PURPOSES.items() if made.get(p)]
         lines.append(f"    {self.runs} run(s): {', '.join(purposes)}")
@@ -346,8 +349,13 @@ class Exploration:
             lines += ["", f"{spent}{' and '.join(left)}. Nothing is concluded about them"]
         for one in found:
             lines.append("")
+            where = (
+                f"in {one.candidates} case(s)"
+                if one.candidates
+                else "in the original case only (0 search candidates)"
+            )
             lines.append(
-                f"{one.predicate}  in {one.candidates} case(s)"
+                f"{one.predicate}  {where}"
                 + (
                     "  (at single instants only: same-instant order, not counted)"
                     * one.instants_only
@@ -428,6 +436,11 @@ class Exploration:
             counts[tried.outcome.why_not or "ran"] += 1
         return {
             "candidates": len(self.tried),
+            **(
+                {"session_scope": self.original.session_scope}
+                if self.original.session_scope
+                else {}
+            ),
             **counts,
             "impossible_placements": len(self.impossible),
             "runs": self.runs,

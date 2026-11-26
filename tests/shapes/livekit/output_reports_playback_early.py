@@ -8,7 +8,6 @@ import asyncio
 from collections.abc import Callable
 
 import livekit.agents as lk
-from invariants import HISTORY
 
 from earful.livekit import Case, ClockedSink, ScriptedModel, UserSpeech, user_said
 from shapes.corpus import judged
@@ -38,6 +37,3 @@ def case() -> Case:
 SHOULD = judged(M1="fail", L1="milestone 3", L2="rule b")
 # A reply none of whose words played is remembered whole, and M1 passes it.
 DEFECT = judged(L1="milestone 3", L2="rule b")
-DEFECT_VARIED = {
-    HISTORY: judged(M2="rule a, rule b", L1="milestone 3", L2="rule b"),
-}

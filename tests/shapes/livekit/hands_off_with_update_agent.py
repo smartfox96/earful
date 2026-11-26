@@ -6,7 +6,6 @@ from __future__ import annotations
 from typing import Any
 
 import livekit.agents as lk
-from invariants import HISTORY
 
 from earful.livekit import Case, Reply, ToolCall, UserSpeech
 from shapes.corpus import judged
@@ -55,6 +54,3 @@ def case() -> Case:
 SHOULD = judged()
 # The new agent is held to the old one's memory.
 DEFECT = judged(M1="rule 2", M2="rule d")
-DEFECT_VARIED = {
-    HISTORY: judged(M1="rule 2", M2="rule a, rule b, rule d"),
-}

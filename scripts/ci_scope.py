@@ -35,7 +35,7 @@ LIVEKIT = {
     "1.8.12": "2026-11-14",
     "1.8.13": "2026-11-20",
 }
-PIPECAT = {"1.16.0": "2026-11-18"}
+PIPECAT = {"1.16.0": "2026-11-18", "1.17.0": "2026-11-24"}
 # Every other Python the package supports runs once, with one LiveKit release.
 OTHER_PYTHONS = {"3.10": "1.6.6", "3.11": "1.5.6", "3.12": "1.8.13", "3.14": "1.8.13"}
 

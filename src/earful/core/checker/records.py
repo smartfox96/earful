@@ -57,7 +57,9 @@ def could_be(text: list[str], reply: list[str]) -> bool:
     return bool(plain(text) & plain(reply))
 
 
-def unseeded(items: list[dict[str, Any]], seeded: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def unseeded(
+    items: list[dict[str, Any]], seeded: list[dict[str, Any]], *, identify: bool = False
+) -> list[dict[str, Any]]:
     """``items`` without the history the agent started with: each item of ``seeded`` in turn
     takes out the first item after the last one taken that is the same. One that is no longer
     there takes nothing out."""
@@ -67,8 +69,18 @@ def unseeded(items: list[dict[str, Any]], seeded: list[dict[str, Any]]) -> list[
 
     out, at = list(items), 0
     for item in seeded:
-        found = next((i for i in range(at, len(out)) if key(out[i]) == key(item)), None)
+        found = next(
+            (
+                i
+                for i in range(at, len(out))
+                if key(out[i]) == key(item)
+                and (not item.get("id") or out[i].get("id") == item["id"])
+            ),
+            None,
+        )
         if found is not None:
+            if identify and out[found].get("id"):
+                item["id"] = out[found]["id"]
             del out[found]
             at = found
     return out
