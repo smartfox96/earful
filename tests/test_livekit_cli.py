@@ -13,7 +13,6 @@ import pytest
 pytest.importorskip("livekit.agents")
 
 import livekit.agents as lk
-from shapes.corpus import KnownDefect
 from test_cli import BOOKED_TWICE, BUNDLES, CLEAN, GOLDEN, KEPT_3702, earful
 
 from earful import __version__
@@ -935,11 +934,6 @@ def _kept(capsys, reference, rule, out):
 
 
 @pytest.mark.slow
-@pytest.mark.xfail(
-    strict=True,
-    raises=KnownDefect,
-    reason="Earful: a replay whose kept fault never applies is clean",
-)
 def test_a_replay_whose_kept_fault_never_applies_says_so_and_is_not_clean(capsys, tmp_path):
     directory = _kept(capsys, "breaks:as_written_confirms_a_failed_booking", "A3/rule", tmp_path)
     minimal = json.loads((directory / "minimal.case.json").read_text())
@@ -950,8 +944,8 @@ def test_a_replay_whose_kept_fault_never_applies_says_so_and_is_not_clean(capsys
     manifest["minimal"]["case_digest"] = bundle.case_digest(minimal)
     (directory / "manifest.json").write_text(json.dumps(manifest, indent=2, sort_keys=True))
     status, out, _ = earful(capsys, "replay", directory, "--expect", "clean")
-    if "unapplied" not in out:
-        raise KnownDefect(f"exit {status}, and the replay does not name the fault")
+    unapplied = [line for line in out.splitlines() if line.startswith("  unapplied ")]
+    assert unapplied and all(" 9: the run made " in line for line in unapplied)
     assert status != OK
 
 

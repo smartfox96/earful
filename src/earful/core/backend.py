@@ -176,11 +176,9 @@ class EffectBackend:
         while self._in_flight:
             await next(iter(self._in_flight.values()))[1]
 
-    async def cancel_in_flight(self) -> None:
-        """Stop every write still under way: such a write has no outcome in the ledger."""
-        for timer, _done in self._in_flight.values():
-            timer.cancel()
-        self._in_flight.clear()
+    def in_flight(self) -> list[int]:
+        """The request numbers of the writes still under way."""
+        return sorted(self._in_flight)
 
     def commits(self, intent: str) -> int:
         return self._commits.get(intent, 0)

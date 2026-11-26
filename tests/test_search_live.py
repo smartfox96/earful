@@ -194,9 +194,10 @@ def test_the_search_finds_nothing_in_the_control(searched):
 def test_the_window_of_a_break_is_measured_not_guessed(searched):
     (found,) = searched.windows(SLOW_TO_STOP)
     assert found.variable == STOP and not found.instant
-    assert (found.lo_end, found.hi_end) == (
-        "passes",
-        "passes",
+    assert found.hi_end == "passes"
+    # Earlier the user interrupts nothing: on some releases no reply is under way yet.
+    assert found.lo_end == "passes" or (
+        found.lo_unjudged == "L2 had nothing to judge beyond it (no-reply-under-way)"
     )
     assert REPLY_STARTS_US - 500_000 <= found.lo_us <= REPLY_STARTS_US
     assert found.width_us > 6_500_000 and found.resolution_us == 1_000
@@ -682,7 +683,9 @@ def test_a_booking_made_again_because_the_user_left_is_found_with_its_window():
     assert summary["found"]["A2/rule"]["changed"] == ["user.hangup 0"]
     (measured,) = found.windows(BOOKED_TWICE)
     assert measured.variable == HANGUP and not measured.instant
-    assert (measured.lo_end, measured.hi_end) == ("passes", "passes")
+    assert (measured.lo_end, measured.hi_end) == ("blocked", "passes")
+    # A user who leaves before the tool is called leaves nothing to book.
+    assert measured.lo_unjudged == "A2 had nothing to judge beyond it (no instance)"
     # From the tool being called, at about 3 s, to the end of "Your table is booked."
     assert 2_900_000 <= measured.lo_us <= 3_100_000 and measured.width_us > 6_000_000
     told = cases.with_value(
@@ -761,7 +764,8 @@ def test_a_booking_made_again_because_the_user_left_during_a_slow_write_is_found
     )
     (measured,) = found.windows(BOOKED_TWICE)
     assert measured.variable == HANGUP and not measured.instant
-    assert (measured.lo_end, measured.hi_end) == ("passes", "passes")
+    assert (measured.lo_end, measured.hi_end) == ("blocked", "passes")
+    assert measured.lo_unjudged == "A2 had nothing to judge beyond it (no instance)"
     # From the write being requested, at 3 s, until it commits 1.5 s later.
     assert 3_000_000 <= measured.lo_us <= 3_001_000
     assert 4_499_000 <= measured.hi_us < 4_500_000

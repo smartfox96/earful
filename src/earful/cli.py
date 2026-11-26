@@ -174,14 +174,12 @@ def _run(args: argparse.Namespace) -> int:
     if args.ledger is not None:
         write_jsonl(result.events, args.ledger, normalized=True)
     report = result.report
-    unused = cases.unapplied(result.events)
     if args.json:
         summary = {"case": result.case, "hash": result.hash, **report.to_json()}
-        print(json.dumps({**summary, "unapplied": unused}))
+        print(json.dumps({**summary, "unapplied": list(report.unapplied)}))
     else:
         unjudged = _required(report, require)
-        notes = [f"unapplied  {line}" for line in unused]
-        print("\n".join([*timeline.heading(result.events), *notes, "", *report.lines()]))
+        print("\n".join([*timeline.heading(result.events), "", *report.lines()]))
         if unjudged:
             print("\n" + "\n".join(unjudged))
         if args.ledger is not None:
@@ -328,6 +326,7 @@ def _replay(args: argparse.Namespace) -> int:
         "scenario_code_changed": result.scenario_changed,
         "unverified": list(result.unverified),
         "invalid": list(result.invalid),
+        "unapplied": list(result.unapplied),
     }
     if result.session_scope:
         outcome["session_scope"] = result.session_scope
@@ -348,6 +347,8 @@ def _replay(args: argparse.Namespace) -> int:
         print(f"replayed {args.repeats} times on {on.get('name')} {on.get('version')}")
         if result.session_scope:
             print(result.session_scope)
+        for line in result.unapplied:
+            print(f"  unapplied             {line}")
         if kept.predicate.lost:
             print(f"  loses the evidence    {breaks}")
         else:

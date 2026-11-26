@@ -111,8 +111,9 @@ The scripted model keeps to what a request allows. A reply that calls a tool und
 calls have run and while the session closes, calls none under `"required"`, calls another
 tool than the one named, or calls two tools at once under `parallel_tool_calls=False` is a
 harness error. A run without a hangup ends once the agent is quiet, with no tool running
-and no reply generated or played, so the session closes over a tool only after
-`drain_timeout`.
+and no reply generated or played, every backend write under way has its outcome and every
+L1 deadline has passed. An agent still busy `drain_timeout` after the scenario makes the
+run invalid, and the error names what was running.
 
 ## What CI runs for LiveKit
 
@@ -197,6 +198,16 @@ any of the following is invalid (`docs/ledger.md`, Validity):
 
 The last four are counted in one harness error, such as
 `work left the virtual clock (threads started: 1)`.
+
+A task that never waits, such as one that polls with `asyncio.sleep(0)`, holds the loop at
+one instant. After 1 000 loop passes at one instant the clock moves to the next timer, as
+real time would. Three such moves with no wait between them mean the loop never waits: the
+clock moves to the last timer, where the run stops waiting and the error says that a task
+never lets the event loop wait. With no timer to move to, the run stops with
+`VirtualTimeStall`.
+
+A process runs one case at a time: the clock and the `random` module are the process's.
+A run started on another thread while one is in progress is refused in one line.
 
 Two things are not seen, and the run stays valid. A call that blocks the loop, such as
 `time.sleep`, `subprocess.run` or a synchronous HTTP client, takes no virtual time. A

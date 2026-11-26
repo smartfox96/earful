@@ -169,7 +169,10 @@ class Decided(Runner):
         key = cases.canonical(case)
         if key not in self._known:
             self.runs += 1
-            self._known[key] = Outcome(case, (A2,) if self._fails(case) else (), hash="")
+            fails = self._fails(case)
+            self._known[key] = Outcome(
+                case, (A2,) if fails else (), {"A2": "fail" if fails else "pass"}, hash=""
+            )
         return self._known[key]
 
 

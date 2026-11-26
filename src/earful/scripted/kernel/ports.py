@@ -36,18 +36,28 @@ class FinalHistory(TypedDict):
     items: list[dict[str, Any]]
 
 
+@dataclass(frozen=True)
+class Ended:
+    """When the framework ended the conversation, and the reason it gave."""
+
+    t_us: int
+    reason: str
+
+
 @dataclass
 class RunPorts:
-    """Operations on a session and the participants whose work it must finish."""
+    """Operations on a session and the participants whose work it must finish.
+    ``parties`` maps what each party is doing, while it is busy, to the party."""
 
     config: Callable[[], dict[str, Any]]
-    start: Callable[[], Awaitable[asyncio.Future[None] | None]]
+    start: Callable[[], Awaitable[asyncio.Future[Ended]]]  # resolves when the framework ends
     input: ScriptedInput
-    parties: tuple[Party, ...]
-    drain: Callable[[], Awaitable[None]]
-    disconnect: Callable[[], Awaitable[None]]
+    parties: dict[str, Party]
+    running: Callable[[], list[str]]  # the tools still running, by name
+    drain: Callable[[], Awaitable[None]]  # asks the framework to finish its work and end
+    disconnect: Callable[[], Awaitable[None]]  # the user leaves
     history: Callable[[], FinalHistory]
-    close: Callable[[], Awaitable[None]]
+    close: Callable[[], Awaitable[None]]  # stops whatever still runs and releases the run
 
 
 CaseT_contra = TypeVar("CaseT_contra", contravariant=True)

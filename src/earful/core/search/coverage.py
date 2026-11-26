@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 from collections.abc import Iterable
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, replace
 from typing import Any
 
 from .. import case as cases
@@ -34,7 +34,11 @@ _ENDS = {
 
 
 def _end(end: str, unjudged: str | None) -> str:
-    return f"a run beyond it could not be judged, {unjudged}" if unjudged else _ENDS[end]
+    if unjudged is None:
+        return _ENDS[end]
+    if unjudged.startswith(("invalid:", "refused:", "error:")):
+        return f"a run beyond it could not be judged, {unjudged}"
+    return unjudged  # what the rule's contract made of the run beyond it
 
 
 # What a search's runs were for, in the order its report lists them.
@@ -157,7 +161,7 @@ class Exploration:
             if not found.instant:
                 wide[key] = wide.get(key, 0) + 1
         self.cut[predicate] = cut
-        return [found for _base, found in measured], left_out + cut
+        return [replace(found, under=base) for base, found in measured], left_out + cut
 
     def coverage(self) -> dict[str, dict[str, Any]]:
         """For each handle, the kinds of transition it was put beside and those it never was."""
@@ -367,12 +371,12 @@ class Exploration:
             if others:
                 lines.append(f"    also by changing: {'; '.join(others)}")
             widths = [
-                f"    breaks with {w.variable} from {_seconds(w.lo_us)}"
-                f" ({_end(w.lo_end, w.lo_unjudged)}) to {_seconds(w.hi_us)}"
-                f" ({_end(w.hi_end, w.hi_unjudged)})"
+                f"    breaks with {w.variable}{f' under {w.under}' if w.under else ''}"
+                f" from {_seconds(w.lo_us)} ({_end(w.lo_end, w.lo_unjudged)})"
+                f" to {_seconds(w.hi_us)} ({_end(w.hi_end, w.hi_unjudged)})"
                 for w in one.windows
             ]
-            lines += list(dict.fromkeys(widths))  # the same window under two faults is one line
+            lines += list(dict.fromkeys(widths))
             if one.unmeasured:
                 more = f"{one.unmeasured} more value(s)"
                 lines.append(f"    breaks at {more}, which were not measured")

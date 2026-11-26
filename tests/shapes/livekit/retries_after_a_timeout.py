@@ -51,8 +51,6 @@ def case() -> Case:
 
 # Both writes commit: the service holds two bookings.
 SHOULD = judged(A2="rule")
-# The first write is cancelled at the end of the run, and one booking is seen.
-DEFECT = judged()
 DEFECT_VARIED = {
-    TWO_PARTS: judged(M1="rule 2, rule 5"),
+    TWO_PARTS: judged(A2="rule", M1="rule 2, rule 5"),
 }

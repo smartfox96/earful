@@ -399,6 +399,7 @@ def test_each_saved_case_page_runs_its_commands_on_the_named_release(monkeypatch
             status = main(arguments)
             output = capsys.readouterr().out
             if arguments[0] == "crosscheck":
-                assert status in (OK, BROKEN) and "of 3 real-clock runs agree" in output
+                assert status in (OK, BROKEN), (page, arguments, output)
+                assert "of 3 real-clock runs agree" in output, (page, arguments, output)
             else:
                 assert status == (BROKEN if arguments[0] == "check" else OK), (page, arguments)

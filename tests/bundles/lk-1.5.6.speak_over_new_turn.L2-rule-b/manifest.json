@@ -1,10 +1,10 @@
 {
   "clock": "virtual",
   "environment": {
-    "earful": "0.1.1",
+    "earful": "0.3.1",
     "livekit": "1.1.5",
     "livekit-agents": "1.5.6",
-    "packages": "dadd01f71d8d440e91fc0772a63719d5a88e564d75477e8fc70135a8e89fb260",
+    "packages": "2b20b417f5ace6b900e8e07ec649a017d537be83c834b7a19e1a14c86e48c450",
     "platform": "Darwin-arm64",
     "python": "3.13.12"
   },
@@ -24,7 +24,7 @@
     "findings": [
       "segment 1 started 268000 us after the user took the floor"
     ],
-    "hash": "d6513a9d30cf8e6233db8321c9d742ab4501cf8ad1ab7460bde844506cc57c60",
+    "hash": "5e0e140d97ad5e36271fc652470a677099b5ece35a5ea508c7ecd224a11b6875",
     "speeches": 2
   },
   "original": {
@@ -34,7 +34,7 @@
     "findings": [
       "segment 1 started 250000 us after the user took the floor"
     ],
-    "hash": "d39ed9a924fb55147a525dc501b4744df64981cd96ce0274b4cabae8169b3807",
+    "hash": "3eede5fd54c937fc29f775ccaaf94cea965c3399cf795d9e99ad417a7dd34839",
     "speeches": 2
   },
   "predicate": {

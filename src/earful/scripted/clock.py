@@ -3,12 +3,10 @@ Adapted from ``tests/virtual_time.py`` in livekit/agents (Apache-2.0, see NOTICE
 
 from __future__ import annotations
 
-import _thread
 import asyncio
 import contextlib
 import heapq
 import logging
-import random
 import sys
 import threading
 import time
@@ -18,11 +16,13 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, TypeVar
 from unittest import mock
 
+from . import ceilings
+from .ceilings import _AutojumpSelector, finish
+from .guards import STARTED, alone, threads_counted
 from .timers import (
     _HALF_TICK,
     _TICKS_PER_SECOND,
     VirtualTimeStall,  # noqa: F401 - public clock exception
-    _AutojumpSelector,
     _OrderedTimerHandle,
     _VirtualClock,
 )
@@ -48,12 +48,8 @@ _REAL_PERF_NS = time.perf_counter_ns
 _REAL_MONOTONIC = time.monotonic
 _REAL_MONOTONIC_NS = time.monotonic_ns
 
-# Real seconds an idle loop with nothing scheduled may wait before the run counts as deadlocked.
-STALL_SECONDS = 60.0
-
-
 # The kinds of work a loop cannot move in virtual time. Any of it makes a run invalid.
-_STARTED, _WOKEN = "threads started", "wake-ups from another thread"
+_STARTED, _WOKEN = STARTED, "wake-ups from another thread"
 _WATCHED, _CHILDREN = "file descriptors watched", "child processes started"
 
 
@@ -76,7 +72,8 @@ class VirtualTimeLoop(asyncio.SelectorEventLoop):
         # Set before the base class registers the loop's own pipe as a reader.
         self._left = dict.fromkeys((_STARTED, _WOKEN, _WATCHED, _CHILDREN), 0)
         self._left_lock = threading.Lock()
-        super().__init__(selector=_AutojumpSelector(self._virtual_clock, STALL_SECONDS))
+        selector = _AutojumpSelector(self._virtual_clock, self._due, ceilings.STALL_SECONDS)
+        super().__init__(selector=selector)
         # A timer is ready when its due time is within half a tick of the clock.
         self._clock_resolution = _HALF_TICK
         self._timer_order = 0
@@ -84,6 +81,9 @@ class VirtualTimeLoop(asyncio.SelectorEventLoop):
 
     def time(self) -> float:
         return self._virtual_clock.time()
+
+    def _due(self) -> list[float]:
+        return [timer.when() for timer in self._scheduled if not timer.cancelled()]
 
     def time_us(self) -> int:
         """Virtual time in integer microseconds."""
@@ -374,96 +374,30 @@ def _logging_off_the_clock() -> Iterator[None]:
         logging.setLogRecordFactory(make)
 
 
-@contextlib.contextmanager
-def _threads_counted() -> Iterator[None]:
-    # A thread started from the loop works in real time, whether or not it ever wakes the loop.
-    real = threading.Thread.start
-
-    def start(thread: threading.Thread) -> None:
-        loop = _virtual_loop()
-        if loop is not None:
-            loop.leaves(_STARTED)
-        real(thread)
-
-    def counted(raw: Callable[..., Any]) -> Callable[..., Any]:
-        def start_raw(*args: Any, **kwargs: Any) -> Any:
-            loop = _virtual_loop()
-            if loop is not None:
-                loop.leaves(_STARTED)
-            return raw(*args, **kwargs)
-
-        return start_raw
-
-    # threading keeps its own reference to these, so a Thread is not counted twice.
-    raw = [name for name in _RAW_STARTS if hasattr(_thread, name)]
-    with contextlib.ExitStack() as patched:
-        patched.enter_context(mock.patch.object(threading.Thread, "start", start))
-        for name in raw:
-            patched.enter_context(mock.patch.object(_thread, name, counted(getattr(_thread, name))))
-        yield
-
-
-# The ways to start a thread without threading.Thread, on the Pythons Earful runs on.
-_RAW_STARTS = ("start_new_thread", "start_new", "start_joinable_thread")
-
-
 def left_the_clock(loop: asyncio.AbstractEventLoop) -> list[str]:
     """Why a run on ``loop`` did not stay on the virtual clock. Empty if it did."""
     return loop.left() if isinstance(loop, VirtualTimeLoop) else []
 
 
-@contextlib.contextmanager
-def _leaving_no_trace() -> Iterator[None]:
-    # Refused before a loop or a coroutine exists, so that nothing is left to warn about.
-    try:
-        asyncio.get_running_loop()
-    except RuntimeError:
-        pass
-    else:
-        raise RuntimeError(
-            "an Earful run starts its own event loop and cannot be started from inside a "
-            "running one: call it from a function that is not async"
-        )
-    seeded = random.getstate()  # a run seeds the random module with its own seed
-    try:
-        yield
-    finally:
-        random.setstate(seeded)
-
-
-def _finish(loop: asyncio.AbstractEventLoop) -> None:
-    # What asyncio.run does at its end. The loop was never made the thread's current one.
-    try:
-        pending = [t for t in asyncio.all_tasks(loop) if not t.done()]
-        for task in pending:
-            task.cancel()
-        if pending:
-            loop.run_until_complete(asyncio.gather(*pending, return_exceptions=True))
-        loop.run_until_complete(loop.shutdown_asyncgens())
-        loop.run_until_complete(loop.shutdown_default_executor())
-    finally:
-        loop.close()
-
-
 def run_virtual(main: Callable[[], Coroutine[Any, Any, T]]) -> T:
     """Run ``main()`` to completion on a fresh VirtualTimeLoop with the wall clock patched."""
-    with _leaving_no_trace():
+    with alone():
         loop = VirtualTimeLoop()
         try:
-            with virtual_wall_clock(), _logging_off_the_clock(), _threads_counted():
+            with virtual_wall_clock(), _logging_off_the_clock(), threads_counted():
                 return loop.run_until_complete(main())
         finally:
-            _finish(loop)
+            finish(loop)
 
 
 def run_real(main: Callable[[], Coroutine[Any, Any, T]], *, timeout: float) -> T:
     """Run ``main()`` on a fresh loop on the real clock, for at most ``timeout`` seconds."""
-    with _leaving_no_trace():
+    with alone():
         loop = asyncio.new_event_loop()
         try:
             return loop.run_until_complete(asyncio.wait_for(main(), timeout))
         finally:
-            _finish(loop)
+            finish(loop)
 
 
 def now_us() -> int:

@@ -9,6 +9,7 @@ from typing import Any
 from ..ledger import session_scope
 from ..schema import validity
 from .contracts import DECLARED
+from .l1 import open_deadline
 from .policy import PolicyError, parse_all
 from .report import (
     CONTRACTS,
@@ -39,6 +40,7 @@ def check(events: list[dict[str, Any]]) -> Report:
     run = events[0].get("run") if events and isinstance(events[0], dict) else None
     data = events[0].get("data") if events and isinstance(events[0], dict) else None
     scope = session_scope(data) if isinstance(data, dict) else ""
+    pending, unapplied = _left(events)
     errors = tuple(
         f"Tool {info['name']} raised {info['error']}: {info['message']}"
         for event in events
@@ -55,6 +57,8 @@ def check(events: list[dict[str, Any]]) -> Report:
             results={},
             session_scope=scope,
             tool_errors=errors,
+            pending=pending,
+            unapplied=unapplied,
         )
     reading, possible, results = _judge(events)
     return Report(
@@ -66,6 +70,21 @@ def check(events: list[dict[str, Any]]) -> Report:
         readings=possible,
         tool_errors=errors,
         session_scope=scope,
+        pending=pending,
+        unapplied=unapplied,
+    )
+
+
+def _left(events: list[dict[str, Any]]) -> tuple[tuple[str, ...], tuple[str, ...]]:
+    """What run.end lists as left running, and as declared but never applied."""
+    end = events[-1] if events and isinstance(events[-1], dict) else {}
+    data = end.get("data") if end.get("kind") == "run.end" else None
+    if not isinstance(data, dict):
+        return (), ()
+    pending, unapplied = data.get("pending", []), data.get("unapplied", [])
+    return (
+        tuple(p for p in pending if isinstance(p, str)) if isinstance(pending, list) else (),
+        tuple(u for u in unapplied if isinstance(u, str)) if isinstance(unapplied, list) else (),
     )
 
 
@@ -105,4 +124,5 @@ __all__ = [
     "Verdict",
     "View",
     "check",
+    "open_deadline",
 ]

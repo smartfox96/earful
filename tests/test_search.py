@@ -1232,6 +1232,9 @@ def test_pairs_find_a_failure_that_needs_a_slow_write_and_a_speech_during_it():
     assert version.candidate.variable is None and not version.outcome.failures
     (measured,) = found.windows(A2)
     assert (measured.variable, measured.lo_us, measured.hi_us) == (SECOND, 3_000_000, 7_800_000)
+    assert measured.under == "backend.latency 1, stretched"  # named on the window's line
+    line = "breaks with speech.position 1 under backend.latency 1, stretched from"
+    assert line in found.describe()
 
 
 @pytest.mark.slow
@@ -1327,7 +1330,7 @@ def test_a_reduction_makes_no_delay_longer_than_a_search_does():
     shrunk = shrink(found, answers(slow_enough), A2, author=author)
     assert cases.value(shrunk.case, write) == 1_000_000
     (measured,) = [w for w in shrunk.windows if w.variable == write]
-    assert (measured.lo_us, measured.hi_us) == (200_000, 30_000_000)
+    assert measured.lo_us == 200_000 and 0 <= 30_000_000 - measured.hi_us <= measured.resolution_us
     # With the limit above the window, the write settles in its middle.
     roomy = shrink(found, answers(slow_enough), A2, author=author, delay_limit_us=60_000_000)
     assert cases.value(roomy.case, write) == 15_000_000
@@ -2262,3 +2265,27 @@ def test_an_untested_release_stays_visible_in_the_report_and_kept_bundle(tmp_pat
     manifest = bundle.capture(tmp_path / "kept", FOUND, untested, A2, repeats=1, max_runs=1)
     assert manifest["framework"]["support"] == "untested"
     assert manifest["schema_minor"] == 2 and not bundle.validate(manifest)
+
+
+def test_a_window_stops_at_its_reach_and_no_further():
+    run = answers(asked_about_the_window_between(3_000_000, 90_000_000))
+    found = window(Runner(run), a_case(BOOK, WINDOW), SECOND, A2)
+    assert (found.hi_us, found.hi_end) == (35_000_000, "reach")  # 30 s from where it broke
+
+
+def test_a_window_end_passes_only_where_the_contract_was_judged():
+    inside = asked_about_the_window_between(3_000_000, 7_800_000)
+    failing, passing = (
+        ledger("1.5.6", "book_then_interrupt"),
+        ledger("1.8.12", "book_then_interrupt"),
+    )
+    no_booking = ledger("1.8.12", "barge_in_mid_word")  # A2 has no instance in it
+
+    def run(case):
+        if inside(case):
+            return failing
+        return passing if case["speeches"][1]["start_us"] < 3_000_000 else no_booking
+
+    found = window(Runner(run), a_case(BOOK, WINDOW), SECOND, A2)
+    assert (found.lo_end, found.hi_end) == ("passes", "blocked")
+    assert found.hi_unjudged == "A2 had nothing to judge beyond it (no instance)"

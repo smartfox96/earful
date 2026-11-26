@@ -7,7 +7,7 @@ import asyncio
 import livekit.agents as lk
 
 from earful.livekit import Case, ScriptedModel, UserSpeech, tool_returned
-from shapes.corpus import ends_within, hangs, invalid
+from shapes.corpus import ends_within, invalid
 
 
 class Stubborn(lk.Agent):
@@ -37,4 +37,3 @@ def case() -> Case:
 
 # A run that cannot finish is a harness error that names what was still running.
 SHOULD = ends_within(20, invalid("wait_for_stock"))
-DEFECT = hangs()

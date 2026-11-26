@@ -79,7 +79,7 @@ DECLARED: dict[str, Contract] = {
             "authorized.",
             policy=A2,
             rules=("rule",),
-            codes=("outside-backend",),
+            codes=("outside-backend", "work-pending"),
             exercised_by="write request for a declared intent",
         ),
         Contract(

@@ -8,6 +8,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import TypeVar
 
+from ...core import case as cases
 from ...core.backend import EffectBackend
 from ...core.ledger import Ledger, ledger_hash
 from ...core.schema import validity
@@ -23,7 +24,8 @@ from ..clock import (
 )
 from ..result import RunEvidence, RunResult
 from ..timing import REAL_CLOCK_ORIGIN_TOLERANCE_US, WorldOrigin
-from .lifecycle import drive
+from .lifecycle import drive, within
+from .pending import left_running
 from .ports import AdapterPorts
 
 REAL_CLOCK_TIMEOUT = 120.0
@@ -102,13 +104,20 @@ def run(
                 scenario=ports.config(),
                 contracts=case.contracts,
             )
-            completion = await ports.start()
-            await drive(case, drain, context, ports, completion)
+            own_end = await drive(case, drain, context, ports)
             ledger.append("harness", "history.final", **ports.history())
-            await ports.close()
+            bound = 3 * drain.drain_timeout  # the adapter reports what it waited on within it
+            closed, _ = await within(ports.close(), bound)
+            if not closed and not errors:
+                errors.append(f"the framework did not close within {bound:g} s")
 
         context.executor_calls = loop.executor_calls if isinstance(loop, VirtualTimeLoop) else None
         errors += left_the_clock(loop)
+        left = {
+            "closed": {"t_us": own_end.t_us, "reason": own_end.reason} if own_end else None,
+            "pending": left_running(loop),  # the application's, which may still write
+            "unapplied": cases.unapplied(ledger.events),
+        }
         ledger.append(
             "harness",
             "run.end",
@@ -117,6 +126,7 @@ def run(
             underruns=context.underruns,
             harness_errors=errors,
             framework_warnings=len(context.warnings),
+            **{name: value for name, value in left.items() if value},
         )
         result = RunResult(
             case.name, seed, ledger, ledger_hash(ledger.events), validity(ledger.events), errors

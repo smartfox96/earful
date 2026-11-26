@@ -7,9 +7,9 @@ import pytest
 
 from earful.core.ledger import Ledger
 from earful.scripted.case import Case, Delay, DrainOptions, Fault, check_case
-from earful.scripted.clock import now_us, run_virtual
+from earful.scripted.clock import QUIET_FOR_US, now_us, run_virtual
 from earful.scripted.header import declarations
-from earful.scripted.kernel.ports import RunPorts
+from earful.scripted.kernel.ports import Ended, RunPorts
 from earful.scripted.kernel.run import run
 from earful.scripted.model import Reply, ReplyRegister
 from earful.scripted.parties.activity import Activity
@@ -39,17 +39,30 @@ def _header(case):
     }
 
 
-def _run_stub(*, worker=False, hangup=None, early=False):
+async def _writes_later():
+    await asyncio.sleep(100)
+
+
+def _reminds_later():
+    pass
+
+
+def _run_stub(*, hangup=None, early=False, contracts=None, leaves=False):
     calls = []
     case = Case(
         "stub", [UserSpeech(0, 0.25, "hello", stt_delay=0.75)], lambda _: Reply(), hangup=hangup
     )
+    case.contracts = contracts or {}
 
     @asynccontextmanager
     async def build(case, context):
         script = Recognition(case.speeches, chronological=True)
         reply = Activity()
         completed = asyncio.get_running_loop().create_future()
+
+        def end(reason):
+            if not completed.done():
+                completed.set_result(Ended(context.ledger.now_us(), reason))
 
         async def deliver():
             context.origin.mark("stt", now_us())
@@ -67,18 +80,22 @@ def _run_stub(*, worker=False, hangup=None, early=False):
             nonlocal task
             task = asyncio.create_task(deliver())
             if early:
-                asyncio.get_running_loop().call_later(0.1, completed.set_result, None)
-            return completed if worker else None
+                asyncio.get_running_loop().call_later(0.1, end, "the stub hung up")
+            if leaves:
+                left.append(asyncio.create_task(_writes_later()))
+                asyncio.get_running_loop().call_later(100, _reminds_later)
+                asyncio.get_running_loop().call_later(100, print)  # Python's, not the stub's
+            return completed
 
         async def drain():
             calls.append(("drain", now_us()))
-            completed.set_result(None)
+            end("asked")
 
         async def disconnect():
             assert context.disconnected.is_set()
             calls.append(("disconnect", now_us()))
             task.cancel()
-            completed.set_result(None)
+            end("disconnected")
 
         async def close():
             calls.append(("close", now_us()))
@@ -88,16 +105,18 @@ def _run_stub(*, worker=False, hangup=None, early=False):
             return {"read_from": "stub", "items": []}
 
         task = None
+        left = []
         try:
             yield RunPorts(
-                lambda: _header(case),
-                start,
-                script,
-                (script, reply),
-                drain,
-                disconnect,
-                history,
-                close,
+                config=lambda: _header(case),
+                start=start,
+                input=script,
+                parties={"the stub is speaking": script, "the stub is replying": reply},
+                running=list,
+                drain=drain,
+                disconnect=disconnect,
+                history=history,
+                close=close,
             )
         finally:
             if task is not None:
@@ -119,9 +138,8 @@ def _run_stub(*, worker=False, hangup=None, early=False):
     return result, calls
 
 
-@pytest.mark.parametrize("worker", [False, True])
-def test_kernel_waits_for_party_work_before_drain_and_history(worker):
-    result, calls = _run_stub(worker=worker)
+def test_kernel_waits_for_party_work_before_drain_and_history():
+    result, calls = _run_stub()
     assert result.invalid == []
     assert [name for name, _ in calls] == [
         "start",
@@ -141,9 +159,28 @@ def test_kernel_waits_for_party_work_before_drain_and_history(worker):
     ]
 
 
-@pytest.mark.parametrize("worker", [False, True])
-def test_kernel_disconnects_on_the_declared_instant_before_final_history(worker):
-    result, calls = _run_stub(worker=worker, hangup=0.5)
+def _deadline(result):
+    (verdict,) = result.report.results["L1"].verdicts
+    (milestone,) = verdict.measures["milestones"]
+    return milestone["deadline_us"], [f.code for f in verdict.findings]
+
+
+def test_the_run_lasts_until_a_deadline_a_contract_reads_has_passed():
+    result, calls = _run_stub(contracts={"L1": {"slack_us": 4_000_000}})
+    # The stub makes no model call: the turn's first milestone is missed once it is due.
+    deadline, _ = _deadline(result)
+    assert calls[2] == ("drain", deadline + 1 + QUIET_FOR_US)  # past it, then quiet again
+    assert result.report.outcome("L1") == "fail"
+
+
+def test_a_deadline_past_the_drain_timeout_is_not_waited_for():
+    result, calls = _run_stub(contracts={"L1": {"slack_us": 10_000_000}})
+    deadline, codes = _deadline(result)
+    assert calls[2][1] < deadline and codes == ["run-ended"]
+
+
+def test_kernel_disconnects_on_the_declared_instant_before_final_history():
+    result, calls = _run_stub(hangup=0.5)
     assert [name for name, _ in calls] == ["start", "disconnect", "history", "close", "restore"]
     assert calls[1][1] == 500_000
     assert [(e["kind"], e["t_us"]) for e in result.events[-3:]] == [
@@ -153,10 +190,14 @@ def test_kernel_disconnects_on_the_declared_instant_before_final_history(worker)
     ]
 
 
-def test_kernel_observes_worker_completion_before_input():
-    result, calls = _run_stub(worker=True, early=True)
-    assert result.invalid == ["harness error: the pipeline ended before the scenario did"]
+def test_a_framework_that_ends_before_the_input_ends_the_run_with_its_reason():
+    result, calls = _run_stub(early=True)
+    assert result.invalid == []
     assert [name for name, _ in calls] == ["start", "history", "close", "restore"]
+    assert result.events[-1]["data"]["closed"] == {"t_us": 100_000, "reason": "the stub hung up"}
+    # A field of revision 3 in run.end puts the whole ledger at revision 3.
+    assert {e["schema_minor"] for e in result.events} == {3}
+    assert {e["schema_minor"] for e in _run_stub()[0].events} == {1}
 
 
 def test_timed_parties_deliver_their_events_without_framework_scheduling():
@@ -204,3 +245,10 @@ def test_authored_refusals_keep_the_first_error(fields, first):
     args = {"name": "invalid", "speeches": [], "policy": lambda _: Reply(), **fields}
     with pytest.raises(ValueError, match=first):
         check_case(Case(**args))
+
+
+def test_the_application_work_still_running_at_the_end_is_named_in_run_end():
+    result, _ = _run_stub(leaves=True)
+    assert result.events[-1]["data"]["pending"] == ["task _writes_later", "timer _reminds_later"]
+    assert result.report.pending == ("task _writes_later", "timer _reminds_later")
+    assert "pending" not in _run_stub()[0].events[-1]["data"]

@@ -20,7 +20,6 @@ pytest.importorskip("livekit.agents")
 
 import livekit.agents as lk
 from pydantic import BaseModel, Field, TypeAdapter
-from shapes.corpus import KnownDefect
 
 from earful.livekit.cases import CASES
 from earful.livekit.harness import Case, InvalidRun, run_case
@@ -154,7 +153,9 @@ def test_a_tool_that_waits_on_work_in_real_time_makes_the_run_invalid(wait, left
         result = run_case(_a_tool_that_awaits(wait), require_valid=False)
     finally:
         _tidy_up()
-    (reason,) = result.invalid
+    # The tool may also still be running when the run stops waiting: work that left the
+    # clock answers at a real time, which the virtual clock has passed.
+    (reason,) = [r for r in result.invalid if "work left the virtual clock" in r]
     assert reason.startswith("harness error: work left the virtual clock (") and left in reason
     assert result.events[-1]["data"]["executor_calls"] == 0
 
@@ -269,11 +270,14 @@ def two_runs_on_two_threads():
     import sys
 
     real_time, real_start = time.time, threading.Thread.start
-    hashes = {"alone": run_case(_held_open(0), require_valid=False).hash}
+    said = {"alone": run_case(_held_open(0), require_valid=False).hash}
 
     def run(name, seconds, after):
         time.sleep(after)
-        hashes[name] = run_case(_held_open(seconds), require_valid=False).hash
+        try:
+            said[name] = run_case(_held_open(seconds), require_valid=False).hash
+        except RuntimeError as exc:
+            said[name] = str(exc)
 
     threads = [
         threading.Thread(target=run, args=("first", 2.0, 0.0)),  # each blocks for 2 s
@@ -284,16 +288,11 @@ def two_runs_on_two_threads():
     for thread in threads:
         thread.join()
     restored = time.time is real_time and threading.Thread.start is real_start
-    json.dump({"hashes": hashes, "restored": restored}, sys.stdout)
+    json.dump({"said": said, "restored": restored}, sys.stdout)
 
 
 @pytest.mark.slow
-@pytest.mark.xfail(
-    strict=True,
-    raises=KnownDefect,
-    reason="Earful: a second run on another thread reads the real clock",
-)
-def test_two_runs_on_two_threads_at_once_each_give_the_ledger_of_a_run_alone():
+def test_a_run_beside_another_on_another_thread_is_refused_and_the_first_is_untouched():
     done = subprocess.run(
         [sys.executable, "-c", "import test_livekit_clock as t; t.two_runs_on_two_threads()"],
         cwd=Path(__file__).parent,
@@ -303,6 +302,6 @@ def test_two_runs_on_two_threads_at_once_each_give_the_ledger_of_a_run_alone():
     )
     assert done.returncode == 0, done.stderr
     said = json.loads(done.stdout.strip().splitlines()[-1])
-    others = {h for h in said["hashes"].values() if h != said["hashes"]["alone"]}
-    if others or not said["restored"]:
-        raise KnownDefect(f"{len(others)} other ledger(s); stand-ins restored: {said['restored']}")
+    assert said["said"]["first"] == said["said"]["alone"]
+    assert said["said"]["second"].startswith("another Earful run is in progress on another thread")
+    assert said["restored"]

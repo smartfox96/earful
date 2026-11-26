@@ -97,8 +97,8 @@ and every run calls it first.
 | `preemptive_generation` | `True` | Whether the session starts a reply before the user's turn ends: its preemptive generation option `enabled` |
 | `min_endpointing_delay` | `0.5` | The session's endpointing `min_delay` |
 | `max_endpointing_delay` | `6.0` | The session's endpointing `max_delay` |
-| `drain_delay` | `5.0` | How long the run goes on after the last transcript, or after a hangup, before it is wound up. Without a hangup it then waits for the agent to fall quiet, up to `drain_timeout`: no tool running, no reply generated or played |
-| `drain_timeout` | `30.0` | How long the agent then has to fall quiet, and the session to finish, before it is cut off |
+| `drain_delay` | `5.0` | How long the run goes on after the last transcript, or after a hangup. Without a hangup the run then waits, within `drain_timeout`, until the agent is quiet (no tool running, no reply generated or played), every backend write under way has its outcome and every L1 deadline has passed. The session is then asked to finish and close |
+| `drain_timeout` | `30.0` | How long the agent has to fall quiet, and the session to close. Work still running at that point makes the run invalid and is named. An L1 deadline later than it is not waited for (`run-ended`) |
 | `sink` | `ClockedSink` | The class of the audio output. A subclass models a faulty output |
 | `session_kwargs` | `{}` | Further `AgentSession` options, of those [`compatibility.md`](compatibility.md#the-options-earful-models-on-livekit) lists. Any other is refused |
 | `scripted_turns` | `True` | Earful uses separate scripted providers and silence-based turn detection. The result describes the session. Setting this to `False` refuses a session whose turn detector Earful cannot run. |
@@ -129,8 +129,8 @@ two `drain` fields, mean what they mean for LiveKit.
 | `tts_word_timestamps` | `False` | Whether the scripted voice sends the time each word starts |
 | `user_speech_timeout` | `0.6` | The timeout of `SpeechTimeoutUserTurnStopStrategy`. A pipeline of the case's own has to be built with the same value |
 | `user_turn_stop_timeout` | `5.0` | The user aggregator's `user_turn_stop_timeout`, held to the same rule |
-| `drain_delay` | `5.0` | How long the run goes on after the last transcript, or after a hangup |
-| `drain_timeout` | `30.0` | How long the bot then has to fall quiet, and the pipeline to end |
+| `drain_delay` | `5.0` | How long the run goes on after the last transcript, or after a hangup. Without a hangup the run then waits as on LiveKit, and the pipeline is sent an `EndFrame` |
+| `drain_timeout` | `30.0` | How long the bot has to fall quiet, and the pipeline to end. Work still running at that point makes the run invalid and is named |
 | `pipeline` | `None` | A function from `Ends` to the pipeline's processors in order, or to a `Pipeline` of them. `None` runs Earful's standard seven ([`pipecat.md`](pipecat.md#your-own-pipeline)) |
 
 ### `UserSpeech`
@@ -537,7 +537,9 @@ def replay(directory, *, repeats=3): ...
 
 Checks every file of a bundle and runs its reduced case `repeats` times on the installed
 release. It returns a `Replay`. It imports and runs the scenario the bundle names, so
-replay only bundles you trust. A bundle that fails a check raises `ValueError`.
+replay only bundles you trust. A bundle that fails a check raises `ValueError`. A kept
+delay or fault that a run never reached is listed in `unapplied`, and such a replay is
+not `clean`.
 
 ## Results
 
@@ -741,7 +743,9 @@ registers the bot's functions on its model service and returns its `LLMContext`.
 
 `earful run SCENARIO` runs a scenario once and prints its verdicts. A delay or fault the
 case declares for a model call, utterance or write the run never reached is named on an
-`unapplied` line under the heading, and in the JSON under `unapplied`.
+`unapplied` line of the result, and in the JSON under `unapplied`. A task or timer of the
+application still running at the end is named on a `left running` line, and under
+`pending`.
 
 | Option | Meaning |
 | --- | --- |

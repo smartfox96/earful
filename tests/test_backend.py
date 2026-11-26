@@ -73,7 +73,6 @@ def _faulty(faults, latencies_us=None, mode="plain"):
         except (BackendError, BackendTimeout) as error:
             said = type(error).__name__
         await asyncio.sleep(10)  # long enough for a write still under way to finish
-        await backend.cancel_in_flight()
         return (
             [(e["kind"], e["t_us"]) for e in ledger.events],
             said,
@@ -136,7 +135,7 @@ def test_a_fault_belongs_to_one_write_and_the_next_is_untouched():
     assert run_virtual(main) == ("R1", 1)
 
 
-def test_a_write_still_under_way_when_the_scenario_ends_has_no_outcome():
+def test_a_write_under_way_is_listed_until_it_has_its_outcome():
     async def main():
         ledger = Ledger(now_us, run="test")
         backend = EffectBackend(
@@ -144,10 +143,15 @@ def test_a_write_still_under_way_when_the_scenario_ends_has_no_outcome():
         )
         with pytest.raises(BackendTimeout):
             await backend.write("book", {})
-        await backend.cancel_in_flight()
-        return [e["kind"] for e in ledger.events], backend.commits("book")
+        under_way = backend.in_flight()
+        await backend.settle_in_flight()
+        return under_way, backend.in_flight(), [e["kind"] for e in ledger.events]
 
-    assert run_virtual(main) == (["effect.requested", "effect.timed_out"], 0)
+    assert run_virtual(main) == (
+        [1],
+        [],
+        ["effect.requested", "effect.timed_out", "effect.committed"],
+    )
 
 
 def _abandoned(faults=None):

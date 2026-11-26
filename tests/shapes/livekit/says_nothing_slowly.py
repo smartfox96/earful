@@ -20,4 +20,3 @@ def case() -> Case:
 
 
 SHOULD = judged(L1="fail")
-DEFECT = judged(L1="not_exercised")  # the deadline falls after the run ends

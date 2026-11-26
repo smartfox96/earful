@@ -8,7 +8,7 @@ from typing import Any
 import livekit.agents as lk
 
 from earful.livekit import Case, Reply, ToolCall, UserSpeech
-from shapes.corpus import ends_within, hangs, judged
+from shapes.corpus import ends_within, invalid, judged
 
 
 class CollectConsent(lk.AgentTask[bool]):
@@ -52,6 +52,5 @@ def case() -> Case:
 
 
 SHOULD = ends_within(20, judged())
-DEFECT = hangs()
-# The task never hears the caller, and the run stalls.
-DEFECT = hangs()
+# The task's tool runs without the witness, and the task never hears the caller.
+DEFECT = invalid("without the witness")

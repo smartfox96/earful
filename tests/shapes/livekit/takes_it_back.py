@@ -4,7 +4,6 @@ agent rightly says nothing more."""
 from __future__ import annotations
 
 import livekit.agents as lk
-from invariants import LONGER
 
 from earful.livekit import Case, Reply, ScriptedModel, UserSpeech, user_said
 from shapes.corpus import judged
@@ -28,6 +27,3 @@ def case() -> Case:
 
 SHOULD = judged(L1="pass")
 DEFECT = judged(L1="milestone 3")  # the taken-back turn is still owed a reply
-DEFECT_VARIED = {
-    LONGER: judged(L1="not_exercised"),
-}

@@ -42,6 +42,7 @@ CODES: dict[str, str] = {
     "history-before-playout": LOST,
     "no-stable-text": LOST,
     "tool-unwitnessed": LOST,
+    "work-pending": LOST,
 }
 MISSING: dict[str, tuple[str, ...]] = {name: c.codes for name, c in DECLARED.items()}
 
@@ -164,6 +165,8 @@ class Report:
     contracts: str = CONTRACTS
     session_scope: str = ""
     tool_errors: tuple[str, ...] = ()
+    pending: tuple[str, ...] = ()  # the application's work still running at the end
+    unapplied: tuple[str, ...] = ()  # declared delays and faults the run never reached
 
     def outcome(self, contract: str) -> str:
         return self.results[contract].outcome
@@ -179,8 +182,9 @@ class Report:
 
     def to_json(self) -> dict[str, Any]:
         data = asdict(self)
-        if not self.tool_errors:
-            del data["tool_errors"]
+        for name in ("tool_errors", "pending", "unapplied"):
+            if not data[name]:
+                del data[name]
         if not self.session_scope:
             del data["session_scope"]
         return data
@@ -205,6 +209,8 @@ class Report:
         """The report as text: one line per contract and per verdict that is not a plain pass."""
         out = [self.session_scope] if self.session_scope else []
         out.extend(self.tool_errors)
+        out += [f"unapplied  {line}" for line in self.unapplied]
+        out += [f"left running  {name}" for name in self.pending]
         if not self.valid:
             return [*out, *(f"invalid: {reason}" for reason in self.invalid)]
         for name, result in self.results.items():

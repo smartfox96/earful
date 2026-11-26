@@ -110,7 +110,7 @@ class AdapterAPI(Generic[Case, RunResult]):
             result = self.run_case(found.make(), seed=seeded(None, seed))
         else:
             result = self.run_case(found.build(data), seed=seeded(data, seed))
-        unused = cases.unapplied(result.events)
+        unused = result.events[-1]["data"].get("unapplied", [])
         if unused:
             warnings.warn(f"declared but never applied: {'; '.join(unused)}", stacklevel=2)
         return result

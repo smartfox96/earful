@@ -117,7 +117,7 @@ on its own.
   run: the scripted user, the framework's own events, the sink and the backend.
   `manifest.json` holds the frozen rule, the windows and the environment it was made in.
 - Recorded ledger hash on 1.5.6:
-  `d6513a9d30cf8e6233db8321c9d742ab4501cf8ad1ab7460bde844506cc57c60`. A replay on 1.5.6
+  `5e0e140d97ad5e36271fc652470a677099b5ece35a5ea508c7ecd224a11b6875`. A replay on 1.5.6
   gives this hash. CI checks that on Linux and macOS.
 - Tests: `tests/test_historical_cases.py`, `tests/test_search_live.py`. CI runs both and
   replays the bundle on all six releases.

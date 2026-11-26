@@ -24,10 +24,14 @@ class ToolWitness:
         self._effects = effects
         self._ledger = ledger
         self._invocations = 0
-        self.in_flight = 0
+        self._running: dict[int, str] = {}
         self.exceptions: list[Exception] = []
         self.refusal: str | None = None
         self.names: set[str] = set()
+
+    def running(self) -> list[str]:
+        """The names of the functions still running, in the order they were called."""
+        return [self._running[tool] for tool in sorted(self._running)]
 
     def wrap(self, handler: Callable[..., Any], *, direct: bool = False) -> Any:
         """``handler`` with its calls recorded. A direct function also takes its arguments
@@ -77,7 +81,7 @@ class ToolWitness:
             await report(result, properties=properties)
 
         token = current_tool.set(tool)
-        self.in_flight += 1
+        self._running[tool] = params.function_name
         try:
             declared = self._effects.get(params.function_name)
             if declared is None:
@@ -106,5 +110,5 @@ class ToolWitness:
             )
             raise
         finally:
-            self.in_flight -= 1
+            self._running.pop(tool, None)
             current_tool.reset(token)

@@ -1,10 +1,11 @@
-"""The virtual selector, clock ticks and stable ordering of simultaneous timers.
+"""Clock ticks and stable ordering of simultaneous timers.
 Adapted from tests/virtual_time.py in livekit/agents (Apache-2.0, see NOTICE)."""
 
 from __future__ import annotations
 
 import asyncio
-import selectors
+import math
+import sys
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
@@ -18,12 +19,19 @@ _TICKS_PER_SECOND = 1_000_000
 _HALF_TICK = 0.5 / _TICKS_PER_SECOND
 
 
+# The tick of a timer due at an infinite time, which never fires, as on a real loop.
+_NEVER = sys.maxsize
+
+
 class VirtualTimeStall(RuntimeError):
     """The virtual-time loop had nothing to run and nothing scheduled."""
 
 
 def _tick(t: float) -> int:
-    return round(t * _TICKS_PER_SECOND)
+    if math.isfinite(t):
+        return round(t * _TICKS_PER_SECOND)
+    # A real loop runs a timer due at minus infinity or at NaN at once.
+    return _NEVER if t > 0 else -_NEVER
 
 
 class _VirtualClock:
@@ -42,6 +50,8 @@ class _VirtualClock:
         return self._ticks / _TICKS_PER_SECOND
 
     def advance_to_tick_of(self, t: float) -> None:
+        if not math.isfinite(t):
+            return
         tick = _tick(t)
         # A due time half a tick past a tick rounds down, and its timer would never be ready.
         if t >= tick / _TICKS_PER_SECOND + _HALF_TICK:
@@ -60,54 +70,6 @@ class _VirtualClock:
         # Strictly increasing by a count of its own, so that it never moves what read() returns.
         self._read_ns = max(self._read_ns + 1, self._ticks * 1000)
         return self._read_ns
-
-
-class _AutojumpSelector(selectors.BaseSelector):
-    def __init__(self, clock: _VirtualClock, stall_seconds: float) -> None:
-        self._stall_seconds = stall_seconds
-        self._clock = clock
-        self._real = selectors.DefaultSelector()
-
-    def register(self, fileobj: Any, events: int, data: Any = None) -> selectors.SelectorKey:
-        return self._real.register(fileobj, events, data)
-
-    def unregister(self, fileobj: Any) -> selectors.SelectorKey:
-        return self._real.unregister(fileobj)
-
-    def modify(self, fileobj: Any, events: int, data: Any = None) -> selectors.SelectorKey:
-        return self._real.modify(fileobj, events, data)
-
-    def select(self, timeout: float | None = None) -> list[tuple[selectors.SelectorKey, int]]:
-        if len(self._real.get_map()) <= 1:
-            # Only the loop's self-pipe is registered: no real I/O can be pending.
-            if timeout is None:
-                return self._idle()
-            if timeout > 0:
-                self._clock.advance_to_tick_of(self._clock.time() + timeout)
-            return []
-        ready = self._real.select(0)
-        if ready or timeout == 0:
-            return ready
-        if timeout is None:
-            return self._idle()
-        self._clock.advance_to_tick_of(self._clock.time() + timeout)
-        return []
-
-    def _idle(self) -> list[tuple[selectors.SelectorKey, int]]:
-        # Nothing is ready or scheduled: only an off-loop wakeup can make progress.
-        ready = self._real.select(self._stall_seconds)
-        if not ready:
-            raise VirtualTimeStall(
-                f"virtual-time loop idle for {self._stall_seconds:g} real seconds with nothing "
-                "scheduled: the run is deadlocked (check the framework's error log)"
-            )
-        return ready
-
-    def get_map(self) -> Any:
-        return self._real.get_map()
-
-    def close(self) -> None:
-        self._real.close()
 
 
 class _OrderedTimerHandle(asyncio.TimerHandle):

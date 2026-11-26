@@ -16,7 +16,7 @@ from earful.pipecat import (
     effect,
     user_ever_said,
 )
-from shapes.corpus import ends_within, hangs
+from shapes.corpus import ends_within
 
 BOOKING = "book-table"
 
@@ -41,5 +41,3 @@ def case() -> Case:
 
 
 SHOULD = ends_within(20)
-# The clock never moves, and the run never ends.
-DEFECT = hangs()

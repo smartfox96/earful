@@ -275,14 +275,12 @@ def test_m2_passes_with_the_unmodified_agent():
     assert _report(_booking(_book_once())).outcome("M2") == PASS
 
 
-def test_l1_fails_when_a_tool_never_returns():
-    report = _report(
-        _booking(_book_then_confirm, agent=lambda: _Booker(hang=True), drain_timeout=5.0)
-    )
-    assert report.outcome("L1") == FAIL
-    (failed,) = report.results["L1"].failures
-    assert "every tool call finishes: never happened" in failed.findings[0].detail
-    assert _rules(report, "L1") == ["milestone 2"]
+def test_a_tool_that_never_returns_makes_the_run_invalid_and_is_named():
+    case = _booking(_book_then_confirm, agent=lambda: _Booker(hang=True), drain_timeout=5.0)
+    result = run_case(case, require_valid=False)
+    (reason,) = result.invalid
+    assert reason.startswith("harness error: the agent was still busy 5 s after the scenario: ")
+    assert reason.endswith("tool create_reservation is running")
 
 
 def test_l1_passes_when_the_same_tool_returns():
@@ -356,8 +354,13 @@ def test_l1_a_backchannel_does_not_take_the_obligation_away():
     assert "the first word of a reply starts playing: never happened" in failed.findings[-1].detail
 
 
-def test_l1_has_nothing_to_judge_when_the_run_ends_before_the_deadline():
+def test_l1_fails_a_silent_turn_whose_deadline_comes_after_the_drain_delay():
     report = _report(_booking(_silent, drain_delay=1.0))
+    assert report.outcome("L1") == FAIL and _rules(report, "L1") == ["milestone 3"]
+
+
+def test_l1_has_nothing_to_judge_when_its_deadline_falls_past_the_drain_timeout():
+    report = _report(_booking(_silent, tts_ttfb=40.0))  # first audio is due 40 s on
     assert report.outcome("L1") == NOT_EXERCISED
     (cut,) = report.results["L1"].verdicts
     assert [f.code for f in cut.findings] == ["run-ended"] and report.lost() == []
@@ -714,3 +717,12 @@ def test_the_voice_names_no_reply_whose_first_token_is_not_out():
             for call, e in replies.items()
         )
     assert late  # a reply decided but with no token out did precede a text with its words
+
+
+def test_a2_cannot_pass_while_the_application_has_left_work_running():
+    from shapes.livekit import books_in_background_twice
+
+    report = _report(books_in_background_twice.case())
+    assert report.outcome("A2") == UNOBSERVABLE and report.lost() == ["A2/work-pending"]
+    (verdict,) = report.results["A2"].verdicts
+    assert verdict.findings[0].detail.endswith("Host.book_table.<locals>.book_and_retry")
