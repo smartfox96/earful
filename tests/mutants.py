@@ -340,6 +340,27 @@ MUTANTS = [
         first="kept_fault_never_applies",
     ),
     Mutant(
+        "search: a window end passes where its contract was not judged",
+        "src/earful/core/search/windows.py",
+        "        if judged not in (PASS, FAIL):\n",
+        "        if False:\n",
+        first="passes_only_where_the_contract_was_judged",
+    ),
+    Mutant(
+        "search: a window probes past its reach",
+        "src/earful/core/search/windows.py",
+        "            step = min(step, reach)\n",
+        "            pass\n",
+        first="stops_at_its_reach_and_no_further",
+    ),
+    Mutant(
+        "search: a window does not name the fault it was measured under",
+        "src/earful/core/search/coverage.py",
+        "return [replace(found, under=base) for base, found in measured], left_out + cut",
+        "return [found for _base, found in measured], left_out + cut",
+        first="slow_write_and_a_speech_during_it",
+    ),
+    Mutant(
         "kernel: a disconnect is sent before the user leaves",
         "src/earful/scripted/kernel/lifecycle.py",
         "await sleep_until(origin.t0_us, hangup_us)",

@@ -8,6 +8,7 @@ from typing import Any
 
 from .. import case as cases
 from ..case import Variable
+from ..checker import FAIL, PASS
 from ..predicate import Predicate
 from .runner import Runner
 
@@ -15,8 +16,9 @@ from .runner import Runner
 @dataclass
 class Window:
     """How far a variable can move while the run still breaks a rule. Each end says why
-    probing stopped: ``passes`` (a run beyond it does not break the rule), ``blocked`` (no
-    case beyond it exists or can be judged) or ``reach`` (the search gave up)."""
+    probing stopped: ``passes`` (a run beyond it was judged and does not break the rule),
+    ``blocked`` (no case beyond it exists or can be judged) or ``reach`` (the search gave up).
+    ``under`` names what was changed before the variable was moved, such as a fault."""
 
     variable: Variable
     lo_us: int
@@ -27,6 +29,7 @@ class Window:
     # Why the run beyond a blocked end could not be judged, where one exists.
     lo_unjudged: str | None = None
     hi_unjudged: str | None = None
+    under: str = ""
 
     @property
     def width_us(self) -> int:
@@ -53,6 +56,7 @@ class Window:
             "instant": self.instant,
             **({"lo_unjudged": self.lo_unjudged} if self.lo_unjudged else {}),
             **({"hi_unjudged": self.hi_unjudged} if self.hi_unjudged else {}),
+            **({"under": self.under} if self.under else {}),
         }
 
 
@@ -92,13 +96,21 @@ def window(
         outcome = runner.outcome(moved)
         if not outcome.ran:
             return f"{outcome.why_not}: {outcome.reason}"
-        return predicate in outcome.failures
+        if predicate in outcome.failures:
+            return True
+        judged = outcome.outcomes.get(predicate.contract)
+        if judged not in (PASS, FAIL):
+            # The run ended before the rule could be judged, or lost what it needed.
+            codes = ", ".join(outcome.missing.get(predicate.contract, ())) or "no instance"
+            return f"{predicate.contract} {str(judged).replace('_', ' ')} ({codes})"
+        return False
 
     def end(direction: int, resolution: int, reach: int) -> _End:
         """The farthest breaking value in one direction, why the search stopped, and why the
         run beyond could not be judged."""
         good, step = at, resolution
         while True:
+            step = min(step, reach)
             probe = at + direction * step
             result = breaks(probe)
             if result is not True:
@@ -142,4 +154,5 @@ def _joined(one: Window, other: Window) -> Window:
         max(one.resolution_us, other.resolution_us),
         lo.lo_unjudged,
         hi.hi_unjudged,
+        one.under,
     )

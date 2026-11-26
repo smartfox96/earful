@@ -420,12 +420,12 @@ The conversation as written passes. On Pipecat 1.17.0, the search reports three 
 ```text
 ContractFailure: booking on pipecat-ai 1.17.0: 753 cases tried, 753 judged, 3 contract rule(s) broken
 Earful ran the case's bot with Earful's standard pipeline, scripted recognition, model replies and voice. Application entry code was not run.
-    886 run(s): 6 to find where to put things, 749 for the cases, 129 to measure the failures, 2 to read an example of each
+    858 run(s): 6 to find where to put things, 749 for the cases, 101 to measure the failures, 2 to read an example of each
     by contract: pass, fail, nothing to judge, evidence lost
     A1      0     0   753     0
     A2    465   278    10     0
     A3    687     0    66     0
-    M1    748     3     2     0
+    M1    749     3     1     0
     M2    727    26     0     0
     L1    717     0    36     0
     L2      0     0   753     0
@@ -434,8 +434,9 @@ A2/rule  in 278 case(s)
     2 durable effects for 'book-table'; the scenario authorized 1
     changed: backend.timeout 1, commit first
     also by changing: backend.timeout 1, commit first + backend.latency 1; backend.timeout 1, commit first + backend.wait 1; backend.timeout 1, commit later; backend.timeout 1, commit later + backend.wait 1
-    breaks with backend.latency 1 from 0.000 s (no case exists beyond it) to 32.958 s (still breaks where the search stopped)
-    breaks with backend.wait 1 from 0.000 s (no case exists beyond it) to 29.099 s (a run beyond it could not be judged, invalid: harness error: the bot was still busy 30.0 s after the scenario)
+    breaks with backend.latency 1 under backend.timeout 1, commit first from 0.000 s (no case exists beyond it) to 30.190 s (still breaks where the search stopped)
+    breaks with backend.wait 1 under backend.timeout 1, commit first from 0.000 s (no case exists beyond it) to 30.000 s (still breaks where the search stopped)
+    breaks with backend.wait 1 under backend.timeout 1, commit later from 0.000 s (no case exists beyond it) to 30.000 s (still breaks where the search stopped)
 
 M1/rule 2  in 3 case(s)
     final history: 5 word(s) were played but only 0 are remembered: 1080000 us of played audio is forgotten

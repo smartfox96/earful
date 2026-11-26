@@ -314,9 +314,13 @@ millisecond is located again to the microsecond. Each end says why the search st
 
 | End | Meaning |
 | --- | --- |
-| `passes` | A run just beyond it does not break the rule. This is an edge of the failure |
-| `blocked` | No case exists beyond it (a delay at zero, a speech against another), or none could be judged. The failure holds as far as the scenario can go. Where a run beyond could not be judged, the text says why, and so do the window's `lo_unjudged` and `hi_unjudged` |
+| `passes` | A run just beyond it was judged and does not break the rule: its contract passed or failed by another rule. This is an edge of the failure |
+| `blocked` | No case exists beyond it (a delay at zero, a speech against another), or none could be judged: the run was not valid evidence, or the rule's contract had nothing to judge or lost its evidence there. The failure holds as far as the scenario can go. Where a run beyond could not be judged, the text says why, and so do the window's `lo_unjudged` and `hi_unjudged` |
 | `reach` | The search gave up, 30 s out by default. The failure may hold further |
+
+A window measured on a case that changed something first, such as a fault or a stretched
+delay, names it: `breaks with backend.latency 1 under backend.timeout 1, commit first`, and
+`under` in the window's JSON.
 
 A window with no width, located to the microsecond, with a passing run on each side is an
 **instant**. The run breaks the rule at one value and passes a microsecond either side.
