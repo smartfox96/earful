@@ -99,6 +99,8 @@ RULES = (
     ("tests/shapes/livekit/**", "livekit"),
     ("src/earful/scripted/clock.py", "clock"),
     ("src/earful/scripted/timers.py", "clock"),
+    ("src/earful/scripted/ceilings.py", "clock"),
+    ("src/earful/scripted/guards.py", "clock"),
     ("src/earful/core/html.py", "report"),
     ("tests/mutants.py", "breaks"),
     ("tests/mutants_seconds.json", "breaks"),

@@ -12,7 +12,6 @@ import threading
 import time
 
 import pytest
-from shapes.corpus import KnownDefect
 
 from earful.core.timebase import to_seconds, to_us
 from earful.scripted.clock import (
@@ -22,6 +21,7 @@ from earful.scripted.clock import (
     run_real,
     run_virtual,
 )
+from earful.scripted.timers import VirtualTimeStall
 
 
 def test_time_is_exact_on_the_grid():
@@ -94,9 +94,9 @@ def test_a_run_reads_no_model_where_the_application_never_imported_pydantic():
 
 
 def test_a_deadlocked_run_fails_instead_of_hanging(monkeypatch):
-    from earful.scripted import clock
+    from earful.scripted import ceilings, clock
 
-    monkeypatch.setattr(clock, "STALL_SECONDS", 0.2)
+    monkeypatch.setattr(ceilings, "STALL_SECONDS", 0.2)
 
     async def main():
         await asyncio.get_running_loop().create_future()
@@ -321,15 +321,54 @@ async def _no_deadline(how):
 
 
 @pytest.mark.parametrize("how", ["wait_for", "call_later"])
-@pytest.mark.xfail(
-    strict=True,
-    raises=KnownDefect,
-    reason="Earful: an infinite timeout overflows the virtual clock",
-)
 def test_an_infinite_timeout_works_on_the_virtual_clock_as_on_a_real_one(how):
     assert asyncio.run(_no_deadline(how)) == "ok"
-    try:
-        said = run_virtual(lambda: _no_deadline(how))
-    except OverflowError as exc:
-        raise KnownDefect(str(exc)) from exc
-    assert said == "ok"
+    assert run_virtual(lambda: _no_deadline(how)) == "ok"
+
+
+def test_a_timer_due_at_minus_infinity_runs_at_once_as_on_a_real_one():
+    async def main():
+        loop = asyncio.get_running_loop()
+        ran = loop.create_future()
+        loop.call_at(-math.inf, ran.set_result, "ok")
+        return await ran
+
+    assert asyncio.run(main()) == "ok"
+    assert run_virtual(main) == "ok"
+
+
+async def _polls_with_sleep_zero():
+    loop = asyncio.get_running_loop()
+    done: list[float] = []
+    loop.call_later(0.2, lambda: done.append(loop.time()))
+    while not done:
+        await asyncio.sleep(0)
+    return done[0]
+
+
+def test_a_task_that_never_waits_moves_the_clock_to_the_next_timer():
+    assert run_virtual(_polls_with_sleep_zero) == 0.2
+
+
+def test_a_task_that_never_waits_with_no_timer_to_move_to_stops_the_run():
+    async def main():
+        while True:
+            await asyncio.sleep(0)
+
+    with pytest.raises(VirtualTimeStall, match="passes at one instant"):
+        run_virtual(main)
+
+
+def test_a_task_left_behind_that_ignores_cancellation_cannot_hold_the_end_of_a_run():
+    async def stubborn():
+        while True:
+            try:
+                await asyncio.sleep(1000)
+            except asyncio.CancelledError:
+                pass
+
+    async def main():
+        asyncio.get_running_loop().create_task(stubborn())
+        return "ended"
+
+    assert run_virtual(main) == "ended"

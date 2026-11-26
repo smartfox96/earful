@@ -8,7 +8,7 @@ import asyncio
 import livekit.agents as lk
 
 from earful.livekit import Case, ScriptedModel, UserSpeech, tool_returned, user_ever_said
-from shapes.corpus import ends_within, hangs, judged
+from shapes.corpus import ends_within, judged
 
 
 class Poller(lk.Agent):
@@ -38,5 +38,3 @@ def case() -> Case:
 
 
 SHOULD = ends_within(20, judged())
-# The clock moves only when the loop would wait, and this loop never waits.
-DEFECT = hangs()

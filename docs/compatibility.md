@@ -198,6 +198,13 @@ any of the following is invalid (`docs/ledger.md`, Validity):
 The last four are counted in one harness error, such as
 `work left the virtual clock (threads started: 1)`.
 
+A task that never waits, such as one that polls with `asyncio.sleep(0)`, holds the loop at
+one instant. After 10 000 loop passes at one instant the clock moves to the next timer, as
+real time would. With no timer to move to, the run stops with `VirtualTimeStall`.
+
+A process runs one case at a time: the clock and the `random` module are the process's.
+A run started on another thread while one is in progress is refused in one line.
+
 Two things are not seen, and the run stays valid. A call that blocks the loop, such as
 `time.sleep`, `subprocess.run` or a synchronous HTTP client, takes no virtual time. A
 thread that was running before the run began is seen only when it wakes the loop: one

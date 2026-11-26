@@ -236,7 +236,6 @@ Earful is right. A test holds this list to them.
 | [An audio output that reports playback before it starts, so the agent remembers whole a reply the user heard a fragment of](../tests/shapes/livekit/output_reports_playback_early.py) | M1 passes | M1 fails |
 | [An agent that changes the session's endpointing delay when it enters](../tests/shapes/livekit/patient_endpointing.py) | L1 fails milestone 3 | None fails |
 | [A write declared for a tool of an agent the call is handed to](../tests/shapes/livekit/pays_after_handoff.py) | The case is refused: the tool is not one of the agent the run starts with | A2 is judged and passes |
-| [A tool that waits for a timer by yielding with `asyncio.sleep(0)` in a loop](../tests/shapes/livekit/polls_with_sleep_zero.py) | The run does not end | The run ends and none fails |
 | [A greeting from recorded audio: `session.say` with the text and its audio frames](../tests/shapes/livekit/recorded_greeting.py) | The run is invalid: the audio reached the sink altered | None fails |
 | [A write that times out for the agent, commits eight seconds later, and is tried again with no idempotency key](../tests/shapes/livekit/retries_after_a_timeout.py) | No contract fails | A2 fails |
 | [An agent that adds what it looked up to the turn's context in `on_user_turn_completed`](../tests/shapes/livekit/retrieval.py) | M2 fails rule c | L1, M1 and M2 pass |
@@ -292,8 +291,6 @@ application under `tests/shapes/`. They change a verdict on LiveKit, and none on
 
 | What happens | What is right |
 | --- | --- |
-| A second run on another thread reads the real clock | Two runs at once each give the ledger of a run alone |
-| An infinite timeout overflows the virtual clock | `asyncio.wait_for` and `call_later` take an infinite timeout as a real loop does |
 | A replay whose kept fault never applies is clean | The replay names the fault that did not apply and is not clean |
 | The scripted VAD reports a sound shorter than its start time | On Pipecat a sound shorter than the VAD's start time is no speech |
 | An enumeration is recorded by its type | A tool argument from an enumeration is recorded by its value |
