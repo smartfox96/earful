@@ -5896,8 +5896,8 @@ MUTANTS = [
     Mutant(
         "window: the text does not say why an end is at a run that could not be judged",
         "src/earful/core/search/coverage.py",
-        '    return f"a run beyond it could not be judged, {unjudged}" if unjudged else _ENDS[end]\n',
-        "    return _ENDS[end]\n",
+        '        return f"a run beyond it could not be judged, {unjudged}"\n',
+        "        return _ENDS[end]\n",
         first="could_not_be_judged_says_why",
     ),
     Mutant(
