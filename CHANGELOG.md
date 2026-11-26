@@ -8,6 +8,8 @@ formats have versions of their own
 
 ## [Unreleased]
 
+## [0.3.3] - 2026-11-26
+
 - Existing LiveKit cases run with silence-based turn detection. Run and
   search results describe the session Earful built. Recognizable speech-to-speech
   setups are refused with the model's name.
@@ -254,7 +256,8 @@ The first release.
 - The formats `earful.ledger/1`, `earful.case/1` and `earful.bundle/1`, each with a
   JSON Schema.
 
-[Unreleased]: https://github.com/smartfox96/earful/compare/v0.3.1...HEAD
+[Unreleased]: https://github.com/smartfox96/earful/compare/v0.3.3...HEAD
+[0.3.3]: https://github.com/smartfox96/earful/compare/v0.3.1...v0.3.3
 [0.3.1]: https://github.com/smartfox96/earful/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/smartfox96/earful/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/smartfox96/earful/compare/v0.1.1...v0.2.0
