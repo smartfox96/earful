@@ -72,7 +72,7 @@ class VirtualTimeLoop(asyncio.SelectorEventLoop):
         # Set before the base class registers the loop's own pipe as a reader.
         self._left = dict.fromkeys((_STARTED, _WOKEN, _WATCHED, _CHILDREN), 0)
         self._left_lock = threading.Lock()
-        selector = _AutojumpSelector(self._virtual_clock, self._next_due, ceilings.STALL_SECONDS)
+        selector = _AutojumpSelector(self._virtual_clock, self._due, ceilings.STALL_SECONDS)
         super().__init__(selector=selector)
         # A timer is ready when its due time is within half a tick of the clock.
         self._clock_resolution = _HALF_TICK
@@ -82,9 +82,8 @@ class VirtualTimeLoop(asyncio.SelectorEventLoop):
     def time(self) -> float:
         return self._virtual_clock.time()
 
-    def _next_due(self) -> float | None:
-        due = [timer.when() for timer in self._scheduled if not timer.cancelled()]
-        return min(due, default=None)
+    def _due(self) -> list[float]:
+        return [timer.when() for timer in self._scheduled if not timer.cancelled()]
 
     def time_us(self) -> int:
         """Virtual time in integer microseconds."""

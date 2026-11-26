@@ -252,7 +252,6 @@ Earful is right. A test holds this list to them.
 
 | Application | Earful reports | A correct result |
 | --- | --- | --- |
-| [A scripted model that answers every call at once with another function call](../tests/shapes/pipecat/answers_with_no_delay_forever.py) | The run does not end | The run ends within seconds |
 | [A function Pipecat cancels at its timeout, after which the model tries once more and apologises](../tests/shapes/pipecat/booking_service_times_out.py) | A3 fails and L1 fails milestone 2 | None fails |
 | [A bot that speaks first by appending a user message at start-up and running the model](../tests/shapes/pipecat/greets_with_a_user_message.py) | L1 fails milestone 1, M2 rules a and b | None fails |
 | [A function that speaks its own answer and reports no result](../tests/shapes/pipecat/speaks_from_tool.py) | L1 fails milestone 2 | L1 passes |

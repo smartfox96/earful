@@ -14,6 +14,7 @@ import time
 import pytest
 
 from earful.core.timebase import to_seconds, to_us
+from earful.scripted.ceilings import SPIN_PASSES, livelocked
 from earful.scripted.clock import (
     VIRTUAL_READS,
     WALL_CLOCK_EPOCH,
@@ -372,3 +373,28 @@ def test_a_task_left_behind_that_ignores_cancellation_cannot_hold_the_end_of_a_r
         return "ended"
 
     assert run_virtual(main) == "ended"
+
+
+def test_a_loop_that_never_waits_moves_to_its_last_timer_and_says_so():
+    async def main():
+        loop = asyncio.get_running_loop()
+        ended = loop.create_future()
+        loop.call_later(30.0, ended.set_result, None)  # as a run bounds its wait
+        for n in range(1, 301):
+            loop.call_later(n / 10, lambda: None)  # as a run that polls every 0.1 s
+        passes = 0
+
+        async def spins():
+            nonlocal passes
+            while True:
+                passes += 1
+                await asyncio.sleep(0)
+
+        task = asyncio.create_task(spins())
+        await ended
+        task.cancel()
+        return loop.time(), passes, livelocked(loop)
+
+    at, passes, never_waits = run_virtual(main)
+    assert at == 30.0 and never_waits
+    assert passes < 5 * SPIN_PASSES  # three moves of the clock, not three hundred

@@ -293,8 +293,8 @@ MUTANTS = [
     Mutant(
         "kernel: drain ignores a participant with work pending",
         "src/earful/scripted/kernel/lifecycle.py",
-        "return any(not p.quiet() for p in self.ports.parties.values()) or bool(self.ports.running())",
-        "return False",
+        "parties = any(not p.quiet() for p in self.ports.parties.values())",
+        "parties = False",
         first="kernel_waits_for_party_work",
     ),
     Mutant(
@@ -6015,9 +6015,16 @@ MUTANTS = [
     Mutant(
         "clock: a loop that never waits moves the clock past its next timer",
         "src/earful/scripted/ceilings.py",
-        "        self._clock.advance_to_tick_of(due)\n",
-        "        self._clock.advance_to_tick_of(due + 1.0)\n",
+        "else min(due))",
+        "else min(due) + 1.0)",
         first="never_waits_moves_the_clock",
+    ),
+    Mutant(
+        "clock: a loop that never waits is moved one timer at a time",
+        "src/earful/scripted/ceilings.py",
+        "max(due) if self._moves >= LIVELOCK_MOVES else min(due)",
+        "min(due)",
+        first="never_waits_moves_to_its_last_timer",
     ),
     Mutant(
         "clock: a run beside another on another thread is not refused",

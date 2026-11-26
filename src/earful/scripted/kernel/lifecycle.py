@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING, Any, TypeVar
 from ...core.checker import open_deadline
 from ...core.timebase import to_seconds, to_us
 from ..case import Case, DrainOptions
-from ..ceilings import cancel
+from ..ceilings import cancel, livelocked
 from ..clock import quiet
 from ..timing import sleep_until
 from .ports import Ended, RunPorts
@@ -52,11 +52,15 @@ class _Ending:
         return True
 
     def busy(self) -> bool:
-        return any(not p.quiet() for p in self.ports.parties.values()) or bool(self.ports.running())
+        parties = any(not p.quiet() for p in self.ports.parties.values())
+        return parties or bool(self.ports.running()) or livelocked(asyncio.get_running_loop())
 
     def doing(self) -> str:
         busy = [doing for doing, party in self.ports.parties.items() if not party.quiet()]
-        return "; ".join([*busy, *(f"tool {name} is running" for name in self.ports.running())])
+        busy += [f"tool {name} is running" for name in self.ports.running()]
+        if livelocked(asyncio.get_running_loop()):
+            busy.append("a task never lets the event loop wait")
+        return "; ".join(busy)
 
     def error(self, message: str) -> None:
         self.run.errors.append(message)
