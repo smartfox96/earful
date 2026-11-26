@@ -34,8 +34,8 @@ MUTANTS = [
     Mutant(
         "livekit: a model assigned before session construction is missed",
         "src/earful/livekit/application.py",
-        "return bindings.get(_name(node))",
-        "return None if isinstance(bindings.get(_name(node)), type) and bindings.get(_name(node)) is not agent else bindings.get(_name(node))",
+        '(value(kw.value, bindings) for kw in node.keywords if kw.arg == "llm")',
+        '(value(kw.value, {}) for kw in node.keywords if kw.arg == "llm")',
         first="alternative_realtime_wiring",
     ),
     Mutant(
@@ -57,6 +57,41 @@ MUTANTS = [
         "src/earful/livekit/application.py",
         "normal = visit(stmt.body, bindings.copy())",
         "normal = bindings.copy()",
+        first="alternative_realtime_wiring",
+    ),
+    Mutant(
+        "livekit: local factories have unknown return values",
+        "src/earful/livekit/application.py",
+        "return wiring(helper)[0]",
+        "return _UNKNOWN",
+        first="alternative_realtime_wiring",
+    ),
+    Mutant(
+        "livekit: a conditional model loses its fallback",
+        "src/earful/livekit/application.py",
+        "return value(node.body, bindings, awaited=awaited) | value(\n                node.orelse, bindings, awaited=awaited\n            )",
+        "return value(node.body, bindings, awaited=awaited)",
+        first="ambiguous_or_unreachable_start",
+    ),
+    Mutant(
+        "livekit: starts in loops are skipped",
+        "src/earful/livekit/application.py",
+        "                visit(stmt.body, bindings.copy())\n",
+        "",
+        first="alternative_realtime_wiring",
+    ),
+    Mutant(
+        "livekit: a scheduled start is skipped",
+        "src/earful/livekit/application.py",
+        "                record_start(coro, bindings)",
+        "                pass",
+        first="alternative_realtime_wiring",
+    ),
+    Mutant(
+        "livekit: assigning a start result hides the start",
+        "src/earful/livekit/application.py",
+        "(ast.Assign, ast.AnnAssign, ast.Expr, ast.Return)",
+        "(ast.Expr, ast.Return)",
         first="alternative_realtime_wiring",
     ),
     Mutant(
