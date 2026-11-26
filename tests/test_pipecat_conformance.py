@@ -27,7 +27,7 @@ from pipecat.turns.user_stop.speech_timeout_user_turn_stop_strategy import (
     SpeechTimeoutUserTurnStopStrategy,
 )
 from pipecat.turns.user_turn_strategies import UserTurnStrategies
-from shapes.corpus import hangs, invalid, judged
+from shapes.corpus import judged
 from shapes.pipecat import booking
 
 from earful.pipecat import (
@@ -185,11 +185,8 @@ SCENARIOS = {
     conformance.WRITE_SETTLES: Scenario(write_in_flight),
     # Pipecat logs the exception, and nothing reaches the run.
     conformance.RAISE_RECORDED: Scenario(application_raises, defect=judged()),
-    conformance.CLOSED_ENDS: Scenario(
-        closes_early, defect=invalid("the pipeline ended before the scenario did")
-    ),
-    # The virtual clock runs on without end while the processor waits.
-    conformance.STUCK_CEILING: Scenario(stuck, defect=hangs()),
+    conformance.CLOSED_ENDS: Scenario(closes_early),
+    conformance.STUCK_CEILING: Scenario(stuck),
     # The scripted model's call is carried out, and the run passes.
     conformance.TOOL_CHOICE: Scenario(tool_choice_none, defect=judged()),
     conformance.ONE_LEDGER: Scenario(booking.case),

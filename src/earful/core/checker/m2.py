@@ -89,12 +89,19 @@ def _replies(context: _Context, alignment: Alignment) -> None:
 
 
 def _tool_call(
-    context: _Context, tool: ToolInvocation, call_id: str, later_turn: bool, owed: bool
+    context: _Context,
+    tool: ToolInvocation,
+    call_id: str,
+    later_turn: bool,
+    owed: bool,
+    after_close: bool = False,
 ) -> bool:
     """Rule d for one call a tool received; true if the context shows a stand-in result."""
     event = context.event
     done = tool.outcome if tool.outcome is not None and tool.outcome["seq"] < event["seq"] else None
     returned = done if done is not None and done["kind"] == "tool.returned" else None
+    if after_close:
+        returned = None  # returned once the framework had ended the conversation
     calls = context.places("function_call", call_id)
     outputs = context.places("function_call_output", call_id)
     if returned and returned["t_us"] == event["t_us"] and later_turn:
@@ -175,7 +182,12 @@ def _tool_calls(view: View, context: _Context, by_request: dict[int, _Context]) 
         asked_in = by_request[asked.request["seq"]] if asked is not None else None
         later_turn = asked_in is not None and bool(context.present - asked_in.present)
         owed = _owes_a_handoff(view, context, tool)
-        stand_ins += _tool_call(context, tool, tool.call_id, later_turn, owed)
+        after_close = (
+            view.closed_us is not None
+            and tool.outcome is not None
+            and tool.outcome["t_us"] >= view.closed_us
+        )
+        stand_ins += _tool_call(context, tool, tool.call_id, later_turn, owed, after_close)
     return stand_ins
 
 

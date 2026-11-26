@@ -24,7 +24,7 @@ from earful.livekit.providers import (
     UserSpeech,
     WorldOrigin,
 )
-from earful.scripted import clock
+from earful.scripted import ceilings
 from earful.scripted.clock import now_us, run_virtual
 from earful.scripted.parties.voice import Synthesis
 
@@ -218,7 +218,7 @@ def test_an_exception_inside_a_scripted_provider_makes_the_run_invalid(
 ):
     """The framework takes it for a provider that failed, and carries on."""
     monkeypatch.setattr(owner, method, _a_bug)
-    monkeypatch.setattr(clock, "STALL_SECONDS", 0.2)  # a run left waiting fails here, and soon
+    monkeypatch.setattr(ceilings, "STALL_SECONDS", 0.2)  # a run left waiting fails here, and soon
     result = run_case(CASES["barge_in_mid_word"](), require_valid=False)
     assert result.invalid == [
         f"harness error: the scripted {provider} raised KeyError: 'a bug in Earful'"

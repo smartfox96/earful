@@ -15,6 +15,7 @@ from livekit.agents import llm as lk_llm
 
 from ..core.backend import Arguments, Effect, current_tool
 from ..core.ledger import Ledger, json_value
+from ..scripted.ceilings import cancel
 from . import seams
 
 _CONTEXT_PARAM = "earful_run_context"
@@ -92,23 +93,26 @@ class ToolWitness:
         self.refusal: str | None = None
         self._invocations = 0
         self._running: dict[int, asyncio.Task[Any] | None] = {}
+        self._names: dict[int, str] = {}
 
-    @property
-    def running(self) -> bool:
-        """Whether a tool is running."""
-        return bool(self._running)
+    def running(self) -> list[str]:
+        """The names of the tools still running, in the order they were called."""
+        return [self._names[tool] for tool in sorted(self._running)]
 
-    async def cancel_running(self) -> None:
-        """Cancel every tool still running, in the order they were called."""
-        tasks = [task for _tool, task in sorted(self._running.items()) if task is not None]
-        for task in tasks:
-            task.cancel()
+    async def cancel_running(self, seconds: float) -> list[str]:
+        """Cancel every tool still running, in the order they were called. Returns the
+        names of those still running ``seconds`` later."""
+        tasks = {tool: task for tool, task in sorted(self._running.items()) if task is not None}
+        for task in tasks.values():
+            cancel(task)
         if tasks:
-            await asyncio.gather(*tasks, return_exceptions=True)
+            await asyncio.wait(tasks.values(), timeout=seconds)
+        return [self._names[tool] for tool, task in tasks.items() if not task.done()]
 
     def called(self, name: str, call_id: str | None, arguments: dict[str, Any]) -> int:
         self._invocations += 1
         self._running[self._invocations] = asyncio.current_task()
+        self._names[self._invocations] = name
         self._ledger.append(
             "world",
             "tool.called",

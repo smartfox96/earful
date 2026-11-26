@@ -11,7 +11,7 @@ pytest.importorskip("livekit.agents")
 import conformance
 import livekit.agents as lk
 from conformance import Scenario
-from shapes.corpus import hangs, judged
+from shapes.corpus import judged
 from shapes.livekit import booking
 
 from earful.livekit import (
@@ -136,14 +136,11 @@ def tool_choice_none() -> Case:
 
 
 SCENARIOS = {
-    # The write is cancelled at the end of the run, and the run passes.
-    conformance.WRITE_SETTLES: Scenario(write_in_flight, defect=judged()),
+    conformance.WRITE_SETTLES: Scenario(write_in_flight),
     # livekit-agents logs the exception, and the run counts it as a framework warning only.
     conformance.RAISE_RECORDED: Scenario(application_raises, defect=judged()),
-    # The run waits for a transcript the closed session never delivers.
-    conformance.CLOSED_ENDS: Scenario(closes_early, defect=hangs()),
-    # The run ends with the tool still waiting, and the agent is failed for not answering.
-    conformance.STUCK_CEILING: Scenario(stuck, defect=judged(L1="milestone 2")),
+    conformance.CLOSED_ENDS: Scenario(closes_early),
+    conformance.STUCK_CEILING: Scenario(stuck),
     conformance.TOOL_CHOICE: Scenario(tool_choice_none),
     conformance.ONE_LEDGER: Scenario(booking.case),
 }

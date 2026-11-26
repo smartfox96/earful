@@ -12,7 +12,9 @@ from pathlib import Path
 from typing import Any
 
 SCHEMA = "earful.ledger/1"
-SCHEMA_MINOR = 2  # revision 2 records an untested release in run.start.framework
+SCHEMA_MINOR = 3  # the newest revision (docs/ledger.md, Versioning)
+UNTESTED_MINOR = 2  # revision 2 records an untested release in run.start.framework
+END_FIELDS = ("closed",)  # revision 3, in run.end
 
 # Who observed the event. The checker treats these as independent witnesses.
 SOURCES = ("world", "llm", "sink", "backend", "framework", "harness")
@@ -112,11 +114,15 @@ class Ledger:
             and isinstance(framework, dict)
             and framework.get("support") == "untested"
         ):
-            self._minor = SCHEMA_MINOR
+            self._minor = UNTESTED_MINOR
         if kind == "run.start" and self.run is None:
             self.run = run_id(snapshot)
         if self.run is None:
             raise ValueError("the first event of a ledger must be run.start")
+        if kind == "run.end" and any(name in snapshot for name in END_FIELDS):
+            self._minor = SCHEMA_MINOR
+            for earlier in self.events:
+                earlier["schema_minor"] = SCHEMA_MINOR  # one revision for the whole ledger
         event = {
             "schema": SCHEMA,
             "schema_minor": self._minor,

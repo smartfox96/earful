@@ -18,6 +18,8 @@ STALL_SECONDS = 60.0
 SPIN_PASSES = 10_000
 # Virtual seconds the tasks a run leaves behind have to end once they are cancelled.
 LEFTOVER_SECONDS = 5.0
+# Tasks that ignored cancellation, kept so that no coroutine is closed outside its loop.
+_KEPT: list[asyncio.Task[Any]] = []
 
 
 class _AutojumpSelector(selectors.BaseSelector):
@@ -111,9 +113,10 @@ def finish(loop: asyncio.AbstractEventLoop) -> None:
             cancel(task)
         if pending:
             loop.run_until_complete(asyncio.wait(pending, timeout=LEFTOVER_SECONDS))
-        for task in pending:
-            if not task.done():
-                task._log_destroy_pending = False  # type: ignore[attr-defined]  # reported
+        stubborn = [task for task in pending if not task.done()]
+        for task in stubborn:
+            task._log_destroy_pending = False  # type: ignore[attr-defined]  # reported
+        _KEPT[:] = [*_KEPT, *stubborn][-100:]
         loop.run_until_complete(loop.shutdown_asyncgens())
         loop.run_until_complete(loop.shutdown_default_executor())
     finally:

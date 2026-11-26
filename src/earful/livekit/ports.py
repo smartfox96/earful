@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 import asyncio
-import contextlib
 import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from typing import Any
 
 import livekit.agents as lk
 from livekit import rtc
@@ -16,10 +16,11 @@ from ..core import backend as backends
 from ..scripted.case import (
     check_intent_tools,
 )
-from ..scripted.kernel.ports import FinalHistory, RunPorts
+from ..scripted.ceilings import cancel
+from ..scripted.kernel.ports import Ended, FinalHistory, RunPorts
 from ..scripted.kernel.run import RunContext
 from ..scripted.parties.activity import Observed
-from . import options, tools
+from . import options, seams, tools
 from .application import check_session
 from .case import Case
 from .config import _declared_session, _effective_session, _header, _session_kwargs, _switches
@@ -88,7 +89,7 @@ async def build(case: Case, context: RunContext) -> AsyncIterator[RunPorts]:
 
 
 async def _session(case: Case, context: RunContext, witness: tools.ToolWitness) -> RunPorts:
-    ledger, harness_errors, backend = context.ledger, context.errors, context.backend
+    ledger, harness_errors = context.ledger, context.errors
     declared_us = context.declared_us
     world_origin = context.origin
     stt = ScriptedSTT(ledger, case.speeches, world_origin)
@@ -145,30 +146,42 @@ async def _session(case: Case, context: RunContext, witness: tools.ToolWitness) 
             )
 
     checked = [agent]
+    closed: asyncio.Future[Ended] = asyncio.get_running_loop().create_future()
 
-    async def start() -> None:
+    def on_close(event: Any) -> None:
+        if not closed.done():
+            closed.set_result(Ended(ledger.now_us(), seams.close_reason(event.reason)))
+
+    async def start() -> asyncio.Future[Ended]:
         _tap(session, ledger, harness_errors, checked=checked)
+        session.on("close", on_close)
         await session.start(agent)
         audio_in.push_silence(0.1)
+        return closed
 
     async def drain() -> None:
-        with contextlib.suppress(RuntimeError, asyncio.TimeoutError):
-            await asyncio.wait_for(session.drain(), timeout=case.drain_timeout)
+        session.shutdown(drain=True)
 
-    async def disconnect() -> None:
+    async def close_session(after: str) -> None:
         closing = asyncio.ensure_future(session.aclose())
         done, _ = await asyncio.wait({closing}, timeout=case.drain_timeout)
         if not done:
             # Some releases cannot close a session while one of its tools is stuck.
-            await witness.cancel_running()
+            stuck = await witness.cancel_running(case.drain_timeout)
+            if stuck and not harness_errors:
+                harness_errors.append(f"tool {', '.join(stuck)} did not stop when cancelled")
             done, _ = await asyncio.wait({closing}, timeout=case.drain_timeout)
         if done:
             closing.result()
         else:
-            closing.cancel()
-            harness_errors.append(
-                f"the session did not close within {case.drain_timeout} s of the hangup"
-            )
+            cancel(closing)
+            if not harness_errors:
+                harness_errors.append(
+                    f"the session did not close within {case.drain_timeout:g} s{after}"
+                )
+
+    async def disconnect() -> None:
+        await close_session(" of the hangup")
 
     def history() -> FinalHistory:
         return {
@@ -177,13 +190,8 @@ async def _session(case: Case, context: RunContext, witness: tools.ToolWitness) 
         }
 
     async def close() -> None:
-        # Some releases cannot close a session while one of its tools is stuck.
-        await witness.cancel_running()
-        await backend.cancel_in_flight()
-        try:
-            await asyncio.wait_for(session.aclose(), timeout=case.drain_timeout)
-        except asyncio.TimeoutError:
-            harness_errors.append(f"the session did not close within {case.drain_timeout} s")
+        if not closed.done():
+            await close_session("")
         await sync.aclose()
         if not harness_errors:
             available = set(found)
@@ -197,13 +205,15 @@ async def _session(case: Case, context: RunContext, witness: tools.ToolWitness) 
         config=lambda: scenario,
         start=start,
         input=stt.script,
-        parties=(
-            stt.script,
-            model.activity,
-            tts.activity,
-            Observed(lambda: bool(witness.running)),
-            Observed(lambda: session.agent_state in ("thinking", "speaking")),
-        ),
+        parties={
+            "the scripted user is still to speak": stt.script,
+            "the model is answering": model.activity,
+            "the voice is synthesizing": tts.activity,
+            "the session is thinking or speaking": Observed(
+                lambda: session.agent_state in ("thinking", "speaking")
+            ),
+        },
+        running=witness.running,
         drain=drain,
         disconnect=disconnect,
         history=history,

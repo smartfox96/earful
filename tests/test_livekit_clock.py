@@ -153,7 +153,9 @@ def test_a_tool_that_waits_on_work_in_real_time_makes_the_run_invalid(wait, left
         result = run_case(_a_tool_that_awaits(wait), require_valid=False)
     finally:
         _tidy_up()
-    (reason,) = result.invalid
+    # The tool may also still be running when the run stops waiting: work that left the
+    # clock answers at a real time, which the virtual clock has passed.
+    (reason,) = [r for r in result.invalid if "work left the virtual clock" in r]
     assert reason.startswith("harness error: work left the virtual clock (") and left in reason
     assert result.events[-1]["data"]["executor_calls"] == 0
 

@@ -13,7 +13,8 @@ from pipecat.processors.aggregators.llm_context import LLMContext
 from pipecat.workers.runner import WorkerRunner
 
 from ..core import backend as backends
-from ..scripted.kernel.ports import FinalHistory, RunPorts
+from ..scripted.ceilings import cancel
+from ..scripted.kernel.ports import Ended, FinalHistory, RunPorts
 from ..scripted.kernel.run import RunContext
 from ..scripted.parties.activity import Observed
 from . import pipeline as pipelines
@@ -60,37 +61,58 @@ async def build(case: Case, run: RunContext) -> AsyncIterator[RunPorts]:
         context, plan, header = _built(case, s)
         worker, tap = _worker(plan, s, ledger, errors, run.warnings, run.virtual)
         runner = WorkerRunner(handle_sigint=False)
+        loop = asyncio.get_running_loop()
+        ended: asyncio.Future[Ended] = loop.create_future()
+        running: list[asyncio.Future[None]] = []
 
-        async def start() -> asyncio.Future[None]:
+        def finished(task: asyncio.Future[None]) -> None:
+            if ended.done():
+                return
+            if task.cancelled():
+                ended.set_result(Ended(ledger.now_us(), "cancelled"))
+            elif task.exception() is not None:
+                ended.set_exception(task.exception())  # type: ignore[arg-type]
+            else:
+                ended.set_result(Ended(ledger.now_us(), "the pipeline ended"))
+
+        async def start() -> asyncio.Future[Ended]:
             await runner.add_workers(worker)
-            return asyncio.ensure_future(runner.run())
+            running.append(asyncio.ensure_future(runner.run()))
+            running[0].add_done_callback(finished)
+            return ended
 
         async def drain() -> None:
             await worker.queue_frame(EndFrame())
 
         async def close() -> None:
+            if running and not ended.done():
+                await worker.cancel()
+                await asyncio.wait(running, timeout=case.drain_timeout)
+                if not running[0].done():
+                    cancel(running[0])
+                    if not errors:
+                        errors.append(f"the pipeline did not stop within {case.drain_timeout:g} s")
             run.stamp_errors = s.output.stamp_errors
 
         yield RunPorts(
             config=lambda: header,
             start=start,
             input=s.stt.script,
-            parties=(
-                s.stt.script,
-                s.user.activity,
-                s.model.activity,
-                s.voice.activity,
-                Observed(lambda: tap.user_speaking),
-                Observed(lambda: bool(s.witness.in_flight)),
-                Observed(lambda: s.output.playing),
-            ),
+            parties={
+                "the scripted user is still to speak": s.stt.script,
+                "the scripted user is speaking": s.user.activity,
+                "the model is answering": s.model.activity,
+                "the voice is synthesizing": s.voice.activity,
+                "the pipeline holds the user's turn open": Observed(lambda: tap.user_speaking),
+                "the output is playing": Observed(lambda: s.output.playing),
+            },
+            running=s.witness.running,
             drain=drain,
             disconnect=worker.cancel,
             history=lambda: _history(case, plan, context, s, errors),
             close=close,
         )
     finally:
-        await s.backend.cancel_in_flight()
         backends.uninstall(token)
 
 

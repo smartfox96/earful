@@ -111,8 +111,9 @@ The scripted model keeps to what a request allows. A reply that calls a tool und
 calls have run and while the session closes, calls none under `"required"`, calls another
 tool than the one named, or calls two tools at once under `parallel_tool_calls=False` is a
 harness error. A run without a hangup ends once the agent is quiet, with no tool running
-and no reply generated or played, so the session closes over a tool only after
-`drain_timeout`.
+and no reply generated or played, every backend write under way has its outcome and every
+L1 deadline has passed. An agent still busy `drain_timeout` after the scenario makes the
+run invalid, and the error names what was running.
 
 ## What CI runs for LiveKit
 

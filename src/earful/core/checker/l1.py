@@ -11,7 +11,7 @@ from .report import CODES, ContractResult, Finding, result, verdict
 from .view import Event, ModelCall, Speech, View
 
 MET, MISSED, SUPERSEDED = "met", "missed", "superseded"
-LEFT = "the user left"
+LEFT, CLOSED = "the user left", "the framework ended the conversation"
 # A milestone that could not be judged has the code of why as its status.
 _WHY = {
     "run-ended": "the run ended before a deadline passed",
@@ -45,8 +45,9 @@ class _Budget:
         self._used = 0
         # The scenario stops waiting when the harness reads the final history.
         self._ended = (view.history or view.end)["t_us"]
-        # A user who hangs up is owed nothing that was not yet due.
+        # A user who hangs up, or a conversation the framework ends, is owed nothing not yet due.
         self._left = view.hangup["t_us"] if view.hangup else None
+        self._closed = view.closed_us
 
     def settle(self, reached: int | None, chain_us: int) -> tuple[str, int]:
         """Status and deadline of a milestone; ``chain_us`` sums the scripted delays before it."""
@@ -65,6 +66,8 @@ class _Budget:
                 continue
             if self._left is not None and self._left < deadline:
                 return LEFT, deadline
+            if reached is None and self._closed is not None and self._closed < deadline:
+                return CLOSED, deadline
             if reached is None and self._ended <= deadline:
                 return "run-ended", deadline
             return MISSED, deadline
@@ -346,6 +349,11 @@ def check(view: View, policy: policies.L1) -> ContractResult:
             )
         elif LEFT in statuses:
             notes.append(f"speech {speech.index}: the user hung up before a response was due")
+        elif CLOSED in statuses:
+            notes.append(
+                f"speech {speech.index}: the framework ended the conversation before a response "
+                "was due"
+            )
         elif unseen := [status for status in statuses if status in CODES]:
             verdicts.append(
                 verdict(
@@ -373,3 +381,17 @@ def check(view: View, policy: policies.L1) -> ContractResult:
                 )
             )
     return result("L1", policy, verdicts, notes)
+
+
+def open_deadline(events: list[Event], now_us: int) -> int | None:
+    """The latest deadline of a milestone not yet reached, if it falls at or after ``now_us``."""
+    policy = policies.parse_all(events[0]["data"]["contracts"])["L1"]
+    end = {"kind": "run.end", "source": "harness", "t_us": now_us, "seq": len(events), "data": {}}
+    judged = check(View([*events, end]), policy)
+    due = [
+        milestone["deadline_us"]
+        for v in judged.verdicts
+        for milestone in v.measures.get("milestones", ())
+        if milestone["status"] == "run-ended"
+    ]
+    return max(due, default=None)

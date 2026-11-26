@@ -9,6 +9,7 @@ from typing import Any
 from ..ledger import session_scope
 from ..schema import validity
 from .contracts import DECLARED
+from .l1 import open_deadline
 from .policy import PolicyError, parse_all
 from .report import (
     CONTRACTS,
@@ -105,4 +106,5 @@ __all__ = [
     "Verdict",
     "View",
     "check",
+    "open_deadline",
 ]

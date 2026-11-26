@@ -1411,6 +1411,23 @@
         "framework_warnings": {
           "$ref": "#/$defs/count",
           "description": "Warnings the framework logged. Recorded; does not invalidate a run."
+        },
+        "closed": {
+          "description": "Revision 3. When the framework ended the conversation on its own, before Earful asked it to, and the reason it gave.",
+          "type": "object",
+          "additionalProperties": true,
+          "required": [
+            "t_us",
+            "reason"
+          ],
+          "properties": {
+            "t_us": {
+              "$ref": "#/$defs/microseconds"
+            },
+            "reason": {
+              "type": "string"
+            }
+          }
         }
       }
     },

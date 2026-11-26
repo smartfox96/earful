@@ -6,7 +6,7 @@ from __future__ import annotations
 import livekit.agents as lk
 
 from earful.livekit import Case, ScriptedModel, UserSpeech, user_said
-from shapes.corpus import ends_within, hangs, invalid
+from shapes.corpus import ends_within, invalid
 
 
 def case() -> Case:
@@ -22,5 +22,3 @@ def case() -> Case:
 
 
 SHOULD = ends_within(20, invalid("NoRule"))
-# At four turns the missing rule is named at once; at five the run stalls.
-DEFECT = hangs()

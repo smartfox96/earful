@@ -5,7 +5,7 @@ from __future__ import annotations
 import livekit.agents as lk
 
 from earful.livekit import Case, ScriptedModel, UserSpeech, tool_returned
-from shapes.corpus import judged, raises
+from shapes.corpus import invalid, judged
 
 
 class HangsUp(lk.Agent):
@@ -31,10 +31,10 @@ def case() -> Case:
 
 
 SHOULD = judged()
-CLOSE_RECURSES = not lk.__version__.startswith("1.5.")
-if CLOSE_RECURSES:
-    # The close from inside the tool recurses through the harness.
-    DEFECT = raises("RecursionError")
+CLOSE_AWAITS_THE_TOOL = not lk.__version__.startswith("1.5.")
+if CLOSE_AWAITS_THE_TOOL:
+    # The close waits for the tool, which waits for the close: the tool never finishes.
+    DEFECT = invalid("end_call")
 else:
-    # The closed session is held to the reply the tool's result would have had.
-    DEFECT = judged(M2="rule d", L1="milestone 2, milestone 3")
+    # The session takes 7 s to close, and the turn is held to a reply that never plays.
+    DEFECT = judged(L1="milestone 2, milestone 3")

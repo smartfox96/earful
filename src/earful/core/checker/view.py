@@ -41,6 +41,9 @@ class View:
         self.session = self.scenario["session"]
         self.providers = self.scenario["providers"]
         self.end = events[-1]
+        # When the framework ended the conversation on its own, as run.end records it.
+        closed = self.end["data"].get("closed") if self.end["kind"] == "run.end" else None
+        self.closed_us: int | None = closed["t_us"] if isinstance(closed, dict) else None
         self.origin: Event | None = None
         self.hangup: Event | None = None
         self.calls: dict[int, ModelCall] = {}

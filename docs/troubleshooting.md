@@ -181,6 +181,16 @@ RuntimeError: an Earful run starts its own event loop and cannot be started from
 `run`, `explore`, `replay` and `cross_check` are plain functions. Call them from a test
 that is not `async def`.
 
+### Two runs at once on two threads
+
+```text
+RuntimeError: another Earful run is in progress on another thread: a process runs one case at a time, so give each thread a process of its own
+```
+
+The virtual clock and the `random` module belong to the process. A search runs its cases in
+processes of its own; tests that run cases side by side need `pytest-xdist` or another
+process pool.
+
 ### `effect` called outside a run
 
 ```text
@@ -221,8 +231,8 @@ invalid: harness error: call 4: the request allowed no tool call (tool_choice='n
 
 A real model answers such a request in words. Give the model a rule that answers without
 a call once the tool has run, or raise `max_tool_steps` in `session_kwargs`. The session
-closes once the agent is quiet, or after `drain_timeout` if it never is, so a request made
-while it closes means a tool ran longer than that.
+is asked to close once the agent is quiet, so a request made while it closes comes from
+code that runs as it closes, such as `on_exit`.
 
 ### The scripted model has no rule for a context
 
@@ -268,6 +278,24 @@ That work takes real time, which the virtual clock cannot move
 ([`compatibility.md`](compatibility.md#the-virtual-clock)). The second message is for
 `asyncio.to_thread` and `loop.run_in_executor`. Give the agent a stand-in for the service
 that does the work, or declare the tool an effect so that its body does not run.
+
+### Work still running when the run stops waiting
+
+```text
+invalid: harness error: the agent was still busy 30 s after the scenario: the session is thinking or speaking; tool create_reservation is running
+```
+
+```text
+invalid: harness error: the framework did not end within 30 s after the scenario
+```
+
+A run without a hangup waits, within `drain_timeout`, for the agent to fall quiet and then
+for the framework to end. The first message names what was still running: a tool that never
+returns, a reply still generated or played, a user turn the pipeline holds open. The second
+comes from a framework that would not end once asked, such as a Pipecat processor that holds
+the `EndFrame`. A tool that awaits an answer nothing gives, or a call to a service the
+scenario does not stand in for, is the usual cause. Give the tool a stand-in, declare it an
+effect, or raise `drain_timeout` if it is only slow.
 
 ### A tool whose calls cannot be recorded
 
@@ -360,8 +388,9 @@ L2 had nothing to judge: no reply was under way, or waiting to play, while the u
 ```
 
 The run never reached what the contract judges, so `require` fails. For L2, have the user
-speak while a reply plays. For L1, `run-ended` means the run ended before the deadline:
-give the scenario more `drain_delay`.
+speak while a reply plays. For L1, `run-ended` means the deadline fell more than
+`drain_timeout` after the scenario: a declared delay that long, or a voice that slow,
+needs a larger `drain_timeout`.
 
 ### Unobservable
 
