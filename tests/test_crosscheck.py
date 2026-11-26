@@ -239,7 +239,7 @@ def test_a_real_clock_hangup_need_not_fall_on_its_declared_microsecond():
     finished = max(e["t_us"] for e in hung_up if e["kind"] == "playout.finished")
     header["scenario"]["hangup_us"] = finished - origin["t_us"] + 1_000_000
     hung_up.insert(
-        first(hung_up, "history.final")["seq"],
+        min(first(hung_up, kind)["seq"] for kind in ("fw.close", "history.final")),
         {
             **origin,
             "kind": "user.hangup",

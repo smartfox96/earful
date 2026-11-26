@@ -1,10 +1,10 @@
 {
   "clock": "virtual",
   "environment": {
-    "earful": "0.1.1",
+    "earful": "0.3.1",
     "livekit": "1.1.5",
     "livekit-agents": "1.5.6",
-    "packages": "dadd01f71d8d440e91fc0772a63719d5a88e564d75477e8fc70135a8e89fb260",
+    "packages": "2b20b417f5ace6b900e8e07ec649a017d537be83c834b7a19e1a14c86e48c450",
     "platform": "Darwin-arm64",
     "python": "3.13.12"
   },
@@ -24,7 +24,7 @@
     "findings": [
       "2 durable effects for 'book-table-1'; the scenario authorized 1"
     ],
-    "hash": "e89907df18e831b27983d7270ae0c14f0827645ee4e8fb89f5afd3e9a2d72968",
+    "hash": "68d12965e3c3402e31cd6e69ea843678620f08ad43033ded499766645e0a88ee",
     "speeches": 2
   },
   "original": {
@@ -34,7 +34,7 @@
     "findings": [
       "2 durable effects for 'book-table-1'; the scenario authorized 1"
     ],
-    "hash": "2fe2348aef6be06a5dad850aa9a94158880c7dd4054f9a20b8213b9af8259016",
+    "hash": "b2846456c576fed191253072581d1f27676a5304a2060b20640ffd5aecc1fde7",
     "speeches": 2
   },
   "predicate": {
