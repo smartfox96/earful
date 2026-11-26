@@ -8,6 +8,37 @@ formats have versions of their own
 
 ## [Unreleased]
 
+### Runs
+
+- A run without a hangup ends the same way on LiveKit and Pipecat. Within `drain_timeout`
+  it waits until the agent is quiet, every backend write under way has its outcome and
+  every L1 deadline has passed. It then asks the framework to end and reads the final
+  history once it has. A LiveKit write still in flight is no longer cancelled.
+- A framework that ends the conversation on its own, such as a tool that shuts the
+  session down, ends the run. `run.end` records when and the reason it gave, and L1 and
+  M2 owe nothing after it.
+- Work still running when the run stops waiting makes the run invalid, and the error
+  names it. A tool that ignores cancellation, a pipeline that holds its `EndFrame` and a
+  task that never lets the event loop wait end the run within seconds.
+- A task that polls with `asyncio.sleep(0)` moves the virtual clock as real time would,
+  and an infinite timeout works as on a real loop. A second run started on another
+  thread of the same process is refused in one line.
+
+### Results
+
+- `run.end` lists the application's tasks and timers still running at the end, and each
+  declared delay or fault the run never reached. The result prints both. A2 cannot pass
+  while the application has left work running (`A2/work-pending`).
+- A replay names a kept delay or fault that never applied, and is not clean.
+- A search window names the fault it was measured under. An end passes only where a run
+  beyond it was judged, and the reach stops at 30 s.
+
+### Formats
+
+- Ledger revision 3 adds `closed`, `pending` and `unapplied` to `run.end`. Only a run that
+  records one of them uses it. The LiveKit reference ledgers and bundles change at their
+  end: the session closes before the final history is read.
+
 ## [0.3.3] - 2026-11-26
 
 - Existing LiveKit cases run with silence-based turn detection. Run and
