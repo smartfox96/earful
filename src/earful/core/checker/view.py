@@ -44,6 +44,10 @@ class View:
         # When the framework ended the conversation on its own, as run.end records it.
         closed = self.end["data"].get("closed") if self.end["kind"] == "run.end" else None
         self.closed_us: int | None = closed["t_us"] if isinstance(closed, dict) else None
+        # The application's work still running at the end, which may write after it.
+        self.pending: list[str] = (
+            list(self.end["data"].get("pending", ())) if self.end["kind"] == "run.end" else []
+        )
         self.origin: Event | None = None
         self.hangup: Event | None = None
         self.calls: dict[int, ModelCall] = {}

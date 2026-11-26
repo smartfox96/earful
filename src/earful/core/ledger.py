@@ -14,7 +14,7 @@ from typing import Any
 SCHEMA = "earful.ledger/1"
 SCHEMA_MINOR = 3  # the newest revision (docs/ledger.md, Versioning)
 UNTESTED_MINOR = 2  # revision 2 records an untested release in run.start.framework
-END_FIELDS = ("closed",)  # revision 3, in run.end
+END_FIELDS = ("closed", "pending", "unapplied")  # revision 3, in run.end
 
 # Who observed the event. The checker treats these as independent witnesses.
 SOURCES = ("world", "llm", "sink", "backend", "framework", "harness")

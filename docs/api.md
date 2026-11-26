@@ -537,7 +537,9 @@ def replay(directory, *, repeats=3): ...
 
 Checks every file of a bundle and runs its reduced case `repeats` times on the installed
 release. It returns a `Replay`. It imports and runs the scenario the bundle names, so
-replay only bundles you trust. A bundle that fails a check raises `ValueError`.
+replay only bundles you trust. A bundle that fails a check raises `ValueError`. A kept
+delay or fault that a run never reached is listed in `unapplied`, and such a replay is
+not `clean`.
 
 ## Results
 
@@ -741,7 +743,9 @@ registers the bot's functions on its model service and returns its `LLMContext`.
 
 `earful run SCENARIO` runs a scenario once and prints its verdicts. A delay or fault the
 case declares for a model call, utterance or write the run never reached is named on an
-`unapplied` line under the heading, and in the JSON under `unapplied`.
+`unapplied` line of the result, and in the JSON under `unapplied`. A task or timer of the
+application still running at the end is named on a `left running` line, and under
+`pending`.
 
 | Option | Meaning |
 | --- | --- |

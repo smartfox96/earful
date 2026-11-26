@@ -595,7 +595,9 @@ when the rule's contract had nothing to judge or could not judge in a run, or wh
 runs differ. Read the `invalid:` lines it prints and the contract's outcome. A contract
 with nothing to judge means the reduced case no longer reaches what the rule is about:
 the scenario's code changed, or the release behaves another way before that point. A
-test of a fix asserts `clean`, which needs a pass.
+test of a fix asserts `clean`, which needs a pass in every run and every kept delay and
+fault applied. An `unapplied` line names one the runs never reached: the fix changed what
+the case exercises, and the replay cannot show it is gone.
 
 ### A bundle that does not show the failure it names
 

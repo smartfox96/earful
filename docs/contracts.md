@@ -213,6 +213,7 @@ section 6 defines. An instance gets one of four verdicts.
 | `history-before-playout` | evidence lost | M1 | The final history was read before the playout finished |
 | `no-stable-text` | evidence lost | M2 | A tool's result has no stable text form to compare (rule d) |
 | `tool-unwitnessed` | evidence lost | M2, L1 | A tool behind a call or a result was not witnessed, or cannot be linked to the call |
+| `work-pending` | evidence lost | A2 | The application left a task or a timer running at the end, which may write after it |
 
 A contract's result for a run is `fail` if any instance failed, otherwise `unobservable`
 if any lost its evidence, otherwise `pass` if any passed, otherwise **not exercised**,
@@ -267,7 +268,7 @@ Durable effects for an intent do not exceed the count the scenario authorized.
 | Judged record | `backend`: committed effects |
 | Rule | Fail if committed effects for the intent exceed its authorized count |
 | Policy | None of its own. The authorized count is declared on the intent (default 1). The backend mode is declared on the scenario: `plain` (every write commits) or `keyed` (a repeated idempotency key is deduplicated and does not count) |
-| Evidence lost | `outside-backend`: the backend received no write request for the intent, and a tool for it was called and made no write request at all (section 2.6). A call that wrote for another intent is accounted for: the intent was not acted on, and has no instance |
+| Evidence lost | `outside-backend`: the backend received no write request for the intent, and a tool for it was called and made no write request at all (section 2.6). A call that wrote for another intent is accounted for: the intent was not acted on, and has no instance. `work-pending`: the application left a task or a timer running at the end (`pending` in `run.end`), which may write after it, so a count within the authorized one cannot pass |
 | Faults | A write counts if it committed, whatever its caller was told. A write the backend rejected or lost never counts |
 | Caller gone | A write counts if it committed, although the tool that asked was cancelled or the user had hung up by then |
 | Not judged | Too few effects. That is A3 when the agent claimed success, and otherwise a scenario expectation |

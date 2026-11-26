@@ -44,6 +44,7 @@ def check(view: View, policy: policies.A2) -> ContractResult:
                     tuple(c["seq"] for c in commits),
                 )
             )
+        left = ", ".join(view.pending)
         verdicts.append(
             verdict(
                 "A2",
@@ -51,6 +52,9 @@ def check(view: View, policy: policies.A2) -> ContractResult:
                 f"{len(commits)} durable effect(s) for {intent!r}, {authorized} authorized",
                 events=[*(e.requested for e in effects), *(e.outcome for e in effects)],
                 findings=findings,
+                missing=[("work-pending", f"the application left work running: {left}")]
+                if left
+                else [],
                 measures={
                     "committed": len(commits),
                     "authorized": authorized,

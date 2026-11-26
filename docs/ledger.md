@@ -93,7 +93,7 @@ with ordinals, and replaces nothing else; see Hashing.
 | --- | --- |
 | `run.start` | `case`, `seed`, `framework` (`name`, `version`), `clock` (`virtual`, or `real` for a control run), `scenario` (below), `contracts` (contract id to policy values; a contract that is absent uses its defaults). Always the first event |
 | `history.final` | `read_from`, `items` (context items, below): the framework's chat history, read back once the framework has ended. Framework state, usable only as a judged record |
-| `run.end` | `stamp_errors`, `executor_calls`, `underruns`, `harness_errors`, `framework_warnings`. Optional: `closed` (`t_us`, `reason`), when the framework ended the conversation on its own before Earful asked it to, with the reason it gave. Always the last event. See Validity |
+| `run.end` | `stamp_errors`, `executor_calls`, `underruns`, `harness_errors`, `framework_warnings`. Optional: `closed` (`t_us`, `reason`), when the framework ended the conversation on its own before Earful asked it to, with the reason it gave; `pending`, the application's tasks and timers still running at the end, each as `task` or `timer` and its qualified name; `unapplied`, each delay or fault the header declares for a model call, utterance or write the run never reached. Always the last event. See Validity |
 
 `scenario` holds what the test author declared:
 
@@ -472,5 +472,6 @@ Four optional fields are at `schema_minor` 1: `handoff` on `tool.returned`,
 `turn_end_delay_us` in the header's `session`, `word_timestamps` in its
 `providers.tts`, and `history` in its `scenario`.
 
-Revision 3 adds optional `closed` on `run.end`. A run whose `run.end` holds it records
-revision 3 on every event; any other run keeps the revision it had.
+Revision 3 adds optional `closed`, `pending` and `unapplied` on `run.end`. A run whose
+`run.end` holds one of them records revision 3 on every event; any other run keeps the
+revision it had.

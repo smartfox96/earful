@@ -195,8 +195,8 @@ MUTANTS = [
     Mutant(
         "report: tool failures disappear from JSON",
         "src/earful/core/checker/report.py",
-        "if not self.tool_errors:",
-        "if True:",
+        "            if not data[name]:\n",
+        "            if True:\n",
         first="for_a_tool_that_raised_is_not_judged",
     ),
     Mutant(
@@ -317,6 +317,27 @@ MUTANTS = [
         '        session.on("close", on_close)\n',
         "",
         first="test_behaviour",
+    ),
+    Mutant(
+        "kernel: the application's work left running is not recorded",
+        "src/earful/scripted/kernel/run.py",
+        '"pending": left_running(loop),',
+        '"pending": [],',
+        first="the_application_work_still_running",
+    ),
+    Mutant(
+        "A2: work the application left running does not stop a pass",
+        "src/earful/core/checker/a2.py",
+        'missing=[("work-pending", f"the application left work running: {left}")]',
+        "missing=[]",
+        first="a2_cannot_pass_while_the_application",
+    ),
+    Mutant(
+        "replay: a kept fault that never applied leaves the replay clean",
+        "src/earful/core/bundle.py",
+        "clean=all(outcome == PASS for outcome in contract) and not unapplied,",
+        "clean=all(outcome == PASS for outcome in contract),",
+        first="kept_fault_never_applies",
     ),
     Mutant(
         "kernel: a disconnect is sent before the user leaves",
@@ -1690,8 +1711,8 @@ MUTANTS = [
     Mutant(
         "bundle: a replay is clean if one run passed",
         "src/earful/core/bundle.py",
-        "        clean=all(outcome == PASS for outcome in contract),\n",
-        "        clean=any(outcome == PASS for outcome in contract),\n",
+        "        clean=all(outcome == PASS for outcome in contract) and not unapplied,\n",
+        "        clean=any(outcome == PASS for outcome in contract) and not unapplied,\n",
         first="only_if_every_run_was_judged",
     ),
     Mutant(
@@ -5868,8 +5889,8 @@ MUTANTS = [
     Mutant(
         "bundle: a replay is clean when the contract had nothing to judge",
         "src/earful/core/bundle.py",
-        "        clean=all(outcome == PASS for outcome in contract),\n",
-        "        clean=not invalid and not any(broke),\n",
+        "        clean=all(outcome == PASS for outcome in contract) and not unapplied,\n",
+        "        clean=not invalid and not any(broke) and not unapplied,\n",
         first="clean_only_if_the_contract_of_the_bundle_passed",
     ),
     Mutant(

@@ -226,7 +226,6 @@ Earful is right. A test holds this list to them.
 | --- | --- | --- |
 | [An agent that gives itself a tool with `update_tools` when it enters](../tests/shapes/livekit/adds_a_tool_on_enter.py) | The run is invalid: the added tool runs without a witness | Every contract is judged and none fails |
 | [An agent whose `llm_node` answers some questions itself, without calling the model](../tests/shapes/livekit/answers_passwords_itself.py) | L1 fails milestone 1 | None fails |
-| [A tool that hands its write to a background task, which writes twice](../tests/shapes/livekit/books_in_background_twice.py) | No contract fails or loses evidence | A2 is unobservable |
 | [An agent that awaits an `AgentTask` in `on_enter`](../tests/shapes/livekit/consent_task_on_enter.py) | The run is invalid: the task's tool runs without the witness | The run ends and none fails |
 | [A tool that speaks a fixed line with `session.say`, sharing a word with a reply the user talked over before it played](../tests/shapes/livekit/filler_after_discarded_reply.py) | L1 and M1 are unobservable | L1 and M1 pass |
 | [A tool that starts a filler line with `session.say` and returns without waiting for it](../tests/shapes/livekit/filler_from_tool.py) | M1 is unobservable and M2 fails rule c | None fails |
@@ -286,6 +285,5 @@ application under `tests/shapes/`. They change a verdict on LiveKit, and none on
 
 | What happens | What is right |
 | --- | --- |
-| A replay whose kept fault never applies is clean | The replay names the fault that did not apply and is not clean |
 | The scripted VAD reports a sound shorter than its start time | On Pipecat a sound shorter than the VAD's start time is no speech |
 | An enumeration is recorded by its type | A tool argument from an enumeration is recorded by its value |

@@ -254,8 +254,9 @@ class Replay:
     scenario_changed: bool | None  # the scenario's code has changed; None if unknown
     outcomes: tuple[str | None, ...]  # the contract's outcome in each run; None if invalid
     invalid: tuple[str, ...] = ()  # why a run was not valid evidence, if one was not
-    clean: bool = False  # every run was judged and the bundle's contract passed in each
+    clean: bool = False  # every run was judged, its contract passed and every fault applied
     unverified: tuple[str, ...] = ()  # the bundle's case files that nothing could check
+    unapplied: tuple[str, ...] = ()  # the kept delays and faults some run never reached
     others: tuple[str, ...] = ()  # the other rules some run broke, as CONTRACT/RULE
     codes: tuple[str, ...] = ()  # why the contract's verdicts were missing in some run
     broke: int = 0  # how many runs broke the bundle's rule
@@ -294,8 +295,10 @@ def replay(
     if fingerprint is not None and recorded:
         changed = fingerprint(bundle.minimal["scenario"]) != recorded
     outcomes, framework = [], {}
+    unapplied: list[str] = []
     for _ in range(repeats):
         events = run(bundle.minimal)
+        unapplied += check(events).unapplied
         header = events[0].get("data") if events and isinstance(events[0], dict) else None
         if not isinstance(header, dict) or not isinstance(header.get("framework"), dict):
             raise ValueError("the replay returned a ledger without a framework header")  # noqa: TRY004
@@ -315,8 +318,9 @@ def replay(
         scenario_changed=changed,
         session_scope=outcomes[0].session_scope,
         invalid=invalid,
-        clean=all(outcome == PASS for outcome in contract),
+        clean=all(outcome == PASS for outcome in contract) and not unapplied,
         unverified=bundle.unverified,
+        unapplied=tuple(dict.fromkeys(unapplied)),
         outcomes=tuple(contract),
         others=tuple(sorted(str(p) for p in others if not p.lost)),
         other_losses=tuple(sorted(str(p) for p in others if p.lost)),

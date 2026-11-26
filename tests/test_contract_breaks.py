@@ -717,3 +717,12 @@ def test_the_voice_names_no_reply_whose_first_token_is_not_out():
             for call, e in replies.items()
         )
     assert late  # a reply decided but with no token out did precede a text with its words
+
+
+def test_a2_cannot_pass_while_the_application_has_left_work_running():
+    from shapes.livekit import books_in_background_twice
+
+    report = _report(books_in_background_twice.case())
+    assert report.outcome("A2") == UNOBSERVABLE and report.lost() == ["A2/work-pending"]
+    (verdict,) = report.results["A2"].verdicts
+    assert verdict.findings[0].detail.endswith("Host.book_table.<locals>.book_and_retry")

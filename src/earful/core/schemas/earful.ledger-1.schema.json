@@ -1428,6 +1428,20 @@
               "type": "string"
             }
           }
+        },
+        "pending": {
+          "description": "Revision 3. The application's tasks and timers still running when the run ended, each as 'task' or 'timer' and its qualified name.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "unapplied": {
+          "description": "Revision 3. Each delay or fault the header declares for an occurrence the run never reached.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
         }
       }
     },

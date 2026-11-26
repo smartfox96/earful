@@ -39,7 +39,15 @@ def _header(case):
     }
 
 
-def _run_stub(*, hangup=None, early=False, contracts=None):
+async def _writes_later():
+    await asyncio.sleep(100)
+
+
+def _reminds_later():
+    pass
+
+
+def _run_stub(*, hangup=None, early=False, contracts=None, leaves=False):
     calls = []
     case = Case(
         "stub", [UserSpeech(0, 0.25, "hello", stt_delay=0.75)], lambda _: Reply(), hangup=hangup
@@ -73,6 +81,10 @@ def _run_stub(*, hangup=None, early=False, contracts=None):
             task = asyncio.create_task(deliver())
             if early:
                 asyncio.get_running_loop().call_later(0.1, end, "the stub hung up")
+            if leaves:
+                left.append(asyncio.create_task(_writes_later()))
+                asyncio.get_running_loop().call_later(100, _reminds_later)
+                asyncio.get_running_loop().call_later(100, print)  # Python's, not the stub's
             return completed
 
         async def drain():
@@ -93,6 +105,7 @@ def _run_stub(*, hangup=None, early=False, contracts=None):
             return {"read_from": "stub", "items": []}
 
         task = None
+        left = []
         try:
             yield RunPorts(
                 config=lambda: _header(case),
@@ -232,3 +245,10 @@ def test_authored_refusals_keep_the_first_error(fields, first):
     args = {"name": "invalid", "speeches": [], "policy": lambda _: Reply(), **fields}
     with pytest.raises(ValueError, match=first):
         check_case(Case(**args))
+
+
+def test_the_application_work_still_running_at_the_end_is_named_in_run_end():
+    result, _ = _run_stub(leaves=True)
+    assert result.events[-1]["data"]["pending"] == ["task _writes_later", "timer _reminds_later"]
+    assert result.report.pending == ("task _writes_later", "timer _reminds_later")
+    assert "pending" not in _run_stub()[0].events[-1]["data"]

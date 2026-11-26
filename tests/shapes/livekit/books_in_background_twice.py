@@ -45,5 +45,3 @@ def case() -> Case:
 
 # The second write is still to come when the run ends: A2 cannot be passed.
 SHOULD = judged(A2="unobservable")
-# The run ends between the two writes, and A2 passes.
-DEFECT = judged()
