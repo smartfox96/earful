@@ -268,6 +268,30 @@ def test_on_a_change_the_middle_livekit_releases_leave_the_slow_tests_out():
     assert quick == {("ubuntu-latest", "3.13")}
 
 
+def test_the_examples_of_the_pages_run_in_the_livekit_cells_on_linux_with_python_3_13():
+    cells = json.loads(_outputs(tier="full")["livekit"])
+    ran = [cell for cell in cells if cell["walkthrough"]]
+    assert {(cell["os"], cell["python"]) for cell in ran} == {("ubuntu-latest", "3.13")}
+    assert [cell["version"] for cell in ran] == list(LIVEKIT)
+
+
+def test_a_test_of_a_pages_examples_runs_in_one_step_of_a_cell():
+    # The quick step leaves out the slow tests and the slow step these, which have their own.
+    marked = 0
+    for path in sorted((ROOT / "tests").glob("test_*.py")):
+        text = path.read_text()
+        slow = re.findall(r"^@pytest\.mark\.slow\n@pytest\.mark\.walkthrough$", text, re.MULTILINE)
+        assert len(slow) == len(re.findall(r"^@pytest\.mark\.walkthrough$", text, re.MULTILINE))
+        marked += len(slow)
+    assert marked == 4
+    job = CHECKS.partition("\n  livekit:\n")[2].partition("\n  pipecat:\n")[0]
+    assert re.findall(r"^          -m (.+) --durations=10$", job, re.MULTILINE) == [
+        '"slow and not walkthrough"',
+        "walkthrough",
+    ]
+    assert "        if: matrix.cell.slow && matrix.cell.walkthrough\n" in job
+
+
 def test_the_real_clock_control_runs_in_the_newest_livekit_cell_on_linux_alone():
     cells = json.loads(_outputs(tier="full")["livekit"])
     controls = [c for c in cells if c["control"]]

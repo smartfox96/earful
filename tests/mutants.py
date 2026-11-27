@@ -6763,6 +6763,20 @@ MUTANTS = [
         first="middle_livekit_releases_leave_the_slow_tests_out",
     ),
     Mutant(
+        "scope: every LiveKit cell runs the examples of the pages",
+        "scripts/ci_scope.py",
+        '            "walkthrough": cell.system == "linux" and cell.python == "3.13",',
+        '            "walkthrough": True,',
+        first="examples_of_the_pages_run_in_the_livekit_cells",
+    ),
+    Mutant(
+        "ci: the slow step of a LiveKit cell runs the examples of the pages again",
+        ".github/workflows/checks.yml",
+        '          -m "slow and not walkthrough" --durations=10',
+        "          -m slow --durations=10",
+        first="test_of_a_pages_examples_runs_in_one_step",
+    ),
+    Mutant(
         "scope: a push of files that passed as a pull request runs again",
         "scripts/ci_scope.py",
         '        if tested.stdout.strip() == "tested=true":',

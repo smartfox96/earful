@@ -81,6 +81,7 @@ addopts = "--strict-markers"
 xfail_strict = true
 markers = [
     "slow: takes over a second, mostly searches that run the framework many times (leave out with -m 'not slow')",
+    "walkthrough: a slow test that runs the examples of a documentation page from end to end",
 ]
 
 [tool.ruff]

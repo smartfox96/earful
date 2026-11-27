@@ -610,7 +610,8 @@ def test_a_search_stays_in_its_test_process_only_where_pytest_has_the_processors
             assert stays == (" -n auto" in step), f"{name}: {step.splitlines()[0]}"
             assert not (stays and "scripts/repeat.py" in step), name  # its runs go to workers
             spread += stays
-    assert spread == 4  # quick and slow LiveKit tests, Pipecat's, and those of no framework
+    # Quick and slow LiveKit tests, the examples of the pages, Pipecat's, those of no framework.
+    assert spread == 5
 
 
 def test_ci_compares_the_environments_it_builds_on_python_3_13_with_their_lock_files():

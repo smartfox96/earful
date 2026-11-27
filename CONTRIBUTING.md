@@ -211,6 +211,9 @@ the breaks it ran. A break the file does not list counts as the median, and a na
 lists that no break has is left out, so the file never stops a pull request.
 
 **Tests over a second are marked `slow`.** `pytest -m "not slow"` is the loop to work in.
+A slow test that runs the examples of a page from end to end is also marked
+`walkthrough`. CI runs those in a step of their own, in the LiveKit cells on Linux with
+Python 3.13.
 
 **Property tests try the same inputs on every run.** `tests/test_properties.py` states
 what the checker, the shrinker and the time conversion keep on inputs that

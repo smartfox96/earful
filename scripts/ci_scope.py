@@ -287,6 +287,7 @@ def github(result: Plan) -> dict[str, str]:
             "os": _SYSTEMS[cell.system],
             "python": cell.python,
             "slow": _slow(cell, result.tier),
+            "walkthrough": cell.system == "linux" and cell.python == "3.13",
             "control": cell == Cell("lk", newest, "linux", "3.13"),
         }
         for cell in sorted(result.cells)

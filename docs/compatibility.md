@@ -121,7 +121,9 @@ run invalid, and the error names what was running.
 The full tier of CI runs every cell below: each night on `main`, on request, and on the
 commit of each release. A cell runs every test, checks that each of the three reference
 scenarios gives the committed ledger byte for byte in 100 runs in one process and 20 in
-fresh processes, runs the two historical cases, and replays both kept failures. A pull
+fresh processes, runs the two historical cases, and replays both kept failures. The four
+tests that run the examples of a page from end to end run in the cells on Linux with
+Python 3.13 alone. A pull
 request runs the cells its changed paths select (`CONTRIBUTING.md`, "What CI runs"): a
 change to the LiveKit adapter or to the core runs the oldest and the newest release on
 Linux with Python 3.13.

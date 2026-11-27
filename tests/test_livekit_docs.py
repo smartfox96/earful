@@ -282,6 +282,7 @@ def test_the_page_on_scripting_the_model_runs_as_written():
 
 
 @pytest.mark.slow
+@pytest.mark.walkthrough
 def test_the_testing_page_runs_its_examples_in_a_booking_application(tmp_path, monkeypatch):
     import shutil
 
@@ -343,6 +344,7 @@ def test_the_testing_page_runs_its_examples_in_a_booking_application(tmp_path, m
 
 
 @pytest.mark.slow
+@pytest.mark.walkthrough
 def test_the_search_page_runs_as_printed(tmp_path, monkeypatch):
     import livekit.agents as lk
     from doc_examples import blocks, commands, execute
@@ -363,6 +365,7 @@ def test_the_search_page_runs_as_printed(tmp_path, monkeypatch):
 
 
 @pytest.mark.slow
+@pytest.mark.walkthrough
 def test_the_testing_pages_command_sequence_builds_a_replayable_bundle(tmp_path, monkeypatch):
     from doc_examples import commands
 
@@ -388,6 +391,7 @@ def test_the_testing_pages_command_sequence_builds_a_replayable_bundle(tmp_path,
 
 
 @pytest.mark.slow
+@pytest.mark.walkthrough
 def test_each_saved_case_page_runs_its_commands_on_the_named_release(monkeypatch, capsys):
     import livekit.agents as lk
     from doc_examples import commands
