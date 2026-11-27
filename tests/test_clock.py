@@ -381,12 +381,12 @@ def test_a_short_poll_with_sleep_zero_beside_a_frequent_timer_is_a_loop_that_wai
         for n in range(1, 101):
             loop.call_later(n * 0.05, lambda: None)  # as a microphone's frames
         done: list[int] = []
-        loop.call_later(0.2, done.append, 1)
+        loop.call_later(2.0, done.append, 1)  # as a slow backend
         while not done:
             await asyncio.sleep(0)
         return loop.time(), livelocked(loop)
 
-    assert run_virtual(main) == (0.2, False)
+    assert run_virtual(main) == (2.0, False)
 
 
 def test_a_loop_that_never_waits_moves_to_its_last_timer_and_says_so():
@@ -411,4 +411,4 @@ def test_a_loop_that_never_waits_moves_to_its_last_timer_and_says_so():
 
     at, passes, never_waits = run_virtual(main)
     assert at == 30.0 and never_waits
-    assert passes < 15 * SPIN_PASSES  # a second of moves of the clock, not thirty
+    assert passes < 55 * SPIN_PASSES  # five seconds of moves of the clock, not thirty

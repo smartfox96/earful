@@ -203,8 +203,8 @@ The last four are counted in one harness error, such as
 
 A task that never waits, such as one that polls with `asyncio.sleep(0)`, holds the loop at
 one instant. After 1 000 loop passes at one instant the clock moves to the next timer, as
-real time would. Such moves that carry the clock a second with no wait between them mean
-the loop never waits: the clock moves to the last timer, where the run stops waiting and
+real time would. Such moves that carry the clock five seconds with no wait between them
+mean the loop never waits: the clock moves to the last timer, where the run stops waiting and
 the error says that a task never lets the event loop wait. With no timer to move to, the run stops with
 `VirtualTimeStall`.
 
@@ -262,4 +262,4 @@ ledgers, and reads bundles. It runs nothing. Python 3.10 or later.
   and names the tool.
 - livekit-agents 2.0. It runs the session in a compiled core with its own runtime and
   threads, which Earful's virtual clock does not reach, and the `livekit` extra accepts
-  releases below 1.9.
+  releases below 1.10.

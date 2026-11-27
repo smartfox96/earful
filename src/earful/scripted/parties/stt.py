@@ -51,12 +51,12 @@ class Recognition(Schedule):
     async def deliver(
         self,
         origin_us: int,
-        hearer: Callable[[int], L | None],
+        hearers: Callable[[int], list[L]],
         send: Callable[[L, Transcript], Awaitable[None]],
     ) -> None:
-        """Each transcript falls due on the run's clock and goes to the recognizer that
-        ``hearer`` says heard its speech end. One that no recognizer heard is not delivered."""
+        """Each transcript falls due on the run's clock and goes to every recognizer that
+        ``hearers`` says heard its speech end. One that none heard is not delivered."""
         async for event in self.events(origin_us):
-            listener = hearer(origin_us + self.speeches[event.speech].end_us)
-            if listener is not None and event.text:
-                await send(listener, event)
+            if event.text:
+                for listener in hearers(origin_us + self.speeches[event.speech].end_us):
+                    await send(listener, event)

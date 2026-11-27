@@ -23,6 +23,7 @@ from pipecat.frames.frames import (
     LLMFullResponseStartFrame,
     LLMTextFrame,
     StartFrame,
+    STTMuteFrame,
     TranscriptionFrame,
     TTSAudioRawFrame,
     TTSStoppedFrame,
@@ -112,6 +113,7 @@ class ScriptedSTT(STTService):
         super().__init__(ttfs_p99_latency=0.0, settings=STTSettings(model=None, language=None))
         self._ledger, self._origin, self._left = ledger, origin, left
         self.script = Recognition(sorted(speeches, key=lambda s: s.start), chronological=True)
+        self._mutes: list[tuple[int, bool]] = []  # when the service was muted or unmuted
 
     async def run_stt(self, audio: bytes) -> AsyncGenerator[Frame | None, None]:
         return
@@ -121,16 +123,21 @@ class ScriptedSTT(STTService):
         await super().process_frame(frame, direction)
         if isinstance(frame, StartFrame):
             self.create_task(self._script(), "earful-scripted-stt")
+        elif isinstance(frame, STTMuteFrame):
+            self._mutes.append((now_us(), frame.mute))
 
     async def _script(self) -> None:
         self._origin.mark("stt", now_us())
         assert self._origin.t0_us is not None
-        # The pipeline's one recognizer hears the user until they hang up.
         await self.script.deliver(
-            self._origin.t0_us,
-            lambda _: None if self._left.is_set() else self,
-            lambda _, event: self._send(event),
+            self._origin.t0_us, self._hearers, lambda _, event: self._send(event)
         )
+
+    def _hearers(self, at_us: int) -> list[ScriptedSTT]:
+        """The pipeline's one recognizer, unless the user hung up or it was muted at
+        ``at_us``: a muted service drops the audio it is given."""
+        muted = next((mute for since, mute in reversed(self._mutes) if since <= at_us), False)
+        return [] if self._left.is_set() or muted else [self]
 
     async def _send(self, event: Transcript) -> None:
         if not event.final:

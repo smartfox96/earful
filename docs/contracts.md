@@ -657,8 +657,8 @@ on two releases (`tests/golden/pc-*`), pass every contract they exercise.
 | L2 stop latency: command to silence | 0 in every interruption | the same |
 | L2 recognition delay: true start of speech to the command | 500 000 when the agent was speaking; 50 000 when the repaired releases pause before a stale reply starts | reported only |
 | L1 time to the first model call | 0 to 300 000 | `slack_us` 1 000 000 |
-| L1 time to first audio | 500 000 to 800 000 | the same |
-| L1 smallest margin before a deadline | 1 690 000 | the same. Every milestone is on time even with `slack_us` 0 |
+| L1 time to first audio | 500 000 to 946 153 | the same |
+| L1 smallest margin before a deadline | 1 700 000 | the same. Every milestone is on time even with `slack_us` 0 |
 | M2 lag from a transcript's delivery to its appearance in a context | 0 | `user_commit_lag_us` 1 000 000 |
 | M1 drift | 0 in every reference ledger | `ahead_us`, `behind_us` 1 000 000; the sweep in section 6 has the full distribution |
 

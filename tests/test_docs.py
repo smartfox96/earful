@@ -809,7 +809,7 @@ def test_the_limits_page_quotes_the_numbers_the_code_has():
     page = " ".join(LIMITS.split())
     compatibility = " ".join(COMPATIBILITY.split())
     assert f"After {SPIN_PASSES:,} loop passes".replace(",", " ") in compatibility
-    assert LIVELOCK_SECONDS == 1.0 and "carry the clock a second" in compatibility
+    assert LIVELOCK_SECONDS == 5.0 and "carry the clock five seconds" in compatibility
     assert f"| livekit-agents | {', '.join(SUPPORT['livekit-agents'].tested)} |" in LIMITS
     assert f"| pipecat-ai | {', '.join(SUPPORT['pipecat-ai'].tested)} |" in LIMITS
     assert f"more than {MAX_READINGS} readings" in page

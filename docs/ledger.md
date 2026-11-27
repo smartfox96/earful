@@ -58,7 +58,10 @@ of a speech boundary is `t_us` of `user.origin` plus its offset. Every VAD and r
 stream of a run counts from that one origin, including those an agent or task opens later.
 On LiveKit the scripted user's microphone sends a frame every 50 ms, at 24 kHz, from the
 start of the session until the user hangs up or the session closes, as LiveKit's room
-input does by default. A frame is voiced while a speech lasts and silent otherwise.
+input does by default. A frame is voiced while a speech lasts and silent otherwise. While
+the application has audio input off (`session.input.set_audio_enabled(False)`) no frame
+reaches the session, as with LiveKit's room input, and a VAD stream reports nothing while
+no audio reaches it.
 
 Fields inside `data` that end in `_us` are microseconds too: absolute virtual time when
 they name an instant (`words_completed_us`), a duration otherwise (`ttft_us`,
@@ -175,7 +178,7 @@ and a ledger must hash the same on every machine. They belong to a run's manifes
 | `user.origin` | `by` (`vad` or `stt`) | The scripted user's clock starts. Once per run |
 | `user.vad_start` | `speech` | The scripted VAD reports speech to the framework: the true start of a segment's first speech, which `speech` names, plus `min_speech_us` |
 | `user.vad_end` | `speech` | The scripted VAD reports silence: the true end of a segment's last speech, which `speech` names, plus `min_silence_us` |
-| `user.transcript_final` | `speech`, `text` | The scripted STT delivers the final transcript: true end plus `stt_delay_us`. Only a recognizer stream that the voice of the speech's end reached delivers it. A speech no stream heard has none, as when the framework keeps the user's audio from its recognizer |
+| `user.transcript_final` | `speech`, `text` | The scripted STT delivers the final transcript: true end plus `stt_delay_us`. Only a recognizer stream that the voice of the speech's end reached delivers it. A speech no stream heard has none, as when the framework keeps the user's audio from its recognizer or a Pipecat STT service is muted. A transcript goes to every stream that heard it |
 | `user.hangup` | none | The user leaves: the origin plus `hangup_us`. At most once per run |
 
 ### world: synthesis and tools

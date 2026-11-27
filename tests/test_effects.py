@@ -598,6 +598,28 @@ def test_the_scripted_user_and_the_witness_follow_a_handoff_to_the_next_agent(ag
     assert outcomes["L2"] == NOT_EXERCISED  # the user never speaks over a reply
 
 
+class _AudioOffForAWhile(lk.Agent):
+    def __init__(self):
+        super().__init__(instructions="You are a host.")
+
+    async def on_enter(self):
+        enable = self.session.input.set_audio_enabled
+        asyncio.get_running_loop().call_later(0.5, enable, False)
+        asyncio.get_running_loop().call_later(3.0, enable, True)
+
+
+def test_the_user_is_not_heard_while_the_application_has_audio_input_off():
+    case = Case(
+        name="audio_off",
+        agent=_AudioOffForAWhile,
+        speeches=[UserSpeech(1.0, 2.0, "Hello there."), UserSpeech(4.0, 5.0, "Hello again.")],
+        policy=lambda items: Reply(text="Hello."),
+    )
+    events = run_case(case).ledger.events
+    assert [d["speech"] for d in _of(events, "user.vad_start")] == [1]
+    assert [d["text"] for d in _of(events, "user.transcript_final")] == ["Hello again."]
+
+
 def test_a_stream_opened_at_a_handoff_counts_from_the_origin_of_the_run():
     events = run_case(_handoff()).ledger.events
     (origin,) = [e["t_us"] for e in events if e["kind"] == "user.origin"]

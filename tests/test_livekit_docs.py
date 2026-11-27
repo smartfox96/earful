@@ -324,7 +324,7 @@ def test_the_testing_page_runs_its_examples_in_a_booking_application(tmp_path, m
             run(names["case"]).assert_contracts()
         if (
             "def test_a_booking_is_made_once_and_confirmed_truthfully" in block
-            and lk.__version__ == "1.8.13"
+            and lk.__version__ == SUPPORT["livekit-agents"].tested[-1]
         ):
             test = names["test_a_booking_is_made_once_and_confirmed_truthfully"]
             if "earful" in inspect.signature(test).parameters:
@@ -335,7 +335,10 @@ def test_the_testing_page_runs_its_examples_in_a_booking_application(tmp_path, m
             assert len(names["checked"].comparisons) == 3
         elif "def policy(" in block:
             assert names["policy"]([]).tool_calls
-        elif "def test_the_double_booking_stays_fixed" in block and lk.__version__ == "1.8.13":
+        elif (
+            "def test_the_double_booking_stays_fixed" in block
+            and lk.__version__ == SUPPORT["livekit-agents"].tested[-1]
+        ):
             names["test_the_double_booking_stays_fixed"]()
 
 

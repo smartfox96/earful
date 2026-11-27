@@ -7,6 +7,7 @@ import pytest
 pytest.importorskip("livekit.agents")
 
 import livekit.agents as lk
+from livekit import rtc
 from livekit.agents import llm
 
 from earful.core.ledger import Ledger
@@ -259,13 +260,44 @@ def test_the_scripted_recognizer_says_that_it_sends_interim_transcripts():
     assert ("Tell me", False) in [(said["text"], said["final"]) for said in heard]
 
 
-def test_a_stream_hears_the_user_only_around_the_frames_that_carried_their_voice():
+def test_a_stream_hears_the_user_only_in_the_frames_that_carried_their_voice():
     ears = user._Ears()
     assert not ears.heard(0)
-    ears.voiced = [1_000_000, 1_050_000]
-    within = user.HEARD_WITHIN_US
-    assert ears.heard(1_000_000 - within) and ears.heard(1_050_000 + within)
-    assert not ears.heard(999_999 - within) and not ears.heard(1_050_001 + within)
+    frame = user.MICROPHONE_FRAME_US
+    ears.voiced = [1_000_000, 1_050_000]  # when the audio of each voiced frame began
+    assert ears.heard(1_000_000) and ears.heard(1_050_000 + frame - 1)
+    assert not ears.heard(999_999) and not ears.heard(1_050_000 + frame)
+
+
+def test_a_stream_places_a_voiced_frame_by_the_audio_it_holds_not_by_when_it_came():
+    voice, silence = user.VOICE * 4, b"\x00\x00" * 4
+
+    async def voiced():
+        async def late():
+            await asyncio.sleep(1.0)  # a stalled loop sends them all at once
+            for data, at_us in ((voice, 50_000), (silence, 100_000), (voice, 150_000)):
+                yield rtc.AudioFrame(data, 24_000, 1, 4, userdata={user.STAMP: at_us})
+
+        ears = user._Ears()
+        await ears.listen(late())
+        return ears.voiced
+
+    assert run_virtual(voiced) == [50_000, 150_000]
+
+
+def test_each_frame_of_the_microphone_names_its_50_ms_and_none_comes_while_detached():
+    async def stamps():
+        microphone = user.Microphone([], WorldOrigin(Ledger(now_us, run="test")))
+        microphone.open()
+        got = [(await microphone.__anext__()).userdata[user.STAMP]]
+        microphone.on_detached()
+        await asyncio.sleep(0.12)
+        microphone.on_attached()
+        got.append((await microphone.__anext__()).userdata[user.STAMP])
+        microphone.close()
+        return got
+
+    assert run_virtual(stamps) == [0, 3 * user.MICROPHONE_FRAME_US]
 
 
 def test_the_microphone_carries_the_users_voice_only_while_a_speech_lasts():

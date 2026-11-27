@@ -27,6 +27,7 @@ from .seams import DEFAULT_API_CONNECT_OPTIONS, APIConnectOptions, io
 MICROPHONE_FRAME_US = 50_000
 SAMPLE_RATE = 24_000
 VOICE = (256).to_bytes(2, "little", signed=True)  # one sample of the user's voice
+STAMP = "earful_us"  # in a frame's userdata: when the 50 ms of audio it holds began
 
 
 class Microphone(io.AudioInput):
@@ -39,6 +40,14 @@ class Microphone(io.AudioInput):
         self._sending: asyncio.Task[None] | None = None
         self._speeches = speeches
         self._origin = origin
+        self._attached = True
+
+    def on_attached(self) -> None:
+        self._attached = True
+
+    def on_detached(self) -> None:
+        # LiveKit's room input drops the user's audio while the application has it off.
+        self._attached = False
 
     async def __anext__(self) -> rtc.AudioFrame:
         return await self._ch.__anext__()
@@ -64,13 +73,16 @@ class Microphone(io.AudioInput):
         began, sent = now_us(), 0
         while not self._ch.closed:
             # A frame sent late on the real clock still holds the audio of its own 50 ms.
-            frame = rtc.AudioFrame(
-                data=sound[self._voiced(began + sent * MICROPHONE_FRAME_US)],
-                sample_rate=SAMPLE_RATE,
-                num_channels=1,
-                samples_per_channel=samples,
-            )
-            self._ch.send_nowait(frame)
+            at_us = began + sent * MICROPHONE_FRAME_US
+            if self._attached:
+                frame = rtc.AudioFrame(
+                    data=sound[self._voiced(at_us)],
+                    sample_rate=SAMPLE_RATE,
+                    num_channels=1,
+                    samples_per_channel=samples,
+                    userdata={STAMP: at_us},
+                )
+                self._ch.send_nowait(frame)
             sent += 1
             await sleep_until(began, sent * MICROPHONE_FRAME_US)
 
@@ -105,8 +117,8 @@ class ScriptedVAD(lk_vad.VAD):
 # VADEvent grew fields across releases; only pass the ones this version defines.
 _VAD_EVENT_FIELDS = {f.name for f in dataclasses.fields(lk_vad.VADEvent)}
 
-# A stream that got a voiced frame within this long of an instant heard the user then.
-HEARD_WITHIN_US = 2 * MICROPHONE_FRAME_US
+# A stream whose last frame came within this long of an instant was still getting audio then.
+STILL_HEARING_US = 2 * MICROPHONE_FRAME_US
 
 
 class _Ears:
@@ -114,19 +126,20 @@ class _Ears:
 
     def __init__(self) -> None:
         self.first_us: int | None = None
-        self.voiced: list[int] = []  # when each frame that carried the user's voice arrived
+        self.last_us = 0  # when the last frame arrived
+        self.voiced: list[int] = []  # when the audio of each voiced frame began, in order
         self.opened = asyncio.Event()
 
     async def listen(self, frames: Any) -> None:
         async for frame in frames:
             if isinstance(frame, rtc.AudioFrame):
-                at_us = now_us()
+                self.last_us = now_us()
                 if self.first_us is None:
-                    self.first_us = at_us
+                    self.first_us = self.last_us
                     self.opened.set()
                 # The framework may pass silence in place of the user's audio.
                 if frame.data.tobytes().strip(b"\x00"):
-                    self.voiced.append(at_us)
+                    bisect.insort(self.voiced, frame.userdata.get(STAMP, self.last_us))
 
     async def first_frame(self, listening: asyncio.Future[None]) -> int | None:
         """When the stream got its first frame, or None if its input ended before one."""
@@ -137,9 +150,12 @@ class _Ears:
         return self.first_us
 
     def heard(self, at_us: int) -> bool:
-        """Whether the user's voice reached the stream around ``at_us``."""
-        after = bisect.bisect_left(self.voiced, at_us - HEARD_WITHIN_US)
-        return after < len(self.voiced) and self.voiced[after] <= at_us + HEARD_WITHIN_US
+        """Whether the stream got the voiced frame that holds the audio of ``at_us``."""
+        after = bisect.bisect_left(self.voiced, at_us - MICROPHONE_FRAME_US + 1)
+        return after < len(self.voiced) and self.voiced[after] <= at_us
+
+    def getting_audio(self, at_us: int) -> bool:
+        return self.first_us is not None and at_us - self.last_us <= STILL_HEARING_US
 
 
 class _ScriptedVADStream(lk_vad.VADStream):
@@ -152,13 +168,14 @@ class _ScriptedVADStream(lk_vad.VADStream):
         try:
             opened = await ears.first_frame(listening)
             if opened is not None and vad._speeches:
-                await self._detect(vad, opened)
+                await self._detect(vad, ears, opened)
             await listening
         finally:
             cancel(listening)
 
-    async def _detect(self, vad: ScriptedVAD, opened: int) -> None:
-        """Report what the stream hears of each segment, from its first frame on."""
+    async def _detect(self, vad: ScriptedVAD, ears: _Ears, opened: int) -> None:
+        """Report what the stream hears of each segment, from its first frame on, while its
+        audio keeps arriving."""
         vad._origin.mark("vad", opened)
         assert vad._origin.t0_us is not None
         t0 = vad._origin.t0_us
@@ -175,8 +192,15 @@ class _ScriptedVADStream(lk_vad.VADStream):
             "inference": lk_vad.VADEventType.INFERENCE_DONE,
             "end": lk_vad.VADEventType.END_OF_SPEECH,
         }
+        started: set[int] = set()
         for event in events:
             await sleep_until(t0, event.at_us)
+            if not ears.getting_audio(now_us()):
+                continue
+            if event.kind == "start":
+                started.add(event.segment)
+            elif event.segment not in started:
+                continue  # its start came while no audio arrived
             self._emit(kinds[event.kind], event.spans, now_us() - t0)
             if event.kind == "start" and event.segment not in vad._starts:
                 vad._starts.add(event.segment)
@@ -219,6 +243,7 @@ class ScriptedSTT(lk_stt.STT[NoReturn]):
         # The framework opens a stream for each agent or task it starts, and may hand one on.
         self._listening: list[tuple[_ScriptedRecognizeStream, _Ears]] = []
         self._delivering: asyncio.Task[None] | None = None
+        self._recorded: set[int] = set()  # speeches whose final transcript is in the ledger
 
     def begin(self) -> None:
         """Start the run's timetable of transcripts. It counts from the origin."""
@@ -235,18 +260,19 @@ class ScriptedSTT(lk_stt.STT[NoReturn]):
         try:
             await self._origin.started.wait()
             assert self._origin.t0_us is not None
-            await self.script.deliver(self._origin.t0_us, self._hearer, self._send)
+            await self.script.deliver(self._origin.t0_us, self._hearers, self._send)
         except Exception:
             # The scenario ends on the last transcript: a run must not wait for it now.
             self.script.finish()
             raise
 
-    def _hearer(self, at_us: int) -> _ScriptedRecognizeStream | None:
-        return next((stream for stream, ears in self._listening if ears.heard(at_us)), None)
+    def _hearers(self, at_us: int) -> list[_ScriptedRecognizeStream]:
+        return [stream for stream, ears in self._listening if ears.heard(at_us)]
 
     async def _send(self, stream: _ScriptedRecognizeStream, event: Transcript) -> None:
         stream._send(event.text, final=event.final)
-        if event.final:
+        if event.final and event.speech not in self._recorded:
+            self._recorded.add(event.speech)
             self._ledger.append(
                 "world", "user.transcript_final", speech=event.speech, text=event.text
             )
