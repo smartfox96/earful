@@ -5,8 +5,8 @@
   python3 scripts/ci_scope.py --github                     for a run of ci at HEAD, from the
       variables the workflow sets: TIER, EVENT, ACTION, BEFORE and BASE_SHA
 
-A path selects what the first rule it matches says. A path no rule matches runs everything.
-The full tier runs everything whatever changed. Needs Python 3.10 and git.
+A path selects what the first rule it matches says. A path no rule matches selects the
+group "broad". The full tier runs everything whatever changed. Needs Python 3.10 and git.
 """
 
 from __future__ import annotations
@@ -41,25 +41,25 @@ PIPECAT = {"1.16.0": "2026-11-18", "1.17.0": "2026-11-24"}
 OTHER_PYTHONS = {"3.10": "1.6.6", "3.11": "1.5.6", "3.12": "1.9.0", "3.14": "1.9.0"}
 
 # What a group of paths runs before a pull request merges. An item is a job, a cell
-# ("lk <release> <system> [<python>]", "pc <system> <python> [wheel]"), or another group.
+# ("lk <releases> <system>", "pc <releases> <system> <python> [wheel]"), or another group.
+# <releases> is every, oldest or newest, and for a lock file its: the release it names.
 GROUPS = {
     "prose": ("prose",),
-    "pipecat": ("lint", "pc linux 3.13", "pc linux 3.11"),
-    "livekit": ("lint", "lk every linux", "quickstart"),
+    "pipecat": ("lint", "pc every linux 3.13"),
+    "livekit": ("lint", "lk oldest linux", "lk newest linux", "quickstart"),
     "its release": ("lk its linux",),
-    "core": ("livekit", "pipecat", "wheel"),
-    "clock": ("core", "lk oldest macos", "lk newest macos", "lk other pythons", "pc macos 3.13"),
+    "core": ("livekit", "pc newest linux 3.13", "wheel"),
     "report": ("lint", "lk newest linux", "report"),
     "build": (
         "lint",
         "lk oldest linux",
         "lk newest linux",
-        "pc linux 3.12 wheel",
+        "pc newest linux 3.12 wheel",
         "wheel",
         "quickstart",
     ),
     "breaks": ("lint",),
-    "everything": ("full",),
+    "broad": ("core", "report", "bare"),
 }
 # What the full tier runs: each night on main, on request, and before a release.
 FULL = (
@@ -72,15 +72,15 @@ FULL = (
     "lk every linux",
     "lk every macos",
     "lk other pythons",
-    "pc linux 3.13",
-    "pc linux 3.11",
-    "pc linux 3.12 wheel",
-    "pc macos 3.13",
+    "pc every linux 3.13",
+    "pc every linux 3.11",
+    "pc every linux 3.12 wheel",
+    "pc every macos 3.13",
 )
 
 # The first rule a path matches decides. "*" stays within a directory and "**" does not.
 # "declared" is the framework the file needs: a test file's pytest.importorskip, a helper's
-# imports. Anything no rule names runs everything, the workflows and scripts among them.
+# imports. Anything no rule names is broad, the workflows and scripts among them.
 RULES = (
     ("docs/**", "prose"),
     ("*.md", "prose"),
@@ -98,10 +98,6 @@ RULES = (
     ("tests/golden/lk-*", "livekit"),
     ("tests/bundles/**", "livekit"),
     ("tests/shapes/livekit/**", "livekit"),
-    ("src/earful/scripted/clock.py", "clock"),
-    ("src/earful/scripted/timers.py", "clock"),
-    ("src/earful/scripted/ceilings.py", "clock"),
-    ("src/earful/scripted/guards.py", "clock"),
     ("src/earful/core/html.py", "report"),
     ("tests/mutants.py", "breaks"),
     ("tests/mutants_seconds.json", "breaks"),
@@ -109,14 +105,14 @@ RULES = (
     ("tests/*.py", "declared"),
     ("tests/shapes/*.py", "declared"),
     ("src/**", "core"),
-    ("releases.toml", "everything"),
+    ("releases.toml", "broad"),
     ("pyproject.toml", "build"),
     ("LICENSE", "build"),
     ("NOTICE", "build"),
     (".gitignore", "build"),
 )
-UNKNOWN = "everything"
-# On a pull request the middle LiveKit releases leave out the slow tests: the oldest and
+UNKNOWN = "broad"
+# On a pull request a middle LiveKit release leaves out the slow tests: the oldest and
 # the newest run them, and every cell runs them in the full tier.
 SLOW_ON_A_CHANGE = ("oldest", "newest")
 
@@ -205,21 +201,19 @@ def group_of(path: str, read: Callable[[str], str | None]) -> tuple[str, str]:
 
 def _cells(item: str, release: str | None) -> list[Cell]:
     words = item.split()
-    if words[0] == "pc":
-        source = words[3] if len(words) > 3 else "checkout"
-        return [Cell("pc", v, words[1], words[2], source) for v in PIPECAT]
     if words[1:] == ["other", "pythons"]:
         return [Cell("lk", v, "linux", py) for py, v in OTHER_PYTHONS.items()]
-    which, system = words[1], words[2]
+    framework, which, system = words[:3]
     python = words[3] if len(words) > 3 else "3.13"
-    versions = list(LIVEKIT)
+    source = words[4] if len(words) > 4 else "checkout"
+    versions = list(LIVEKIT if framework == "lk" else PIPECAT)
     chosen = {
         "every": versions,
         "oldest": versions[:1],
         "newest": versions[-1:],
         "its": [release] if release in LIVEKIT else versions,
-    }.get(which, [which])
-    return [Cell("lk", v, system, python) for v in chosen]
+    }[which]
+    return [Cell(framework, v, system, python, source) for v in chosen]
 
 
 def _expand(items: tuple[str, ...], path: str) -> tuple[list[str], list[Cell]]:
@@ -232,8 +226,6 @@ def _expand(items: tuple[str, ...], path: str) -> tuple[list[str], list[Cell]]:
             more_jobs = [item]
         elif item in GROUPS:
             more_jobs, more_cells = _expand(GROUPS[item], path)
-        elif item == "full":
-            more_jobs, more_cells = _expand(FULL, path)
         else:
             found = re.fullmatch(r"compat/lk-(.+)\.lock\.txt", path)
             more_jobs, more_cells = [], _cells(item, found.group(1) if found else None)
@@ -253,22 +245,17 @@ def plan(tier: str, paths: list[str] | None, read=None, before=None) -> Plan:
         result.breaks, result.breaks_why = list(mutate.MUTANTS), why
         return _without_extra_prose(result)
     read = read or (lambda path: None)
-    everything = False
     for path in paths:
         glob, group = group_of(path, read)
         result.paths.append((path, glob, group))
-        everything |= group == UNKNOWN
         jobs, cells = _expand(GROUPS[group], path)
         why = f"{path} is {group}" if glob != "no rule" else f"no rule names {path}"
         for job in jobs:
             result.jobs.setdefault(job, why)
         for cell in cells:
             result.cells.setdefault(cell, why)
-    if everything:
-        result.breaks, result.breaks_why = list(mutate.MUTANTS), "a path no rule names"
-    else:
-        result.breaks = mutate.chosen(paths, before)
-        result.breaks_why = "those the changed files can affect (scripts/mutate.py)"
+    result.breaks = mutate.chosen(paths, before)
+    result.breaks_why = "those the changed files can affect (scripts/mutate.py)"
     return _without_extra_prose(result)
 
 
@@ -365,39 +352,22 @@ def table() -> str:
     """The rules, and what each group selects, as two Markdown tables."""
 
     def describe(group: str) -> str:
-        if GROUPS[group] == ("full",):
-            return "the full tier: " + describe_items(FULL)
-        return describe_items(GROUPS[group], group == "its release")
-
-    def describe_items(items: tuple[str, ...], one_release: bool = False) -> str:
-        jobs, cells = _expand(items, "compat/lk-<release>.lock.txt")
+        jobs, cells = _expand(GROUPS[group], "compat/lk-<release>.lock.txt")
         said = [_JOBS[job] for job in jobs]
-        lk = [c for c in cells if c.framework == "lk"]
-        if one_release:
+
+        def releases(framework: str, source: str = "checkout") -> str:
+            found = {c.version for c in cells if (c.framework, c.source) == (framework, source)}
+            return " and ".join(v for v in {**LIVEKIT, **PIPECAT} if v in found)
+
+        if group == "its release":
             said.append("LiveKit, that release alone")
-        elif lk:
-            versions = sorted({c.version for c in lk if c.system == "linux" and c.python == "3.13"})
-            if len(versions) == len(LIVEKIT):
-                said.append("LiveKit, every release")
-            elif versions:
-                said.append("LiveKit " + " and ".join(versions))
-            macos = sorted({c.version for c in lk if c.system == "macos"})
-            if len(macos) == len(LIVEKIT):
-                said.append("LiveKit on macOS, every release")
-            elif macos:
-                said.append("LiveKit " + " and ".join(macos) + " on macOS")
-            if any(c.python != "3.13" for c in lk):
-                said.append("LiveKit on every other Python")
-        pc = [c for c in cells if c.framework == "pc"]
-        if pc:
-            linux = sorted({c.python for c in pc if c.system == "linux" and c.source == "checkout"})
-            if linux:
-                said.append("Pipecat on Python " + " and ".join(linux))
-            if any(c.source == "wheel" for c in pc):
-                said.append("Pipecat from the wheel")
-            if any(c.system == "macos" for c in pc):
-                said.append("Pipecat on macOS")
-        return "; ".join(said) if said else "the full tier"
+        elif releases("lk"):
+            said.append("LiveKit " + releases("lk"))
+        if releases("pc"):
+            said.append("Pipecat " + releases("pc"))
+        if releases("pc", "wheel"):
+            said.append("Pipecat " + releases("pc", "wheel") + " from the wheel")
+        return "; ".join(said)
 
     rows = ["| Path | Group |", "| --- | --- |"]
     rows += [f"| `{glob}` | {group} |" for glob, group in RULES]

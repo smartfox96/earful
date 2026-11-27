@@ -18,7 +18,7 @@ from ci_scope import LIVEKIT, OTHER_PYTHONS, PIPECAT
 
 CHECKS = (ROOT / ".github" / "workflows" / "checks.yml").read_text()
 OLDEST, *_, NEWEST = LIVEKIT
-PC = next(iter(PIPECAT))
+PC, *_, PC_NEWEST = PIPECAT
 
 
 def lk(version, system="Linux", python="3.13"):
@@ -30,22 +30,21 @@ def pc(python, system="Linux", wheel=False, version=PC):
 
 
 EVERY_LK = {lk(v) for v in LIVEKIT}
-PC_CHANGE = {pc(py, version=v) for v in PIPECAT for py in ("3.11", "3.13")}
+EDGES_LK = {lk(OLDEST), lk(NEWEST)}
+EVERY_PC = {pc("3.13", version=v) for v in PIPECAT}
+PC_311 = {pc("3.11", version=v) for v in PIPECAT}
 PC_MAC = {pc("3.13", "macOS", version=v) for v in PIPECAT}
 PC_WHEEL = {pc("3.12", wheel=True, version=v) for v in PIPECAT}
 PROSE: tuple[set[str], set[str]] = ({"prose"}, set())
-PIPECAT_ = ({"lint"}, PC_CHANGE)
-LIVEKIT_ = ({"lint", "quickstart"}, EVERY_LK)
-CORE = ({"lint", "quickstart", "wheel"}, EVERY_LK | PC_CHANGE)
+PIPECAT_ = ({"lint"}, EVERY_PC)
+LIVEKIT_ = ({"lint", "quickstart"}, EDGES_LK)
+CORE = ({"lint", "quickstart", "wheel"}, EDGES_LK | {pc("3.13", version=PC_NEWEST)})
 OTHERS = {lk(v, python=py) for py, v in OTHER_PYTHONS.items()}
-CLOCK = (
-    CORE[0],
-    CORE[1] | {lk(OLDEST, "macOS"), lk(NEWEST, "macOS")} | PC_MAC | OTHERS,
-)
-BUILD = ({"lint", "wheel", "quickstart"}, {lk(OLDEST), lk(NEWEST)} | PC_WHEEL)
+BUILD = (CORE[0], EDGES_LK | {pc("3.12", wheel=True, version=PC_NEWEST)})
+BROAD = (CORE[0] | {"report", "bare"}, CORE[1])
 FULL = (
     {"lint", "wheel", "quickstart", "report", "bare"},
-    EVERY_LK | {lk(v, "macOS") for v in LIVEKIT} | OTHERS | PC_CHANGE | PC_WHEEL | PC_MAC,
+    EVERY_LK | {lk(v, "macOS") for v in LIVEKIT} | OTHERS | EVERY_PC | PC_311 | PC_WHEEL | PC_MAC,
 )
 
 
@@ -94,21 +93,19 @@ def _runs(*paths, files=None):
         ("src/earful/core/checker/m1.py", CORE),
         ("tests/conftest.py", CORE),
         ("tests/test_checker.py", CORE),
-        ("src/earful/scripted/clock.py", CLOCK),
-        ("src/earful/scripted/timers.py", CLOCK),
-        ("src/earful/scripted/ceilings.py", CLOCK),
-        ("src/earful/scripted/guards.py", CLOCK),
+        ("src/earful/scripted/clock.py", CORE),
         ("src/earful/core/html.py", ({"lint", "report"}, {lk(NEWEST)})),
         ("pyproject.toml", BUILD),
         ("LICENSE", BUILD),
         ("tests/mutants.py", ({"lint"}, set())),
         ("tests/mutants_seconds.json", ({"lint"}, set())),
-        (".github/workflows/ci.yml", FULL),  # a workflow, a script and anything unnamed
-        (".github/workflows/checks.yml", FULL),
-        ("scripts/ci_scope.py", FULL),
-        ("scripts/make_env.sh", FULL),
-        (".pre-commit-config.yaml", FULL),
-        ("tools/new.py", FULL),
+        ("releases.toml", BROAD),
+        (".github/workflows/ci.yml", BROAD),  # a workflow, a script and anything unnamed
+        (".github/workflows/checks.yml", BROAD),
+        ("scripts/ci_scope.py", BROAD),
+        ("scripts/make_env.sh", BROAD),
+        (".pre-commit-config.yaml", BROAD),
+        ("tools/new.py", BROAD),
     ],
 )
 def test_a_changed_path_runs_what_its_rule_selects(path, expected):
@@ -130,7 +127,7 @@ def test_the_scope_of_several_paths_is_the_union():
     assert _runs() == (set(), set())
     assert _runs("docs/api.md", "compat/lk-1.6.5.lock.txt") == ({"prose"}, {lk("1.6.5")})
     both = _runs("src/earful/pipecat/sink.py", "src/earful/livekit/sink.py")
-    assert both == ({"lint", "quickstart"}, EVERY_LK | PC_CHANGE)
+    assert both == ({"lint", "quickstart"}, EDGES_LK | EVERY_PC)
 
 
 def test_the_tests_that_read_the_pages_have_a_job_only_where_no_cell_runs_them():
@@ -145,7 +142,7 @@ def test_the_tests_that_read_the_pages_have_a_job_only_where_no_cell_runs_them()
         ('import pytest\n\npytest.importorskip("livekit.agents")\n', "livekit"),
         ('import pytest\n\npytest.importorskip("pipecat")\n', "pipecat"),
         ("import pytest\n", "core"),
-        ('pytest.importorskip("livekit.agents")\npytest.importorskip("pipecat")\n', "everything"),
+        ('pytest.importorskip("livekit.agents")\npytest.importorskip("pipecat")\n', "broad"),
     ],
 )
 def test_a_test_file_selects_the_framework_it_declares(text, group):
@@ -154,7 +151,7 @@ def test_a_test_file_selects_the_framework_it_declares(text, group):
 
 def test_a_file_the_change_deleted_counts_as_what_it_held():
     gone = ci_scope.group_of("tests/test_gone.py", _read({"tests/test_gone.py": None}))
-    assert gone[1] == "everything"  # unreadable at both ends: everything runs
+    assert gone[1] == "broad"  # unreadable at both ends: no rule can place it
 
 
 def test_core_and_shared_code_select_both_adapters_and_an_adapter_only_its_own():
@@ -203,10 +200,6 @@ _EXAMPLES = {
     "tests/golden/lk-*": "tests/golden/lk-1.5.6.x.jsonl",
     "tests/bundles/**": "tests/bundles/b/minimal.ledger.jsonl",
     "tests/shapes/livekit/**": "tests/shapes/livekit/booking.py",
-    "src/earful/scripted/clock.py": "src/earful/scripted/clock.py",
-    "src/earful/scripted/timers.py": "src/earful/scripted/timers.py",
-    "src/earful/scripted/ceilings.py": "src/earful/scripted/ceilings.py",
-    "src/earful/scripted/guards.py": "src/earful/scripted/guards.py",
     "src/earful/core/html.py": "src/earful/core/html.py",
     "tests/mutants.py": "tests/mutants.py",
     "tests/mutants_seconds.json": "tests/mutants_seconds.json",
@@ -226,14 +219,14 @@ def test_every_rule_takes_a_path_of_its_own():
     assert [glob for glob, _ in ci_scope.RULES] == list(_EXAMPLES)
     for glob, example in _EXAMPLES.items():
         assert ci_scope.rule_of(example)[0] == glob, example
-    assert ci_scope.rule_of("docs") == ("no rule", "everything")  # "**" needs the slash
+    assert ci_scope.rule_of("docs") == ("no rule", "broad")  # "**" needs the slash
     assert ci_scope.rule_of("src/earful.py") == ("src/**", "core")
     assert ci_scope.rule_of("docs/x.md.orig")[0] == "docs/**"
     assert ci_scope.rule_of("tests/golden/README.md")[0] == "no rule"  # "*.md" is top-level
     assert ci_scope.rule_of("tests/sub/test_x.py")[0] == "no rule"  # "*" stays in a directory
 
 
-def test_a_path_the_repository_holds_has_a_rule_unless_it_runs_everything_on_purpose():
+def test_a_path_the_repository_holds_has_a_rule_unless_it_is_broad_on_purpose():
     listed = subprocess.run(
         ["git", "ls-files"], cwd=ROOT, capture_output=True, text=True, check=False
     )
@@ -261,14 +254,18 @@ def _outputs(*paths, tier="pull-request"):
 
 
 def test_on_a_change_the_middle_livekit_releases_leave_the_slow_tests_out():
-    cells = json.loads(_outputs("src/earful/cli.py")["livekit"])
-    slow = {cell["version"] for cell in cells if cell["slow"]}
-    assert slow == {OLDEST, NEWEST}
+    middle = list(LIVEKIT)[1]
+    cells = json.loads(_outputs("src/earful/cli.py", f"compat/lk-{middle}.lock.txt")["livekit"])
+    assert {cell["version"]: cell["slow"] for cell in cells} == {
+        OLDEST: True,
+        middle: False,
+        NEWEST: True,
+    }
     assert all(cell["slow"] for cell in json.loads(_outputs(tier="full")["livekit"]))
-    clock = json.loads(_outputs("src/earful/scripted/clock.py")["livekit"])
-    assert all(
-        cell["slow"] for cell in clock if cell["os"] == "macos-latest" or cell["python"] != "3.13"
-    )
+    # A change that cannot be read runs every cell: the middle releases on Linux alone are quick.
+    unread = json.loads(ci_scope.github(ci_scope.plan("pull-request", None))["livekit"])
+    quick = {(cell["os"], cell["python"]) for cell in unread if not cell["slow"]}
+    assert quick == {("ubuntu-latest", "3.13")}
 
 
 def test_the_real_clock_control_runs_in_the_newest_livekit_cell_on_linux_alone():
@@ -317,13 +314,17 @@ def test_the_jobs_the_scope_names_are_the_jobs_of_the_workflow():
         ), name
 
 
-def test_a_change_runs_the_breaks_its_files_can_affect_and_an_unnamed_path_every_one():
+def test_a_change_runs_the_breaks_its_files_can_affect_whatever_rule_names_it():
     m1 = ci_scope.plan("pull-request", ["src/earful/core/checker/m1.py"], _read()).breaks
     assert m1 and len(m1) < len(ci_scope.mutate.MUTANTS)
     assert {m.path for m in m1} >= {"src/earful/core/checker/m1.py"}
     assert ci_scope.plan("pull-request", ["docs/api.md"], _read()).breaks == []
-    unnamed = ci_scope.plan("pull-request", ["tools/x.py"], _read()).breaks
-    assert len(unnamed) == len(ci_scope.mutate.MUTANTS)
+    assert ci_scope.plan("pull-request", ["tools/x.py"], _read()).breaks == []
+    scope = ci_scope.plan("pull-request", ["scripts/ci_scope.py"], _read()).breaks
+    assert scope and {m.path for m in scope} >= {"scripts/ci_scope.py"}
+    assert len(scope) < len(ci_scope.mutate.MUTANTS)
+    shared = ci_scope.plan("pull-request", ["tests/conformance.py"], _read()).breaks
+    assert len(shared) == len(ci_scope.mutate.MUTANTS)  # a helper the tests share
 
 
 def test_what_is_left_to_the_full_tier_is_said():

@@ -123,8 +123,8 @@ commit of each release. A cell runs every test, checks that each of the three re
 scenarios gives the committed ledger byte for byte in 100 runs in one process and 20 in
 fresh processes, runs the two historical cases, and replays both kept failures. A pull
 request runs the cells its changed paths select (`CONTRIBUTING.md`, "What CI runs"): a
-change to the LiveKit adapter or to the core runs every release on Linux with Python 3.13,
-the middle five without the slow tests.
+change to the LiveKit adapter or to the core runs the oldest and the newest release on
+Linux with Python 3.13.
 
 | livekit-agents | Python 3.13 | Other Pythons, on Linux |
 | --- | --- | --- |
@@ -154,8 +154,9 @@ livekit-agents and runs every test that does not need it: the Pipecat tests and 
 tests of the core. It fails if any of those is skipped
 (`scripts/ran_every_test.sh --without livekit`). Each row also runs the five Pipecat
 reference cases 120 times and compares them with the committed ledgers
-(`scripts/repeat.py`). A pull request that changes the Pipecat adapter or the core runs
-the two rows on Linux from the checkout.
+(`scripts/repeat.py`). A pull request that changes the Pipecat adapter runs both
+releases on Linux with Python 3.13 from the checkout, and one that changes the core runs
+the newest.
 
 | pipecat-ai | Python | System | Earful installed from |
 | --- | --- | --- | --- |

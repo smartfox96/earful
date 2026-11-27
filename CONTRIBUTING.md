@@ -85,8 +85,12 @@ in progress. A run on `main` is never cancelled.
 
 A path takes the group of the first rule it matches. A test file takes the group of the
 framework it declares, so a change to a LiveKit test runs no Pipecat cell, and neither
-adapter imports the other. A path no rule matches runs everything, every workflow and
-script among them. `python3 scripts/ci_scope.py --table` prints these tables:
+adapter imports the other. A path no rule matches is broad, every workflow and script
+among them. A pull request runs its cells on Linux with Python 3.13, and the cell that
+installs the wheel with Python 3.12: the oldest and the newest LiveKit release, and the
+newest Pipecat release unless the change is to the Pipecat adapter. The other releases,
+macOS and the other Pythons run in the full tier.
+`python3 scripts/ci_scope.py --table` prints these tables:
 
 | Path | Group |
 | --- | --- |
@@ -106,10 +110,6 @@ script among them. `python3 scripts/ci_scope.py --table` prints these tables:
 | `tests/golden/lk-*` | livekit |
 | `tests/bundles/**` | livekit |
 | `tests/shapes/livekit/**` | livekit |
-| `src/earful/scripted/clock.py` | clock |
-| `src/earful/scripted/timers.py` | clock |
-| `src/earful/scripted/ceilings.py` | clock |
-| `src/earful/scripted/guards.py` | clock |
 | `src/earful/core/html.py` | report |
 | `tests/mutants.py` | breaks |
 | `tests/mutants_seconds.json` | breaks |
@@ -117,32 +117,31 @@ script among them. `python3 scripts/ci_scope.py --table` prints these tables:
 | `tests/*.py` | declared |
 | `tests/shapes/*.py` | declared |
 | `src/**` | core |
-| `releases.toml` | everything |
+| `releases.toml` | broad |
 | `pyproject.toml` | build |
 | `LICENSE` | build |
 | `NOTICE` | build |
 | `.gitignore` | build |
-| anything else | everything |
+| anything else | broad |
 
 | Group | Runs before a pull request merges |
 | --- | --- |
 | declared | the group of the framework the file needs: livekit, pipecat or core |
 | prose | the tests that read the pages |
-| pipecat | format, lint, types; Pipecat on Python 3.11 and 3.13 |
-| livekit | format, lint, types; the quickstart from the wheel; LiveKit, every release |
+| pipecat | format, lint, types; Pipecat 1.16.0 and 1.17.0 |
+| livekit | format, lint, types; the quickstart from the wheel; LiveKit 1.5.6 and 1.9.0 |
 | its release | LiveKit, that release alone |
-| core | format, lint, types; the quickstart from the wheel; the wheel installs clean; LiveKit, every release; Pipecat on Python 3.11 and 3.13 |
-| clock | format, lint, types; the quickstart from the wheel; the wheel installs clean; LiveKit, every release; LiveKit 1.5.6 and 1.9.0 on macOS; LiveKit on every other Python; Pipecat on Python 3.11 and 3.13; Pipecat on macOS |
+| core | format, lint, types; the quickstart from the wheel; the wheel installs clean; LiveKit 1.5.6 and 1.9.0; Pipecat 1.17.0 |
 | report | format, lint, types; the example reports; LiveKit 1.9.0 |
-| build | format, lint, types; the wheel installs clean; the quickstart from the wheel; LiveKit 1.5.6 and 1.9.0; Pipecat from the wheel |
+| build | format, lint, types; the wheel installs clean; the quickstart from the wheel; LiveKit 1.5.6 and 1.9.0; Pipecat 1.17.0 from the wheel |
 | breaks | format, lint, types |
-| everything | the full tier: the tests that read the pages; format, lint, types; the wheel installs clean; the quickstart from the wheel; the example reports; no framework, the oldest jsonschema; LiveKit, every release; LiveKit on macOS, every release; LiveKit on every other Python; Pipecat on Python 3.11 and 3.13; Pipecat from the wheel; Pipecat on macOS |
+| broad | format, lint, types; the quickstart from the wheel; the wheel installs clean; the example reports; no framework, the oldest jsonschema; LiveKit 1.5.6 and 1.9.0; Pipecat 1.17.0 |
 
-On a pull request the five middle LiveKit releases leave out the slow tests. The
-deliberate breaks a change runs are those anchored in a changed file, those whose named
-tests are in a changed file, and those `tests/mutants.py` changed or added. A change to
-`scripts/mutate.py`, `tests/conftest.py` or another helper the tests share runs every
-break (`scripts/mutate.py --since`).
+On a pull request a middle LiveKit release, which the change to its lock file runs,
+leaves out the slow tests. The deliberate breaks a change runs are those anchored in a
+changed file, those whose named tests are in a changed file, and those `tests/mutants.py`
+changed or added. A change to `scripts/mutate.py`, `tests/conftest.py` or another helper
+the tests share runs every break (`scripts/mutate.py --since`).
 
 A change can merge and then fail the full tier on a job its own tier left out. The night's
 issue names it, and no release can be made until it passes: the release runs the full
