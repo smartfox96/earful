@@ -9,16 +9,12 @@ from functools import cache, lru_cache
 from importlib import resources
 from typing import Any
 
-from jsonschema import Draft202012Validator, validators
+from jsonschema import Draft202012Validator
 
 from .ledger import SCHEMA, run_id
+from .validator import IntegerValidator, checked_once
 
 Event = dict[str, Any]
-
-IntegerValidator = validators.extend(  # type: ignore[no-untyped-call]
-    Draft202012Validator,
-    type_checker=Draft202012Validator.TYPE_CHECKER.redefine("integer", lambda _, n: type(n) is int),
-)
 
 SCHEMA_FILE = "earful.ledger-1.schema.json"
 
@@ -86,10 +82,11 @@ def validate(events: list[Event]) -> list[str]:
         return [f"the ledger is {other}, and this version of Earful reads {SCHEMA}"]
 
     errors: list[str] = []
-    for i, event in enumerate(events):
-        for error in event_errors(event):
-            path = "/".join(str(p) for p in error.absolute_path) or "event"
-            errors.append(f"{_where(i, event)}: {path}: {error.message}")
+    with checked_once():
+        for i, event in enumerate(events):
+            for error in event_errors(event):
+                path = "/".join(str(p) for p in error.absolute_path) or "event"
+                errors.append(f"{_where(i, event)}: {path}: {error.message}")
     if errors:
         return errors  # order and references are only meaningful on well-formed events
     _check_ledger(events, errors)

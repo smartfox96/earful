@@ -34,6 +34,9 @@ formats have versions of their own
 - A task that polls with `asyncio.sleep(0)` moves the virtual clock as real time would,
   and an infinite timeout works as on a real loop. A second run started on another
   thread of the same process is refused in one line.
+- The check of a run's ledger looks at each context item once, however many model
+  requests repeat it, so a run whose model calls tools for its whole length is checked
+  in seconds.
 
 ### Results
 

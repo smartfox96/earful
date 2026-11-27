@@ -209,6 +209,18 @@ def test_a_speech_may_start_as_the_one_before_it_ends_and_no_earlier(booking, ea
     assert len(refused) == early_us
 
 
+def test_a_context_item_is_checked_in_every_request_that_repeats_it(booking):
+    events = copy.deepcopy(booking)
+    first, second = (e for e in events if e["kind"] == "llm.request")
+    assert first["data"]["items"][0] == second["data"]["items"][0]  # the instructions
+    second["data"]["items"][0]["interrupted"] = 0  # equal to False in Python, not a boolean
+    refused = [e for e in validate(events) if "not of type 'boolean'" in e]
+    assert [e.split(":")[0] for e in refused] == [f"event {second['seq']} (llm.request)"]
+    first["data"]["items"][0]["interrupted"] = 0
+    refused = [e for e in validate(events) if "not of type 'boolean'" in e]
+    assert len(refused) == 2  # a broken item is not remembered as checked
+
+
 def test_schema_version():
     assert SCHEMA == "earful.ledger/1"
     assert load_schema()["properties"]["schema"]["const"] == SCHEMA

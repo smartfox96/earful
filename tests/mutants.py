@@ -445,6 +445,20 @@ MUTANTS = [
         first="a_write_refused_for_its_payload",
     ),
     Mutant(
+        "ledger: a context item is taken as checked when one with the same fields was",
+        "src/earful/core/validator.py",
+        "key = (id(schema), repr(instance))",
+        "key = (id(schema), repr(sorted(instance)))",
+        first="a_context_item_is_checked_in_every_request",
+    ),
+    Mutant(
+        "ledger: a broken context item is remembered as checked",
+        "src/earful/core/validator.py",
+        "    if not errors:\n        seen.add(key)",
+        "    seen.add(key)",
+        first="a_context_item_is_checked_in_every_request",
+    ),
+    Mutant(
         "ledger: two commits can share a receipt",
         "src/earful/core/schema.py",
         'if d["receipt"] in walk.receipts:',

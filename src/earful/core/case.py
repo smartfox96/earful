@@ -13,7 +13,7 @@ from typing import Any
 from jsonschema import Draft202012Validator
 
 from . import case_rules as rules
-from .schema import IntegerValidator
+from .validator import IntegerValidator
 
 SCHEMA = "earful.case/1"
 SCHEMA_MINOR = 0
