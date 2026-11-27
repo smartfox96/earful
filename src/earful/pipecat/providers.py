@@ -44,7 +44,7 @@ from ..scripted.clock import now_us
 from ..scripted.model import Policy, ReplyRegister, ToolCall, misfit
 from ..scripted.parties.activity import Activity, Schedule
 from ..scripted.parties.model import claim_spans, fragments, identified_calls, reply_for
-from ..scripted.parties.stt import Recognition
+from ..scripted.parties.stt import Recognition, Transcript
 from ..scripted.parties.vad import detections
 from ..scripted.parties.voice import Synthesis
 from ..scripted.voice import SHORTEST, StampTable
@@ -82,8 +82,9 @@ class ScriptedUser(FrameProcessor):
             self.create_task(self._script(), "earful-scripted-vad")
 
     async def _script(self) -> None:
-        t0 = now_us()
-        self._origin.mark("vad", t0)
+        self._origin.mark("vad", now_us())
+        t0 = self._origin.t0_us
+        assert t0 is not None
         confirm_us, silence_us = to_us(self._start_secs), to_us(self._stop_secs)
         for event in detections(self._speeches, confirm_us, silence_us):
             await sleep_until(t0, event.at_us)
@@ -122,24 +123,25 @@ class ScriptedSTT(STTService):
             self.create_task(self._script(), "earful-scripted-stt")
 
     async def _script(self) -> None:
-        t0 = now_us()
-        self._origin.mark("stt", t0)
-        async for event in self.script.events(t0):
-            if self._left.is_set():
-                return
-            if not event.text:
-                continue
-            if not event.final:
-                await self.push_frame(
-                    InterimTranscriptionFrame(event.text, "user", time_now_iso8601())
-                )
-            else:
-                self._ledger.append(
-                    "world", "user.transcript_final", speech=event.speech, text=event.text
-                )
-                await self.push_frame(
-                    TranscriptionFrame(event.text, "user", time_now_iso8601(), finalized=True)
-                )
+        self._origin.mark("stt", now_us())
+        assert self._origin.t0_us is not None
+        # The pipeline's one recognizer hears the user until they hang up.
+        await self.script.deliver(
+            self._origin.t0_us,
+            lambda _: None if self._left.is_set() else self,
+            lambda _, event: self._send(event),
+        )
+
+    async def _send(self, event: Transcript) -> None:
+        if not event.final:
+            await self.push_frame(InterimTranscriptionFrame(event.text, "user", time_now_iso8601()))
+        else:
+            self._ledger.append(
+                "world", "user.transcript_final", speech=event.speech, text=event.text
+            )
+            await self.push_frame(
+                TranscriptionFrame(event.text, "user", time_now_iso8601(), finalized=True)
+            )
 
 
 IN_PROGRESS = "IN_PROGRESS"

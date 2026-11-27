@@ -54,7 +54,11 @@ order they were scheduled. Time starts at 0 when the run's event loop starts.
 
 Scenario times (speech start and end) are offsets from the **origin**: the first audio
 frame the scripted user's providers receive, recorded as `user.origin`. The absolute time
-of a speech boundary is `t_us` of `user.origin` plus its offset.
+of a speech boundary is `t_us` of `user.origin` plus its offset. Every VAD and recognizer
+stream of a run counts from that one origin, including those an agent or task opens later.
+On LiveKit the scripted user's microphone sends a frame every 50 ms, at 24 kHz, from the
+start of the session until the user hangs up or the session closes, as LiveKit's room
+input does by default. A frame is voiced while a speech lasts and silent otherwise.
 
 Fields inside `data` that end in `_us` are microseconds too: absolute virtual time when
 they name an instant (`words_completed_us`), a duration otherwise (`ttft_us`,
@@ -171,7 +175,7 @@ and a ledger must hash the same on every machine. They belong to a run's manifes
 | `user.origin` | `by` (`vad` or `stt`) | The scripted user's clock starts. Once per run |
 | `user.vad_start` | `speech` | The scripted VAD reports speech to the framework: the true start of a segment's first speech, which `speech` names, plus `min_speech_us` |
 | `user.vad_end` | `speech` | The scripted VAD reports silence: the true end of a segment's last speech, which `speech` names, plus `min_silence_us` |
-| `user.transcript_final` | `speech`, `text` | The scripted STT delivers the final transcript: true end plus `stt_delay_us` |
+| `user.transcript_final` | `speech`, `text` | The scripted STT delivers the final transcript: true end plus `stt_delay_us`. Only a recognizer stream that the voice of the speech's end reached delivers it. A speech no stream heard has none, as when the framework keeps the user's audio from its recognizer |
 | `user.hangup` | none | The user leaves: the origin plus `hangup_us`. At most once per run |
 
 ### world: synthesis and tools
@@ -397,12 +401,12 @@ definition; it reads only the ledger and returns every reason a run is not valid
   times are unreliable. On Pipecat it is always zero: the output plays each write from
   its arrival, a gap between two writes is silence, and the word times include it;
 - `harness_errors` is not empty: Earful's own simulation or recording failed, or the run
-  did not stay on the virtual clock. Examples: a recording handler raised, the scripted
-  providers disagreed about the origin, a declared session option differs from the one
-  the session holds, a scripted claim does not fit its reply, the scripted model called a
-  tool the agent does not offer or gave it an argument it does not take, a tool started a
-  thread or waited on a socket (`work left the virtual clock (threads started: 1)`). What
-  counts as leaving the clock is listed in `docs/compatibility.md`, The virtual clock.
+  did not stay on the virtual clock. Examples: a recording handler raised, a declared
+  session option differs from the one the session holds, a scripted claim does not fit
+  its reply, the scripted model called a tool the agent does not offer or gave it an
+  argument it does not take, a tool started a thread or waited on a socket
+  (`work left the virtual clock (threads started: 1)`). What counts as leaving the clock
+  is listed in `docs/compatibility.md`, The virtual clock.
 
 `framework_warnings` is recorded but does not invalidate a run: a warning is the
 framework describing its own behaviour, and the contracts judge that behaviour from the

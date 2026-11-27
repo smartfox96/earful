@@ -203,9 +203,9 @@ The last four are counted in one harness error, such as
 
 A task that never waits, such as one that polls with `asyncio.sleep(0)`, holds the loop at
 one instant. After 1 000 loop passes at one instant the clock moves to the next timer, as
-real time would. Three such moves with no wait between them mean the loop never waits: the
-clock moves to the last timer, where the run stops waiting and the error says that a task
-never lets the event loop wait. With no timer to move to, the run stops with
+real time would. Such moves that carry the clock a second with no wait between them mean
+the loop never waits: the clock moves to the last timer, where the run stops waiting and
+the error says that a task never lets the event loop wait. With no timer to move to, the run stops with
 `VirtualTimeStall`.
 
 A process runs one case at a time: the clock and the `random` module are the process's.

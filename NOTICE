@@ -12,6 +12,6 @@ licensed under the Apache License, Version 2.0:
     selector and timers, and the wall-clock patch).
   - The playout timing model in src/earful/livekit/sink.py follows
     tests/fake_io.py.
-  - The scripted provider timing in src/earful/scripted/parties/ and
-    src/earful/livekit/providers.py follows tests/fake_vad.py,
-    tests/fake_stt.py, tests/fake_llm.py and tests/fake_tts.py.
+  - The scripted provider timing in src/earful/scripted/parties/,
+    src/earful/livekit/providers.py and src/earful/livekit/user.py follows
+    tests/fake_vad.py, tests/fake_stt.py, tests/fake_llm.py and tests/fake_tts.py.

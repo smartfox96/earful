@@ -279,6 +279,7 @@ application under `tests/shapes/`. They change a verdict on LiveKit, and none on
 | A stuck pipeline hits the ceiling | Holds | Holds |
 | `tool_choice` is honoured | Holds | A call the request did not allow is judged as any other |
 | Two runs give one ledger | Holds | Holds |
+| The user is still heard after the active agent changes | Holds | Holds |
 
 ### Elsewhere
 

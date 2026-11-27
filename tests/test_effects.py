@@ -598,6 +598,18 @@ def test_the_scripted_user_and_the_witness_follow_a_handoff_to_the_next_agent(ag
     assert outcomes["L2"] == NOT_EXERCISED  # the user never speaks over a reply
 
 
+def test_a_stream_opened_at_a_handoff_counts_from_the_origin_of_the_run():
+    events = run_case(_handoff()).ledger.events
+    (origin,) = [e["t_us"] for e in events if e["kind"] == "user.origin"]
+
+    def since_origin(kind):
+        return [e["t_us"] - origin for e in events if e["kind"] == kind]
+
+    # The second agent's streams open at the handoff, 2 s in.
+    assert since_origin("user.vad_start") == [550_000, 8_050_000]
+    assert since_origin("user.transcript_final") == [1_700_000, 9_700_000]
+
+
 def _greets_and_returns(returned, then=_Books):
     class Greets(lk.Agent):
         def __init__(self):

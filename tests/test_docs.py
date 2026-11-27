@@ -804,10 +804,12 @@ def test_the_limits_page_quotes_the_numbers_the_code_has():
     from earful.core.checker.report import RULES
     from earful.core.checker.view import MAX_READINGS
     from earful.core.search import DELAY_LIMIT_US, OFFSETS_US
-    from earful.scripted.ceilings import SPIN_PASSES, STALL_SECONDS
+    from earful.scripted.ceilings import LIVELOCK_SECONDS, SPIN_PASSES, STALL_SECONDS
 
     page = " ".join(LIMITS.split())
-    assert f"After {SPIN_PASSES:,} loop passes".replace(",", " ") in " ".join(COMPATIBILITY.split())
+    compatibility = " ".join(COMPATIBILITY.split())
+    assert f"After {SPIN_PASSES:,} loop passes".replace(",", " ") in compatibility
+    assert LIVELOCK_SECONDS == 1.0 and "carry the clock a second" in compatibility
     assert f"| livekit-agents | {', '.join(SUPPORT['livekit-agents'].tested)} |" in LIMITS
     assert f"| pipecat-ai | {', '.join(SUPPORT['pipecat-ai'].tested)} |" in LIMITS
     assert f"more than {MAX_READINGS} readings" in page

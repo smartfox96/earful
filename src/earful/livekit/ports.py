@@ -9,8 +9,6 @@ from contextlib import asynccontextmanager
 from typing import Any
 
 import livekit.agents as lk
-from livekit import rtc
-from livekit.agents import utils
 
 from ..core import backend as backends
 from ..scripted.case import (
@@ -26,8 +24,6 @@ from .case import Case
 from .config import _declared_session, _effective_session, _header, _session_kwargs, _switches
 from .providers import (
     ScriptedLLM,
-    ScriptedSTT,
-    ScriptedVAD,
     StampedTTS,
     record_errors_in,
     starting_history,
@@ -36,24 +32,8 @@ from .providers import (
 )
 from .scaffold import scaffold
 from .seams import TranscriptSynchronizer, io
+from .user import Microphone, ScriptedSTT, ScriptedVAD
 from .witness import _tap, _WarningCollector
-
-
-class _ScriptedAudioInput(io.AudioInput):
-    def __init__(self) -> None:
-        super().__init__(label="EarfulScriptedInput")
-        self._ch = utils.aio.Chan[rtc.AudioFrame]()
-
-    async def __anext__(self) -> rtc.AudioFrame:
-        return await self._ch.__anext__()
-
-    def push_silence(self, seconds: float, sample_rate: int = 16000) -> None:
-        n = round(sample_rate * seconds)
-        self._ch.send_nowait(
-            rtc.AudioFrame(
-                data=b"\x00\x00" * n, sample_rate=sample_rate, num_channels=1, samples_per_channel=n
-            )
-        )
 
 
 class _NullTextOutput(io.TextOutput):
@@ -121,10 +101,10 @@ async def _session(case: Case, context: RunContext, witness: tools.ToolWitness) 
         **_session_kwargs(case),
     )
 
-    audio_in = _ScriptedAudioInput()
+    microphone = Microphone(case.speeches, world_origin)
     sink = case.sink(ledger, tts.table, can_pause=case.sink_can_pause)
     sync = TranscriptSynchronizer(next_in_chain_audio=sink, next_in_chain_text=_NullTextOutput())
-    session.input.audio = audio_in
+    session.input.audio = microphone
     session.output.audio = sync.audio_output
     session.output.transcription = sync.text_output
 
@@ -149,6 +129,7 @@ async def _session(case: Case, context: RunContext, witness: tools.ToolWitness) 
     closed: asyncio.Future[Ended] = asyncio.get_running_loop().create_future()
 
     def on_close(event: Any) -> None:
+        microphone.close()
         if not closed.done():
             closed.set_result(Ended(ledger.now_us(), seams.close_reason(event.reason)))
 
@@ -156,7 +137,8 @@ async def _session(case: Case, context: RunContext, witness: tools.ToolWitness) 
         _tap(session, ledger, harness_errors, checked=checked)
         session.on("close", on_close)
         await session.start(agent)
-        audio_in.push_silence(0.1)
+        stt.begin()
+        microphone.open()
         return closed
 
     async def drain() -> None:
@@ -181,6 +163,7 @@ async def _session(case: Case, context: RunContext, witness: tools.ToolWitness) 
                 )
 
     async def disconnect() -> None:
+        microphone.close()
         await close_session(" of the hangup")
 
     def history() -> FinalHistory:
@@ -190,6 +173,8 @@ async def _session(case: Case, context: RunContext, witness: tools.ToolWitness) 
         }
 
     async def close() -> None:
+        microphone.close()
+        stt.end()
         if not closed.done():
             await close_session("")
         await sync.aclose()

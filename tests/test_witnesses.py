@@ -25,12 +25,12 @@ from earful.livekit.providers import (
     Claim,
     Reply,
     ReplyRegister,
-    ScriptedVAD,
     ToolCall,
     UserSpeech,
     WorldOrigin,
 )
 from earful.livekit.tools import witnessed
+from earful.livekit.user import ScriptedVAD
 from earful.scripted.clock import now_us, run_virtual
 from earful.scripted.playbook import ScriptedModel
 
@@ -410,7 +410,7 @@ def test_a_scenario_that_contradicts_itself_is_refused_before_it_runs():
 def test_the_scripted_vad_declares_the_interval_it_reports_at():
     ledger = Ledger(lambda: 0)
     for seconds in (0.05, 0.2):
-        vad = ScriptedVAD(ledger, [], WorldOrigin(ledger, []), min_speech_duration=seconds)
+        vad = ScriptedVAD(ledger, [], WorldOrigin(ledger), min_speech_duration=seconds)
         assert vad.capabilities.update_interval == seconds
 
 

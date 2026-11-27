@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
-from collections.abc import AsyncIterator, Iterator
+from collections.abc import AsyncIterator, Awaitable, Callable, Iterator
 from dataclasses import dataclass
+from typing import TypeVar
 
 from ..timing import sleep_until
 from .activity import Schedule
 from .user import UserSpeech
+
+L = TypeVar("L")
 
 
 @dataclass(frozen=True)
@@ -44,3 +47,16 @@ class Recognition(Schedule):
             await sleep_until(origin_us, event.at_us)
             yield event
         self.finish()
+
+    async def deliver(
+        self,
+        origin_us: int,
+        hearer: Callable[[int], L | None],
+        send: Callable[[L, Transcript], Awaitable[None]],
+    ) -> None:
+        """Each transcript falls due on the run's clock and goes to the recognizer that
+        ``hearer`` says heard its speech end. One that no recognizer heard is not delivered."""
+        async for event in self.events(origin_us):
+            listener = hearer(origin_us + self.speeches[event.speech].end_us)
+            if listener is not None and event.text:
+                await send(listener, event)

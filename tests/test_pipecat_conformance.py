@@ -14,7 +14,7 @@ import pipecat
 from conformance import Scenario
 from pipecat.adapters.llm.schemas.function_schema import FunctionSchema
 from pipecat.adapters.llm.schemas.tools_schema import ToolsSchema
-from pipecat.frames.frames import EndTaskFrame, Frame, LLMTextFrame
+from pipecat.frames.frames import EndTaskFrame, Frame, LLMMessagesUpdateFrame, LLMTextFrame
 from pipecat.processors.aggregators.llm_context import LLMContext
 from pipecat.processors.aggregators.llm_response_universal import (
     LLMContextAggregatorPair,
@@ -181,6 +181,31 @@ def tool_choice_none() -> Case:
     )
 
 
+def _moves_to_billing(llm: LLMService) -> LLMContext:
+    async def to_billing(params: FunctionCallParams) -> None:
+        billing: Any = {"role": "system", "content": "You are the billing agent."}
+        moved = LLMMessagesUpdateFrame([billing, *params.context.get_messages()], run_llm=False)
+        await params.llm.push_frame(moved, FrameDirection.UPSTREAM)
+        await params.result_callback("moved")
+
+    llm.register_function("to_billing", to_billing)
+    return LLMContext()
+
+
+def changes_agent() -> Case:
+    return Case(
+        name="changes_agent",
+        bot=_moves_to_billing,
+        speeches=[
+            UserSpeech(start=0.5, end=1.5, transcript="Billing please."),
+            UserSpeech(start=8.0, end=9.0, transcript="Why was I charged twice?"),
+        ],
+        policy=ScriptedModel()
+        .when(tool_returned(), say="Billing here.")
+        .otherwise(say="One moment.", call="to_billing"),
+    )
+
+
 SCENARIOS = {
     conformance.WRITE_SETTLES: Scenario(write_in_flight),
     # Pipecat logs the exception, and nothing reaches the run.
@@ -190,6 +215,7 @@ SCENARIOS = {
     # The scripted model's call is carried out, and the run passes.
     conformance.TOOL_CHOICE: Scenario(tool_choice_none, defect=judged()),
     conformance.ONE_LEDGER: Scenario(booking.case),
+    conformance.HEARD: Scenario(changes_agent),
 }
 
 

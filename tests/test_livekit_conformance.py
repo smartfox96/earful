@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from typing import Any
 
 import pytest
 
@@ -135,6 +136,38 @@ def tool_choice_none() -> Case:
     )
 
 
+class AskName(lk.AgentTask[str]):
+    def __init__(self) -> None:
+        super().__init__(instructions="Ask for the caller's name.")
+
+    async def on_enter(self) -> None:
+        self.session.generate_reply()
+
+    async def on_user_turn_completed(self, turn_ctx: lk.ChatContext, new_message: Any) -> None:
+        self.complete(new_message.text_content or "")
+
+
+class AsksNameFirst(lk.Agent):
+    def __init__(self) -> None:
+        super().__init__(instructions="You are a host.")
+
+    async def on_enter(self) -> None:
+        name = await AskName()
+        self.session.generate_reply(instructions=f"Greet {name}.")
+
+
+def changes_agent() -> Case:
+    return Case(
+        name="changes_agent",
+        agent=AsksNameFirst,
+        speeches=[
+            UserSpeech(start=3.0, end=4.0, transcript="It is Ada."),
+            UserSpeech(start=10.0, end=11.0, transcript="A table for two, please."),
+        ],
+        policy=ScriptedModel().otherwise(say="Hello."),
+    )
+
+
 SCENARIOS = {
     conformance.WRITE_SETTLES: Scenario(write_in_flight),
     # livekit-agents logs the exception, and the run counts it as a framework warning only.
@@ -143,6 +176,7 @@ SCENARIOS = {
     conformance.STUCK_CEILING: Scenario(stuck),
     conformance.TOOL_CHOICE: Scenario(tool_choice_none),
     conformance.ONE_LEDGER: Scenario(booking.case),
+    conformance.HEARD: Scenario(changes_agent),
 }
 
 

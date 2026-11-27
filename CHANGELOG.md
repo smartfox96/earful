@@ -19,7 +19,16 @@ formats have versions of their own
   M2 owe nothing after it.
 - Work still running when the run stops waiting makes the run invalid, and the error
   names it. A tool that ignores cancellation, a pipeline that holds its `EndFrame` and a
-  task that never lets the event loop wait end the run within seconds.
+  task that never lets the event loop wait end the run within seconds. A task never lets
+  the loop wait when it keeps the loop busy for a second of the clock, however many
+  timers fall due meanwhile.
+- On LiveKit the scripted user's microphone sends a frame every 50 ms for the whole call,
+  as LiveKit's room input does, voiced while the user speaks. Every VAD and recognizer
+  stream counts from one origin. An agent or task that takes over the call hears the
+  user: an `AgentTask` awaited in `on_enter` no longer misses what the user says to it.
+  A recognizer stream transcribes a speech only if the voice of its end reached the
+  stream. Speech the framework keeps from its recognizer, as while a reply that cannot
+  be interrupted plays, has no transcript.
 - A task that polls with `asyncio.sleep(0)` moves the virtual clock as real time would,
   and an infinite timeout works as on a real loop. A second run started on another
   thread of the same process is refused in one line.

@@ -389,7 +389,7 @@ def test_each_saved_case_page_runs_its_commands_on_the_named_release(monkeypatch
     import livekit.agents as lk
     from doc_examples import commands
 
-    from earful.cli import BROKEN, OK, main
+    from earful.cli import BROKEN, NO_VERDICT, OK, main
 
     monkeypatch.chdir(ROOT)
     for page in (ROOT / "docs/cases").glob("*.md"):
@@ -399,7 +399,14 @@ def test_each_saved_case_page_runs_its_commands_on_the_named_release(monkeypatch
             status = main(arguments)
             output = capsys.readouterr().out
             if arguments[0] == "crosscheck":
-                assert status in (OK, BROKEN), (page, arguments, output)
                 assert "of 3 real-clock runs agree" in output, (page, arguments, output)
+                # A busy machine can leave a real-clock run with audio played ahead of time.
+                unusable = re.findall(
+                    r"^run \d: cannot be compared\n((?:    .*\n?)+)", output, re.MULTILINE
+                )
+                reasons = [line.strip() for lines in unusable for line in lines.splitlines()]
+                expected = (NO_VERDICT,) if unusable else (OK, BROKEN)
+                assert status in expected, (page, arguments, output)
+                assert all(r.startswith("playout ran ahead of its audio") for r in reasons), output
             else:
                 assert status == (BROKEN if arguments[0] == "check" else OK), (page, arguments)

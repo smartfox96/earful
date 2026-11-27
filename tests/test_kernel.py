@@ -252,3 +252,22 @@ def test_the_application_work_still_running_at_the_end_is_named_in_run_end():
     assert result.events[-1]["data"]["pending"] == ["task _writes_later", "timer _reminds_later"]
     assert result.report.pending == ("task _writes_later", "timer _reminds_later")
     assert "pending" not in _run_stub()[0].events[-1]["data"]
+
+
+def test_a_transcript_goes_to_the_recognizer_that_heard_its_speech_end_and_to_none_if_none_did():
+    speeches = [UserSpeech(0, 1.0, "first words"), UserSpeech(2.5, 3.0, "second words")]
+
+    async def deliver():
+        script = Recognition(speeches, chronological=True)
+        sent = []
+
+        async def send(listener, event):
+            sent.append((listener, event.speech, event.final, now_us()))
+
+        # The one recognizer stops hearing the user at 2 s, before the second speech ends.
+        await script.deliver(0, lambda at_us: "stream" if at_us < 2_000_000 else None, send)
+        return sent, script.quiet(), now_us()
+
+    sent, finished, ended_us = run_virtual(deliver)
+    assert sent == [("stream", 0, False, 1_100_000), ("stream", 0, True, 1_200_000)]
+    assert finished and ended_us == 3_200_000  # the timetable runs to the last deadline

@@ -25,9 +25,10 @@ def case() -> Case:
     )
 
 
-# The user's turn is dropped while the agent cannot be interrupted, and M2 and L1 say so.
-SHOULD = judged(M2="rule b", L1="milestone 1", L2="not_exercised")
-DEFECT = judged(M2="rule b", L1="milestone 1", L2="pass")  # said to be silent while it spoke
+# The framework keeps the user's audio from its recognizer while a reply it may not interrupt
+# plays, so "Stop." is never transcribed and leaves no turn.
+SHOULD = judged(L2="not_exercised")
+DEFECT = judged(L2="pass")  # said to be silent while it spoke
 DEFECT_VARIED = {
-    TWO_PARTS: judged(M1="rule 2, rule 3, rule 5", M2="rule b", L1="milestone 1", L2="pass"),
+    TWO_PARTS: judged(M1="rule 2, rule 3, rule 5", L2="pass"),
 }
