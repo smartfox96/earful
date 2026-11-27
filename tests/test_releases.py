@@ -25,7 +25,7 @@ def test_a_tested_release_is_admitted_without_a_word(package):
 def test_a_release_inside_the_range_and_not_tested_is_warned_about():
     said = (
         "Earful is not tested on livekit-agents 1.8.999. "
-        "The tested releases are: 1.5.6, 1.5.7, 1.6.5, 1.6.6, 1.8.12, 1.8.13"
+        "The tested releases are: 1.5.6, 1.5.7, 1.6.5, 1.6.6, 1.8.12, 1.8.13, 1.9.0"
     )
     assert _warned("livekit-agents", "1.8.999") == [said]
     assert len(_warned("livekit-agents", "1.5.6rc1")) == 1
@@ -37,9 +37,9 @@ def test_a_release_inside_the_range_and_not_tested_is_warned_about():
     ("package", "installed"),
     [
         ("livekit-agents", "1.5.5"),
-        ("livekit-agents", "1.9"),
-        ("livekit-agents", "1.9.0"),
-        ("livekit-agents", "1.9.0rc1"),
+        ("livekit-agents", "1.10"),
+        ("livekit-agents", "1.10.0"),
+        ("livekit-agents", "1.10.0rc1"),
         ("livekit-agents", "2.0.0b1"),
         ("livekit-agents", "unknown"),
         ("pipecat-ai", "1.15.9"),

@@ -7,23 +7,24 @@ import pytest
 pytest.importorskip("livekit.agents")
 
 import livekit.agents as lk
+from livekit import rtc
 from livekit.agents import llm
 
 from earful.core.ledger import Ledger
 from earful.core.schema import validate
-from earful.livekit import providers
+from earful.livekit import providers, user
 from earful.livekit.cases import CASES, LONG_REPLY
 from earful.livekit.harness import Case, run_case
 from earful.livekit.providers import (
     Reply,
     ReplyRegister,
     ScriptedLLM,
-    ScriptedSTT,
     StampedTTS,
     ToolCall,
     UserSpeech,
     WorldOrigin,
 )
+from earful.livekit.user import ScriptedSTT
 from earful.scripted import ceilings
 from earful.scripted.clock import now_us, run_virtual
 from earful.scripted.parties.voice import Synthesis
@@ -207,8 +208,8 @@ def _a_bug(*args, **kwargs):
 @pytest.mark.parametrize(
     "owner, method, provider",
     [
-        (providers._ScriptedVADStream, "_emit", "VAD"),
-        (providers._ScriptedRecognizeStream, "_send", "recognizer"),
+        (user._ScriptedVADStream, "_emit", "VAD"),
+        (user._ScriptedRecognizeStream, "_send", "recognizer"),
         (providers._ScriptedLLMStream, "_chunk", "model"),
         (Synthesis, "render", "voice"),
     ],
@@ -251,9 +252,61 @@ def test_a_policy_that_raises_is_recorded_once_and_as_the_policy():
 def test_the_scripted_recognizer_says_that_it_sends_interim_transcripts():
     async def declared():
         ledger = Ledger(now_us, run="test")
-        return ScriptedSTT(ledger, [], WorldOrigin(ledger, [])).capabilities
+        return ScriptedSTT(ledger, [], WorldOrigin(ledger)).capabilities
 
     assert run_virtual(declared).interim_results is True
     events = run_case(CASES["barge_in_mid_word"]()).events
     heard = [e["data"] for e in events if e["kind"] == "fw.user_input_transcribed"]
     assert ("Tell me", False) in [(said["text"], said["final"]) for said in heard]
+
+
+def test_a_stream_hears_the_user_only_in_the_frames_that_carried_their_voice():
+    ears = user._Ears()
+    assert not ears.heard(0)
+    frame = user.MICROPHONE_FRAME_US
+    ears.voiced = [1_000_000, 1_050_000]  # when the audio of each voiced frame began
+    assert ears.heard(1_000_000) and ears.heard(1_050_000 + frame - 1)
+    assert not ears.heard(999_999) and not ears.heard(1_050_000 + frame)
+
+
+def test_a_stream_places_a_voiced_frame_by_the_audio_it_holds_not_by_when_it_came():
+    voice, silence = user.VOICE * 4, b"\x00\x00" * 4
+
+    async def voiced():
+        async def late():
+            await asyncio.sleep(1.0)  # a stalled loop sends them all at once
+            for data, at_us in ((voice, 50_000), (silence, 100_000), (voice, 150_000)):
+                yield rtc.AudioFrame(data, 24_000, 1, 4, userdata={user.STAMP: at_us})
+
+        ears = user._Ears()
+        await ears.listen(late())
+        return ears.voiced
+
+    assert run_virtual(voiced) == [50_000, 150_000]
+
+
+def test_each_frame_of_the_microphone_names_its_50_ms_and_none_comes_while_detached():
+    async def stamps():
+        microphone = user.Microphone([], WorldOrigin(Ledger(now_us, run="test")))
+        microphone.open()
+        got = [(await microphone.__anext__()).userdata[user.STAMP]]
+        microphone.on_detached()
+        await asyncio.sleep(0.12)
+        microphone.on_attached()
+        got.append((await microphone.__anext__()).userdata[user.STAMP])
+        microphone.close()
+        return got
+
+    assert run_virtual(stamps) == [0, 3 * user.MICROPHONE_FRAME_US]
+
+
+def test_the_microphone_carries_the_users_voice_only_while_a_speech_lasts():
+    async def voiced():
+        origin = WorldOrigin(Ledger(now_us, run="test"))
+        origin.t0_us = 1_000_000
+        microphone = user.Microphone([UserSpeech(0.5, 1.0, "Hello.")], origin)
+        frame = user.MICROPHONE_FRAME_US
+        return [k for k in range(30) if microphone._voiced(1_000_000 + k * frame)]
+
+    # The frames from 0.50 s up to the one that holds the end at 1.00 s.
+    assert run_virtual(voiced) == list(range(10, 21))

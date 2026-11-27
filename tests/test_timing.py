@@ -1,5 +1,7 @@
 """Scripted times decide framework thresholds exactly: no float rounding in between."""
 
+import asyncio
+
 import pytest
 
 pytest.importorskip("livekit.agents")
@@ -14,7 +16,8 @@ from earful.core.search import anchors
 from earful.core.timebase import to_us
 from earful.livekit.cases import LONG_REPLY, BookingAgent, Reservations, _barge_in_policy
 from earful.livekit.harness import Case, run_case
-from earful.livekit.providers import Reply, ScriptedVAD, ToolCall, UserSpeech, WorldOrigin
+from earful.livekit.providers import Reply, ToolCall, UserSpeech, WorldOrigin
+from earful.livekit.user import ScriptedVAD
 from earful.scripted.clock import now_us, run_virtual
 
 
@@ -48,12 +51,20 @@ def test_the_scripted_vad_reports_what_the_silero_plugin_reports():
     async def main():
         ledger = Ledger(now_us, run="test")
         speeches = [UserSpeech(1.0, 1.2, "Tell me"), UserSpeech(1.5, 1.6, "more.")]
-        vad = ScriptedVAD(ledger, speeches, WorldOrigin(ledger, []), min_speech_duration=0.1)
+        vad = ScriptedVAD(ledger, speeches, WorldOrigin(ledger), min_speech_duration=0.1)
         stream = vad.stream()
         silence = bytes(2 * 240)
-        stream.push_frame(
-            rtc.AudioFrame(silence, sample_rate=24000, num_channels=1, samples_per_channel=240)
-        )
+
+        async def microphone():  # a VAD reports only while audio reaches it
+            while True:
+                stream.push_frame(
+                    rtc.AudioFrame(
+                        silence, sample_rate=24000, num_channels=1, samples_per_channel=240
+                    )
+                )
+                await asyncio.sleep(0.01)
+
+        feeding = asyncio.ensure_future(microphone())
         reports = []
         async for ev in stream:
             reports.append(
@@ -69,6 +80,7 @@ def test_the_scripted_vad_reports_what_the_silero_plugin_reports():
             )
             if ev.type is lk_vad.VADEventType.END_OF_SPEECH:
                 break
+        feeding.cancel()
         await stream.aclose()
         return reports
 

@@ -440,7 +440,7 @@ A bundle that fails a check is refused with one line that names the file. `earfu
 `earful crosscheck` and `earful report` print it and exit 2:
 
 ```text
-earful: failures/lk-1.8.13.booking.A2-rule/minimal.case.json is not the case the manifest records: its digest is 5d0c…, and the manifest has e41a…
+earful: failures/lk-1.9.0.booking.A2-rule/minimal.case.json is not the case the manifest records: its digest is 5d0c…, and the manifest has e41a…
 ```
 
 `case_digest` is at `schema_minor` 1, and a manifest without it is read. Its

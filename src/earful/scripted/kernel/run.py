@@ -23,7 +23,7 @@ from ..clock import (
     run_virtual,
 )
 from ..result import RunEvidence, RunResult
-from ..timing import REAL_CLOCK_ORIGIN_TOLERANCE_US, WorldOrigin
+from ..timing import WorldOrigin
 from .lifecycle import drive, within
 from .pending import left_running
 from .ports import AdapterPorts
@@ -87,9 +87,7 @@ def run(
                 f.nth: (f.of, None if f.seconds is None else to_us(f.seconds)) for f in case.faults
             },
         )
-        origin = WorldOrigin(
-            ledger, errors, tolerance_us=0 if on_virtual_clock else REAL_CLOCK_ORIGIN_TOLERANCE_US
-        )
+        origin = WorldOrigin(ledger)
         context = RunContext(
             ledger, on_virtual_clock, errors, backend, declared_us, origin, asyncio.Event()
         )

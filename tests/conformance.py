@@ -83,13 +83,32 @@ def _one_ledger(seen: list[Seen]) -> str | None:
     return None if len(hashes) == 1 else f"the runs give {len(hashes)} ledgers"
 
 
+def _heard_after_change(seen: list[Seen]) -> str | None:
+    (run,) = seen
+    if run.ended != "judged":
+        return f"the run is not judged: {run}"
+    speeches = run.events[0]["data"]["scenario"]["speeches"]
+    finals = {e["data"]["speech"] for e in run.events if e["kind"] == "user.transcript_final"}
+    missing = [s["speech"] for s in speeches if s["transcript"] and s["speech"] not in finals]
+    return f"speeches {missing} have no transcript in the ledger" if missing else None
+
+
 WRITE_SETTLES = Behaviour("a write in flight at the end settles", _write_settles)
 RAISE_RECORDED = Behaviour("an exception in application code is recorded", _raise_recorded)
 CLOSED_ENDS = Behaviour("a closed session ends the run", _ends_judged, apart=APART)
 STUCK_CEILING = Behaviour("a stuck pipeline hits the ceiling", _ends_invalid, apart=APART)
 TOOL_CHOICE = Behaviour("tool_choice is honoured", _tool_choice_kept)
 ONE_LEDGER = Behaviour("two runs give one ledger", _one_ledger, runs=2)
-BEHAVIOURS = (WRITE_SETTLES, RAISE_RECORDED, CLOSED_ENDS, STUCK_CEILING, TOOL_CHOICE, ONE_LEDGER)
+HEARD = Behaviour("the user is still heard after the active agent changes", _heard_after_change)
+BEHAVIOURS = (
+    WRITE_SETTLES,
+    RAISE_RECORDED,
+    CLOSED_ENDS,
+    STUCK_CEILING,
+    TOOL_CHOICE,
+    ONE_LEDGER,
+    HEARD,
+)
 
 
 def params(scenarios: dict[Behaviour, Scenario], release: str) -> list[Any]:

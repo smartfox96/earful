@@ -35,7 +35,7 @@ Issues = "https://github.com/smartfox96/earful/issues"
 
 [project.optional-dependencies]
 # The releases tested: docs/compatibility.md.
-livekit = ["livekit-agents>=1.5.6,<1.9"]
+livekit = ["livekit-agents>=1.5.6,<1.10"]
 # pipecat-ai needs Python 3.11: on 3.10 the extra installs nothing.
 pipecat = ["pipecat-ai>=1.16,<1.18; python_version >= '3.11'"]
 
@@ -81,6 +81,7 @@ addopts = "--strict-markers"
 xfail_strict = true
 markers = [
     "slow: takes over a second, mostly searches that run the framework many times (leave out with -m 'not slow')",
+    "walkthrough: a slow test that runs the examples of a documentation page from end to end",
 ]
 
 [tool.ruff]

@@ -194,7 +194,7 @@ other work on the machine shows as drift
 
 | | Tested |
 | --- | --- |
-| livekit-agents | 1.5.6, 1.5.7, 1.6.5, 1.6.6, 1.8.12, 1.8.13 |
+| livekit-agents | 1.5.6, 1.5.7, 1.6.5, 1.6.6, 1.8.12, 1.8.13, 1.9.0 |
 | pipecat-ai | 1.16.0, 1.17.0 |
 | Python | 3.10 to 3.14 with livekit-agents, 3.11 to 3.13 with pipecat-ai |
 | Systems | Linux and macOS. Windows is not tested |
@@ -279,6 +279,7 @@ application under `tests/shapes/`. They change a verdict on LiveKit, and none on
 | A stuck pipeline hits the ceiling | Holds | Holds |
 | `tool_choice` is honoured | Holds | A call the request did not allow is judged as any other |
 | Two runs give one ledger | Holds | Holds |
+| The user is still heard after the active agent changes | Holds | Holds |
 
 ### Elsewhere
 

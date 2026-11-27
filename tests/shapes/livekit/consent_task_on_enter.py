@@ -52,5 +52,5 @@ def case() -> Case:
 
 
 SHOULD = ends_within(20, judged())
-# The task's tool runs without the witness, and the task never hears the caller.
+# The task's tool runs without the witness.
 DEFECT = invalid("without the witness")

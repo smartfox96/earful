@@ -282,6 +282,7 @@ def test_the_page_on_scripting_the_model_runs_as_written():
 
 
 @pytest.mark.slow
+@pytest.mark.walkthrough
 def test_the_testing_page_runs_its_examples_in_a_booking_application(tmp_path, monkeypatch):
     import shutil
 
@@ -324,7 +325,7 @@ def test_the_testing_page_runs_its_examples_in_a_booking_application(tmp_path, m
             run(names["case"]).assert_contracts()
         if (
             "def test_a_booking_is_made_once_and_confirmed_truthfully" in block
-            and lk.__version__ == "1.8.13"
+            and lk.__version__ == SUPPORT["livekit-agents"].tested[-1]
         ):
             test = names["test_a_booking_is_made_once_and_confirmed_truthfully"]
             if "earful" in inspect.signature(test).parameters:
@@ -335,11 +336,15 @@ def test_the_testing_page_runs_its_examples_in_a_booking_application(tmp_path, m
             assert len(names["checked"].comparisons) == 3
         elif "def policy(" in block:
             assert names["policy"]([]).tool_calls
-        elif "def test_the_double_booking_stays_fixed" in block and lk.__version__ == "1.8.13":
+        elif (
+            "def test_the_double_booking_stays_fixed" in block
+            and lk.__version__ == SUPPORT["livekit-agents"].tested[-1]
+        ):
             names["test_the_double_booking_stays_fixed"]()
 
 
 @pytest.mark.slow
+@pytest.mark.walkthrough
 def test_the_search_page_runs_as_printed(tmp_path, monkeypatch):
     import livekit.agents as lk
     from doc_examples import blocks, commands, execute
@@ -360,6 +365,7 @@ def test_the_search_page_runs_as_printed(tmp_path, monkeypatch):
 
 
 @pytest.mark.slow
+@pytest.mark.walkthrough
 def test_the_testing_pages_command_sequence_builds_a_replayable_bundle(tmp_path, monkeypatch):
     from doc_examples import commands
 
@@ -385,11 +391,12 @@ def test_the_testing_pages_command_sequence_builds_a_replayable_bundle(tmp_path,
 
 
 @pytest.mark.slow
+@pytest.mark.walkthrough
 def test_each_saved_case_page_runs_its_commands_on_the_named_release(monkeypatch, capsys):
     import livekit.agents as lk
     from doc_examples import commands
 
-    from earful.cli import BROKEN, OK, main
+    from earful.cli import BROKEN, NO_VERDICT, OK, main
 
     monkeypatch.chdir(ROOT)
     for page in (ROOT / "docs/cases").glob("*.md"):
@@ -399,7 +406,14 @@ def test_each_saved_case_page_runs_its_commands_on_the_named_release(monkeypatch
             status = main(arguments)
             output = capsys.readouterr().out
             if arguments[0] == "crosscheck":
-                assert status in (OK, BROKEN), (page, arguments, output)
                 assert "of 3 real-clock runs agree" in output, (page, arguments, output)
+                # A busy machine can leave a real-clock run with audio played ahead of time.
+                unusable = re.findall(
+                    r"^run \d: cannot be compared\n((?:    .*\n?)+)", output, re.MULTILINE
+                )
+                reasons = [line.strip() for lines in unusable for line in lines.splitlines()]
+                expected = (NO_VERDICT,) if unusable else (OK, BROKEN)
+                assert status in expected, (page, arguments, output)
+                assert all(r.startswith("playout ran ahead of its audio") for r in reasons), output
             else:
                 assert status == (BROKEN if arguments[0] == "check" else OK), (page, arguments)

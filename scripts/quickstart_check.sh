@@ -7,7 +7,7 @@ set -euo pipefail
 export TZ=UTC # uv reads a date in the machine's time zone
 
 root="$(cd "$(dirname "$0")/.." && pwd)"
-release="${EARFUL_LIVEKIT:-1.8.13}"
+release="${EARFUL_LIVEKIT:-1.9.0}"
 work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
 began="$(date +%s)"
@@ -21,7 +21,7 @@ else
 fi
 wheel="$(ls "$dist"/earful-*.whl)"
 uv venv -q --python "${EARFUL_PYTHON:-3.13}" "$work/venv"
-VIRTUAL_ENV="$work/venv" uv pip install -q --exclude-newer "${EARFUL_AS_OF:-2026-11-20}" \
+VIRTUAL_ENV="$work/venv" uv pip install -q --exclude-newer "${EARFUL_AS_OF:-2026-11-26}" \
   "${wheel}[livekit]" "livekit-agents==$release" pytest
 installed="$(date +%s)"
 echo "ok: $((installed - began)) s"

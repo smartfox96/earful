@@ -1,7 +1,7 @@
 # Troubleshooting
 
 This page is keyed on the message Earful prints. Each message is quoted as livekit-agents
-1.8.13 or pipecat-ai 1.16.0 gives it, with the names of the quickstart's booking example.
+1.9.0 or pipecat-ai 1.16.0 gives it, with the names of the quickstart's booking example.
 Search the page for a few words of yours.
 
 A message reaches you in one of three ways. The `earful` command prints a refusal as one
@@ -31,7 +31,7 @@ earful: scenario 'test_booking:booking' could not be imported: it needs livekit-
 ### The framework release is outside the range
 
 ```text
-ImportError: earful.livekit supports livekit-agents from 1.5.6 up to, and not including, 1.9, and 1.9.0 is installed. Install a supported release with: pip install "earful[livekit]"
+ImportError: earful.livekit supports livekit-agents from 1.5.6 up to, and not including, 1.10, and 1.10.0 is installed. Install a supported release with: pip install "earful[livekit]"
 ```
 
 The adapter refuses to import on a release its extra does not accept
@@ -40,7 +40,7 @@ The adapter refuses to import on a release its extra does not accept
 ### The framework release is not tested
 
 ```text
-UntestedRelease: Earful is not tested on livekit-agents 1.8.11. The tested releases are: 1.5.6, 1.5.7, 1.6.5, 1.6.6, 1.8.12, 1.8.13
+UntestedRelease: Earful is not tested on livekit-agents 1.8.11. The tested releases are: 1.5.6, 1.5.7, 1.6.5, 1.6.6, 1.8.12, 1.8.13, 1.9.0
 ```
 
 A warning, given once when the adapter is imported. The release is in the range and no
@@ -345,7 +345,7 @@ that waits on a real service is the usual cause.
 ### Not exercised
 
 ```text
-booking (seed 0, livekit-agents 1.8.13) has no pass or fail for the required A2
+booking (seed 0, livekit-agents 1.9.0) has no pass or fail for the required A2
 
 A2 was not exercised: the run has no write request for a declared intent
 ```
@@ -417,7 +417,7 @@ valid first.
 ### No case could be judged
 
 ```text
-booking on livekit-agents 1.8.13: 1 cases tried, 0 judged, 0 contract rule(s) broken
+booking on livekit-agents 1.9.0: 1 cases tried, 0 judged, 0 contract rule(s) broken
     ...
 
 not judged: 1 of 1 cases, which leaves the search with no result
@@ -452,7 +452,7 @@ leave a fault out, pass `faults=` without it.
 A search with some cases not judged and others judged passes, unless one of them raised:
 
 ```text
-booking on livekit-agents 1.8.13: 60 cases tried, 58 judged, 0 contract rule(s) broken
+booking on livekit-agents 1.9.0: 60 cases tried, 58 judged, 0 contract rule(s) broken
     ...
 
 not judged: 2 of 60 cases; the search fails, since 2 raised
@@ -561,11 +561,11 @@ The environment variable takes a number. The pytest option takes a number or `au
 ### A bundle that is not there or was changed
 
 ```text
-earful: cannot read failures/lk-1.8.13.booking.A2-rule/manifest.json: No such file or directory
+earful: cannot read failures/lk-1.9.0.booking.A2-rule/manifest.json: No such file or directory
 ```
 
 ```text
-earful: failures/lk-1.8.13.booking.A2-rule/minimal.case.json is not the case the manifest records: its digest is 2e3c54615c7f10dc20f6cfa748dd46a989bfeb5f2ae91ccf86f1a9e27dcb27ef, and the manifest has b57976836c39e4b8c46be18020c285424bee074930feb2974dbb76d09390b7c5
+earful: failures/lk-1.9.0.booking.A2-rule/minimal.case.json is not the case the manifest records: its digest is 2e3c54615c7f10dc20f6cfa748dd46a989bfeb5f2ae91ccf86f1a9e27dcb27ef, and the manifest has b57976836c39e4b8c46be18020c285424bee074930feb2974dbb76d09390b7c5
 ```
 
 Every file of a bundle is checked against its manifest before anything runs
@@ -602,7 +602,7 @@ the case exercises, and the replay cannot show it is gone.
 ### A bundle that does not show the failure it names
 
 ```text
-earful: failures/lk-1.8.13.booking.A2-rule/minimal.ledger.jsonl does not break A2/rule under earful.contracts/2: the bundle does not show the failure it names
+earful: failures/lk-1.9.0.booking.A2-rule/minimal.ledger.jsonl does not break A2/rule under earful.contracts/2: the bundle does not show the failure it names
 ```
 
 The recorded ledger of the reduced case does not break the rule the manifest names. The

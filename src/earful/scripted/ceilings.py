@@ -16,9 +16,9 @@ STALL_SECONDS = 60.0
 # Loop passes at one instant before the clock moves to the next timer, as real time would.
 # A run makes at most about a hundred; a task that polls with asyncio.sleep(0) makes more.
 SPIN_PASSES = 1_000
-# Such moves in a row with no wait between them: the loop never waits, so the clock moves to
-# the last timer, where the run's own bound on its wait ends it.
-LIVELOCK_MOVES = 3
+# Such moves that carry the clock this far with no wait between them: the loop never waits,
+# so the clock moves to the last timer, where the run's own bound on its wait ends it.
+LIVELOCK_SECONDS = 1.0
 # Virtual seconds the tasks a run leaves behind have to end once they are cancelled.
 LEFTOVER_SECONDS = 5.0
 # Tasks that ignored cancellation, kept so that no coroutine is closed outside its loop.
@@ -36,7 +36,7 @@ class _AutojumpSelector(selectors.BaseSelector):
         self._due = due  # when each live timer is due
         self._real = selectors.DefaultSelector()
         self._passes = 0  # consecutive passes that did not wait
-        self._moves = 0  # moves of the clock since the loop last waited
+        self._spun_from: float | None = None  # the clock at the first move since the last wait
         self.livelocked = False  # the loop was found never to wait
 
     def register(self, fileobj: Any, events: int, data: Any = None) -> selectors.SelectorKey:
@@ -52,7 +52,7 @@ class _AutojumpSelector(selectors.BaseSelector):
         if timeout == 0:
             self._spin()
         else:
-            self._passes = self._moves = 0
+            self._passes, self._spun_from = 0, None
         if timeout is not None and math.isinf(timeout):
             timeout = None  # only a timer that never fires is scheduled
         if len(self._real.get_map()) <= 1:
@@ -75,15 +75,18 @@ class _AutojumpSelector(selectors.BaseSelector):
         if self._passes < SPIN_PASSES:
             return
         self._passes = 0
-        self._moves += 1
         due = [t for t in self._due() if math.isfinite(t)]
         if not due:
             raise VirtualTimeStall(
                 f"virtual-time loop ran {SPIN_PASSES} passes at one instant with no timer "
                 "to move to: a task never waits (check for a loop around asyncio.sleep(0))"
             )
-        self.livelocked = self.livelocked or self._moves >= LIVELOCK_MOVES
-        self._clock.advance_to_tick_of(max(due) if self._moves >= LIVELOCK_MOVES else min(due))
+        now = self._clock.time()
+        if self._spun_from is None:
+            self._spun_from = now
+        never_waits = now - self._spun_from >= LIVELOCK_SECONDS
+        self.livelocked = self.livelocked or never_waits
+        self._clock.advance_to_tick_of(max(due) if never_waits else min(due))
 
     def _idle(self) -> list[tuple[selectors.SelectorKey, int]]:
         # Nothing is ready or scheduled: only an off-loop wakeup can make progress.

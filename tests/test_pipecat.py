@@ -30,6 +30,7 @@ from pipecat.frames.frames import (
     LLMContextFrame,
     OutputAudioRawFrame,
     StartFrame,
+    STTMuteFrame,
     TTSSpeakFrame,
 )
 from pipecat.processors.aggregators.llm_context import LLMContext
@@ -675,6 +676,31 @@ def _around(case, processor, before):
         return [*built[:at], processor(), *built[at:]]
 
     return replace(case, pipeline=pipeline)
+
+
+class _MutesAtFirst(FrameProcessor):
+    """Mutes the recognizer as the pipeline starts and unmutes it 3 s later."""
+
+    async def process_frame(self, frame, direction):
+        await super().process_frame(frame, direction)
+        await self.push_frame(frame, direction)
+        if isinstance(frame, StartFrame):
+            await self.push_frame(STTMuteFrame(mute=True))
+            self.create_task(self._unmute(), "unmute")
+
+    async def _unmute(self):
+        await asyncio.sleep(3.0)
+        await self.push_frame(STTMuteFrame(mute=False))
+
+
+def test_pipecat_speech_that_ends_while_the_recognizer_is_muted_has_no_transcript():
+    case = replace(
+        greeting(),
+        speeches=[pc.UserSpeech(1.0, 2.0, "Hello there."), pc.UserSpeech(4.0, 5.0, "Hello again.")],
+    )
+    events = pc.run(_around(case, _MutesAtFirst, "stt")).events
+    finals = [e["data"]["text"] for e in events if e["kind"] == "user.transcript_final"]
+    assert finals == ["Hello again."]
 
 
 class _Welcomes(FrameProcessor):

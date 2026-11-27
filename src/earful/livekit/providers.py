@@ -1,26 +1,19 @@
-"""Scripted VAD, STT, LLM and TTS for a real AgentSession.
+"""Scripted LLM and TTS for a real AgentSession.
 Authors give times in seconds; the providers compute in integer microseconds."""
 
 from __future__ import annotations
 
-import dataclasses
 from typing import Any, NoReturn
 
-from livekit import rtc
 from livekit.agents import llm as lk_llm
-from livekit.agents import stt as lk_stt
 from livekit.agents import tts as lk_tts
 from livekit.agents import utils
-from livekit.agents import vad as lk_vad
 
 from ..core.ledger import Ledger
-from ..core.timebase import to_seconds, to_us
-from ..scripted.clock import now_us
+from ..core.timebase import to_us
 from ..scripted.model import Claim, Policy, Reply, ReplyRegister, ToolCall, misfit
 from ..scripted.parties.activity import Activity
 from ..scripted.parties.model import claim_spans, fragments, identified_calls, reply_for
-from ..scripted.parties.stt import Recognition
-from ..scripted.parties.vad import detections
 from ..scripted.parties.voice import Synthesis as _Synthesis
 from ..scripted.provider_errors import (
     record_errors_in,
@@ -29,170 +22,11 @@ from ..scripted.provider_errors import (
     stop_recording_errors,
 )
 from ..scripted.voice import SHORTEST, StampTable, letters
-from ..scripted.world import UserSpeech, WorldOrigin, _check_speeches, vad_segments
+from ..scripted.world import UserSpeech, WorldOrigin, vad_segments
 from ..scripted.world import sleep_until as _sleep_until
 from . import seams
 from .seams import DEFAULT_API_CONNECT_OPTIONS, APIConnectOptions, summarize_item
 from .tools import unwitnessed
-
-
-class ScriptedVAD(lk_vad.VAD):
-    def __init__(
-        self,
-        ledger: Ledger,
-        speeches: list[UserSpeech],
-        origin: WorldOrigin,
-        *,
-        min_speech_duration: float = 0.05,
-        min_silence_duration: float = 0.5,
-    ) -> None:
-        # The framework paces its VAD metrics by this interval.
-        capabilities = lk_vad.VADCapabilities(update_interval=min_speech_duration)
-        super().__init__(capabilities=capabilities)
-        self._ledger = ledger
-        self._origin = origin
-        self._speeches = _check_speeches(speeches)
-        self._min_speech_us = to_us(min_speech_duration)
-        self._min_silence_us = to_us(min_silence_duration)
-        if self._min_speech_us <= 0:
-            raise ValueError("min_speech_duration must be positive")
-        # The framework opens a new stream for each agent it hands over to.
-        self._streams = 0
-        self._starts: set[int] = set()  # segments whose start is in the ledger
-        self._ends: set[int] = set()  # segments whose end has been reported
-
-    def stream(self) -> lk_vad.VADStream:
-        return _ScriptedVADStream(self)
-
-
-# VADEvent grew fields across releases; only pass the ones this version defines.
-_VAD_EVENT_FIELDS = {f.name for f in dataclasses.fields(lk_vad.VADEvent)}
-
-
-class _ScriptedVADStream(lk_vad.VADStream):
-    @scripted("VAD")
-    async def _main_task(self) -> None:
-        vad = seams.vad_of(self)
-        assert isinstance(vad, ScriptedVAD)
-        if not vad._speeches:
-            return
-        vad._streams += 1
-        if vad._streams == 1:  # the scripted user's clock starts at the first audio frame
-            async for frame in seams.stream_input(self):
-                if isinstance(frame, rtc.AudioFrame):
-                    break
-            else:
-                return
-            vad._origin.mark("vad", now_us())
-        assert vad._origin.t0_us is not None
-        t0 = vad._origin.t0_us
-        opened = now_us() - t0
-        events = detections(
-            vad._speeches,
-            vad._min_speech_us,
-            vad._min_silence_us,
-            opened=opened,
-            ended=vad._ends,
-            ticks=True,
-        )
-        kinds = {
-            "start": lk_vad.VADEventType.START_OF_SPEECH,
-            "inference": lk_vad.VADEventType.INFERENCE_DONE,
-            "end": lk_vad.VADEventType.END_OF_SPEECH,
-        }
-        for event in events:
-            await _sleep_until(t0, event.at_us)
-            self._emit(kinds[event.kind], event.spans, now_us() - t0)
-            if event.kind == "start" and event.segment not in vad._starts:
-                vad._starts.add(event.segment)
-                vad._ledger.append("world", "user.vad_start", speech=event.speech)
-            if event.kind == "end":
-                vad._ends.add(event.segment)
-                vad._ledger.append("world", "user.vad_end", speech=event.speech)
-        async for _ in seams.stream_input(self):
-            pass
-
-    def _emit(self, type: lk_vad.VADEventType, spans: list[tuple[int, int]], at_us: int) -> None:
-        # What the Silero plugin reports for a detector that is never wrong. It counts a
-        # segment as speech, and its speech as still growing, until the end is published.
-        # Durations are integer differences converted once: 500 000 us reports exactly 0.5 s.
-        start, end = spans[0][0], spans[-1][1]
-        ended = type is lk_vad.VADEventType.END_OF_SPEECH
-        begun, last_end = max(span for span in spans if span[0] <= at_us)
-        values: dict[str, Any] = {
-            "type": type,
-            "samples_index": 0,
-            "timestamp": to_seconds(at_us),
-            "speech_duration": to_seconds((end if ended else at_us) - start),
-            "silence_duration": to_seconds(at_us - end) if ended else 0.0,
-            "raw_accumulated_speech": to_seconds(at_us - begun) if at_us <= last_end else 0.0,
-            "raw_accumulated_silence": to_seconds(max(0, at_us - last_end)),
-            "speaking": not ended,
-        }
-        kwargs = {k: v for k, v in values.items() if k in _VAD_EVENT_FIELDS}
-        seams.send_event(self, lk_vad.VADEvent(**kwargs))
-
-
-# The type argument names a provider's extra events: none here (NoReturn is 3.10's Never).
-class ScriptedSTT(lk_stt.STT[NoReturn]):
-    def __init__(self, ledger: Ledger, speeches: list[UserSpeech], origin: WorldOrigin) -> None:
-        # It sends one interim transcript per speech, half way through the recognizer's delay.
-        super().__init__(capabilities=lk_stt.STTCapabilities(streaming=True, interim_results=True))
-        self._ledger = ledger
-        self._origin = origin
-        self.script = Recognition(_check_speeches(speeches), chronological=False)
-        if not speeches:
-            self.script.finish()
-
-    async def _recognize_impl(self, buffer: Any, **kwargs: Any) -> lk_stt.SpeechEvent:
-        raise NotImplementedError("ScriptedSTT only supports streaming recognition")
-
-    def stream(
-        self,
-        *,
-        language: Any = None,
-        conn_options: APIConnectOptions = DEFAULT_API_CONNECT_OPTIONS,
-    ) -> lk_stt.RecognizeStream:
-        return _ScriptedRecognizeStream(stt=self, conn_options=conn_options)
-
-
-class _ScriptedRecognizeStream(lk_stt.RecognizeStream):
-    @scripted("recognizer")
-    async def _run(self) -> None:
-        stt = seams.recognizer_of(self)
-        assert isinstance(stt, ScriptedSTT)
-        if not stt.script.quiet():
-            try:
-                await self._script(stt)
-            except Exception:
-                # The scenario ends on the last transcript: a run must not wait for it now.
-                stt.script.finish()
-                raise
-
-        async for _ in seams.stream_input(self):
-            pass
-
-    async def _script(self, stt: ScriptedSTT) -> None:
-        await seams.stream_input(self).recv()  # clock starts at the first audio frame
-        t0 = now_us()
-        stt._origin.mark("stt", t0)
-        async for event in stt.script.events(t0):
-            if event.text:
-                self._send(event.text, final=event.final)
-                if event.final:
-                    stt._ledger.append(
-                        "world", "user.transcript_final", speech=event.speech, text=event.text
-                    )
-
-    def _send(self, text: str, *, final: bool) -> None:
-        kind = (
-            lk_stt.SpeechEventType.FINAL_TRANSCRIPT
-            if final
-            else lk_stt.SpeechEventType.INTERIM_TRANSCRIPT
-        )
-        seams.send_event(
-            self, lk_stt.SpeechEvent(type=kind, alternatives=[seams.speech_data(text)])
-        )
 
 
 def starting_history(items: list[Any]) -> list[dict[str, Any]]:
@@ -478,8 +312,6 @@ __all__ = [
     "Reply",
     "ReplyRegister",
     "ScriptedLLM",
-    "ScriptedSTT",
-    "ScriptedVAD",
     "StampTable",
     "StampedTTS",
     "ToolCall",
