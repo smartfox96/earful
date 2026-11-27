@@ -7,8 +7,8 @@ cd "$(dirname "$0")/.."
 out="${1:?usage: scripts/site.sh <directory>}"
 mkdir -p "$out"
 out="$(cd "$out" && pwd)"
-bin="$PWD/.venvs/lk-1.8.13/bin"
-[ -x "$bin/earful" ] || scripts/make_env.sh 1.8.13 2026-11-20
+bin="$PWD/.venvs/lk-1.9.0/bin"
+[ -x "$bin/earful" ] || scripts/make_env.sh 1.9.0 2026-11-26
 
 work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
@@ -17,7 +17,7 @@ trap 'rm -rf "$work"' EXIT
 status=0
 (cd examples/booking && "$bin/earful" search test_booking:booking --keep A2/rule --out "$work" >/dev/null) || status=$?
 [ "$status" -eq 1 ] || { echo "the search of examples/booking exited $status, not 1" >&2; exit 1; }
-"$bin/earful" report "$work"/lk-1.8.13.booking.A2-rule -o "$out/booking.html" >/dev/null
+"$bin/earful" report "$work"/lk-1.9.0.booking.A2-rule -o "$out/booking.html" >/dev/null
 "$bin/earful" report tests/bundles/lk-1.5.6.book_then_interrupt.A2-rule -o "$out/livekit-3702.html" >/dev/null
 
 cat >"$out/index.html" <<'HTML'

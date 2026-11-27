@@ -34,7 +34,7 @@ jobs:
         with:
           version: ${{ env.UV_VERSION }}
       - name: Build pinned environment
-        run: scripts/make_env.sh 1.8.13 2026-11-20
+        run: scripts/make_env.sh 1.9.0 2026-11-26
       - name: Draw the reports (scripts/site.sh)
         run: scripts/site.sh site
       - uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0

@@ -231,7 +231,7 @@ verdicts, `result.events` the ledger, and `result.assert_contracts()` raises
 `ContractFailure`, an `AssertionError`, if a rule broke:
 
 ```
-inline_booking (seed 0, livekit-agents 1.8.13) breaks A3/rule
+inline_booking (seed 0, livekit-agents 1.9.0) breaks A3/rule
 
 A1  not_exercised
 A2  pass
@@ -272,7 +272,7 @@ result.assert_contracts(require=["A2", "A3"])
 ```
 
 ```
-booking (seed 0, livekit-agents 1.8.13) has no pass or fail for the required A2
+booking (seed 0, livekit-agents 1.9.0) has no pass or fail for the required A2
 
 A2 was not exercised: the run has no write request for a declared intent
 ```
@@ -289,7 +289,7 @@ every moment the system changes state, and adds each backend fault to each write
 broke a rule, and says what was changed to reach the failure and how wide it is:
 
 ```
-inline_booking on livekit-agents 1.8.13: 857 cases tried, 857 judged, 1 contract rule(s) broken
+inline_booking on livekit-agents 1.9.0: 857 cases tried, 857 judged, 1 contract rule(s) broken
 Earful built the session with scripted speech recognition, model replies, speech synthesis and silence-based turn detection. Application entry code was not run.
     898 run(s): 6 to find where to put things, 853 for the cases, 39 to measure the failures
     by contract: pass, fail, nothing to judge, evidence lost
@@ -485,8 +485,8 @@ earful init myapp.agent:BookingAgent
 earful run myapp.scenarios:booking --ledger booking.ledger.jsonl
 earful check booking.ledger.jsonl
 earful search myapp.scenarios:booking --keep A3/rule --out failures
-earful replay failures/lk-1.8.13.booking.A3-rule --expect reproduced
-earful report failures/lk-1.8.13.booking.A3-rule -o report.html
+earful replay failures/lk-1.9.0.booking.A3-rule --expect reproduced
+earful report failures/lk-1.9.0.booking.A3-rule -o report.html
 ```
 
 | Command | Does |

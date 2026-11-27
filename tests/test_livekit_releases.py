@@ -12,7 +12,7 @@ def test_the_livekit_adapter_warns_once_when_it_is_imported_on_an_untested_relea
 
 
 def test_the_command_refuses_livekit_agents_outside_the_range_before_the_adapter_loads(imported_on):
-    imported_on("livekit-agents", "1.9.0").is_refused()
+    imported_on("livekit-agents", "1.10.0").is_refused()
 
 
 def test_a_name_an_untested_livekit_release_lacks_is_reported_with_the_tested_releases(imported_on):

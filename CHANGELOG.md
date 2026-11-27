@@ -39,6 +39,11 @@ formats have versions of their own
   records one of them uses it. The LiveKit reference ledgers and bundles change at their
   end: the session closes before the final history is read.
 
+### Frameworks
+
+- livekit-agents 1.9 is supported, and 1.9.0 is tested. `earful[livekit]` accepts
+  releases up to, and not including, 1.10.
+
 ## [0.3.3] - 2026-11-26
 
 - Existing LiveKit cases run with silence-based turn detection. Run and

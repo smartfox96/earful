@@ -224,8 +224,11 @@ def test_the_supported_pipecat_release_is_the_same_everywhere_it_is_listed():
     script = (ROOT / "scripts" / "make_pipecat_env.sh").read_text()
     assert f'version="${{1:-{release}}}"\nas_of="${{2:-{as_of}}}"\n' in script
     assert f"pipecat-ai {release} as of {as_of}, in .venvs/pc-{release}" in script
+    # The lint environment resolves as of the later of the two newest releases' dates.
+    newest_livekit = max(ci_scope.LIVEKIT.values())
     lint_env = (ROOT / "scripts" / "make_lint_env.sh").read_text()
-    assert f"--exclude-newer {as_of} \\\n" in lint_env and f'"pipecat-ai=={release}"' in lint_env
+    assert f"--exclude-newer {max(as_of, newest_livekit)} \\\n" in lint_env
+    assert f'"pipecat-ai=={release}"' in lint_env
 
 
 def test_a_lock_file_is_the_list_the_environment_scripts_write():
@@ -336,7 +339,7 @@ def test_the_releases_with_each_known_defect_are_the_same_everywhere_they_are_li
         page,
         re.MULTILINE,
     )
-    assert len(rows) == 6
+    assert len(rows) == len(SUPPORT["livekit-agents"].tested)
     tests = (ROOT / "tests" / "test_historical_cases.py").read_text()
     for column, issue in ((1, "3702"), (2, "5509")):
         script = (ROOT / "scripts" / f"spike_{issue}.py").read_text()

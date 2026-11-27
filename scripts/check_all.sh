@@ -8,7 +8,7 @@ cd "$(dirname "$0")/.."
 
 # The runs side by side share the processors.
 cores="$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 4)"
-declare -a RELEASES=("1.5.6 2026-04-30" "1.5.7 2026-05-06" "1.6.5 2026-07-20" "1.6.6 2026-07-20" "1.8.12 2026-11-14" "1.8.13 2026-11-20")
+declare -a RELEASES=("1.5.6 2026-04-30" "1.5.7 2026-05-06" "1.6.5 2026-07-20" "1.6.6 2026-07-20" "1.8.12 2026-11-14" "1.8.13 2026-11-20" "1.9.0 2026-11-26")
 shared=$(( cores / ${#RELEASES[@]} ))
 export EARFUL_WORKERS="${EARFUL_WORKERS:-$(( shared > 1 ? shared : 1 ))}"
 GOLDEN=tests/golden
@@ -96,4 +96,4 @@ scripts/ran_every_test.sh --without livekit .venvs/pc-1.17.0/bin/python
 side_by_side check
 
 echo "=== negative control: real clock, nothing patched (must give different hashes)"
-.venvs/lk-1.8.13/bin/python scripts/realtime_control.py 2 | grep -E '"(distinct_hashes|kinds_identical|all_marked_invalid)"'
+.venvs/lk-1.9.0/bin/python scripts/realtime_control.py 2 | grep -E '"(distinct_hashes|kinds_identical|all_marked_invalid)"'

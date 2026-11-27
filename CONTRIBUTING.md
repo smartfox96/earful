@@ -6,8 +6,8 @@ Earful needs [uv](https://docs.astral.sh/uv/) and nothing else installed by hand
 
 ```bash
 git clone https://github.com/smartfox96/earful && cd earful
-scripts/make_env.sh 1.8.13 2026-11-20     # one pinned environment: .venvs/lk-1.8.13
-.venvs/lk-1.8.13/bin/python -m pytest -m "not slow"
+scripts/make_env.sh 1.9.0 2026-11-26      # one pinned environment: .venvs/lk-1.9.0
+.venvs/lk-1.9.0/bin/python -m pytest -m "not slow"
 ```
 
 `make_env.sh` takes a livekit-agents release and the date its dependencies are resolved
@@ -35,12 +35,12 @@ on the files it changes (`.pre-commit-config.yaml`).
 
 | Command | What it runs | Time |
 | --- | --- | --- |
-| `.venvs/lk-1.8.13/bin/python -m pytest -m "not slow"` | Every test under a second, on one release | 20 s |
+| `.venvs/lk-1.9.0/bin/python -m pytest -m "not slow"` | Every test under a second, on one release | 20 s |
 | `scripts/lint.sh` | ruff format, ruff, mypy, and that every deliberate break still applies. `--fix` reformats first | 20 s |
 | `scripts/wheel_smoke.sh` | Builds the wheel and the source distribution, installs the wheel alone outside the repository and uses it | 5 s |
 | `scripts/quickstart_check.sh` | Follows the README's quickstart from the wheel, with livekit-agents, outside the repository | 90 s |
 | `scripts/site.sh DIR` | Draws the two example reports the README links to, into `DIR` | 15 s |
-| `scripts/check_all.sh` | All of the above, then on each of the six LiveKit releases: every test, repeatability of the reference ledgers, the two historical cases and the replays | 8 min |
+| `scripts/check_all.sh` | All of the above, then on each of the seven LiveKit releases: every test, repeatability of the reference ledgers, the two historical cases and the replays | 8 min |
 | `.venvs/lint/bin/python scripts/mutate.py` | The control, then each deliberate break of `tests/mutants.py`: a test it names has to fail. `--since main` runs those a change can affect | 4.5 min |
 
 Every environment above names a release and a date. The `canary` workflow is the one
@@ -55,7 +55,7 @@ the report: GitHub mails it to whoever last changed the workflow's schedule.
 after its last push (`.github/CODEOWNERS`). Administrators can bypass branch protection. GitHub deletes a merged
 branch from the repository.
 
-`check_all.sh` is heavy: six test runs side by side for six minutes. It shares the
+`check_all.sh` is heavy: seven test runs side by side for six minutes. It shares the
 processors between them (`EARFUL_WORKERS`), and it is still not something to run on
 battery or after every change. While working, the first row of the table is the check to
 run. CI runs the rest.
@@ -132,13 +132,13 @@ script among them. `python3 scripts/ci_scope.py --table` prints these tables:
 | livekit | format, lint, types; the quickstart from the wheel; LiveKit, every release |
 | its release | LiveKit, that release alone |
 | core | format, lint, types; the quickstart from the wheel; the wheel installs clean; LiveKit, every release; Pipecat on Python 3.11 and 3.13 |
-| clock | format, lint, types; the quickstart from the wheel; the wheel installs clean; LiveKit, every release; LiveKit 1.5.6 and 1.8.13 on macOS; LiveKit on every other Python; Pipecat on Python 3.11 and 3.13; Pipecat on macOS |
-| report | format, lint, types; the example reports; LiveKit 1.8.13 |
-| build | format, lint, types; the wheel installs clean; the quickstart from the wheel; LiveKit 1.5.6 and 1.8.13; Pipecat from the wheel |
+| clock | format, lint, types; the quickstart from the wheel; the wheel installs clean; LiveKit, every release; LiveKit 1.5.6 and 1.9.0 on macOS; LiveKit on every other Python; Pipecat on Python 3.11 and 3.13; Pipecat on macOS |
+| report | format, lint, types; the example reports; LiveKit 1.9.0 |
+| build | format, lint, types; the wheel installs clean; the quickstart from the wheel; LiveKit 1.5.6 and 1.9.0; Pipecat from the wheel |
 | breaks | format, lint, types |
 | everything | the full tier: the tests that read the pages; format, lint, types; the wheel installs clean; the quickstart from the wheel; the example reports; no framework, the oldest jsonschema; LiveKit, every release; LiveKit on macOS, every release; LiveKit on every other Python; Pipecat on Python 3.11 and 3.13; Pipecat from the wheel; Pipecat on macOS |
 
-On a pull request the four middle LiveKit releases leave out the slow tests. The
+On a pull request the five middle LiveKit releases leave out the slow tests. The
 deliberate breaks a change runs are those anchored in a changed file, those whose named
 tests are in a changed file, and those `tests/mutants.py` changed or added. A change to
 `scripts/mutate.py`, `tests/conftest.py` or another helper the tests share runs every
@@ -182,8 +182,8 @@ a framework threshold is decided by the scenario and never by float rounding.
 `backend` and `harness` events. The framework's own `fw.*` events explain a run and
 decide nothing (`docs/contracts.md`, section 2).
 
-**The reference ledgers change only on purpose.** `tests/golden/` holds 23 ledgers that
-every platform must reproduce byte for byte, 18 of LiveKit and 5 of Pipecat, and
+**The reference ledgers change only on purpose.** `tests/golden/` holds 31 ledgers that
+every platform must reproduce byte for byte, 21 of LiveKit and 10 of Pipecat, and
 `tests/bundles/` the two reduced historical failures. Checks never write there. If a change is meant to alter a ledger,
 run `scripts/check_all.sh --update`, read the diff, and say in the pull request why each
 change is expected. An unexplained diff in a reference ledger is a bug.
@@ -338,7 +338,7 @@ down before the code.
 5. A contract that needs an event or a field the ledger does not record is a change to
    the format first (`docs/ledger.md`, Versioning).
 6. Run `scripts/check_all.sh` and say in the pull request what the contract finds on the
-   reference ledgers of the six releases.
+   reference ledgers of the seven releases.
 
 A kept bundle records the version of the contracts it was judged with,
 `earful.contracts/2`. A new contract, or a rule that changes what it fails, changes what

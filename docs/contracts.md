@@ -647,9 +647,9 @@ Each is a choice with a reasonable alternative, recorded with its reason.
 
 ## 10. What the reference ledgers measure
 
-`earful check tests/golden/lk-*.jsonl --measures` prints these. The 18 LiveKit reference
-ledgers are three cases on six releases. The five Pipecat reference ledgers
-(`tests/golden/pc-*`) pass every contract they exercise.
+`earful check tests/golden/lk-*.jsonl --measures` prints these. The 21 LiveKit reference
+ledgers are three cases on seven releases. The ten Pipecat reference ledgers, five cases
+on two releases (`tests/golden/pc-*`), pass every contract they exercise.
 
 | Measure | Observed | Default it supports |
 | --- | --- | --- |

@@ -18,6 +18,7 @@ Classification: framework defect. The maintainers accepted the report and merged
 | 1.6.6 | pass | pass | not reproduced |
 | 1.8.12 | pass | pass | not reproduced |
 | 1.8.13 | pass | pass | not reproduced |
+| 1.9.0 | pass | pass | not reproduced |
 
 Every row is the same case run through the same checker. `src/earful/core/` contains no
 reference to this issue.
@@ -134,7 +135,7 @@ its own.
   `68d12965e3c3402e31cd6e69ea843678620f08ad43033ded499766645e0a88ee`. A replay on 1.5.6
   gives this hash. CI checks that on Linux and macOS.
 - Tests: `tests/test_historical_cases.py`, `tests/test_search_live.py`. CI runs both and
-  replays the bundle on all six releases.
+  replays the bundle on all seven releases.
 
 ## Limits
 
@@ -145,4 +146,4 @@ its own.
   and the backend are the same scripted ones.
 - The case produces the behaviour the issue describes. It does not use the reporter's
   agent.
-- The case runs on the six supported releases. 1.6.6 is the first of them that passes.
+- The case runs on the seven supported releases. 1.6.6 is the first of them that passes.

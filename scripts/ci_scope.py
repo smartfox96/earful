@@ -34,10 +34,11 @@ LIVEKIT = {
     "1.6.6": "2026-07-20",
     "1.8.12": "2026-11-14",
     "1.8.13": "2026-11-20",
+    "1.9.0": "2026-11-26",
 }
 PIPECAT = {"1.16.0": "2026-11-18", "1.17.0": "2026-11-24"}
 # Every other Python the package supports runs once, with one LiveKit release.
-OTHER_PYTHONS = {"3.10": "1.6.6", "3.11": "1.5.6", "3.12": "1.8.13", "3.14": "1.8.13"}
+OTHER_PYTHONS = {"3.10": "1.6.6", "3.11": "1.5.6", "3.12": "1.9.0", "3.14": "1.9.0"}
 
 # What a group of paths runs before a pull request merges. An item is a job, a cell
 # ("lk <release> <system> [<python>]", "pc <system> <python> [wheel]"), or another group.

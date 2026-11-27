@@ -5,7 +5,7 @@ is not claimed to.
 
 ## livekit-agents
 
-Six releases are supported. Each is installed with its dependencies resolved as of a
+Seven releases are supported. Each is installed with its dependencies resolved as of a
 date a few days after it came out, which gives the set the release was tested with at the
 time (`scripts/make_env.sh`). The date runs to the end of that day in UTC. The set each
 release resolves to on Python 3.13 is recorded in `compat/`, and CI fails if an
@@ -19,12 +19,13 @@ environment it builds on Python 3.13 holds anything else.
 | 1.6.6 | 2026-07-20 | `compat/lk-1.6.6.lock.txt` | repaired | repaired |
 | 1.8.12 | 2026-11-14 | `compat/lk-1.8.12.lock.txt` | repaired | repaired |
 | 1.8.13 | 2026-11-20 | `compat/lk-1.8.13.lock.txt` | repaired | repaired |
+| 1.9.0 | 2026-11-26 | `compat/lk-1.9.0.lock.txt` | repaired | repaired |
 
 The last two columns say whether the release has the two known defects Earful reproduces
 (`docs/cases/`). A search of your own agent on an affected release can meet them.
 
 `pip install "earful[livekit]"` accepts livekit-agents from 1.5.6 up to, and not
-including, 1.9. A release between two rows, or a later 1.8 release, is accepted and not
+including, 1.10. A release between two rows, or a later 1.9 release, is accepted and not
 tested, except the newest one, in part ("What runs on the newest releases" below).
 `earful.livekit` warns once when it is imported on such a release, and refuses to import
 on a release outside the range. The warning's category is
@@ -123,7 +124,7 @@ scenarios gives the committed ledger byte for byte in 100 runs in one process an
 fresh processes, runs the two historical cases, and replays both kept failures. A pull
 request runs the cells its changed paths select (`CONTRIBUTING.md`, "What CI runs"): a
 change to the LiveKit adapter or to the core runs every release on Linux with Python 3.13,
-the middle four without the slow tests.
+the middle five without the slow tests.
 
 | livekit-agents | Python 3.13 | Other Pythons, on Linux |
 | --- | --- | --- |
@@ -132,7 +133,8 @@ the middle four without the slow tests.
 | 1.6.5 | Linux, macOS | |
 | 1.6.6 | Linux, macOS | 3.10 |
 | 1.8.12 | Linux, macOS | |
-| 1.8.13 | Linux, macOS | 3.12, 3.14 |
+| 1.8.13 | Linux, macOS | |
+| 1.9.0 | Linux, macOS | 3.12, 3.14 |
 
 Python 3.10 to 3.14 are each tested with one release. Windows is not tested.
 
