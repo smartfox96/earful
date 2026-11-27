@@ -20,7 +20,7 @@ formats have versions of their own
 - Work still running when the run stops waiting makes the run invalid, and the error
   names it. A tool that ignores cancellation, a pipeline that holds its `EndFrame` and a
   task that never lets the event loop wait end the run within seconds. A task never lets
-  the loop wait when it keeps the loop busy for five seconds of the clock, however many
+  the loop wait when it keeps the loop busy for a second of the clock, however many
   timers fall due meanwhile.
 - On LiveKit the scripted user's microphone sends a frame every 50 ms for the whole call,
   as LiveKit's room input does, voiced while the user speaks. Every VAD and recognizer

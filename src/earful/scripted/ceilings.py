@@ -18,7 +18,7 @@ STALL_SECONDS = 60.0
 SPIN_PASSES = 1_000
 # Such moves that carry the clock this far with no wait between them: the loop never waits,
 # so the clock moves to the last timer, where the run's own bound on its wait ends it.
-LIVELOCK_SECONDS = 5.0
+LIVELOCK_SECONDS = 1.0
 # Virtual seconds the tasks a run leaves behind have to end once they are cancelled.
 LEFTOVER_SECONDS = 5.0
 # Tasks that ignored cancellation, kept so that no coroutine is closed outside its loop.
